@@ -4,7 +4,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { Ocean, OCEAN_PRESETS, WAVES } from './ocean.js';
 import { windAt } from '../../../shared/sea.js';
 import { Weather } from './weather.js';
-import { buildShip } from './ships.js';
+import { buildShip, shipReady } from './ships.js';
 import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
 import { Flames } from './flames.js';
@@ -718,6 +718,14 @@ export class ShipView {
     this.sinking = 0;
     // Her own motion in the water, which is hers and not the sea's.
     this.sea = new Seakeeping(this.cls.hull);
+    // A hull whose sculpt had not come down when she was first drawn is the
+    // stand-in generated off her class (see buildModel). The battle swaps
+    // her for her own model once it lands (see Game), but only while there
+    // is nothing on the stand-in to lose: anything that marks her -- a hole,
+    // a scorch, a mounting shot away, her breaking up -- keeps her as she is.
+    this.standIn = !shipReady(classId);
+    this.marked = false;
+    if (this.standIn) this.watchForMarks();
     scene.add(this.group);
 
     const len = this.cls.hull.length;
@@ -1847,6 +1855,16 @@ export class ShipView {
     return hit;
   }
 
+  /** Whatever marks her from now on is noted in `marked` (see standIn). */
+  watchForMarks() {
+    for (const k of ['founder', 'breakHer', 'blowApart', 'blowOut', 'cutHer', 'stove', 'holeAt',
+      'scorchAt', 'scrapeAt', 'dropMount']) {
+      const f = this[k];
+      if (typeof f !== 'function') continue;
+      this[k] = (...a) => { this.marked = true; return f.apply(this, a); };
+    }
+  }
+
   dispose(scene) {
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
@@ -2192,6 +2210,12 @@ export class BattleScene {
 
   getShipView(id, classId, team, isSelf) {
     let v = this.shipViews.get(id);
+    // Drawn as her stand-in, and her own model is in now: she is built again
+    // as herself, if nothing has happened to the stand-in worth keeping.
+    if (v && v.standIn && !v.marked && !v.sinking && !(v.sinkY > 0.3) && shipReady(classId)) {
+      this.removeShipView(id);
+      v = null;
+    }
     if (!v) {
       v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
         this.wakes, this.wreck);

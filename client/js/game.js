@@ -6890,7 +6890,8 @@ export class Battle {
       // battle after it began, of a class nobody had asked for, or one the
       // line was too weak or too dead to bring in -- is asked for again, and
       // drawn meanwhile as the hull generated off her class (see buildModel),
-      // rather than left out of the picture until it lands.
+      // rather than left out of the picture until it lands -- and is built
+      // again as herself once it has (see getShipView).
       if (!shipReady(s.c)) loadShips([s.c], null, { quiet: true }).catch(() => {});
       const view = this.scene.getShipView(s.i, s.c, s.tm, s.i === this.shipId);
       const isSelf = s.i === this.shipId;

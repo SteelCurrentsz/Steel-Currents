@@ -320,7 +320,7 @@ import {
   Breakers, hullPlan, planAt, holdStrength, FLOAT_Y, SHEET, DROP,
 } from '../client/js/render/breakers.js';
 import { Wake, WakeField, waveReach } from '../client/js/render/wakefield.js';
-import { ShipView } from '../client/js/render/scene.js';
+import { ShipView, BattleScene } from '../client/js/render/scene.js';
 import { torpedoGeometry, TORPEDO_KINDS, Torpedoes } from '../client/js/render/torpedo.js';
 import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
   from '../client/js/render/seakeeping.js';
@@ -2632,6 +2632,30 @@ check('the Hood is commissioned before the Rodney, after the Tirpitz', () => {
   assert.equal(cls.fullName, 'HMS Hood');
   assert.equal(cls.nation, 'gbr');
   assert.equal(cls.turrets.reduce((n, t) => n + t.guns, 0), 8, 'she does not carry eight 15-inch');
+});
+
+check('a ship drawn as a stand-in is built again as herself once her hull is in, unless she is marked', () => {
+  // A battle joined before a hull came down draws her as the hull generated
+  // off her class. Once hers is in she is built again -- but a stand-in
+  // something has happened to keeps it.
+  const host = {
+    shipViews: new Map(), scene: { add() {}, remove() {} }, ocean: null, q: {}, wakes: null, wreck: null,
+    renderer: null, lampHaze: null,
+  };
+  const get = () => BattleScene.prototype.getShipView.call(host, 7, 'hood', 0, false);
+  host.removeShipView = BattleScene.prototype.removeShipView;
+  const first = get();
+  assert.equal(get(), first, 'a ship drawn as herself is built again every frame');
+  first.standIn = true;
+  first.watchForMarks();
+  const second = get();
+  assert.notEqual(second, first, 'a stand-in is not built again as herself once her hull is in');
+  assert.ok(!second.standIn, 'she is still taken for a stand-in once built as herself');
+  second.standIn = true;
+  second.watchForMarks();
+  second.dropMount('aa', 0);
+  assert.ok(second.marked, 'a mounting shot off a stand-in does not mark her');
+  assert.equal(get(), second, 'a stand-in with a mounting shot away is built again, losing it');
 });
 
 check("the Hood's funnels are whole, side and top", () => {
