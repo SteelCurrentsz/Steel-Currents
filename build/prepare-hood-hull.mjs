@@ -17,7 +17,9 @@
 //     tower, funnels, boat deck and mainmast, its funnels over hers -- with
 //     the guns it had cast in cut out, for hood.js stands her own there --
 //     and stand abaft it her after deck, the wedge the sculpt drew on her
-//     quarterdeck, its outline read off the sculpt and run smooth;
+//     quarterdeck, its outline read off the sculpt and run smooth, teak on
+//     top, a pom-pom bandstand on it and a splinter-shielded gun position
+//     bulged out either side;
 //   * paint her decks, split her normals at every crease;
 //   * read her surface off as a height map and her lines, which is what her
 //     interior and her armour are fitted under;
@@ -457,6 +459,10 @@ export const BRIDGE_BAY = {
   x0: 4.2, x1: 12.5, y0: DECKS.forecastle + 0.04, y1: 10.17, z0: 29.6, z1: 33.9, back: 4.15,
   mouth: (z) => 11.05 - (z - 29.6) * (11.05 - 7.55) / (33.9 - 29.6),
 };
+/** The bandstand on her centreline at the after end of her after deck, her third pom-pom on it. */
+export const AFTER_PLATFORM = { z: -58.5, r: 2.6, floor: 11.1, shield: 1.0 };
+/** Her gun positions bulged out either side of her after deck, splinter shields and all. */
+export const AFTER_SPONSONS = { z: -55.0, r: 2.1, shield: 1.25 };
 /**
  * Her pom-pom tubs, port side: abreast her bridge on the platform at the
  * foot of her tower, and abreast her mainmast on her shelter deck aft. The
@@ -469,8 +475,9 @@ export const POMPOM_TUBS = [
   { name: 'pom-pom mainmast', x: 7.0, z: -42.3, r: 1.8, floor: 11.7 },
   // And one on her centreline on the roof of her after deck, abaft her
   // mainmast, where her third multiple pom-pom stood from 1937. Nothing of
-  // the sculpt is there to cut: it stands on the roof laid in AFTER_HOUSE.
-  { name: 'pom-pom after deck', x: 0, z: -58.5, r: 1.8, floor: 10.2, laid: true },
+  // the sculpt is there to cut: it stands on the bandstand (AFTER_PLATFORM)
+  // laid on the roof laid in AFTER_HOUSE.
+  { name: 'pom-pom after deck', x: 0, z: -58.5, r: 1.8, floor: 11.1, laid: true },
 ];
 export const SUPER = {
   k: 0.135 / 0.3355, funnel: -0.249, hullFunnel: -0.104, low: -0.257, high: -0.194, sink: 0.15, side: 0.35,
@@ -913,9 +920,66 @@ export const AFTER_HOUSE = {
   const mid = vtx(0, y1, (z0 + z1) / 2, [0, 1, 0]);
   // Wound to face up: the outline runs down her starboard side and back up
   // her port side, which seen from above is clockwise.
-  for (let k = 0; k < n; k++) { T.push(mid, top[(k + 1) % n], top[k]); C.push(SUPER_GREY); }
+  for (let k = 0; k < n; k++) { T.push(mid, top[(k + 1) % n], top[k]); C.push(DECK); }
   console.log(`her after deck laid: ${(2 * half(z1)).toFixed(2)} m across at ${z1}, its point at ${z0}, `
     + `its nose ${(2 * r).toFixed(2)} m across ${L} m from it, ${y0.toFixed(2)} to ${y1}`);
+
+  // What stands on it. Round things: a wall at radius `rad` round (cx, cz),
+  // from angle a0 to a1 (x = cos, z = sin), from ya to yb, facing out (or in).
+  const SEG = 40;
+  const ring = (cx, cz, rad, a0, a1, ya, yb, out, paintOf, sx = 1) => {
+    const pts = [];
+    for (let k = 0; k <= SEG; k++) {
+      const a = a0 + ((a1 - a0) * k) / SEG;
+      pts.push([cx + rad * Math.cos(a), cz + rad * Math.sin(a)]);
+    }
+    for (let k = 0; k < SEG; k++) {
+      const [xa, za] = pts[k], [xb, zb] = pts[k + 1];
+      const q = [[xa, ya, za], [xa, yb, za], [xb, yb, zb], [xb, ya, zb]].map(([x, y, z]) => vtx(sx * x, y, z, [0, 0, 0]));
+      // Seen from outside with the angle running anticlockwise from above,
+      // lo, hi, hi', lo' faces out; mirrored, or facing in, it runs back.
+      if (out === (sx > 0)) quad(q[0], q[1], q[2], q[3], paintOf); else quad(q[3], q[2], q[1], q[0], paintOf);
+    }
+  };
+  // A flat at height y over the same sector, from radius r0 out to r1,
+  // facing up.
+  const flat = (cx, cz, r0, r1, a0, a1, y, paintOf, sx = 1) => {
+    for (let k = 0; k < SEG; k++) {
+      const a = a0 + ((a1 - a0) * k) / SEG, b2 = a0 + ((a1 - a0) * (k + 1)) / SEG;
+      const q = [[r0, a], [r1, a], [r1, b2], [r0, b2]].map(([rr, aa]) => vtx(sx * (cx + rr * Math.cos(aa)), y, cz + rr * Math.sin(aa), [0, 1, 0]));
+      if (sx > 0) quad(q[0], q[3], q[2], q[1], paintOf); else quad(q[0], q[1], q[2], q[3], paintOf);
+    }
+  };
+  // Her third pom-pom's bandstand, on her centreline over the after end of
+  // her after deck: a drum a deck-hand's height, teak on top, and a round
+  // splinter shield all the way round it.
+  {
+    const b = AFTER_PLATFORM;
+    ring(0, b.z, b.r, 0, 2 * Math.PI, y1 - 0.02, b.floor, true, SUPER_GREY);
+    flat(0, b.z, 0, b.r - 0.1, 0, 2 * Math.PI, b.floor, DECK);
+    ring(0, b.z, b.r, 0, 2 * Math.PI, b.floor, b.floor + b.shield, true, SUPER_GREY);
+    ring(0, b.z, b.r - 0.1, 0, 2 * Math.PI, b.floor, b.floor + b.shield, false, SUPER_GREY);
+    flat(0, b.z, b.r - 0.1, b.r, 0, 2 * Math.PI, b.floor + b.shield, SUPER_GREY);
+  }
+  // And either side of it, her gun positions out over her side: a half-round
+  // of her wall bulged out from her quarterdeck to a man's chest over her
+  // after deck, its floor teak and open to the deck inboard -- the splinter
+  // shield is her wall, carried up and round.
+  for (const sx of [1, -1]) {
+    const b = AFTER_SPONSONS;
+    const cx = half(b.z) - 0.05;
+    // Her wall there runs in towards her centreline going aft: the half-round
+    // is turned square to it.
+    const lean = Math.atan2(half(b.z + 0.5) - half(b.z - 0.5), 1);
+    const face = -lean; // the way out from her wall, as an angle (x = cos, z = sin)
+    const a0 = face - Math.PI / 2, a1 = face + Math.PI / 2;
+    ring(cx, b.z, b.r, a0, a1, y0, y1 + b.shield, true, SUPER_GREY, sx);
+    ring(cx, b.z, b.r - 0.08, a0, a1, y1, y1 + b.shield, false, SUPER_GREY, sx);
+    flat(cx, b.z, b.r - 0.08, b.r, a0, a1, y1 + b.shield, SUPER_GREY, sx);
+    flat(cx, b.z, 0, b.r - 0.08, a0, a1, y1, DECK, sx);
+  }
+  console.log(`her after deck: a bandstand ${(2 * AFTER_PLATFORM.r).toFixed(1)} m across at ${AFTER_PLATFORM.z}, `
+    + `its floor ${AFTER_PLATFORM.floor}; gun positions either side at ${AFTER_SPONSONS.z}, ${(2 * AFTER_SPONSONS.r).toFixed(1)} m across`);
 }
 
 // ---- her paint, where the decimation smeared it ---------------------------------------

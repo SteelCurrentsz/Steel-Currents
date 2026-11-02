@@ -18,7 +18,7 @@
 //   * her twelve 5.5-inch in their shields, six a side: one abreast her
 //     bridge, four in the bays under her shelter deck and one on it;
 //   * her five quadruple pom-poms, in the tubs abreast her bridge and her
-//     mainmast, and on her centreline on the roof of her after deck;
+//     mainmast, and on her centreline on a bandstand on her after deck;
 //   * her two submerged tubes, in her bow, and the doors in her side they
 //     fire through;
 //   * her four screws, which turn;
