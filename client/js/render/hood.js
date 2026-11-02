@@ -15,10 +15,10 @@
 //   * her four 15-inch turrets, the sculpt's own gunhouse on a barbette, its
 //     barrels on a cradle that elevates -- A and B forward, B superfiring;
 //     X and Y aft, facing astern, X superfiring;
-//   * her twelve 5.5-inch in their shields, six a side: two abreast her
-//     bridge, three in the bays under her shelter deck and one on it;
-//   * her four quadruple pom-poms, in the tubs abreast her bridge and her
-//     mainmast;
+//   * her twelve 5.5-inch in their shields, six a side: one abreast her
+//     bridge, four in the bays under her shelter deck and one on it;
+//   * her five quadruple pom-poms, in the tubs abreast her bridge and her
+//     mainmast, and on her centreline on the roof of her after deck;
 //   * her two submerged tubes, in her bow, and the doors in her side they
 //     fire through;
 //   * her four screws, which turn;
@@ -295,14 +295,20 @@ function armour(g) {
   const at = (z, y, in_) => Math.max(0.4, shellAt((2 * z) / LOA, y) - in_);
   const N = 64;
   const [z0, z1] = CITADEL;
-  for (const [top, foot] of [[ARMOUR_DECK, BELT_FOOT], [UPPER_TOP, ARMOUR_DECK]]) {
+  // The upper belt runs up to her deck less a hand: abaft the step down to her
+  // quarterdeck that is a good deal under UPPER_TOP, and it must not stand
+  // through her deck there.
+  const sideDeck = (z) => Math.min(...[-1, 1].map((sgn) => hoodSurfaceY(sgn * (at(z, ARMOUR_DECK, 0) - 1.5), z)));
+  const upperTop = (z) => Math.max(ARMOUR_DECK + 0.5, Math.min(UPPER_TOP, sideDeck(z) - 0.6));
+  for (const [topOf, foot] of [[() => ARMOUR_DECK, BELT_FOOT], [upperTop, ARMOUR_DECK]]) {
     const belt = strip();
     for (let i = 0; i < N; i++) {
       const za = z0 + ((z1 - z0) * i) / N;
       const zb = z0 + ((z1 - z0) * (i + 1)) / N;
+      const ta = topOf(za), tb = topOf(zb);
       for (const sgn of [-1, 1]) {
-        belt.quad([sgn * at(za, top, 0.9), top, za], [sgn * at(za, foot, 0.9), foot, za],
-          [sgn * at(zb, foot, 0.9), foot, zb], [sgn * at(zb, top, 0.9), top, zb],
+        belt.quad([sgn * at(za, ta, 0.9), ta, za], [sgn * at(za, foot, 0.9), foot, za],
+          [sgn * at(zb, foot, 0.9), foot, zb], [sgn * at(zb, tb, 0.9), tb, zb],
           [-sgn, 0, 0]);
       }
     }

@@ -2636,9 +2636,10 @@ check('the Hood is commissioned before the Rodney, after the Tirpitz', () => {
 
 check("the Hood's shell has no holes in it", () => {
   // Her sides fired at from abeam at every height her own lines say she has
-  // a side at; a ray dropped anywhere on her decks -- laid again over the
-  // sculpt's -- has to land on something; and a ray sent up from under her
-  // keel has to hit her bottom.
+  // a side at, right up under her deck edge, have to stop at her near side --
+  // not go in through it to the far side's inside; a ray dropped anywhere on
+  // her decks -- laid again over the sculpt's -- has to land on something;
+  // and a ray sent up from under her keel has to hit her bottom.
   const built = buildHood();
   built.group.updateMatrixWorld(true);
   const meshes = [];
@@ -2648,12 +2649,19 @@ check("the Hood's shell has no holes in it", () => {
   const holes = [];
   for (let t = -0.95; t <= 0.95; t += 0.01) {
     const top = hoodSheer(t);
-    for (let y = hoodKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
-      if (hoodShellAt(t, y) < 0.35) continue;
+    const ys = [];
+    for (let y = hoodKeel(t) + 0.3; y <= top - 0.4; y += 0.6) ys.push(y);
+    ys.push(top - 0.2, top - 0.08);
+    for (const y of ys) {
+      const w = hoodShellAt(t, y);
+      if (w < 0.35) continue;
       tested++;
       for (const side of [-1, 1]) {
         ray.set(new THREE.Vector3(side * 60, y, hoodZAt(t)), new THREE.Vector3(-side, 0, 0));
-        if (!ray.intersectObjects(meshes, false).length) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(1)}`);
+        const hit = ray.intersectObjects(meshes, false)[0];
+        // Down at her bilge her lines are only a guide to where she turns in.
+        const near = y > hoodKeel(t) + 1.5;
+        if (!hit || (near && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
       }
     }
   }
@@ -2733,7 +2741,13 @@ check('the Hood carries the guns she carried, each where it can be trained from'
     const beam = (Math.sign(m.x) * Math.PI) / 2;
     assert.ok(fires(m, beam, near), `the 5.5-inch at ${m.x}, ${m.z} cannot fire on her beam`);
   }
-  assert.equal(cls.aa.guns[0].mounts.length, 4, 'she carries four quadruple pom-poms');
+  // Her pom-poms: a pair abreast her bridge, a pair abreast her mainmast,
+  // and one on her centreline on her after deck, firing aft and abeam.
+  const pp = cls.aa.guns[0].mounts;
+  assert.equal(pp.length, 5, 'she carries five quadruple pom-poms');
+  const aft = pp.filter((m) => m.x === 0);
+  assert.equal(aft.length, 1, 'she has no pom-pom on her centreline');
+  assert.ok(aft[0].z < -50 && aft[0].arc > 2.5, 'her centreline pom-pom is not on her after deck, or cannot train');
   // Her tubes are her two submerged ones, in her bow under the water, each
   // firing out off her bow; none stands on her deck.
   assert.ok(cls.torpedoes.inHull, 'her tubes are not in her hull');

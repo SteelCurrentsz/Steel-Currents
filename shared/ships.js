@@ -3628,8 +3628,8 @@ export const SHIP_CLASSES = {
     // the largest warship in the world: eight 15-inch in four twin turrets,
     // two forward and two aft, on a hull 262 metres long that made thirty-one
     // knots on her trials. Twelve 5.5-inch along her superstructure, six a
-    // side; quadruple pom-poms abreast her bridge and her mainmast; and a
-    // bank of 21-inch tubes either side of her quarterdeck. She blew up in
+    // side; quadruple pom-poms abreast her bridge and her mainmast and on
+    // her after deck; and two submerged 21-inch tubes in her bow. She blew up in
     // the Denmark Strait on 24 May 1941, at the sixth salvo from Bismarck.
     //
     // She is drawn from the owner's sculpts of her (see hood.js): her hull,
@@ -3727,8 +3727,8 @@ export const SHIP_CLASSES = {
         fish: { len: 6.0, r: 0.267, kind: 'mk15' },
       },
     },
-    // Twelve 5.5-inch singles in their shields, six a side: two on her
-    // forecastle deck abreast her bridge, three in the bays under her shelter
+    // Twelve 5.5-inch singles in their shields, six a side: one on her
+    // forecastle deck abreast her bridge, four in the bays under her shelter
     // deck, and one on her shelter deck abreast her fore funnel. Arcs and
     // sectors surveyed off the model.
     secondary: {
@@ -3753,16 +3753,16 @@ export const SHIP_CLASSES = {
             [0.21, 0.26, 0.07], [0.25, 0.38, 0.105], [0.37, 0.4, 0.175], [0.39, 0.42, 0.21],
             [0.41, 0.52, 0.35], [0.51, 0.59, 0.437], [0.58, 0.83, 0.524], [0.82, 0.9, 0.437],
             [0.96, 1.01, 0], [1, 1.04, 0.018]] },
-        { x: 11.5, z: 31, angle: 1.2, arc: 1.96, rest: Math.PI / 2, guns: 1, my: 8.89,
-          mask: [[-0.78, -0.58], [-0.59, -0.37, 0.35], [-0.38, -0.28, 0.262], [-0.29, -0.27, 0.21],
-            [-0.28, -0.25, 0.175], [-0.26, -0.21, 0.088], [-0.22, 0.05, 0.175], [0.04, 0.17, 0.14],
-            [0.16, 0.19, 0.105], [0.18, 0.21, 0.088], [2.97, 3, 0.088], [2.99, 3.03, 0.105],
-            [3.02, 3.14, 0.175], [3.13, -3.11, 0.21]] },
-        { x: -11.5, z: 31, angle: -1.2, arc: 1.96, rest: -Math.PI / 2, guns: 1, my: 8.89,
-          mask: [[3.11, -3.13, 0.21], [-3.14, -3.02, 0.175], [-3.03, -2.99, 0.105], [-3, -2.97, 0.088],
-            [-0.21, -0.18, 0.088], [-0.19, -0.16, 0.105], [-0.17, -0.04, 0.14], [-0.05, 0.22, 0.175],
-            [0.21, 0.26, 0.088], [0.25, 0.28, 0.175], [0.27, 0.29, 0.21], [0.28, 0.38, 0.262],
-            [0.37, 0.59, 0.35], [0.58, 0.78]] },
+        { x: 9.4, z: 31.75, angle: 0.96, arc: 1.44, rest: Math.PI / 2, guns: 1, my: 8.89,
+          mask: [[-0.5, -0.27, 0.35], [-0.28, -0.2, 0.262], [-0.21, -0.18, 0.175],
+            [-0.19, -0.16, 0.123], [-0.17, -0.13, 0.07], [-0.14, -0.11, 0.053], [-0.12, -0.04, 0.009],
+            [-0.05, 0, 0], [-0.01, 0.03, -0.008], [0.04, 0.22, 0.21], [0.21, 0.42, 0.175],
+            [0.41, 0.48, 0.14]] },
+        { x: -9.4, z: 31.75, angle: -0.96, arc: 1.44, rest: -Math.PI / 2, guns: 1, my: 8.89,
+          mask: [[-0.48, -0.41, 0.14], [-0.42, -0.21, 0.175], [-0.22, -0.04, 0.21],
+            [-0.03, 0.01, -0.008], [0, 0.05, 0], [0.04, 0.12, 0.009], [0.11, 0.14, 0.053],
+            [0.13, 0.17, 0.07], [0.16, 0.19, 0.123], [0.18, 0.21, 0.175], [0.2, 0.28, 0.262],
+            [0.27, 0.5, 0.35]] },
         { x: 9.7, z: 17.8, angle: 1.88, arc: 1.71, rest: Math.PI / 2, guns: 1, my: 11.59,
           mask: [[2.76, 2.79, 0.009], [2.78, 2.98, 0.07], [2.97, -3.11, 0.175], [-3.12, -3.08, 0.14],
             [-3.09, -3.01, 0.35], [-3.02, -2.99, 0.21], [-3, -2.94, 0.611], [-2.95, -2.9, 0.35],
@@ -3799,7 +3799,8 @@ export const SHIP_CLASSES = {
       range: 4000, dps: 52,
       guns: [
         // Her quadruple pom-poms: one a side abreast her bridge, at the foot
-        // of her tower, and one a side abreast her mainmast.
+        // of her tower, one a side abreast her mainmast, and one on her
+        // centreline on the roof of her after deck, firing aft and abeam.
         { name: '2-pdr Mk VIII', caliber: 40, role: 'aa', reload: 0.5, range: 3400,
           elev: { min: -0.17, max: 1.40 },
           mounts: [
@@ -3851,6 +3852,16 @@ export const SHIP_CLASSES = {
                 [0.3, 0.33, 0.07], [0.32, 0.38, 0.14], [0.37, 0.47, 0.027], [0.46, 0.48, 0.044],
                 [0.47, 0.5, 0.07], [0.49, 0.52, 0.123], [0.51, 0.54, 0.35], [0.53, 0.59, 0.699],
                 [0.58, 0.62, 0.96], [0.61, 0.78, 1.397], [0.77, 0.8, 0.088], [0.79, 0.82, 0.07]] },
+            { x: 0, z: -58.5, angle: -3.12, arc: 3.1, rest: Math.PI, guns: 4, my: 11.48,
+              mask: [[0.04, 0.12, 0.873], [0.11, 0.21, 0.96], [0.2, 0.24, 0.699], [0.23, 0.28, 0.524],
+                [0.27, 0.29, 0.14], [0.28, 0.48, 0.175], [0.47, 0.54, 0.14], [0.53, 0.55, 0.07],
+                [0.54, 0.57, 0.105], [0.56, 0.62, 0.123], [0.61, 0.66, 0.088], [0.65, 1.01, -0.026],
+                [2.85, 2.88, -0.026], [2.87, -2.87, 0.088], [-1.01, -0.65, -0.026],
+                [-0.66, -0.61, 0.088], [-0.62, -0.6, 0.123], [-0.61, -0.58, 0.14],
+                [-0.59, -0.51, 0.175], [-0.52, -0.47, 0.14], [-0.48, -0.32, 0.175],
+                [-0.33, -0.28, 0.14], [-0.29, -0.25, 0.437], [-0.26, -0.23, 0.524],
+                [-0.24, -0.21, 0.699], [-0.22, -0.18, 0.786], [-0.19, -0.11, 0.96],
+                [-0.12, -0.04, 0.873], [-0.05, 0, 1.222]] },
           ] },
       ],
     },
@@ -3862,7 +3873,7 @@ export const SHIP_CLASSES = {
       torpedoesCarried: 10,
       secondary: { caliber: 140, label: '5.5"', barrels: 12, rounds: 2400 },
       tertiary: [
-        { caliber: 40, label: '2-pdr', barrels: 16, rounds: 28800 },
+        { caliber: 40, label: '2-pdr', barrels: 20, rounds: 36000 },
       ],
     },
   },

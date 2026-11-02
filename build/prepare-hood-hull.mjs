@@ -359,6 +359,76 @@ function breadthOf(lo, hi) {
   };
 }
 
+/**
+ * Close every hole in `m` whose rim, walked round, is shorter than `maxRim`:
+ * a fan from the middle of its rim, wound against it so it faces the way the
+ * plating round it does, in the paint most of the rim is. Points are matched
+ * by where they are, so a crease between two paints is no hole.
+ */
+function closeSmallHoles(m, maxRim) {
+  const { P, N, T, C } = m;
+  const canon = weld(m);
+  const nTri = T.length / 3;
+  const half = new Map();
+  const key = (a, b) => `${a},${b}`;
+  for (let t = 0; t < nTri; t++) {
+    for (let e = 0; e < 3; e++) {
+      const a = canon[T[t * 3 + e]], b = canon[T[t * 3 + (e + 1) % 3]];
+      if (a === b) continue;
+      half.set(key(a, b), (half.get(key(a, b)) || 0) + 1);
+    }
+  }
+  // A rim edge is one with no twin: a -> b with no b -> a anywhere.
+  const next = new Map(), paintAt = new Map();
+  for (let t = 0; t < nTri; t++) {
+    for (let e = 0; e < 3; e++) {
+      const a = canon[T[t * 3 + e]], b = canon[T[t * 3 + (e + 1) % 3]];
+      if (a === b || half.has(key(b, a)) || half.get(key(a, b)) !== 1) continue;
+      if (next.has(a)) { next.set(a, -1); continue; } // a point two rims pass: leave it
+      next.set(a, b);
+      paintAt.set(a, C[t]);
+    }
+  }
+  const seen = new Set();
+  let n = 0, tris = 0;
+  const dist = (a, b) => Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
+  for (const start of next.keys()) {
+    if (seen.has(start) || next.get(start) < 0) continue;
+    const loop = [start];
+    let len = 0, ok = false;
+    for (let v = start; loop.length < 400;) {
+      const w = next.get(v);
+      if (w === undefined || w < 0) break;
+      len += dist(v, w);
+      if (len > maxRim) break;
+      if (w === start) { ok = true; break; }
+      if (loop.includes(w)) break;
+      loop.push(w); v = w;
+    }
+    for (const v of loop) seen.add(v);
+    if (!ok || loop.length < 3) continue;
+    const mid = [0, 1, 2].map((k) => loop.reduce((s, v) => s + P[v * 3 + k], 0) / loop.length);
+    const paints = new Map();
+    for (const v of loop) paints.set(paintAt.get(v), (paints.get(paintAt.get(v)) || 0) + 1);
+    const paintOf = [...paints].sort((a, b) => b[1] - a[1])[0][0];
+    // Its normal: the rim's own winding, reversed (the patch runs against it).
+    let nx = 0, ny = 0, nz = 0;
+    for (let i = 0; i < loop.length; i++) {
+      const a = loop[i], b = loop[(i + 1) % loop.length];
+      const [ax, ay, az] = [0, 1, 2].map((k) => P[a * 3 + k] - mid[k]), [bx, by, bz] = [0, 1, 2].map((k) => P[b * 3 + k] - mid[k]);
+      nx += ay * bz - az * by; ny += az * bx - ax * bz; nz += ax * by - ay * bx;
+    }
+    const l = Math.hypot(nx, ny, nz) || 1;
+    const nrm = [-nx / l, -ny / l, -nz / l];
+    const base = P.length / 3;
+    P.push(...mid); N.push(...nrm);
+    const own = loop.map((v) => { P.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]); N.push(...nrm); return P.length / 3 - 1; });
+    for (let i = 0; i < own.length; i++) { T.push(base, own[(i + 1) % own.length], own[i]); C.push(paintOf); tris++; }
+    n++;
+  }
+  return { n, tris };
+}
+
 // ---- her superstructure -----------------------------------------------------------
 // The sculpt of it, at 55.55 m a unit: its funnels, 0.3355 apart in it, are
 // put over hers, 0.135 apart in the sculpt of her hull. Its slab's forecastle
@@ -378,6 +448,16 @@ const SCULPT_GUNS = process.env.NOGUNCUT ? [] : [
   { x0: 10.1, x1: 13.6, y0: 7.3, y1: 9.9, z0: -28.3, z1: -22.2 },
 ];
 /**
+ * The bay abaft her bridge, port side, opened out for the 5.5-inch in it:
+ * from its back wall to past her wall over it, its ends square across her,
+ * from her forecastle deck to a hand under her shelter deck. `mouth(z)` is
+ * how far out her wall over it is, along it: her bridge rounds in forward.
+ */
+export const BRIDGE_BAY = {
+  x0: 4.2, x1: 12.5, y0: DECKS.forecastle + 0.04, y1: 10.17, z0: 29.6, z1: 33.9, back: 4.15,
+  mouth: (z) => 11.05 - (z - 29.6) * (11.05 - 7.55) / (33.9 - 29.6),
+};
+/**
  * Her pom-pom tubs, port side: abreast her bridge on the platform at the
  * foot of her tower, and abreast her mainmast on her shelter deck aft. The
  * sculpt drew a melted gun in the one and two stubs in the other; tub and
@@ -387,6 +467,10 @@ const SCULPT_GUNS = process.env.NOGUNCUT ? [] : [
 export const POMPOM_TUBS = [
   { name: 'pom-pom bridge', x: 5.3, z: 35.3, r: 2.0, floor: 14.0 },
   { name: 'pom-pom mainmast', x: 7.0, z: -42.3, r: 1.8, floor: 11.7 },
+  // And one on her centreline on the roof of her after deck, abaft her
+  // mainmast, where her third multiple pom-pom stood from 1937. Nothing of
+  // the sculpt is there to cut: it stands on the roof laid in AFTER_HOUSE.
+  { name: 'pom-pom after deck', x: 0, z: -58.5, r: 1.8, floor: 10.2, laid: true },
 ];
 export const SUPER = {
   k: 0.135 / 0.3355, funnel: -0.249, hullFunnel: -0.104, low: -0.257, high: -0.194, sink: 0.15, side: 0.35,
@@ -407,6 +491,14 @@ const sup = (() => {
   }
   let s = { P, N, T: Array.from(raw.idx), C: new Array(raw.idx.length / 3).fill(SUPER_GREY) };
   fixWinding(s);
+  // The decimation left pinholes and torn seams in her plating -- through her
+  // funnels, through the walls of her bridge -- that the sea shows through:
+  // each small one is closed over, its own way round. Her funnel tops and
+  // what she stands on are holes far too big for that, and stay open.
+  {
+    const { n, tris } = closeSmallHoles(s, 12.0);
+    console.log(`her superstructure: ${n} pinholes closed, ${tris} triangles`);
+  }
   const before = s.T.length / 3;
   // Inside her side and abaft B's barbette; and not the slab's own deck, where
   // it was left standing a little proud of the cut -- hers is there.
@@ -539,6 +631,51 @@ const sup = (() => {
       }
     }
   }
+  // The bay under her shelter deck abaft her bridge, where a 5.5-inch stands
+  // (BRIDGE_BAY): the sculpt drew it a man's height deep and narrowing to its
+  // mouth, too low and too tight for the gun. It is opened out square, up to
+  // a hand under her shelter deck, and plated again: its two ends, and its
+  // deckhead out to her wall over it.
+  for (const side of [-1, 1]) {
+    const b = BRIDGE_BAY;
+    const inside = (x, y, z) => Math.min(side * x - b.x0, b.x1 - side * x, y - b.y0, b.y1 - y, z - b.z0, b.z1 - z);
+    splitAlong(s, inside, { drop: true });
+    s = subMesh(s, () => true);
+    const vtx = (x, y, z, n) => { s.P.push(x, y, z); s.N.push(...n); return s.P.length / 3 - 1; };
+    // Wound for the port side; the starboard side is its mirror, wound back.
+    const face = (q, n) => {
+      const v = q.map(([x, y, z]) => vtx(side * x, y, z, [side * n[0], n[1], n[2]]));
+      if (side > 0) s.T.push(v[0], v[1], v[2], v[0], v[2], v[3]); else s.T.push(v[0], v[2], v[1], v[0], v[3], v[2]);
+      s.C.push(SUPER_GREY, SUPER_GREY);
+    };
+    const back = b.back, y0 = DECKS.forecastle - 0.05, y1 = b.y1;
+    // Its back, facing out, the height of it: the sculpt's stops at its old
+    // deckhead.
+    face([[back, y0, b.z0], [back, y1, b.z0], [back, y1, b.z1], [back, y0, b.z1]], [1, 0, 0]);
+    // Its after end, facing forward; its forward end, facing aft.
+    face([[back, y0, b.z0], [b.mouth(b.z0), y0, b.z0], [b.mouth(b.z0), y1, b.z0], [back, y1, b.z0]], [0, 0, 1]);
+    face([[back, y0, b.z1], [back, y1, b.z1], [b.mouth(b.z1), y1, b.z1], [b.mouth(b.z1), y0, b.z1]], [0, 0, -1]);
+    // Its deckhead, facing down, out to her wall over it.
+    const n = 16;
+    for (let k = 0; k < n; k++) {
+      const za = b.z0 + ((b.z1 - b.z0) * k) / n, zb = b.z0 + ((b.z1 - b.z0) * (k + 1)) / n;
+      face([[back, y1, za], [b.mouth(za), y1, za], [b.mouth(zb), y1, zb], [back, y1, zb]], [0, -1, 0]);
+    }
+  }
+  // And the empty bay just abaft that one, where the sculpt stowed the
+  // paravane that is gone: it is plated across, in line with her wall abaft
+  // it, from her deck up behind the edge of the deck over it.
+  {
+    const b = { x: 10.3, y0: DECKS.forecastle - 0.05, y1: 9.75, z0: 24.85, z1: 28.15 };
+    for (const side of [-1, 1]) {
+      const v = [[b.y0, b.z0], [b.y0, b.z1], [b.y1, b.z1], [b.y1, b.z0]].map(([y, z]) => {
+        s.P.push(side * b.x, y, z); s.N.push(side, 0, 0); return s.P.length / 3 - 1;
+      });
+      // Facing out: wound anticlockwise seen from outboard.
+      if (side > 0) s.T.push(v[0], v[2], v[1], v[0], v[3], v[2]); else s.T.push(v[0], v[1], v[2], v[0], v[2], v[3]);
+      s.C.push(SUPER_GREY, SUPER_GREY);
+    }
+  }
   // And what the cuts left lying loose on her deck -- the end of a paravane
   // whose other end stood in a bay -- comes off with the rest of what lay there.
   {
@@ -552,7 +689,22 @@ const sup = (() => {
     s = subMesh(s, (t) => !drop[t]);
     console.log(`her superstructure: ${n} pieces the gun cuts left loose taken off`);
   }
+  // The length of aerial strung aft from her foremast's yard, and what hung
+  // off its end: the rest of it, to her mainmast, did not come through the
+  // decimation, and what did hangs in the air over her funnels by itself.
+  {
+    const drop = new Uint8Array(s.T.length / 3);
+    let n = 0;
+    for (const c of components(s)) {
+      if (c.lo[1] < 32 || c.hi[1] > 36 || c.lo[2] < 4 || c.hi[2] > 22 || c.lo[0] < -1.2 || c.hi[0] > 1.2) continue;
+      for (const t of c.tris) drop[t] = 1;
+      n++;
+    }
+    s = subMesh(s, (t) => !drop[t]);
+    console.log(`her superstructure: ${n} pieces of aerial left hanging taken off`);
+  }
   for (const tub of POMPOM_TUBS) {
+    if (tub.laid) continue;
     for (const side of [-1, 1]) {
       const inside = (x, y, z) => Math.min(tub.r + 0.35 - Math.hypot(x - side * tub.x, z - tub.z), y - (tub.floor + 0.08), tub.floor + 2.6 - y);
       const before = s.T.length / 3;
@@ -712,8 +864,9 @@ export const AFTER_HOUSE = {
     // Where two stations are one, what is between them stands up: a bulkhead.
     const across = st[i].z === st[i + 1].z && st[i].deck !== st[i + 1].deck ? GREY : DECK;
     for (let c = 0; c < ACROSS; c++) quad(a.deck[c], b.deck[c], b.deck[c + 1], a.deck[c + 1], across);
-    quad(a.st[0], a.st[1], b.st[1], b.st[0], GREY);
-    quad(a.pt[0], b.pt[0], b.pt[1], a.pt[1], GREY);
+    // Her deck edge, either side, facing out.
+    quad(a.st[0], b.st[0], b.st[1], a.st[1], GREY);
+    quad(a.pt[0], a.pt[1], b.pt[1], b.pt[0], GREY);
   }
   // Her ends, closed down to her deck edge's foot.
   for (const [i, flip] of [[0, false], [st.length - 1, true]]) {
@@ -871,6 +1024,78 @@ const SEC = gunPiece('hood-55.glb', {
   cradle: (u, v, z, x) => x < -0.15 && Math.hypot(v, z) < 0.1,
   muzzles: [[0, 0, 0.93]], ahead: -0.19,
 });
+// Its shield's face came out of the decimation torn -- shards standing off
+// it round the gun port, holes punched through it either side -- so the face
+// is taken off down to a hand behind it, from its foot plate to the brow of
+// its roof, and plated again on its own curve: smooth, with a gun port the
+// barrel clears from five down to thirty up, lined back into the shield.
+{
+  const h = SEC.house;
+  // How far forward the shield's face is at x, low down where it is whole.
+  const faceAt = (x, y) => {
+    let best = -Infinity;
+    for (let t = 0; t < h.T.length / 3; t++) {
+      const a = h.T[t * 3] * 3, b = h.T[t * 3 + 1] * 3, c = h.T[t * 3 + 2] * 3;
+      const d = (h.P[b + 1] - h.P[c + 1]) * (h.P[a] - h.P[c]) + (h.P[c] - h.P[b]) * (h.P[a + 1] - h.P[c + 1]);
+      if (Math.abs(d) < 1e-12) continue;
+      const l1 = ((h.P[b + 1] - h.P[c + 1]) * (x - h.P[c]) + (h.P[c] - h.P[b]) * (y - h.P[c + 1])) / d;
+      const l2 = ((h.P[c + 1] - h.P[a + 1]) * (x - h.P[c]) + (h.P[a] - h.P[c]) * (y - h.P[c + 1])) / d;
+      if (l1 < 0 || l2 < 0 || 1 - l1 - l2 < 0) continue;
+      best = Math.max(best, l1 * h.P[a + 2] + l2 * h.P[b + 2] + (1 - l1 - l2) * h.P[c + 2]);
+    }
+    return best;
+  };
+  const W = 1.35, Y0 = 0.62, Y1 = 1.9, Y2 = 2.07, BROW = 0.88;
+  const PORT = { x: 0.27, y0: 1.02, y1: 1.86, depth: 0.3 };
+  const xs = [];
+  for (let k = 0; k <= 30; k++) xs.push(-W + (2 * W * k) / 30);
+  xs.push(-PORT.x, PORT.x);
+  xs.sort((a, b) => a - b);
+  const zf = xs.map((x) => faceAt(Math.max(-W + 0.01, Math.min(W - 0.01, x)), 0.4));
+  const zOf = (x) => { // the face at x, between the columns
+    for (let k = 0; k + 1 < xs.length; k++) if (x <= xs[k + 1]) return zf[k] + (zf[k + 1] - zf[k]) * (x - xs[k]) / ((xs[k + 1] - xs[k]) || 1);
+    return zf[zf.length - 1];
+  };
+  const before = h.T.length / 3;
+  const cut = subMesh(h, (t) => ![0, 1, 2].every((j) => {
+    const v = h.T[t * 3 + j] * 3, x = h.P[v], y = h.P[v + 1], z = h.P[v + 2];
+    return Math.abs(x) < W + 0.02 && y > Y0 && y < Y2 + 0.03 && z > Math.min(zOf(x), y > Y1 ? BROW + 0.25 : 9) - 0.3;
+  }));
+  const off = before - cut.T.length / 3;
+  const { P, N, T, C } = cut;
+  const vtx = (x, y, z, n) => { P.push(x, y, z); N.push(...n); return P.length / 3 - 1; };
+  const quad = (a, b, c, d, n) => {
+    const q = [a, b, c, d].map((p) => vtx(...p, n));
+    T.push(q[0], q[1], q[2], q[0], q[2], q[3]); C.push(GREY, GREY);
+  };
+  const nrm = (a, b, c) => {
+    const u = [0, 1, 2].map((k) => b[k] - a[k]), w = [0, 1, 2].map((k) => c[k] - a[k]);
+    const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+    const l = Math.hypot(...n) || 1;
+    return n.map((v) => v / l);
+  };
+  // Wound so it faces out, forward (+z) and up: quad(a, b, c, d) with a..d
+  // going round anticlockwise seen from ahead.
+  const face = (a, b, c, d) => quad(a, b, c, d, nrm(a, b, c));
+  const o = 0.01;
+  for (let k = 0; k + 1 < xs.length; k++) {
+    const xa = xs[k], xb = xs[k + 1], za = zf[k] + o, zb = zf[k + 1] + o;
+    const inPort = xa >= -PORT.x - 1e-6 && xb <= PORT.x + 1e-6;
+    const spans = inPort ? [[Y0, PORT.y0], [PORT.y1, Y1]] : [[Y0, Y1]];
+    for (const [ya, yb] of spans) face([xa, ya, za], [xb, ya, zb], [xb, yb, zb], [xa, yb, za]);
+    // The brow: back up to the roof's front edge.
+    const ba = Math.min(za, BROW + o), bb = Math.min(zb, BROW + o);
+    face([xa, Y1, za], [xb, Y1, zb], [xb, Y2, bb], [xa, Y2, ba]);
+  }
+  // The gun port, lined back into the shield.
+  const zp = zOf(0) + o, zb = zp - PORT.depth, { x: px, y0: py0, y1: py1 } = PORT;
+  face([-px, py0, zp], [px, py0, zp], [px, py0, zb], [-px, py0, zb]); // sill, facing up
+  face([-px, py1, zb], [px, py1, zb], [px, py1, zp], [-px, py1, zp]); // head, facing down
+  face([px, py0, zp], [px, py1, zp], [px, py1, zb], [px, py0, zb]); // port side, facing in
+  face([-px, py0, zb], [-px, py1, zb], [-px, py1, zp], [-px, py0, zp]); // starboard side, facing in
+  SEC.house = cut;
+  console.log(`hood-55.glb: shield face replated, ${off} triangles of torn face off, its face ${zOf(0).toFixed(2)} m ahead`);
+}
 {
   const len = 0.93 * 5.5;
   const g = blank();
@@ -943,15 +1168,16 @@ if (process.env.STAGE === 'guns') {
 // Port side; the starboard ones are their mirrors. `y` is the deck each
 // stands on, `rest` which way it faces stowed.
 //
-// Her twelve 5.5-inch, six a side: two on her forecastle deck abreast her
-// bridge, under the platforms round it; three in the bays under her shelter
-// deck, each where the sculpt cast one; and one on her shelter deck itself,
+// Her twelve 5.5-inch, six a side: one on her forecastle deck abreast her
+// bridge, under the platforms round it, and one in the empty bay under her
+// shelter deck just abaft it; three in the bays under her shelter deck
+// further aft, each where the sculpt cast one; and one on her shelter deck itself,
 // abreast her fore funnel at the deck's edge, where the sculpt cast one too.
 // Each is stowed trained abeam: a gun stowed fore and aft in a bay lies along
 // the wall at the bay's end.
 export const SECONDARY = [
   { name: '5.5 bridge fwd', x: 11.5, z: 39.5, y: DECKS.forecastle, rest: Math.PI / 2 },
-  { name: '5.5 bridge aft', x: 11.5, z: 31.0, y: DECKS.forecastle, rest: Math.PI / 2 },
+  { name: '5.5 bridge aft', x: 9.4, z: 31.75, y: DECKS.forecastle, rest: Math.PI / 2 },
   { name: '5.5 shelter deck', x: 9.7, z: 17.8, y: 10.31, rest: Math.PI / 2 },
   { name: '5.5 fwd bay', x: 12.1, z: 16.1, y: DECKS.forecastle, rest: Math.PI / 2 },
   { name: '5.5 mid bay', x: 12.4, z: -5.25, y: DECKS.forecastle, rest: Math.PI / 2 },
