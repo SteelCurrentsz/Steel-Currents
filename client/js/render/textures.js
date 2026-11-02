@@ -652,7 +652,8 @@ export function dressShip(root) {
 const SURFACES = new Map();
 function surface(m, planked) {
   const hex = m.color ? m.color.getHex() : 0x808080;
-  const key = `${hex}:${planked ? 'w' : 's'}`;
+  // Its side is part of it: a sheet drawn from both faces stays so.
+  const key = `${hex}:${planked ? 'w' : 's'}:${m.side}`;
   let out = SURFACES.get(key);
   if (out) return out;
   out = new THREE.MeshPhongMaterial({

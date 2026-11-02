@@ -54,8 +54,15 @@ export function hoodMaterials() {
       vertexColors: true, map: planks, specularMap: planks,
       specular: 0x16181c, shininess: 5,
     }),
+    // For what is made of single sheets -- a pom-pom's splinter shield and
+    // the plates on it -- that are seen from both sides.
+    sheet: new THREE.MeshPhongMaterial({
+      vertexColors: true, map: plate, specularMap: plate,
+      specular: 0x3a4148, shininess: 30, side: THREE.DoubleSide,
+    }),
   };
   finish(mats.plating);
+  finish(mats.sheet);
   finish(mats.deck, 'wood');
   return mats;
 }

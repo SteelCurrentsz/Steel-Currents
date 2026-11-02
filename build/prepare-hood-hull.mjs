@@ -366,7 +366,7 @@ function breadthOf(lo, hi) {
  * plating round it does, in the paint most of the rim is. Points are matched
  * by where they are, so a crease between two paints is no hole.
  */
-function closeSmallHoles(m, maxRim) {
+function closeSmallHoles(m, maxRim, { thinRim = 0, thin = 0.12 } = {}) {
   const { P, N, T, C } = m;
   const canon = weld(m);
   const nTri = T.length / 3;
@@ -398,7 +398,7 @@ function closeSmallHoles(m, maxRim) {
   // The shortest way from b back to a along rim edges not yet closed over,
   // no longer than maxRim less the edge a -> b itself.
   const wayBack = (a, b) => {
-    const budget = maxRim - dist(a, b);
+    const budget = Math.max(maxRim, thinRim) - dist(a, b);
     const best = new Map([[b, 0]]), from = new Map();
     const open = [[0, b]];
     while (open.length) {
@@ -426,6 +426,20 @@ function closeSmallHoles(m, maxRim) {
     if (!way || way.length < 3 || way.length > 400) continue;
     // way runs b0 ... a0; the loop is a0 then it.
     const loop = [a0, ...way.slice(0, -1)];
+    // Past maxRim only a slit is closed: a tear as long as it likes but, on
+    // average, no wider than `thin` times its rim.
+    let rim = 0;
+    for (let i = 0; i < loop.length; i++) rim += dist(loop[i], loop[(i + 1) % loop.length]);
+    if (rim > maxRim) {
+      let ax = 0, ay = 0, az = 0;
+      for (let i = 0; i < loop.length; i++) {
+        const a = loop[i] * 3, b = loop[(i + 1) % loop.length] * 3;
+        ax += P[a + 1] * P[b + 2] - P[a + 2] * P[b + 1];
+        ay += P[a + 2] * P[b] - P[a] * P[b + 2];
+        az += P[a] * P[b + 1] - P[a + 1] * P[b];
+      }
+      if (Math.hypot(ax, ay, az) / 2 > thin * rim) continue;
+    }
     for (let i = 0; i < loop.length; i++) used.add(key(loop[i], loop[(i + 1) % loop.length]));
     const mid = [0, 1, 2].map((k) => loop.reduce((s, v) => s + P[v * 3 + k], 0) / loop.length);
     const paints = new Map();
@@ -531,7 +545,7 @@ const sup = (() => {
   // each small one is closed over, its own way round. Her funnel tops and
   // what she stands on are holes far too big for that, and stay open.
   {
-    const { n, tris } = closeSmallHoles(s, 12.0);
+    const { n, tris } = closeSmallHoles(s, 12.0, { thinRim: 30 });
     console.log(`her superstructure: ${n} pinholes closed, ${tris} triangles`);
   }
   // Her funnel tops: the decimation crumpled the two bands round each and
@@ -820,12 +834,72 @@ const sup = (() => {
   for (const tub of POMPOM_TUBS) {
     if (tub.laid) continue;
     for (const side of [-1, 1]) {
-      const inside = (x, y, z) => Math.min(tub.r + 0.35 - Math.hypot(x - side * tub.x, z - tub.z), y - (tub.floor + 0.08), tub.floor + 2.6 - y);
+      const cut = tub.floor + 0.02, R = tub.r + 0.35;
+      const inside = (x, y, z) => Math.min(R - Math.hypot(x - side * tub.x, z - tub.z), y - cut, tub.floor + 2.6 - y);
       const before = s.T.length / 3;
       splitAlong(s, inside, { drop: true });
       s = subMesh(s, () => true);
+      // Where the cut bit into her -- the foot of her tower, the side of her
+      // superstructure -- it left her open: the bite is plated, round the
+      // cut, from the lowest to the highest point it cut through at each
+      // bearing, facing into the tub.
+      {
+        const top = tub.floor + 2.6, SEG = 72;
+        const lo = new Array(SEG).fill(Infinity), hi = new Array(SEG).fill(-Infinity);
+        const { P, T } = s;
+        const onCut = (v) => {
+          const x = P[v * 3] - side * tub.x, y = P[v * 3 + 1], z = P[v * 3 + 2] - tub.z;
+          return Math.abs(Math.hypot(x, z) - R) < 0.01 && y > cut + 0.005 && y < top - 0.005 ? [Math.atan2(z, x), y] : null;
+        };
+        for (let i = 0; i < T.length; i++) {
+          const q = onCut(T[i]);
+          if (!q) continue;
+          const k = ((Math.floor(((q[0] + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * SEG)) + SEG) % SEG;
+          lo[k] = Math.min(lo[k], q[1]); hi[k] = Math.max(hi[k], q[1]);
+        }
+        // A bin the cut line only crosses gets its neighbours' span.
+        const span = lo.map((l, k) => {
+          const ks = [k, (k + 1) % SEG, (k + SEG - 1) % SEG].filter((j) => lo[j] < Infinity);
+          if (!ks.length) return null;
+          return [Math.max(cut, Math.min(...ks.map((j) => lo[j])) - 0.02), Math.min(top, Math.max(...ks.map((j) => hi[j])) + 0.02)];
+        });
+        let walls = 0;
+        const { N, C } = s;
+        for (let k = 0; k < SEG; k++) {
+          const sp = span[k];
+          if (!sp || sp[1] - sp[0] < 0.05) continue;
+          const a0 = (2 * Math.PI * k) / SEG, a1 = (2 * Math.PI * (k + 1)) / SEG;
+          const pt = (a, y) => { P.push(side * tub.x + R * Math.cos(a), y, tub.z + R * Math.sin(a)); N.push(-Math.cos(a), 0, -Math.sin(a)); return P.length / 3 - 1; };
+          const q = [pt(a0, sp[0]), pt(a0, sp[1]), pt(a1, sp[1]), pt(a1, sp[0])];
+          // lo hi hi' lo' faces out; this faces in, so it runs back.
+          T.push(q[3], q[2], q[1], q[3], q[1], q[0]); C.push(SUPER_GREY, SUPER_GREY);
+          walls++;
+        }
+        console.log(`${tub.name} ${side > 0 ? 'port' : 'stbd'}: the bite into her plated, ${walls} of ${SEG} bearings`);
+      }
+      // What stood in the tub -- its pedestal, the foot of its wall -- is cut
+      // off a hair over the floor and left open on top: a plate over all of
+      // it, which the mount's own platform stands on.
+      {
+        const { P, N, T, C } = s, SEG = 48;
+        const base = P.length / 3;
+        P.push(side * tub.x, cut, tub.z); N.push(0, 1, 0);
+        for (let k = 0; k <= SEG; k++) {
+          const a = (2 * Math.PI * k) / SEG;
+          P.push(side * tub.x + R * Math.cos(a), cut, tub.z + R * Math.sin(a)); N.push(0, 1, 0);
+        }
+        // x = cos, z = sin, the angle rising: seen from above that runs
+        // clockwise, so (centre, k+1, k) faces up.
+        for (let k = 0; k < SEG; k++) { T.push(base, base + 2 + k, base + 1 + k); C.push(SUPER_GREY); }
+      }
       console.log(`${tub.name} ${side > 0 ? 'port' : 'stbd'}: ${before - s.T.length / 3} triangles of tub cut away`);
     }
+  }
+  // Whatever the cuts went through -- a boom across a tub, a locker cut by a
+  // gun bay -- is left with its cut end open: each is capped where it was cut.
+  {
+    const { n, tris } = closeSmallHoles(s, 8.0);
+    console.log(`her superstructure: ${n} cut ends capped, ${tris} triangles`);
   }
   s.C = new Array(s.T.length / 3).fill(SUPER_GREY);
   const { lo, hi } = bbox(s);
@@ -1134,6 +1208,8 @@ function gunPiece(file, { scale, pivot, foot, trunnion, elev = 0, cradle, muzzle
   }
   const mesh = { P, N, T: Array.from(raw.idx), C: new Array(raw.idx.length / 3).fill(GREY) };
   fixWinding(mesh);
+  // The decimation tore it as it tore her: its small holes closed over.
+  const holes = closeSmallHoles(mesh, 3.0);
   // Off square at its foot, along the cut: nothing under it.
   splitAlong(mesh, (x, y) => -y, { drop: true });
   const c = Math.cos(elev), s = Math.sin(elev);
@@ -1175,7 +1251,7 @@ function gunPiece(file, { scale, pivot, foot, trunnion, elev = 0, cradle, muzzle
     house, guns, trunnion: T0.map((v) => +v.toFixed(3)), roof: +roof.toFixed(3),
     muzzles: muzzles.map(([z, v, u]) => [+(z * scale).toFixed(3), +(v * scale).toFixed(3), +(u * scale).toFixed(3)]),
   };
-  console.log(`${file}: house ${house.T.length / 3} triangles, ${roof.toFixed(2)} m high; cradle ${guns.T.length / 3} `
+  console.log(`${file}: ${holes.n} holes closed; house ${house.T.length / 3} triangles, ${roof.toFixed(2)} m high; cradle ${guns.T.length / 3} `
     + `triangles about trunnions ${T0[1].toFixed(2)} m up, ${T0[2].toFixed(2)} m ahead; muzzles ${out.muzzles.map((m) => m.join('/')).join(' ')}`);
   return out;
 }
@@ -1254,14 +1330,23 @@ const SEC = gunPiece('hood-55.glb', {
     const ba = Math.min(za, BROW + o), bb = Math.min(zb, BROW + o);
     face([xa, Y1, za], [xb, Y1, zb], [xb, Y2, bb], [xa, Y2, ba]);
   }
+  // A plate over the roof's front edge, back from the brow, where the cut
+  // left it ragged: under the roof where the roof is whole.
+  for (let k = 0; k + 1 < xs.length; k++) {
+    const xa = xs[k], xb = xs[k + 1];
+    const ba = Math.min(zf[k] + o, BROW + o), bb = Math.min(zf[k + 1] + o, BROW + o);
+    face([xa, Y2, ba], [xb, Y2, bb], [xb, Y2, BROW - 0.4], [xa, Y2, BROW - 0.4]);
+  }
   // The gun port, lined back into the shield.
   const zp = zOf(0) + o, zb = zp - PORT.depth, { x: px, y0: py0, y1: py1 } = PORT;
   face([-px, py0, zp], [px, py0, zp], [px, py0, zb], [-px, py0, zb]); // sill, facing up
   face([-px, py1, zb], [px, py1, zb], [px, py1, zp], [-px, py1, zp]); // head, facing down
   face([px, py0, zp], [px, py1, zp], [px, py1, zb], [px, py0, zb]); // port side, facing in
   face([-px, py0, zb], [-px, py1, zb], [-px, py1, zp], [-px, py0, zp]); // starboard side, facing in
+  // Where the new face meets the old roof and sides it leaves slits.
+  const shut = closeSmallHoles(cut, 1.5, { thinRim: 6, thin: 0.06 });
   SEC.house = cut;
-  console.log(`hood-55.glb: shield face replated, ${off} triangles of torn face off, its face ${zOf(0).toFixed(2)} m ahead`);
+  console.log(`hood-55.glb: shield face replated, ${off} triangles of torn face off, its face ${zOf(0).toFixed(2)} m ahead, ${shut.n} slits shut`);
 }
 {
   const len = 0.93 * 5.5;
