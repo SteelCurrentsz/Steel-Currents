@@ -402,9 +402,11 @@ function superstructure(file, S, keep, cuts, worldCuts = [], seamFace = 0) {
   s = { P, N, T: s.T, C: s.C };
   fixWinding(s);
   // Its plating smoothed of the lumps and pleats the decimation left in it,
-  // its corners kept.
+  // its corners kept: its faces' normals filtered forty times over, tight
+  // enough across a crease (0.3) that a corner stays a corner, and its points
+  // walked sixty steps on to the planes that leaves.
   if (process.env.DENOISE !== '0') {
-    const { sigmaS } = denoise(s, { normalIters: +(process.env.DN_N || 6), vertexIters: +(process.env.DN_V || 12), sigmaR: +(process.env.DN_R || 0.35) });
+    const { sigmaS } = denoise(s, { normalIters: +(process.env.DN_N || 40), vertexIters: +(process.env.DN_V || 60), sigmaR: +(process.env.DN_R || 0.3) });
     console.log(`${file}: smoothed, faces ${sigmaS.toFixed(2)} m apart`);
   }
   // And what is cut out of it in her own frame.
