@@ -4090,10 +4090,26 @@ export const SHIP_CLASSES = {
           ] },
       ],
     },
-    planes: null,
+    // Her Walruses, off the fixed cross-deck catapult between her funnels,
+    // which throws one off either beam; her hangars either side of her fore
+    // funnel, and a crane either side to fish them out of the water again.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 45, strikeRange: 7500,
+      rearm: 120, hp: 600, dropSpread: 0.08,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 480, bombHit: 0.24, bombFire: 0.08, bombPen: 18, bombBore: 0.16,
+      type: 'walrus',
+      catapult: true, deckRun: 9.4, deckCycle: 36,
+      runHeight: 19.0,
+      // Where the shot leaves her: off whichever beam the car was thrown to,
+      // a little abaft her middle because her catapult is -- measured off the
+      // same integrated shot the model on her catapult flies.
+      runOut: 197.6, runBearing: 1.629, runHeading: 1.571, launchSpeed: 31,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
     datasheet: {
       displacement: 42237,
-      aircraft: 0,
+      aircraft: 4,
       mainRounds: 1000,
       secondary: { caliber: 133, label: '5.25"', barrels: 16, rounds: 6400 },
       tertiary: [

@@ -40,7 +40,9 @@ import { box, cyl, strip, sheet } from './shipkit.js';
 import {
   buildKgvHull, kgvSurfaceY, MOUNT_SEATS, SCULPT_LINES, kgvMaterials, gunPiece,
 } from './kgvHull.js';
-import { SCREWS } from './kgvHull.data.js';
+import { SCREWS, KGV_CATAPULT } from './kgvHull.data.js';
+import { RIG, fitCatapults } from './catapult.js';
+import { walrus } from './planekit.js';
 
 const CLS = SHIP_CLASSES.kgv;
 export const LOA = CLS.hull.length;
@@ -320,6 +322,52 @@ function screws(g) {
   }
 }
 
+// ------------------------------------------------------------- catapult ----
+//
+// Her catapult: the fixed cross-deck D-III between her funnels, one girder
+// athwart her from side to side, which throws a Walrus off either beam. The
+// girder is the sculpt's; the cars on it, and the Walrus on each, are drawn
+// here and worked by fitCatapults -- the port car off the port end, the
+// starboard car off the starboard, the two Walruses tail to tail over her
+// centreline.
+export const CAT_Z = KGV_CATAPULT.z;
+export const CAT_Y = KGV_CATAPULT.top;
+const CAT_T = (2 * CAT_Z) / LOA;
+// As far out as the girder goes, and never past her side.
+const CAT_HALF = Math.min(KGV_CATAPULT.half, shellAt(CAT_T, deckOver(CAT_T) - 0.5) - 0.3);
+export const CAT_RIG = {
+  ...RIG, BACK: 0, FRONT: CAT_HALF, A: 6.3, STROKE: CAT_HALF - 6.3, REST: 0, OUT: 0, PLANE_Y: 0.42, PLANE_Z: 0,
+};
+
+/** The two cars on her girder, a Walrus on each facing out over her side. */
+function aviation(g) {
+  const cats = [];
+  for (const sgn of [-1, 1]) {
+    const cat = new THREE.Group();
+    cat.position.set(0, CAT_Y, CAT_Z);
+    cat.rotation.y = sgn * (Math.PI / 2);
+    cat.userData.dynamic = true;
+    g.add(cat);
+    const car = new THREE.Group();
+    car.position.set(0, 0, CAT_RIG.A);
+    car.userData.dynamic = true;
+    cat.add(car);
+    // The trolley on the rails, and the cradle her hull sits in: a chock
+    // under her keel forward and aft and the arms up to her shoulders.
+    box(car, M.gunDark, 2.0, 0.22, 3.0, 0, 0.11, 0);
+    for (const cz of [1.0, -1.1]) {
+      box(car, M.steelDark, 0.5, 0.22, 0.4, 0, 0.32, cz);
+      for (const sx of [-1, 1]) {
+        const arm = box(car, M.steelDark, 0.12, 0.7, 0.14, sx * 0.62, 0.55, cz);
+        arm.rotation.z = -sx * 0.35;
+      }
+    }
+    const plane = walrus(car, 0, CAT_RIG.PLANE_Y, CAT_RIG.PLANE_Z, 0, { spin: true });
+    cats.push({ group: cat, car, plane, prop: plane.userData.prop, sgn, base: sgn * (Math.PI / 2) });
+  }
+  g.userData.catapults = cats;
+}
+
 // ---------------------------------------------------------------- build ----
 
 const STATIC = [
@@ -327,6 +375,7 @@ const STATIC = [
   ['barbettes', barbettes],
   ['armour', armour],
   ['screws', screws],
+  ['aviation', aviation],
 ];
 
 export function buildKgv() {
@@ -338,6 +387,10 @@ export function buildKgv() {
   mountings(g);
   mergeMoving(g);
   g.userData.classId = 'kgv';
+  fitCatapults(g, {
+    cats: g.userData.catapults, rig: CAT_RIG, deckY: CAT_Y,
+    catX: 0, catZ: CAT_Z, run: CLS.planes.deckRun, aero: 'walrus',
+  });
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),

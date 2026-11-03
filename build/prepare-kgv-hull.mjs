@@ -369,7 +369,7 @@ const LAID = (() => {
  * says (in its own frame), put on her, cut to where it is hers (`keep`, of a
  * hull station), off its slab and in from her side.
  */
-function superstructure(file, S, keep, cuts) {
+function superstructure(file, S, keep, cuts, worldCuts = []) {
   const raw = readGlb(ASSET(file));
   let s = { P: Array.from(raw.pos), N: Array.from(raw.nrm), T: Array.from(raw.idx), C: new Array(raw.idx.length / 3).fill(SUPER_GREY) };
   // Its cast guns, in its own frame: each cut, and what the cut leaves loose
@@ -388,6 +388,11 @@ function superstructure(file, S, keep, cuts) {
   }
   s = { P, N, T: s.T, C: s.C };
   fixWinding(s);
+  // And what is cut out of it in her own frame.
+  for (const g of worldCuts) {
+    splitAlong(s, g, { drop: true });
+    s = subMesh(s, () => true);
+  }
   // Where it is hers, and over her deck, and inboard of her side.
   splitAlong(s, (x, y, z) => -keep(z), { drop: true });
   splitAlong(s, (x, y, z) => (deck.y(x, z) - 0.05) - y, { drop: true });
@@ -432,6 +437,14 @@ const castCuts = (S) => [
   ...CAST_POMPOM.filter((c) => c.S === S).map((c) => (c.box ? boxCut(c.box, c.floor + 0.003, c.floor + 0.09)
     : cylCut(c.x, c.z, c.r, c.floor + 0.003, c.floor + 0.08, !c.centre))),
 ];
+// The Walrus the sculpt sat on her catapult, between her funnels: hers is
+// drawn on the girder and flown off it (see kgv.js), so the sculpt's is taken
+// off down to the top of the girder. Her cranes' jibs either side are left.
+export const CATAPULT = { z: -11.4, top: 8.55, half: 16.4 };
+const WALRUS_CUT = (x, y, z) => Math.min(x + 7.9, 7.8 - x, 11.6 - y, z + 16.75, -4.2 - z,
+  // Down to the top of the girder over it, and down to her deck either side
+  // of it, where her lower wings and her floats were.
+  Math.max(y - 8.62, Math.min(y - 7.6, Math.abs(z + 11.4) - 1.45)));
 const front = superstructure('kgv-front.glb', FRONT, (z) => z - SEAM_Z, [
   ...castCuts(FRONT),
   // B turret: its gunhouse, off its barbette, and its barrels.
@@ -442,7 +455,7 @@ const front = superstructure('kgv-front.glb', FRONT, (z) => z - SEAM_Z, [
   boxCut([-1.0, -0.745, -0.05, 0.05], -0.25, -0.17),
   // The forward 5.25-inch's barrels, laid along her deck forward of it.
   boxCut([-0.25, -0.03, -0.47, -0.36], -0.29, -0.235),
-]);
+], [WALRUS_CUT]);
 const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   ...castCuts(AFT),
   // Y turret: its gunhouse off its barbette, under her after superstructure,
@@ -452,7 +465,7 @@ const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   // The barrels of the after pair of 5.25-inch, laid aft.
   boxCut([-0.2, -0.06, 0.24, 0.33], -0.24, -0.16),
   boxCut([0.03, 0.155, 0.27, 0.33], -0.19, -0.12),
-]);
+], [WALRUS_CUT]);
 
 // Her hull's plating, in pieces short enough to measure: the decimation drew
 // her side amidships as a few triangles tens of metres long, and everything
@@ -964,6 +977,9 @@ writeFileSync(OUT_DATA,
   + `export const KGV_MOUNTS = ${JSON.stringify(mounts)};\n`
   + `// Her four screws, on the ends of her shafts.\n`
   + `export const SCREWS = ${JSON.stringify(SCREWS)};\n`
+  + `// Her catapult's girder, athwart her between her funnels: its station, the\n`
+  + `// height of its rails and its half-length.\n`
+  + `export const KGV_CATAPULT = ${JSON.stringify(CATAPULT)};\n`
   + `// Her lines as the sculpt has them: keel, the deck over her insides, and\n`
   + `// her half-breadth at every half metre of height, a metre at a time.\n`
   + `export const KGV_LINES = ${JSON.stringify(LINES)};\n`);

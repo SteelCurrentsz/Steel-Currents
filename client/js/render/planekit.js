@@ -425,6 +425,10 @@ export const P = {
   // The roundel: three rings, and the only marking on this list that is three.
   rafBlue: new THREE.MeshLambertMaterial({ color: 0x1d3a6d }),
   rafRed: new THREE.MeshLambertMaterial({ color: 0xa8322c }),
+  // The Fleet Air Arm's temperate sea scheme: extra dark sea grey and dark
+  // slate grey above, sky -- a pale duck-egg green -- underneath.
+  faaTop: new THREE.MeshLambertMaterial({ color: 0x4b5559 }),
+  faaBottom: new THREE.MeshLambertMaterial({ color: 0xb4bea6 }),
   // A bomber's nose is four square metres of glass, and painted the shade a
   // fighter's sliding hood is painted -- which is right, because a hood is a
   // hand's breadth of glass with a dark cockpit behind it -- the whole nose of
@@ -479,6 +483,8 @@ const SCHEMES = {
   // The Eighth Air Force: bare metal, top and bottom, with the underside a
   // shade down on the upper so she still reads as having two sides to her.
   usaaf: [P.alloy, P.alloyLo],
+  // The Fleet Air Arm: sea greys over sky.
+  faa: [P.faaTop, P.faaBottom],
 };
 
 /**
@@ -1926,6 +1932,7 @@ const TRUE_SIZE = {
   // she is: a Jake the right length is two Jakes standing in each other.
   jake: [[15.16, 9.64], [14.50, 9.64]],
   loire: [[16.00, 11.53], [16.00, 11.30]],
+  walrus: [[14.00, 11.30], [13.97, 11.45]],
 };
 
 function trueSize(p, kind) {
@@ -3063,6 +3070,153 @@ function loire(g, x, y, z, ry, opts = {}) {
   for (const s of [-1, 1]) strut(p, TOP, [s * 0.16, 1.10, -4.70], [s * 1.30, 1.34, -4.95], 0.03);
   aerial(p, 0, WY + 0.15, -0.95, 0.55, tail.finTop, TOP);
   trueSize(p, 'loire');
+  return p;
+}
+
+/**
+ * A Supermarine Walrus: the Fleet Air Arm's catapult amphibian, the
+ * "Shagbat", and what every British battleship and cruiser of the war carried.
+ *
+ * A biplane boat: a single-step hull of a flying boat with the lower wing
+ * set on its shoulders, the upper wing on struts over it, and her one Pegasus
+ * in a nacelle hung under the centre of the upper wing, driving a four-bladed
+ * pusher airscrew aft of it -- set so far back that her pilot sat under the
+ * leading edge, ahead of the disc, and her gunners had a cockpit in the bow
+ * and another abaft the wing. A float under each lower wingtip, a high
+ * tailplane braced to her fin, and fourteen metres of span: slow, stressed for
+ * the catapult, and craned back aboard off the water.
+ */
+function walrus(g, x, y, z, ry, opts = {}) {
+  const [TOP, BOT] = paint('faa');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+
+  // The hull: a deep boat, fine at the bow, a hard chine carrying her beam, the
+  // step under the wing and a long run up aft to her tail. Stations aft to
+  // forward, [z, half beam, keel, chine, deck, crown].
+  seaFloat(p, TOP, BOT, [
+    [-5.75, 0.10, 1.02, 1.10, 1.30, 0.04],
+    [-4.70, 0.28, 0.74, 0.90, 1.34, 0.08],
+    [-3.40, 0.50, 0.46, 0.66, 1.42, 0.12],
+    [-2.00, 0.70, 0.24, 0.46, 1.52, 0.16],
+    [-0.70, 0.82, 0.10, 0.32, 1.62, 0.20],
+    [-0.68, 0.82, 0.00, 0.24, 1.62, 0.20],
+    [0.90, 0.84, 0.00, 0.22, 1.66, 0.22],
+    [2.40, 0.78, 0.04, 0.26, 1.66, 0.22],
+    [3.70, 0.62, 0.14, 0.36, 1.62, 0.20],
+    [4.70, 0.40, 0.32, 0.54, 1.52, 0.14],
+    [5.40, 0.12, 0.64, 0.80, 1.38, 0.06],
+  ]);
+  // The bow cockpit with its Vickers on a ring, and the mooring hatch ahead of it.
+  cyl(p, M.cave, 0.34, 0.34, 0.06, 0, 1.82, 3.85, 14);
+  cyl(p, M.gunDark, 0.38, 0.38, 0.05, 0, 1.86, 3.85, 14);
+  const bowGun = cyl(p, M.gunDark, 0.034, 0.034, 0.80, 0, 2.12, 4.20, 6);
+  bowGun.rotation.x = 1.16;
+  box(p, M.gunDark, 0.42, 0.04, 0.42, 0, 1.58, 4.85);
+  // Her pilot under the leading edge of the upper wing, in the enclosed
+  // cockpit, and the after gunner's open position abaft the wing.
+  greenhouse(p, 0.98, 0.58, 1.80, 1.15, 2.75, 4);
+  cyl(p, M.cave, 0.34, 0.34, 0.06, 0, 1.52, -2.30, 14);
+  cyl(p, M.gunDark, 0.38, 0.38, 0.05, 0, 1.56, -2.30, 14);
+  const aftGun = cyl(p, M.gunDark, 0.034, 0.034, 0.80, 0.06, 1.80, -2.62, 6);
+  aftGun.rotation.x = -1.20;
+  // Her roundels on the hull, abaft the wing.
+  roundel(p, 0.72, 1.18, -3.20, 0.36, false);
+  roundel(p, -0.72, 1.18, -3.20, 0.36, false);
+
+  // The lower wing, on the hull's shoulders, and the upper wing on its struts
+  // over it -- the same span, a little ahead of it, and no dihedral to speak of.
+  const LY = 1.30;
+  const UY = 3.42;
+  for (const s of [-1, 1]) {
+    const lo = new THREE.Group();
+    lo.position.set(s * 0.78, LY, 0.95);
+    lo.rotation.z = s * 0.045;
+    p.add(lo);
+    const lw = wing(lo, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 6.20, rootC: 1.85, tipC: 1.70,
+      sweep: 0.05, thick: 0.13, camber: 0.03, rootCap: false,
+    });
+    ctrlSurface(lo, TOP, lw, 0.55, 0.95);
+    roundel(lo, s * 4.90, -0.12, -0.70, 0.62, 'down');
+    // The wingtip float, on its struts under the tip.
+    const ft = new THREE.Group();
+    ft.position.set(s * 5.05, -0.98, -0.20);
+    lo.add(ft);
+    seaFloat(ft, TOP, BOT, [
+      [-0.80, 0.06, 0.24, 0.28, 0.40, 0.02],
+      [-0.36, 0.16, 0.12, 0.20, 0.38, 0.03],
+      [0.30, 0.18, 0.05, 0.15, 0.38, 0.03],
+      [0.82, 0.14, 0.12, 0.21, 0.40, 0.03],
+      [1.12, 0.04, 0.24, 0.29, 0.42, 0.02],
+    ]);
+    strut(lo, TOP, [s * 5.05, -0.60, 0.25], [s * 4.95, -0.05, 0.10], 0.04);
+    strut(lo, TOP, [s * 5.05, -0.60, -0.60], [s * 4.95, -0.05, -0.95], 0.04);
+
+    const up = new THREE.Group();
+    up.position.set(s * 0.65, UY, 1.25);
+    p.add(up);
+    const uw = wing(up, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 6.35, rootC: 1.95, tipC: 1.80,
+      sweep: 0.05, thick: 0.13, camber: 0.032, rootCap: false,
+    });
+    ctrlSurface(up, TOP, uw, 0.55, 0.95);
+    roundel(up, s * 4.90, 0.13, -0.80, 0.70);
+    // The interplane struts: an N-strut out at three-fifths of the span, and
+    // the flying and landing wires criss-crossing the bay inboard of it.
+    for (const sx of [3.55]) {
+      const xl = s * (0.78 + sx), xu = s * (0.65 + sx + 0.10);
+      strut(p, TOP, [xl, LY + 0.25, 0.75], [xu, UY - 0.02, 1.05], 0.05);
+      strut(p, TOP, [xl, LY + 0.25, -0.55], [xu, UY - 0.02, -0.30], 0.05);
+      strut(p, TOP, [xl, LY + 0.25, 0.75], [xu, UY - 0.02, -0.30], 0.03);
+      strut(p, M.wire, [s * 1.0, LY + 0.15, 0.40], [xu, UY - 0.02, 0.40], 0.014, 4);
+      strut(p, M.wire, [xl, LY + 0.20, 0.40], [s * 0.9, UY - 0.06, 0.40], 0.014, 4);
+    }
+  }
+  // The upper centre section, between the two panels.
+  box(p, TOP, 1.30, 0.24, 1.95, 0, UY + 0.02, 0.28);
+
+  // The engine: a Pegasus in a long nacelle under the centre section, on its
+  // struts down to the hull, with the airscrew on the back of it.
+  const NY = UY - 0.62;
+  airframe(p, TOP, [
+    { z: 1.25, w: 0.34, h: 0.36, y: NY },
+    { z: 0.95, w: 1.05, h: 1.00, y: NY },
+    { z: 0.20, w: 1.12, h: 1.06, y: NY },
+    { z: -0.70, w: 0.92, h: 0.88, y: NY },
+    { z: -1.35, w: 0.50, h: 0.50, y: NY },
+    { z: -1.60, w: 0.24, h: 0.24, y: NY },
+  ], { flat: 0.05, e: 0.95, mBot: TOP });
+  for (const sx of [-1, 1]) {
+    for (const zz of [0.70, -0.60]) strut(p, TOP, [sx * 0.34, NY - 0.32, zz], [sx * 0.62, 1.78, zz + 0.05], 0.05);
+  }
+  const disc = new THREE.Group();
+  disc.position.set(0, NY, -1.70);
+  disc.rotation.y = Math.PI;
+  disc.userData.dynamic = true;
+  p.add(disc);
+  p.userData.prop = disc;
+  disc.userData.isProp = true;
+  animPart(p, 'prop', disc, { axis: 'z', spin: true });
+  cyl(disc, M.prop, 0.06, 0.22, 0.42, 0, 0, 0.18, 12).rotation.x = Math.PI / 2;
+  for (let i = 0; i < 4; i++) {
+    const bl = new THREE.Group();
+    bl.rotation.z = (i / 4) * Math.PI * 2 + 0.4;
+    disc.add(bl);
+    propBlade(bl, M.prop, 1.48, 0.24, 0.16, 0.55, 1.20);
+  }
+
+  // Her tail: the fin on the end of the hull, the tailplane set high on it and
+  // braced, and the fin flash -- red, white and blue -- on its sides.
+  const tail = empennage(p, 1.75, 1.45, 4.60, 1.10, 1.32, -5.00);
+  for (let i = 0; i < 3; i++) {
+    box(p, [P.rafRed, M.star, P.rafBlue][i], 0.17, 0.62, 0.22, 0, 1.78, -4.72 - i * 0.22);
+  }
+  for (const s of [-1, 1]) strut(p, TOP, [s * 0.14, 1.16, -4.75], [s * 1.25, 1.36, -5.00], 0.03);
+  aerial(p, 0, UY + 0.13, -0.60, 0.50, tail.finTop, TOP);
+  trueSize(p, 'walrus');
   return p;
 }
 
@@ -4884,7 +5038,7 @@ function heavyBomber(kind) {
 
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
-export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire };
+export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus };
 export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };

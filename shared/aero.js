@@ -123,6 +123,16 @@ export const AERO = {
     thrust: 10200, vMax: 61, name: 'Loire 130',
     helix: 0.050, gLimit: 3.5,
   },
+  // The King George V's scout: a Supermarine Walrus, a biplane boat with her
+  // one Pegasus pushing from under the upper wing. Seven hundred and fifty
+  // horsepower, three and a half tonnes and a great deal of wing and wire --
+  // a hundred and thirty-five miles an hour flat out, and stressed to be
+  // thrown off a catapult loaded.
+  walrus: {
+    mass: 3266, wing: 56.7, span: 13.97, clMax: 1.55, cd0: 0.0560,
+    thrust: 10400, vMax: 60, name: 'Walrus I',
+    helix: 0.048, gLimit: 3.5,
+  },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
   // anything, which is exactly why she is shot off a catapult instead.

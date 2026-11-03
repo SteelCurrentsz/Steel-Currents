@@ -19,7 +19,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
-  wildcat, arado, kingfisher, besson, loire,
+  wildcat, arado, kingfisher, besson, loire, walrus,
   jake, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
@@ -994,6 +994,8 @@ export function flightModels() {
   make('besson', (g) => besson(g, 0, 0, 0, 0, {}));
   // And the Loire 130 the Richelieu works off her quarterdeck.
   make('loire', (g) => loire(g, 0, 0, 0, 0, {}));
+  // And the Walrus the King George V throws off her cross-deck catapult.
+  make('walrus', (g) => walrus(g, 0, 0, 0, 0, {}));
   // And the Japanese four: a Zero, a Suisei, a B5N and the Jake the
   // battleships and the cruisers work off their catapults. The Zero is the
   // owner's sculpt of her, in the pieces she is built to come apart in.
@@ -1039,7 +1041,7 @@ export const ROLE_TYPE = {
 };
 
 const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
-  'besson', 'loire', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
+  'besson', 'loire', 'walrus', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
 export function typeOf(type, role) {
