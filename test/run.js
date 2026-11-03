@@ -11623,7 +11623,12 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
       // A calibre she carries in more than one kind of mounting -- the
       // Yukikaze's 25 mm, triples and singles -- is listed a row to a kind,
       // and her sheet counts the barrels of all of them.
-      const of = rows.filter((w) => w.caliber === t.caliber);
+      // Two different weapons of one bore -- the King George V's 2-pdr
+      // pom-poms and her Bofors are both 40 mm -- each have their own row on
+      // her sheet, told apart by the label.
+      const twin = (cls.datasheet.tertiary || []).filter((o) => o.caliber === t.caliber).length > 1;
+      const of = rows.filter((w) => w.caliber === t.caliber
+        && (!twin || w.name.includes(t.label)));
       assert.ok(of.length, `${cls.id} carries ${t.label} on her sheet and none in the arsenal`);
       const barrels = of.reduce((n, w) => n + w.barrels, 0);
       assert.equal(barrels, t.barrels,
