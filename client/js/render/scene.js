@@ -1274,7 +1274,7 @@ export class ShipView {
    * through the other side (see lineInside).
    */
   opened(x, y, z, r, n = null) {
-    if (this.plating) lineInside(this.plating.parts);
+    if (this.plating) lineInside(this.plating.parts, this.holes ? this.holes.U : null);
   }
 
   /** A collision too light to open her: her plating scraped for `len` metres. */

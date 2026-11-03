@@ -63,23 +63,78 @@ const FRAG_CUT = `
   }
 `;
 
-let INSIDE = null;
-/** The inside face of a holed plate: dark steel, unlit, fogged like everything else. */
-function insideMaterial() {
-  if (!INSIDE) {
-    // Pushed back a little in depth. A plate drawn from both sides -- a
-    // single sheet given a twin facing the other way, or a superstructure
-    // drawn two-sided -- has its inside on the very same plane as paint seen
-    // from outside, and on a tie the lining won: a ship's first hole turned
-    // every such plate on her black, her deck in blotches from end to end.
-    // Only where the paint has been cut away does the lining now show.
-    INSIDE = new THREE.MeshBasicMaterial({
-      color: 0x0b0a09, side: THREE.BackSide,
-      polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 6,
-    });
-    INSIDE.userData.inside = true;
+// The inside of her plating, darkened only where it is seen through a hole:
+// a cone opening inward from each hole, square to the plate that was struck,
+// so the far side of her and the frames fore and aft of it are in shadow and
+// everything else on her is exactly the paint it was. Same shape as FRAG_CUT
+// (see the note on the iPad above): one loop, branches, nothing else.
+const FRAG_SHADE = `
+  float holeShade = 1.0;
+  for (int i = 0; i < ${HOLE_SLOTS}; i++) {
+    if (i >= uHoleN) break;
+    vec4 h = uHoles[i];
+    vec3 hn = uHoleNorm[i].xyz;
+    vec3 d = vHolePos - h.xyz;
+    float r = abs(h.w);
+    float off = dot(d, hn);
+    if (off < 0.5) {
+      vec3 p = d - hn * off;
+      float reach = r * 2.2 + 1.0 - off * 0.45;
+      float lat = sqrt(dot(p, p));
+      if (lat < reach) holeShade = min(holeShade, mix(0.28, 1.0, smoothstep(reach * 0.55, reach, lat)));
+    }
   }
-  return INSIDE;
+  gl_FragColor.rgb *= holeShade;
+`;
+
+/** The lining of each of her materials, per set of holes it is shaded by. */
+const LININGS = new WeakMap();
+const NO_HOLES = {};
+
+/**
+ * The inside face of a plate: the same paint as its outside, drawn on its
+ * back face. It used to be one flat near-black for every plate on her, put on
+ * the whole ship at her first hole -- and every face of a model whose
+ * triangles were wound the wrong way, or that was only ever drawn from one
+ * side, turned black with it: patches of her deck, her turrets and her
+ * superstructure went out like lights the moment she was first holed. In her
+ * own paint such a face looks as it did before; only the inside of her seen
+ * through a hole is put in shadow (see FRAG_SHADE).
+ */
+function liningOf(mat, U) {
+  if (!mat) return mat;
+  const base = (mat.userData && mat.userData.paint) || mat;
+  if (base.isShaderMaterial || base.isRawShaderMaterial) return base;
+  const key = U || NO_HOLES;
+  let per = LININGS.get(base);
+  if (!per) { per = new WeakMap(); LININGS.set(base, per); }
+  if (per.has(key)) return per.get(key);
+  const m = cloneMaterial(base);
+  m.side = THREE.BackSide;
+  // Pushed back a little in depth, so where a plate is drawn from both sides
+  // the paint seen from outside wins the tie and the lining shows only where
+  // that paint has been cut away.
+  m.polygonOffset = true;
+  m.polygonOffsetFactor = 2;
+  m.polygonOffsetUnits = 6;
+  m.userData = { ...(m.userData || {}), inside: true, lining: true };
+  if (U) {
+    const prev = base.onBeforeCompile;
+    const prevKey = base.customProgramCacheKey ? base.customProgramCacheKey() : '';
+    m.onBeforeCompile = (shader, renderer) => {
+      if (prev && prev !== THREE.Material.prototype.onBeforeCompile) prev.call(m, shader, renderer);
+      Object.assign(shader.uniforms, U);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${VERT_HEAD}`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>\n${VERT_BODY}`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\n${FRAG_HEAD}`)
+        .replace('#include <tonemapping_fragment>', `${FRAG_SHADE}\n#include <tonemapping_fragment>`);
+    };
+    m.customProgramCacheKey = () => `lining1|${prevKey}`;
+  }
+  per.set(key, m);
+  return m;
 }
 
 /**
@@ -95,7 +150,7 @@ function rayOutside(rc, out) {
 }
 
 /**
- * The inside face of every piece of her plating: the dark of a steel box.
+ * The inside face of every piece of her plating, in her own paint.
  *
  * Put on the whole of her the first time she is opened, not only on the
  * plates near the hole. Looked into at an angle, a hole shows the far side of
@@ -104,12 +159,14 @@ function rayOutside(rc, out) {
  * plain, unlit mesh of back faces per piece, sharing her geometry, so a plate
  * taken out of her plating is taken out of its lining too.
  */
-export function lineInside(meshes) {
+export function lineInside(meshes, U = null) {
   for (const m of meshes) {
     const mesh = m.mesh || m;
     if (!mesh || !mesh.geometry || mesh.userData.lined) continue;
     mesh.userData.lined = true;
-    const inner = new THREE.Mesh(mesh.geometry, insideMaterial());
+    const mm = mesh.material;
+    const inner = new THREE.Mesh(mesh.geometry,
+      Array.isArray(mm) ? mm.map((q) => liningOf(q, U)) : liningOf(mm, U));
     inner.userData.inside = true;
     inner.raycast = () => {};
     inner.renderOrder = mesh.renderOrder;
@@ -149,7 +206,7 @@ export function holePlating(parts) {
     m.customProgramCacheKey = () => `holes4|${prevKey}`;
     // Hers alone already, so nothing that wants a ship's own copy of her
     // paint (see markable in pieces.js) copies it again and loses the holes.
-    m.userData = { ...(m.userData || {}), holed: true, perShip: true };
+    m.userData = { ...(m.userData || {}), holed: true, perShip: true, paint: src };
     made.set(src, m);
     return m;
   };
@@ -180,9 +237,9 @@ export function holePlating(parts) {
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(wrap) : wrap(mesh.material);
       mesh.raycast = rayOutside;
     }
-    // And the inside of all of her, seen through it: the dark of a steel box
+    // And the inside of all of her, seen through it, in shadow there
     // rather than the sea beyond her. See lineInside.
-    lineInside(pieces);
+    lineInside(pieces, U);
   };
   return {
     U,
