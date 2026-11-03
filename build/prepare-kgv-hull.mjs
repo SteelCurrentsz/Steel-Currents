@@ -788,6 +788,45 @@ export const BARBETTE_TOPS = [
   { name: 'B', z: TURRETS[1].z, r: B_DRUM, wall: true },
   { name: 'Y', z: TURRETS[2].z, r: 5.05 },
 ];
+// ---- openings left in her superstructure, plated over ----------------------------------
+// A flat plate of her side, from (x0, z0) to (x1, z1) and y0 to y1, facing
+// (nx, nz): drawn from that side only, like the rest of her plating.
+function wallPlate(mesh, x0, z0, x1, z1, y0, y1, nx, nz, paintOf = SUPER_GREY) {
+  const base = mesh.P.length / 3;
+  const l = Math.hypot(nx, nz) || 1;
+  for (const [x, y, z] of [[x0, y0, z0], [x1, y0, z1], [x1, y1, z1], [x0, y1, z0]]) {
+    mesh.P.push(x, y, z); mesh.N.push(nx / l, 0, nz / l);
+  }
+  // Wound so its face looks the way it is told to.
+  const ux = x1 - x0, uz = z1 - z0, vy = y1 - y0;
+  const cx = -uz * vy, cz = ux * vy;
+  if (cx * nx + cz * nz > 0) mesh.T.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  else mesh.T.push(base, base + 2, base + 1, base, base + 3, base + 2);
+  mesh.C.push(paintOf, paintOf);
+}
+// Where the slumped deckhouse came off abaft her forward 5.25-inch (see
+// FORE_DECK_CUT), her superstructure was left open right through, from one
+// side to the other: each side is plated in again, flush with the cut, from
+// the drum of the 5.25-inch abaft it to the barbette of the one forward of it.
+// And the foot of her bridge front, which the sculpt left open in an arch
+// over her deck abaft B, plated across.
+export const OPENINGS = [];
+for (const sd of [-1, 1]) {
+  const x = sd * 9.4;
+  wallPlate(m, x, 5.0, x, 12.0, deck.y(x, 8) - 0.2, 14.6, sd, 0);
+  OPENINGS.push({ x, z0: 5.0, z1: 12.0, y1: 14.6 });
+}
+wallPlate(m, -4.6, 25.0, 4.6, 25.0, deck.y(0, 25) - 0.2, deck.y(0, 25) + 2.4, 0, 1);
+OPENINGS.push({ z: 25.0, x0: -4.6, x1: 4.6 });
+// And the sides of the neck of her bridge where it runs forward to B's
+// barbette, low down, which the clearing round B cut back to (see
+// FORE_DECK_CUT): plated in from her bridge front to the drum.
+for (const sd of [-1, 1]) {
+  const x = sd * 2.6, z1 = TURRETS[1].z - Math.sqrt(B_DRUM ** 2 - 2.6 ** 2) + 0.15;
+  wallPlate(m, x, 24.8, x, z1, deck.y(x, 28) - 0.2, deck.y(x, 28) + 2.4, sd, 0);
+  OPENINGS.push({ x, z0: 24.8, z1 });
+}
+
 for (const b of BARBETTE_TOPS) {
   const t = TURRETS.find((q) => q.name === b.name);
   capDisk(m, 0, t.seat - 0.01, b.z, b.r, b.r);

@@ -4,7 +4,7 @@ import {
   createState, addShip, addBattery, addBomber, applyInput, step, fireGuns, fireTorpedoes,
   manGun, layGun, shootGun, assignMount, setMountOff,
   steerToWaypoint,
-  launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
+  launchStrike, strikeAim, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack,
@@ -795,7 +795,13 @@ export class Room {
         const foe = brain && this.state.ships.find(
           (s) => s.id === brain.targetId && s.alive && s.team !== from.team);
         if (foe) { from.aimX = foe.x; from.aimZ = foe.z; }
-        launchStrike(this.state, from);
+        // Somewhere her aircraft can actually go: see strikeAim.
+        strikeAim(this.state, from);
+        if (!launchStrike(this.state, from) && from.noLaunch) {
+          // And if she still cannot, the captain is told why rather than
+          // left pressing a key that does nothing.
+          this.state.events.push({ e: 'noLaunch', ship: from.id, team: from.team, why: from.noLaunch });
+        }
         break;
       }
       default: break;

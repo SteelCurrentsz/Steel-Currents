@@ -71,6 +71,17 @@ const WAVE_OFF = {
   lineup: 'Aircraft waved off — not lined up',
   long: 'Aircraft waved off — too high, going round',
 };
+// Why an order to launch did not put anything in the air. See launchStrike.
+const NO_LAUNCH = {
+  busy: 'Launch in progress — next aircraft not yet ranged',
+  landing: 'Cannot launch — aircraft landing on',
+  holed: 'Cannot launch — flight deck holed',
+  rearming: 'Cannot launch — aircraft refuelling and rearming',
+  out: 'Cannot launch — all aircraft are airborne or lost',
+  none: 'Cannot launch — no aircraft aboard',
+  far: 'Cannot launch — no target in reach',
+  near: 'Cannot launch — target too close',
+};
 // And when one is later than that, how far a ship is carried on past the last
 // snapshot on her own course and speed before she is held where she is. She
 // is a ship: she does not stop dead in the water because a packet did.
@@ -3198,6 +3209,12 @@ export class Battle {
           if (!v || !v.group.userData.recover) break;
           this.recallDeckPlane(v);
           v.group.userData.recover(this.time, ev.r);
+          break;
+        }
+        case 'noLaunch': {
+          if (ev.ship === this.shipId || ev.ship === this.conned()) {
+            this.hud.alert(NO_LAUNCH[ev.why] || 'Cannot launch');
+          }
           break;
         }
         case 'waveOff': {

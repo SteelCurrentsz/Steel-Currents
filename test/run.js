@@ -38,7 +38,7 @@ import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine } from '../shared/sim.js';
 import {
-  normaliseAirGroup, defaultAirGroup, launchStrike, launchOrder, gunRear, steerToWaypoint, steerToward,
+  normaliseAirGroup, defaultAirGroup, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, runwayLength, takeoffRoll, deckRunFate, resolveShellHit, buoyancy, launchOffset, gunLimits,
@@ -10656,6 +10656,26 @@ check('a strike is not flown at a target under her own bows', () => {
   // And she is not sulking: give the target sea room and she goes.
   ship.aimX = ship.x + 5000; ship.aimZ = ship.z;
   assert.ok(launchStrike(state, ship), 'she would not launch at a proper range');
+});
+
+check('an order to launch puts an aircraft up whenever one is ready, wherever her guns are laid', () => {
+  // The key used to do nothing at all whenever she was laid on nothing in
+  // reach: no target picked, the cursor alongside her, a foe beyond her
+  // aircraft's range. Every ship that carries aircraft, every one of those.
+  for (const id of SHIP_ORDER) {
+    const cls = SHIP_CLASSES[id];
+    if (!cls.planes) continue;
+    for (const foe of [null, 6000, cls.planes.strikeRange * 2, 300]) {
+      const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+      const s = addShip(st, { name: 'A', classId: id, team: 0, index: 0 });
+      if (foe) { const e = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 }); e.x = s.x + foe; e.z = s.z; }
+      s.aimX = s.x + 50; s.aimZ = s.z;
+      strikeAim(st, s);
+      assert.ok(launchStrike(st, s), `the ${id} with a foe at ${foe} would not launch: ${s.noLaunch}`);
+      // And when she cannot, she says why.
+      assert.ok(!launchStrike(st, s) && s.noLaunch, `the ${id} refused a second launch without a reason`);
+    }
+  }
 });
 
 check('nothing but the launching aircraft is ever on the runway', () => {

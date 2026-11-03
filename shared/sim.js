@@ -8306,25 +8306,29 @@ export const MIN_STRIKE_RANGE = 1200;
 
 export function launchStrike(state, ship) {
   const cls = shipClass(ship);
-  if (!cls.planes || !ship.alive) return false;
-  if (ship.deckBusy > 0) return false;
+  // Why she did not, when she does not -- for the captain who pressed the key
+  // and saw nothing happen. See strikeRefusal.
+  const no = (why) => { ship.noLaunch = why; return false; };
+  ship.noLaunch = null;
+  if (!cls.planes || !ship.alive) return no('none');
+  if (ship.deckBusy > 0) return no('busy');
   // A deckload waiting between aeroplanes for one coming in to land still has
   // the rest of it below to fly off. See stepLaunch.
-  if (ship.launching && ship.launching.hold) return false;
+  if (ship.launching && ship.launching.hold) return no('landing');
   // Nor while an aeroplane is about to land on her, or the last one down is
   // still on the deck. See stepLanding.
-  if (ship.trapBusy > 0 || landingCommitted(state, ship)) return false;
+  if (ship.trapBusy > 0 || landingCommitted(state, ship)) return no('landing');
   // Nothing takes off over a hole. See flightDeckOut.
-  if (flightDeckOut(ship)) return false;
+  if (flightDeckOut(ship)) return no('holed');
   const sq = ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0);
-  if (!sq) return false;
+  if (!sq) return no(ship.squadrons.some((s) => s.state === 'deck') ? 'rearming' : 'out');
   const d = dist(ship.x, ship.z, ship.aimX, ship.aimZ);
-  if (d > cls.planes.strikeRange) return false;
+  if (!(d <= cls.planes.strikeRange)) return no('far');
   // And not at a point on top of her. A squadron sent to where it already is
   // arrives on the next tick and is recovered on the one after -- the aircraft
   // is still on the lift when the simulation has already flown it out and
   // brought it home, which is not a strike, it is a bookkeeping entry.
-  if (d < MIN_STRIKE_RANGE) return false;
+  if (d < MIN_STRIKE_RANGE) return no('near');
   sq.state = 'flying';
   ship.deckBusy = cls.planes.deckCycle ?? DECK_CYCLE;
   // The order is not the launch. Pressing it rings the deck: the lift fetches
@@ -8396,6 +8400,54 @@ export function launchStrike(state, ship) {
     d: ship.launching.left,
   });
   return true;
+}
+
+/**
+ * Where a captain's order to launch sends her aircraft, when he gives one.
+ *
+ * The order used to go wherever her guns happened to be laid, and when that
+ * was nowhere useful -- no target picked, the cursor alongside her, a foe
+ * beyond her aircraft's reach -- the key did nothing at all. So, in turn: the
+ * point she is laid on, if it is in reach; the nearest enemy in reach; the
+ * point she is laid on, or the nearest enemy, as far towards it as her
+ * aircraft reach; and failing all of that a search ahead of her -- which is
+ * what a cruiser's or a battleship's scout is flown off for anyway.
+ *
+ * Sets her aim to it and returns it.
+ */
+export function strikeAim(state, ship) {
+  const cls = shipClass(ship);
+  if (!cls.planes) return null;
+  const R = cls.planes.strikeRange;
+  const reach = Math.max(MIN_STRIKE_RANGE * 1.2, R * 0.9);
+  const ok = (x, z) => {
+    const d = dist(ship.x, ship.z, x, z);
+    return Number.isFinite(d) && d >= MIN_STRIKE_RANGE && d <= R;
+  };
+  const toward = (x, z) => {
+    const d = dist(ship.x, ship.z, x, z) || 1;
+    return { x: ship.x + ((x - ship.x) / d) * reach, z: ship.z + ((z - ship.z) / d) * reach };
+  };
+  let at = null;
+  const aimed = Number.isFinite(ship.aimX) && Number.isFinite(ship.aimZ);
+  if (aimed && ok(ship.aimX, ship.aimZ)) at = { x: ship.aimX, z: ship.aimZ };
+  if (!at) {
+    let best = null, bd = Infinity;
+    for (const o of state.ships) {
+      if (!o.alive || o.team === ship.team) continue;
+      const d = dist(ship.x, ship.z, o.x, o.z);
+      if (d >= MIN_STRIKE_RANGE && d < bd) { bd = d; best = o; }
+    }
+    if (best && bd <= R) at = { x: best.x, z: best.z };
+    else if (aimed && dist(ship.x, ship.z, ship.aimX, ship.aimZ) > R) at = toward(ship.aimX, ship.aimZ);
+    else if (best) at = toward(best.x, best.z);
+    else {
+      const run = Math.min(R * 0.9, Math.max(MIN_STRIKE_RANGE * 2.5, R * 0.5));
+      at = { x: ship.x + Math.sin(ship.heading || 0) * run, z: ship.z + Math.cos(ship.heading || 0) * run };
+    }
+  }
+  ship.aimX = at.x; ship.aimZ = at.z;
+  return at;
 }
 
 /**
