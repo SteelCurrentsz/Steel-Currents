@@ -311,7 +311,9 @@ function shellRuler(group) {
     return hi < lo ? null : { lo, hi };
   };
 }
-import { angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, makeRng } from '../shared/math.js';
+import {
+  angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, makeRng, worldToLocal,
+} from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import {
   Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL, heldTo, MAX_HULLS, HOLD_MARGIN,
@@ -23158,6 +23160,89 @@ check('a dive bomber puts her brakes out, rolls over, pulls through on her back 
   assert.ok(done, 'she never pulled out and climbed away');
   // And the client is told the brakes and her attitude all the way down.
   assert.ok(sawWire, 'the dive went out on the wire without her brakes or her pitch');
+});
+
+check('a dive bomber rolls in with one smooth barrel roll, all the way round', () => {
+  // She used to go over on her back at a fixed rate, hang there while she
+  // pulled, and roll back the way she came. Now it is one roll, eased in and
+  // out, all the way round to upright, with the nose down by the end of it.
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = ship.x + 9000; foe.z = ship.z + 3000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  let id = null, prev = 0, turned = 0, first = null, lastStep = null, worst = 0, path = null;
+  for (let i = 0; i < 400 / DT; i++) {
+    step(state, DT);
+    const p = id ? state.planes.find((q) => q.id === id) : state.planes.find((q) => q.role === 'dive' && q.dv === 'roll');
+    if (!p) { if (id) break; continue; }
+    if (p.dv !== 'roll') { if (id) { path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0)); break; } continue; }
+    id = p.id;
+    const d = angleDelta(prev, p.show || 0);
+    if (first === null) first = Math.abs(d);
+    lastStep = Math.abs(d);
+    worst = Math.max(worst, Math.abs(d));
+    turned += d;
+    prev = p.show || 0;
+  }
+  assert.ok(id, 'no dive bomber ever rolled in');
+  assert.ok(Math.abs(Math.abs(turned) - 2 * Math.PI) < 0.05,
+    `she rolled ${(turned * 57.3).toFixed(0)} degrees, not once all the way round`);
+  // Eased at both ends, and never a lurch in between.
+  assert.ok(first < 0.01 && lastStep < 0.01, `her roll started at ${first} and stopped at ${lastStep} a tick`);
+  assert.ok(worst < 0.12, `her roll jumped ${(worst * 57.3).toFixed(1)} degrees in a tick`);
+  assert.ok(path !== null && path < -0.85, `she came out of the roll ${path === null ? 'never' : (-path * 57.3).toFixed(0)} degrees down`);
+});
+
+check('a dive bomber\'s bomb comes down on the ship, where she will be when it lands', () => {
+  // A bomb takes seconds to fall and a destroyer at speed is fifty metres on
+  // by then. Hits used to be sent at the middle of her as she was at the
+  // release, so they came down in her wake, and misses went anything up to
+  // a quarter of a mile off.
+  const state = createState(generateWorld(11, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = ship.x + 9000; foe.z = ship.z + 3000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  const cls = SHIP_CLASSES.fletcher;
+  const L = cls.hull.length / 2, B = cls.hull.beam / 2;
+  const falling = [];
+  let landed = 0, hits = 0, t = 0, way = 0;
+  for (let i = 0; i < 400 / DT; i++) {
+    foe.notch = 4;
+    foe.rudderCmd = 0.2;
+    for (const s of state.ships) s.spottedBy = [true, true];
+    for (const ev of step(state, DT)) {
+      if (ev.e !== 'bomb') continue;
+      const p = state.planes.find((q) => q.id === ev.i);
+      const h = p.y - 12, down = Math.max(0, -p.vy);
+      falling.push({ at: t + (-down + Math.sqrt(down * down + 2 * 9.80665 * h)) / 9.80665, ev });
+    }
+    t += DT;
+    for (const b of falling) {
+      if (b.done || t < b.at) continue;
+      b.done = true;
+      landed++;
+      way = Math.max(way, foe.speed);
+      const l = worldToLocal(b.ev.tx - foe.x, b.ev.tz - foe.z, foe.heading);
+      const onHer = Math.abs(l.x) <= B + 1 && Math.abs(l.z) <= L + 1;
+      if (b.ev.hit) {
+        hits++;
+        assert.ok(onHer, `a hit came down ${l.x.toFixed(0)} m across and ${l.z.toFixed(0)} m along her`);
+      } else {
+        assert.ok(!onHer, 'a miss came down on her deck');
+        assert.ok(Math.abs(l.x) < B + 50 && Math.abs(l.z) < L + 50,
+          `a miss went in ${l.x.toFixed(0)} m across and ${l.z.toFixed(0)} m along her`);
+      }
+    }
+  }
+  assert.ok(way > 8, 'the target was not under way when the bombs came down');
+  assert.ok(landed >= 2, `only ${landed} bombs came down`);
+  assert.ok(hits > 0, 'not one bomb hit her');
 });
 
 check('dive brakes hold a dive bomber to an aimable speed, and do nothing on a fighter', () => {

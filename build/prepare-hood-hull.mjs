@@ -476,7 +476,8 @@ function closeSmallHoles(m, maxRim, { thinRim = 0, thin = 0.12 } = {}) {
 /**
  * The 5.5-inch guns the sculpt cast into her superstructure, port side (the
  * starboard ones are their mirror): one on her shelter deck abreast her fore
- * funnel, and three on her forecastle deck in bays under it.
+ * funnel, three on her forecastle deck in bays under it, and one on that deck
+ * between her after davits.
  */
 const SCULPT_GUNS = process.env.NOGUNCUT ? [] : [
   // The one on her shelter deck: its shield, and forward of it its barrel,
@@ -489,7 +490,15 @@ const SCULPT_GUNS = process.env.NOGUNCUT ? [] : [
   { x0: 9.4, x1: 11.6, y0: 10.9, y1: 12.2, z0: 19.6, z1: 21.8, bare: true },
   { x0: 10.3, x1: 13.9, y0: 7.3, y1: 9.75, z0: 14.1, z1: 24.9 },
   { x0: 10.6, x1: 14.4, y0: 7.3, y1: 9.9, z0: -6.95, z1: -0.85 },
-  { x0: 10.1, x1: 13.6, y0: 7.3, y1: 9.9, z0: -28.3, z1: -22.2 },
+  // The after bay's gun: its cut stops well short of her wall, which stands
+  // two metres further in, so nothing is plated across it -- a plate there
+  // stood out in front of the gun hood.js puts in that bay.
+  { x0: 10.1, x1: 13.6, y0: 7.3, y1: 9.9, z0: -28.3, z1: -22.2, bare: true },
+  // And one more on her forecastle deck between the two davits abreast her
+  // after funnel, standing free of her wall: its block, and its barrel
+  // forward of it, short of the foot of the forward davit.
+  { x0: 10.0, x1: 13.3, y0: 7.3, y1: 9.75, z0: -18.9, z1: -15.2, bare: true },
+  { x0: 10.9, x1: 12.6, y0: 7.9, y1: 9.0, z0: -15.2, z1: -12.4, bare: true },
 ];
 /**
  * The bay abaft her bridge, port side, opened out for the 5.5-inch in it:
