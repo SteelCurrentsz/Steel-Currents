@@ -4046,8 +4046,8 @@ export const SHIP_CLASSES = {
             { x: 4.6, z: -84.5, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 4, my: 9.04 },
             { x: -4.6, z: -84.5, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 4, my: 9.04 },
           ] },
-        // Her thirty-six Oerlikons: ten along the edges of her deck, on her
-        // forecastle and her quarterdeck; eighteen up on her superstructure --
+        // Her thirty-six Oerlikons: twelve along the edges of her deck, on her
+        // forecastle and her quarterdeck; sixteen up on her superstructure --
         // on the top of her bridge, on the platforms beside it and her
         // foremast, beside her funnels and on her after superstructure; and
         // eight on the roofs of her turrets -- a pair on A and on B, two pairs
@@ -4076,8 +4076,8 @@ export const SHIP_CLASSES = {
             { x: -5, z: 5, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 19.04 },
             { x: 7, z: -2, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 17.04 },
             { x: -7, z: -2, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 17.04 },
-            { x: 4, z: -21, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 14.43 },
-            { x: -4, z: -21, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 14.43 },
+            { x: 6.62, z: 86, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.63 },
+            { x: -6.62, z: 86, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.63 },
             { x: 5, z: -31, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 15.82 },
             { x: -5, z: -31, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 15.82 },
             { x: 6.5, z: -38, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 13.75 },

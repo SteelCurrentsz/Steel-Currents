@@ -609,15 +609,18 @@ for (const c of CAST_POMPOM) {
 }
 dropLoose(m, { maxArea: 1, maxDiag: 2 });
 
-// ---- the floats lashed to her bridge ------------------------------------------------
+// ---- the floats lashed to her superstructure ------------------------------------------------
 // Her Carley floats, each a ring a couple of metres across lashed flat to a
-// wall, which the decimation fused into the wall as a melted lump: pressed
+// wall of her bridge or her after superstructure, which the decimation fused into the wall as a melted lump: pressed
 // flat into the wall they hung on, either side. Each is given by a point on
 // it and the way the wall faces, starboard side.
 export const FLOATS = [
   { c: [6.2, 11.6, 25.2], n: [0.65, 0, 0.76], a0: -3.1, a1: 5.6, y0: 9.05, y1: 13.2, wall: -0.83, depth: 1.25 },
   { c: [9.0, 12.6, 11.0], n: [1, 0, 0.1], a0: -2.4, a1: 1.8, y0: 10.0, y1: 14.8, wall: -0.31, depth: 1.7 },
   { c: [9.0, 12.6, 11.0], n: [1, 0, 0.1], a0: -5.0, a1: -2.4, y0: 10.0, y1: 14.8, wall: -0.2, depth: 1.5 },
+  // And two on the after face of her after superstructure, abreast Y.
+  { c: [4.0, 10.5, -46.2], n: [0.66, 0, -0.75], a0: -3.8, a1: -0.6, y0: 9.2, y1: 12.0, wall: -0.36, depth: 0.7 },
+  { c: [4.0, 10.5, -46.2], n: [0.66, 0, -0.75], a0: -0.6, a1: 2.9, y0: 9.2, y1: 12.0, wall: -0.3, depth: 0.7 },
 ];
 for (const f of FLOATS) {
   for (const side of [1, -1]) {
@@ -996,21 +999,21 @@ export const BOFORS_SEATS = standing([
 ]);
 
 // Her thirty-six Oerlikons, eighteen a side, as she carried them by 1945.
-// Ten along the edge of her deck, the starboard ones their mirrors: on her
+// Twelve along the edge of her deck, the starboard ones their mirrors: on her
 // forecastle forward of A and abreast B, and on her quarterdeck abreast Y and
 // abaft it...
 const DECK_OERLIKONS = standing([
-  { z: 92.0, inset: 1.3 }, { z: 80.0, inset: 1.3 }, { z: 42.0, inset: 1.3 },
+  { z: 92.0, inset: 1.3 }, { z: 86.0, inset: 1.3 }, { z: 80.0, inset: 1.3 }, { z: 42.0, inset: 1.3 },
   { z: -70.0, inset: 1.3 }, { z: -94.0, inset: 1.3 },
 ].map(({ z, inset }) => ({ name: 'Oerlikon', x: edge(z, inset), z, r: 0.8 })));
-// ...eighteen up on her superstructure, nine a side, each on a flat of it
+// ...sixteen up on her superstructure, eight a side, each on a flat of it
 // open to the sky: on the top of her bridge, on the platforms either side
-// of her bridge, on the platforms either side of her fore funnel and of her
-// after funnel clear of where her 5.25-inch swing, and on her after
-// superstructure abreast her mainmast...
+// of her bridge and of her fore funnel, clear of where her 5.25-inch swing,
+// and on her after superstructure abaft her after funnel and abreast her
+// mainmast...
 const SUPER_OERLIKONS = standing([
   [3.0, 22.5], [7.5, 16.0], [7.0, 19.6], [5.0, 5.0], [7.0, -2.0],
-  [4.0, -21.0], [5.0, -31.0], [6.5, -38.0], [7.0, -42.0],
+  [5.0, -31.0], [6.5, -38.0], [7.0, -42.0],
 ].map(([x, z]) => ({ name: 'Oerlikon', x, z, r: 0.5 })));
 // ...and eight on the roofs of her turrets, as she carried them in 1945: a
 // pair on A and on B, on the flat of the roof abaft the sighting hoods, and
