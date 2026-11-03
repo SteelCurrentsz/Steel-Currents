@@ -10661,7 +10661,8 @@ check('a strike is not flown at a target under her own bows', () => {
 check('an order to launch puts an aircraft up whenever one is ready, wherever her guns are laid', () => {
   // The key used to do nothing at all whenever she was laid on nothing in
   // reach: no target picked, the cursor alongside her, a foe beyond her
-  // aircraft's range. Every ship that carries aircraft, every one of those.
+  // aircraft's range. Every ship that carries aircraft, every one of those --
+  // and one laid on a point far beyond her aircraft's range sends them there.
   for (const id of SHIP_ORDER) {
     const cls = SHIP_CLASSES[id];
     if (!cls.planes) continue;
@@ -10671,10 +10672,14 @@ check('an order to launch puts an aircraft up whenever one is ready, wherever he
       if (foe) { const e = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 }); e.x = s.x + foe; e.z = s.z; }
       s.aimX = s.x + 50; s.aimZ = s.z;
       strikeAim(st, s);
-      assert.ok(launchStrike(st, s), `the ${id} with a foe at ${foe} would not launch: ${s.noLaunch}`);
-      // And when she cannot, she says why.
-      assert.ok(!launchStrike(st, s) && s.noLaunch, `the ${id} refused a second launch without a reason`);
+      assert.ok(launchStrike(st, s), `the ${id} with a foe at ${foe} would not launch`);
     }
+    const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'A', classId: id, team: 0, index: 0 });
+    s.aimX = s.x + cls.planes.strikeRange * 3; s.aimZ = s.z;
+    strikeAim(st, s);
+    assert.equal(s.aimX, s.x + cls.planes.strikeRange * 3, `the ${id}'s aim was pulled in`);
+    assert.ok(launchStrike(st, s), `the ${id} would not launch at three times her aircraft's range`);
   }
 });
 

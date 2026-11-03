@@ -797,11 +797,7 @@ export class Room {
         if (foe) { from.aimX = foe.x; from.aimZ = foe.z; }
         // Somewhere her aircraft can actually go: see strikeAim.
         strikeAim(this.state, from);
-        if (!launchStrike(this.state, from) && from.noLaunch) {
-          // And if she still cannot, the captain is told why rather than
-          // left pressing a key that does nothing.
-          this.state.events.push({ e: 'noLaunch', ship: from.id, team: from.team, why: from.noLaunch });
-        }
+        launchStrike(this.state, from);
         break;
       }
       default: break;

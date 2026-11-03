@@ -8306,29 +8306,27 @@ export const MIN_STRIKE_RANGE = 1200;
 
 export function launchStrike(state, ship) {
   const cls = shipClass(ship);
-  // Why she did not, when she does not -- for the captain who pressed the key
-  // and saw nothing happen. See strikeRefusal.
-  const no = (why) => { ship.noLaunch = why; return false; };
-  ship.noLaunch = null;
-  if (!cls.planes || !ship.alive) return no('none');
-  if (ship.deckBusy > 0) return no('busy');
+  if (!cls.planes || !ship.alive) return false;
+  if (ship.deckBusy > 0) return false;
   // A deckload waiting between aeroplanes for one coming in to land still has
   // the rest of it below to fly off. See stepLaunch.
-  if (ship.launching && ship.launching.hold) return no('landing');
+  if (ship.launching && ship.launching.hold) return false;
   // Nor while an aeroplane is about to land on her, or the last one down is
   // still on the deck. See stepLanding.
-  if (ship.trapBusy > 0 || landingCommitted(state, ship)) return no('landing');
+  if (ship.trapBusy > 0 || landingCommitted(state, ship)) return false;
   // Nothing takes off over a hole. See flightDeckOut.
-  if (flightDeckOut(ship)) return no('holed');
+  if (flightDeckOut(ship)) return false;
   const sq = ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0);
-  if (!sq) return no(ship.squadrons.some((s) => s.state === 'deck') ? 'rearming' : 'out');
+  if (!sq) return false;
+  // As far as she is told to send them: there is no limit on how far out a
+  // captain may order his aircraft.
   const d = dist(ship.x, ship.z, ship.aimX, ship.aimZ);
-  if (!(d <= cls.planes.strikeRange)) return no('far');
+  if (!Number.isFinite(d)) return false;
   // And not at a point on top of her. A squadron sent to where it already is
   // arrives on the next tick and is recovered on the one after -- the aircraft
   // is still on the lift when the simulation has already flown it out and
   // brought it home, which is not a strike, it is a bookkeeping entry.
-  if (d < MIN_STRIKE_RANGE) return no('near');
+  if (d < MIN_STRIKE_RANGE) return false;
   sq.state = 'flying';
   ship.deckBusy = cls.planes.deckCycle ?? DECK_CYCLE;
   // The order is not the launch. Pressing it rings the deck: the lift fetches
@@ -8405,32 +8403,25 @@ export function launchStrike(state, ship) {
 /**
  * Where a captain's order to launch sends her aircraft, when he gives one.
  *
- * The order used to go wherever her guns happened to be laid, and when that
- * was nowhere useful -- no target picked, the cursor alongside her, a foe
- * beyond her aircraft's reach -- the key did nothing at all. So, in turn: the
- * point she is laid on, if it is in reach; the nearest enemy in reach; the
- * point she is laid on, or the nearest enemy, as far towards it as her
- * aircraft reach; and failing all of that a search ahead of her -- which is
- * what a cruiser's or a battleship's scout is flown off for anyway.
+ * Wherever she is laid, however far: there is no limit on range. Only a
+ * point on top of her -- or no point at all -- is not somewhere to fly to
+ * (see MIN_STRIKE_RANGE), and then they go out that way, or for the nearest
+ * enemy, or failing both on a search ahead of her, rather than the key doing
+ * nothing.
  *
  * Sets her aim to it and returns it.
  */
 export function strikeAim(state, ship) {
   const cls = shipClass(ship);
   if (!cls.planes) return null;
-  const R = cls.planes.strikeRange;
-  const reach = Math.max(MIN_STRIKE_RANGE * 1.2, R * 0.9);
-  const ok = (x, z) => {
+  const out = MIN_STRIKE_RANGE * 1.5;
+  const from = (x, z) => {
     const d = dist(ship.x, ship.z, x, z);
-    return Number.isFinite(d) && d >= MIN_STRIKE_RANGE && d <= R;
+    return d > 1 ? { x: ship.x + ((x - ship.x) / d) * out, z: ship.z + ((z - ship.z) / d) * out } : null;
   };
-  const toward = (x, z) => {
-    const d = dist(ship.x, ship.z, x, z) || 1;
-    return { x: ship.x + ((x - ship.x) / d) * reach, z: ship.z + ((z - ship.z) / d) * reach };
-  };
-  let at = null;
   const aimed = Number.isFinite(ship.aimX) && Number.isFinite(ship.aimZ);
-  if (aimed && ok(ship.aimX, ship.aimZ)) at = { x: ship.aimX, z: ship.aimZ };
+  let at = null;
+  if (aimed && dist(ship.x, ship.z, ship.aimX, ship.aimZ) >= MIN_STRIKE_RANGE) at = { x: ship.aimX, z: ship.aimZ };
   if (!at) {
     let best = null, bd = Infinity;
     for (const o of state.ships) {
@@ -8438,13 +8429,12 @@ export function strikeAim(state, ship) {
       const d = dist(ship.x, ship.z, o.x, o.z);
       if (d >= MIN_STRIKE_RANGE && d < bd) { bd = d; best = o; }
     }
-    if (best && bd <= R) at = { x: best.x, z: best.z };
-    else if (aimed && dist(ship.x, ship.z, ship.aimX, ship.aimZ) > R) at = toward(ship.aimX, ship.aimZ);
-    else if (best) at = toward(best.x, best.z);
-    else {
-      const run = Math.min(R * 0.9, Math.max(MIN_STRIKE_RANGE * 2.5, R * 0.5));
-      at = { x: ship.x + Math.sin(ship.heading || 0) * run, z: ship.z + Math.cos(ship.heading || 0) * run };
-    }
+    if (best) at = { x: best.x, z: best.z };
+  }
+  if (!at && aimed) at = from(ship.aimX, ship.aimZ);
+  if (!at) {
+    const h = ship.heading || 0;
+    at = { x: ship.x + Math.sin(h) * out, z: ship.z + Math.cos(h) * out };
   }
   ship.aimX = at.x; ship.aimZ = at.z;
   return at;
@@ -10741,6 +10731,21 @@ function aloft(p) {
   return p.life - (p.formT || 0);
 }
 
+/**
+ * How long a strike keeps going out before it gives up and turns for home
+ * with nothing found: three minutes, or as long as it takes to fly out to
+ * the point it was sent to and two minutes more, whichever is the longer --
+ * a captain may send his aircraft as far as he likes, and they go. Worked
+ * out the first time it is asked, from where she then is.
+ */
+function outboundFor(p) {
+  if (p.outFor == null) {
+    const d = Number.isFinite(p.tx) ? dist(p.x, p.z, p.tx, p.tz) : 0;
+    p.outFor = Math.max(180, d / Math.max(40, p.speed || 80) + 120);
+  }
+  return p.outFor;
+}
+
 function stepPlanes(state, dt) {
   const out = [];
   for (const p of state.planes) {
@@ -11464,7 +11469,7 @@ function stepPlanes(state, dt) {
           p.tx = best.x + Math.sin(best.heading) * sv * tLead;
           p.tz = best.z + Math.cos(best.heading) * sv * tLead;
         }
-      } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || aloft(p) > 180) {
+      } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || aloft(p) > outboundFor(p)) {
         p.phase = 'return';
       }
     } else if (p.phase === 'return' && carrier && !oneWay(P)
