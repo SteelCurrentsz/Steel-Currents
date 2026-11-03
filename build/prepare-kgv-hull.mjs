@@ -329,7 +329,7 @@ const CAST_POMPOM = [
 // From forward of A turret's barrels to abaft Y's, everything the sculpt
 // stood on her deck inboard of her deck edge comes off her, from a hand under
 // her deck up. Her deck edge -- her bulwarks and rails -- stays.
-export const CLEARED = { z0: -79, z1: 75.5, edge: 0.9, under: 0.15 };
+export const CLEARED = { z0: -107, z1: 104, edge: 0.55, under: 0.15 };
 {
   const inside = (x, y, z) => Math.min(y - (deck.y(x, z) - CLEARED.under), halfBreadth(z) - CLEARED.edge - Math.abs(x),
     z - CLEARED.z0, CLEARED.z1 - z);
@@ -337,6 +337,18 @@ export const CLEARED = { z0: -79, z1: 75.5, edge: 0.9, under: 0.15 };
   splitAlong(m, inside, { drop: true });
   dropLoose(m, { maxArea: 4, maxDiag: 6 });
   console.log(`her deck cleared: ${before} triangles, ${m.T.length / 3} left`);
+}
+// A fin the sculpt stood on her bulwark either side abreast A -- an anchor
+// bed's lip, folded out over her side by the decimation -- comes off, down to
+// the top of her bulwark and in to her side.
+{
+  const fin = (x, y, z) => {
+    const ax = Math.abs(x);
+    const off = Math.max(ax - 10.6, 9.75 - ax, y - 9.32);
+    return Math.min(z - 72.6, 76.2 - z, ax - 9.0, y - 8.3, off);
+  };
+  splitAlong(m, fin, { drop: true });
+  dropLoose(m, { maxArea: 1, maxDiag: 3 });
 }
 // And laid again: a sheet over what was cleared, a hair over where her deck
 // was and a hand out over the edge of the cut, along her camber.
@@ -596,12 +608,12 @@ recomputeNormals(m);
 const st = stations(m, { length: REAL_LOA, beamCap: 6.8, edgeCap: 10.0, slice: true, beamFloor: 0 });
 const canon = weld(m);
 const thin = thinFaces(m, 0.5);
-// Her superstructure -- what stands on her deck, inboard of her side -- is
+// Everything of her over her deck -- her superstructure and her bulwarks -- is
 // shaded across the pleats its decimation left, and split only at its corners.
 const soft = new Uint8Array(m.T.length / 3);
 for (let t = 0; t < soft.length; t++) {
   const [cx, cy, cz] = middle(m, t);
-  soft[t] = cy > deck.y(cx, cz) + 0.1 && Math.abs(cx) < halfBreadth(cz) - 0.6 ? 1 : 0;
+  soft[t] = cy > deck.y(cx, cz) + 0.1 ? 1 : 0;
 }
 const plating = hardEdges(m, canon, st, {
   crease: 44 * Math.PI / 180, plateTilt: 35 * Math.PI / 180, foot: -4.0, smooth: thin,
@@ -906,13 +918,41 @@ export const BOFORS_SEATS = standing([
 // her deck abreast her superstructure clear of her 5.25-inch and her boats,
 // and on her quarterdeck abreast Y and abaft it, with a second row inboard
 // near her stern. Her superstructure's decks are too crowded to take one.
-export const OERLIKON_SEATS = standing([
+// Twenty-eight along her deck edges, forecastle to quarterdeck, the
+// starboard ones their mirrors...
+const DECK_OERLIKONS = standing([
   { z: 92.0, inset: 1.3 }, { z: 86.0, inset: 1.3 }, { z: 80.0, inset: 1.3 }, { z: 51.0, inset: 1.3 },
-  { z: 42.0, inset: 1.3 }, { z: 36.0, inset: 1.3 }, { z: 24.0, inset: 1.3 }, { z: -4.0, inset: 1.2 },
-  { z: -14.0, inset: 1.2 }, { z: -44.0, inset: 1.2 }, { z: -58.0, inset: 1.3 }, { z: -66.0, inset: 1.3 },
-  { z: -74.0, inset: 1.3 }, { z: -82.0, inset: 1.3 }, { z: -90.0, inset: 1.3 }, { z: -98.0, inset: 1.3 },
-  { z: -95.0, inset: 4.3 }, { z: -101.0, inset: 2.9 },
+  { z: 42.0, inset: 1.3 }, { z: 24.0, inset: 1.3 }, { z: -4.0, inset: 1.2 }, { z: -14.0, inset: 1.2 },
+  { z: -44.0, inset: 1.2 }, { z: -58.0, inset: 1.3 }, { z: -70.0, inset: 1.3 }, { z: -82.0, inset: 1.3 },
+  { z: -94.0, inset: 1.3 }, { z: -101.0, inset: 2.9 },
 ].map(({ z, inset }) => ({ name: 'Oerlikon', x: edge(z, inset), z, r: 0.8 })));
+// ...and eight on the roofs of her turrets, as she carried them in 1945: a
+// pair on A and on B, on the flat of the roof abaft the sighting hoods, and
+// two pairs on Y. Each is put on its turret's roof in its turret's own frame
+// (x across, z towards the muzzles) and rides round with it; where it is
+// given here is where it stands with its turret trained fore and aft. Its
+// height is the roof's own, read off the gunhouse round it.
+const ROOF_OERLIKONS = [
+  ['A', 3.5, -2.5], ['A', -3.5, -2.5], ['B', 1.2, -2.5], ['B', -1.2, -2.5],
+  ['Y', 3.4, 1.0], ['Y', -3.4, 1.0], ['Y', 1.8, 4.6], ['Y', -1.8, 4.6],
+].map(([name, lx, lz]) => {
+  const t = TURRETS.find((q) => q.name === name);
+  const house = { A: MAIN_A, B: MAIN_B, Y: MAIN_Y }[name].house;
+  const ys = [];
+  for (let i = 0; i < house.P.length; i += 3) {
+    if (Math.hypot(house.P[i] - lx, house.P[i + 2] - lz) < 0.7) ys.push(house.P[i + 1]);
+  }
+  ys.sort((p, q) => q - p);
+  // The plate, not a hatch or a periscope on it: the top of what is there,
+  // below anything standing a hand proud of the rest.
+  const ly = ys.find((y, k) => k + 1 >= ys.length || y - ys[Math.min(ys.length - 1, k + 3)] < 0.15) ?? 3.0;
+  const c = Math.cos(t.rest), sn = Math.sin(t.rest);
+  return {
+    name: 'Oerlikon', turret: name, lx, lz, ly: +ly.toFixed(3),
+    x: +(t.x + lx * c + lz * sn).toFixed(2), z: +(t.z - lx * sn + lz * c).toFixed(2), y: +(t.seat + ly).toFixed(3),
+  };
+});
+export const OERLIKON_SEATS = [...DECK_OERLIKONS, ...ROOF_OERLIKONS];
 console.log('her Bofors:', BOFORS_SEATS.map((s) => `${s.x}/${s.z}@${s.y}`).join(' '));
 console.log('her Oerlikons:', OERLIKON_SEATS.map((s) => `${s.x}/${s.z}@${s.y}`).join(' '));
 console.log('her pom-poms:', POMPOMS.map((s) => `${s.x}/${s.z}@${s.y}`).join(' '));

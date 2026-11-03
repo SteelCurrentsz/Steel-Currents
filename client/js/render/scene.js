@@ -1698,6 +1698,16 @@ export class ShipView {
       }
     }
     if (!this.aaMounts.length) return;
+    // A light gun on a turret's roof goes round with the turret: it is put
+    // where its spot on the roof has trained to, and is laid in her frame
+    // like every other. (The King George V's Oerlikons on A, B and Y.)
+    for (const m of this.aaMounts) {
+      const ride = m.userData.ride;
+      if (!ride) continue;
+      const t = ride.turret;
+      const c = Math.cos(t.rotation.y), s = Math.sin(t.rotation.y);
+      m.position.set(t.position.x + ride.x * c + ride.z * s, t.position.y + ride.y, t.position.z - ride.x * s + ride.z * c);
+    }
     // The nearest aeroplane, in her own frame -- bearing, and how far up.
     let want = null;
     let up = null;

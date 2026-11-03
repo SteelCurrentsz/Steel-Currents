@@ -3117,6 +3117,15 @@ check('the King George V carries her guns where they can be trained from', () =>
   // or under it.
   for (const list of [KGV_SEATS.secondary, KGV_SEATS.pompom, KGV_SEATS.bofors, KGV_SEATS.oerlikon]) {
     for (const s of list) {
+      // One on a turret's roof stands on the roof, a hand off the plate.
+      if (s.turret) {
+        const t = KGV_SEATS.turrets.find((q) => q.name === s.turret);
+        const roof = kgvGunPiece(`main${t.name}`).roof;
+        assert.ok(s.y - t.seat > 2.5 && s.y - t.seat <= roof + 0.01,
+          `the Oerlikon on ${t.name} stands ${(s.y - t.seat).toFixed(2)} m over its seat, its roof is ${roof}`);
+        assert.ok(Math.hypot(s.lx, s.lz) < t.r - 1.0, `the Oerlikon on ${t.name} is off the edge of its roof`);
+        continue;
+      }
       const y = kgvSurfaceY(s.x, s.z);
       assert.ok(Math.abs(y - s.y) < 1.2, `the mounting at ${s.x}, ${s.z} stands at ${s.y}, her surface there is ${y}`);
     }
@@ -3128,10 +3137,19 @@ check('the King George V carries her guns where they can be trained from', () =>
   for (const t of KGV_SEATS.turrets) {
     const roof = t.seat + kgvGunPiece(`main${t.name}`).roof;
     for (const m of [...cls.secondary.mounts, ...lightMounts(cls)]) {
+      if (m.turret) continue;
       const seat = seats.find((q) => Math.hypot(Math.abs(q.x) - Math.abs(m.x), q.z - m.z) < 0.6);
       if (seat && seat.y > roof) continue;
       assert.ok(Math.hypot(m.x - t.x, m.z - t.z) > t.r + 3, `the mounting at ${m.x}, ${m.z} stands where ${t.name} trains`);
     }
+  }
+  // Her Oerlikons all round her: on her forecastle, amidships, on her
+  // quarterdeck, and on the roofs of her turrets.
+  const oer = cls.aa.guns.find((q) => q.caliber === 20).mounts;
+  assert.equal(oer.length, 36, `she carries ${oer.length} Oerlikons`);
+  assert.ok(oer.filter((m) => m.turret).length >= 6, 'she carries no Oerlikons on her turrets');
+  for (const [lo, hi, where] of [[60, 120, 'forecastle'], [-40, 60, 'waist'], [-120, -40, 'quarterdeck']]) {
+    assert.ok(oer.filter((m) => !m.turret && m.z >= lo && m.z < hi).length >= 6, `she has hardly an Oerlikon on her ${where}`);
   }
   surveyedArcsHold('kgv');
 });

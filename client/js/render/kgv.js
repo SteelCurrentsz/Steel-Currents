@@ -213,8 +213,17 @@ function mountings(g) {
   for (const gun of CLS.aa.guns) {
     for (const m of gun.mounts) {
       const kind = lightKind(gun, m);
-      const seat = near(MOUNT_SEATS[kind], m.x, m.z);
+      // An Oerlikon on a turret's roof stands on the roof seat it was given
+      // (signed: the two of a pair are each its own), and rides round with
+      // the turret: the scene puts it where its spot on the roof has gone
+      // each frame (see `ride` in scene.js), and lays it in her frame.
+      const seat = m.turret
+        ? MOUNT_SEATS[kind].find((q) => q.turret === m.turret && Math.abs(q.x - m.x) < 0.05 && Math.abs(q.z - m.z) < 0.05)
+        : near(MOUNT_SEATS[kind].filter((q) => !q.turret), m.x, m.z);
+      if (!seat) throw new Error(`the King George V has an Oerlikon at ${m.x}, ${m.z} on ${m.turret}'s roof her build does not`);
       const a = sculpted(g, kind, m.x, seat.y, m.z, stowed(m), kind === 'oerlikon' ? 1.2 : 0.7);
+      const carrier = m.turret && (g.userData.turrets || []).find((t) => t.userData.name === m.turret);
+      if (carrier) a.userData.ride = { turret: carrier, x: seat.lx, y: seat.y - carrier.position.y, z: seat.lz };
       a.userData.rest = 0;
       a.userData.sector = { angle: m.angle, arc: m.arc, stow: stowed(m) };
       a.userData.stops = gun.elev || null;
