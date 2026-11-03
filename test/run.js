@@ -2658,6 +2658,31 @@ check('a ship drawn as a stand-in is built again as herself once her hull is in,
   assert.equal(get(), second, 'a stand-in with a mounting shot away is built again, losing it');
 });
 
+check("the Hood's bridge is whole at its foot, where the gun on her shelter deck was cut out", () => {
+  // The 5.5-inch the sculpt cast on her shelter deck was cut out of it with
+  // its barrel, which runs on past the after corner of her bridge; one box
+  // over both had the foot of the bridge's wall off with it, and the sea
+  // showed through her there. A ray in from either side, at the corner, from
+  // the shelter deck up past the gun's height, meets her wall well out.
+  const built = buildHood();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && o.userData.mergeKey !== 'in') meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const open = [];
+  for (const side of [1, -1]) {
+    for (let z = 21.0; z <= 21.55; z += 0.1) {
+      for (let y = 10.5; y <= 12.5; y += 0.25) {
+        ray.set(new THREE.Vector3(side * 20, y, z), new THREE.Vector3(-side, 0, 0));
+        ray.far = 20;
+        const h = ray.intersectObjects(meshes, false)[0];
+        if (!h || side * h.point.x < 7.5) open.push(`${side > 0 ? 'port' : 'stbd'} ${y.toFixed(2)} m up at ${z.toFixed(2)}`);
+      }
+    }
+  }
+  assert.ok(!open.length, `her bridge is open at its foot: ${open.slice(0, 6).join('; ')}`);
+});
+
 check("the Hood's funnels are whole, side and top", () => {
   // Fired at from all round, at every height from her shelter deck up to the
   // lip, each funnel has to stop the shot at its own plating, not let it

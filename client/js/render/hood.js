@@ -137,13 +137,15 @@ function sculpted(g, kind, x, y, z, rest, trainRate, name) {
   m.userData.mounting = true;
   m.userData.trainRate = trainRate;
   if (name) m.userData.name = name;
-  // A pom-pom is sheets -- its splinter shield, the plates over its breeches
-  // -- seen from behind as often as in front: both faces of them are drawn.
-  const sheets = kind === 'pompom';
-  m.add(new THREE.Mesh(piece.house, sheets ? hoodMaterials().sheet : hoodMaterials().plating));
+  // Every one of her guns is drawn from both sides, like her plating (see
+  // hoodMaterials): a pom-pom is sheets -- its splinter shield, the plates
+  // over its breeches -- seen from behind as often as in front, and the
+  // simplified shields of her 5.5-inch and her turrets have slivers open at
+  // their seams that would otherwise show the sky through them.
+  m.add(new THREE.Mesh(piece.house, hoodMaterials().sheet));
   const cradle = new THREE.Group();
   cradle.position.set(...piece.trunnion);
-  if (piece.guns) cradle.add(new THREE.Mesh(piece.guns, sheets ? gunSheet() : M.gun));
+  if (piece.guns) cradle.add(new THREE.Mesh(piece.guns, gunSheet()));
   m.add(cradle);
   arm(m, cradle, piece.muzzles);
   g.add(m);

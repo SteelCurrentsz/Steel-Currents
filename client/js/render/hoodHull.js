@@ -46,6 +46,11 @@ export function hoodMaterials() {
   const plate = steelMap();
   const planks = woodMap();
   mats = {
+    // One-sided, not two as the Yukikaze's are: a layer at one of her bay
+    // guns has his eye in the thickness of the deck over it, and has to see
+    // out through it, not the inside of it. Instead her holes are closed, and
+    // what is seen from behind is given a face of its own that way (see
+    // build/prepare-hood-hull.mjs).
     plating: new THREE.MeshPhongMaterial({
       vertexColors: true, map: plate, specularMap: plate,
       specular: 0x3a4148, shininess: 30,

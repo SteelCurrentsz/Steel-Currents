@@ -31,7 +31,7 @@
 //
 // Reads assets/models/hood-*.glb (made by build/hood-source.mjs), writes
 // client/js/render/hoodHull.data.js.
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -479,7 +479,14 @@ function closeSmallHoles(m, maxRim, { thinRim = 0, thin = 0.12 } = {}) {
  * funnel, and three on her forecastle deck in bays under it.
  */
 const SCULPT_GUNS = process.env.NOGUNCUT ? [] : [
-  { x0: 7.85, x1: 11.6, y0: 10.3, y1: 12.7, z0: 15.8, z1: 21.6 },
+  // The one on her shelter deck: its shield, and forward of it its barrel,
+  // which runs on past the after corner of her bridge. The barrel is cut out
+  // on its own, clear of the bridge's wall a metre inboard of it -- one box
+  // over both had the foot of that wall off with it, and the sea showed
+  // through her there. Nothing is plated where the barrel was: it stood in
+  // the air.
+  { x0: 7.85, x1: 11.6, y0: 10.3, y1: 12.7, z0: 15.8, z1: 19.6 },
+  { x0: 9.4, x1: 11.6, y0: 10.9, y1: 12.2, z0: 19.6, z1: 21.8, bare: true },
   { x0: 10.3, x1: 13.9, y0: 7.3, y1: 9.75, z0: 14.1, z1: 24.9 },
   { x0: 10.6, x1: 14.4, y0: 7.3, y1: 9.9, z0: -6.95, z1: -0.85 },
   { x0: 10.1, x1: 13.6, y0: 7.3, y1: 9.9, z0: -28.3, z1: -22.2 },
@@ -754,6 +761,7 @@ const sup = (() => {
     const vtx = (x, y, z, n) => { s.P.push(x, y, z); s.N.push(...n); return s.P.length / 3 - 1; };
     const face = (a, b, c, d) => { s.T.push(a, b, c, a, c, d); s.C.push(SUPER_GREY, SUPER_GREY); };
     for (const b of SCULPT_GUNS) {
+      if (b.bare) continue;
       for (const side of [-1, 1]) {
         if (b.y0 < DECKS.forecastle) {
           const x = side * b.x0, y0 = DECKS.forecastle - 0.05, y1 = DECKS.shelter - SUPER.sink - 0.08, n = [side, 0, 0];
@@ -1471,6 +1479,56 @@ const plating = hardEdges(m, canon, st, {
   crease: 44 * Math.PI / 180, plateTilt: 35 * Math.PI / 180, foot: -4.0, smooth: thin,
 });
 shadePlating(m, plating, { along: 3.0, up: 0.5 });
+
+// ---- her single sheets, given their other face ----------------------------------
+// The sculpt draws a bulwark, a platform's rim, a boat's gunwale, the lip of a
+// deck as one sheet of plate, and the simplification left slivers at her seams
+// through which the inside of a wall is in view. Drawn one-sided, each is the
+// sky seen from behind. Her plating cannot simply be drawn from both sides, as
+// the Yukikaze's is: a layer at one of her bay guns has his eye in the
+// thickness of the deck over it, and has to see out through it. So only the
+// faces that are seen from behind from outside her are given a twin facing the
+// other way: build/hood-twins.json, the centre of each, found by drawing the
+// back of every face of her in a colour of its own from all round her and
+// tracing every pixel of that colour back to the face it shows.
+{
+  const file = path.join(ROOT, 'build/hood-twins.json');
+  const want = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : [];
+  const CELL = 0.05, TOL = 0.02;
+  const grid = new Map();
+  const key = (x, y, z) => `${Math.round(x / CELL)},${Math.round(y / CELL)},${Math.round(z / CELL)}`;
+  for (const c of want) {
+    const k = key(...c);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(c);
+  }
+  const near = (c) => {
+    const [i, j, k] = [0, 1, 2].map((a) => Math.round(c[a] / CELL));
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let d = -1; d <= 1; d++) {
+      for (const q of grid.get(`${i + a},${j + b},${k + d}`) || []) {
+        if (Math.hypot(q[0] - c[0], q[1] - c[1], q[2] - c[2]) < TOL) return true;
+      }
+    }
+    return false;
+  };
+  const { P, N, T, C } = m;
+  const nf = T.length / 3;
+  let twins = 0;
+  for (let t = 0; t < nf; t++) {
+    const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
+    const c = [0, 1, 2].map((a) => (P[v[0] * 3 + a] + P[v[1] * 3 + a] + P[v[2] * 3 + a]) / 3);
+    if (!near(c)) continue;
+    const base = P.length / 3;
+    for (const i of [v[0], v[2], v[1]]) {
+      P.push(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+      N.push(-N[i * 3], -N[i * 3 + 1], -N[i * 3 + 2]);
+    }
+    T.push(base, base + 1, base + 2);
+    C.push(C[t]);
+    twins++;
+  }
+  console.log(`her single sheets: ${twins} faces given a twin, of ${want.length} listed`);
+}
 
 // ---- her surface, as a height map --------------------------------------------------
 const HM = { x0: -19, z0: -135, step: 0.5, nx: 77, nz: 541 };
