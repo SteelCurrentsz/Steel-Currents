@@ -3935,6 +3935,175 @@ export const SHIP_CLASSES = {
     },
   },
 
+  kgv: {
+    // HMS King George V, the first of the five of her class and the Home
+    // Fleet's flagship when it caught Bismarck: ten 14-inch -- in two
+    // quadruple turrets, A forward and Y aft, and a twin, B, superfiring over
+    // A -- on a hull 227 metres long that made twenty-eight knots. Sixteen
+    // 5.25-inch dual-purpose in eight twin turrets, four a side; and by 1945
+    // her octuple pom-poms, four quadruple Bofors and thirty-six Oerlikons.
+    //
+    // She is drawn from the owner's sculpts of her (see kgv.js): her hull,
+    // her superstructure and every one of her guns, at her own length --
+    // 227.1 m -- and her own beam, floated at 9.9 m.
+    id: 'kgv',
+    name: 'King George V',
+    fullName: 'HMS King George V',
+    className: 'King George V',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'gbr',
+    blurb: 'Ten fourteen-inch guns behind the thickest belt in the Royal Navy. She and Rodney finished Bismarck in under two hours.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 2.6, 30.5], [0, -22.4, 30.5]], length: 227.1, beam: 31.4, draft: 9.9, superstructure: 1.4 },
+    hp: 69200,
+    // Twenty-eight knots, a long, fine hull that was wet forward -- her
+    // forecastle had no sheer, to let A fire dead ahead at no elevation --
+    // and turned steadily.
+    maxSpeed: 28 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.38,
+    turnRate: 0.047,
+    rudderShift: 15,
+    speedLossInTurn: 0.16,
+    concealment: 15800,
+    fireDetectPenalty: 6900,
+    // Types 279, 281, 284 and 285 by 1945.
+    radarRange: 14000,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // Fifteen inches of belt over her magazines and fourteen over her
+    // machinery, carried vertically down past her waterline, and six inches
+    // of armour deck over her magazines, five over her machinery: the best
+    // protected British battleship ever built. Her turret faces were
+    // thirteen inches, their roofs six.
+    armor: { belt: 381, deck: 152, citadel: 381, bow: 25, superstructure: 25 },
+    turrets: [
+      // A quadruple forward, B a twin superfiring over it, and Y quadruple
+      // aft facing astern.
+      { id: 0, name: 'A', x: 0, z: 56.74, angle: 0, arc: 2.6, guns: 4, my: 9.81 },
+      { id: 1, name: 'B', x: 0, z: 35.49, angle: 0, arc: 2.6, guns: 2, my: 13.17 },
+      { id: 2, name: 'Y', x: 0, z: -59.21, angle: -3.14, arc: 2.6, guns: 4, my: 9.55 },
+    ],
+    gun: {
+      name: '14"/45 Mk VII', role: 'surface',
+      // Three below the horizontal to forty up.
+      elev: { min: -0.052, max: 0.70 },
+      // Pivot to muzzle: the trunnions five and a half metres ahead of the
+      // pivot and the barrels fourteen out of them.
+      reach: 20.0,
+      caliber: 356, reload: 30, traverse: 0.05, range: 20400, sigma: 1.4,
+      // The 1,590 lb 6crh shell: 757 m/s.
+      shells: shells(356, 11200, 5000, 520, 757, 0.24),
+    },
+    torpedoes: null,
+    // Sixteen 5.25-inch in eight twin turrets, four a side: abreast her
+    // bridge and her fore funnel forward, and abreast her after funnel and
+    // her mainmast aft, each pair superfiring over the one at its end.
+    secondary: {
+      name: '5.25" QF Mk I', role: 'dp',
+      // Five below the horizontal to seventy up.
+      elev: { min: -0.087, max: 1.22 },
+      reach: 8.0,
+      caliber: 133, reload: 6, traverse: 0.18, range: 11000, sigma: 1.25,
+      shells: shells(133, 2100, 1800, 110, 792, 0.08),
+      mounts: [
+        { x: 12.42, z: 13.39, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 10.53 },
+        { x: -12.42, z: 13.39, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 10.53 },
+        { x: 11.83, z: 2.51, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 15.59 },
+        { x: -11.83, z: 2.51, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 15.59 },
+        { x: 11.91, z: -23.18, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 13.33 },
+        { x: -11.91, z: -23.18, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 13.33 },
+        { x: 10.98, z: -33.21, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 10.7 },
+        { x: -10.98, z: -33.21, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 10.7 },
+      ],
+    },
+    aa: {
+      range: 5000, dps: 110,
+      guns: [
+        // Her octuple pom-poms: one a side on the platforms abreast her
+        // foremast and on the roof of her hangar abreast her fore funnel, and
+        // one on her centreline on her after superstructure over Y.
+        { name: '2-pdr Mk VIII', caliber: 40, role: 'aa', reload: 0.5, range: 3400,
+          elev: { min: -0.17, max: 1.40 },
+          mounts: [
+            { x: 6.92, z: 9.58, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 8, my: 15.79 },
+            { x: -6.92, z: 9.58, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 8, my: 15.79 },
+            { x: 5.83, z: 1.41, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 8, my: 18.7 },
+            { x: -5.83, z: 1.41, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 8, my: 18.7 },
+            { x: 0, z: -52.4, angle: 3.14, arc: 3, rest: Math.PI, guns: 8, my: 13.51 },
+          ] },
+        // Her four quadruple Bofors: a pair on her forecastle abaft A, and a
+        // pair on her quarterdeck abaft Y.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400,
+          elev: { min: -0.26, max: 1.57 },
+          mounts: [
+            { x: 8, z: 46, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 4, my: 9.79 },
+            { x: -8, z: 46, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 4, my: 9.79 },
+            { x: 4.6, z: -84.5, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 4, my: 9.04 },
+            { x: -4.6, z: -84.5, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 4, my: 9.04 },
+          ] },
+        // Her thirty-six Oerlikons, eighteen a side along the edge of her
+        // deck, and two rows near her stern.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: 5.35, z: 92, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.64 },
+            { x: -5.35, z: 92, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.64 },
+            { x: 6.62, z: 86, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.63 },
+            { x: -6.62, z: 86, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.63 },
+            { x: 7.7, z: 80, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.61 },
+            { x: -7.7, z: 80, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.61 },
+            { x: 11.45, z: 51, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.33 },
+            { x: -11.45, z: 51, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.33 },
+            { x: 12.18, z: 42, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.26 },
+            { x: -12.18, z: 42, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.26 },
+            { x: 12.76, z: 36, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.24 },
+            { x: -12.76, z: 36, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.24 },
+            { x: 13.57, z: 24, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.08 },
+            { x: -13.57, z: 24, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.08 },
+            { x: 14.57, z: -4, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.8 },
+            { x: -14.57, z: -4, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.8 },
+            { x: 14.58, z: -14, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.9 },
+            { x: -14.58, z: -14, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.9 },
+            { x: 14.15, z: -44, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.76 },
+            { x: -14.15, z: -44, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.76 },
+            { x: 13.06, z: -58, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.65 },
+            { x: -13.06, z: -58, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.65 },
+            { x: 12.38, z: -66, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.62 },
+            { x: -12.38, z: -66, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.62 },
+            { x: 11.39, z: -74, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.57 },
+            { x: -11.39, z: -74, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.57 },
+            { x: 10.08, z: -82, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.55 },
+            { x: -10.08, z: -82, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.55 },
+            { x: 8.4, z: -90, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.51 },
+            { x: -8.4, z: -90, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.51 },
+            { x: 6.13, z: -98, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.5 },
+            { x: -6.13, z: -98, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.5 },
+            { x: 4.14, z: -95, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.5 },
+            { x: -4.14, z: -95, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.5 },
+            { x: 3.4, z: -101, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.5 },
+            { x: -3.4, z: -101, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.5 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 42237,
+      aircraft: 0,
+      mainRounds: 1000,
+      secondary: { caliber: 133, label: '5.25"', barrels: 16, rounds: 6400 },
+      tertiary: [
+        { caliber: 40, label: '2-pdr', barrels: 40, rounds: 72000 },
+        { caliber: 40, label: '40mm', barrels: 16, rounds: 19200 },
+        { caliber: 20, label: '20mm', barrels: 36, rounds: 86400 },
+      ],
+    },
+  },
+
   rodney: {
     // HMS Rodney, the second of the two Nelsons: nine 16-inch in three
     // triples, all of them forward of her bridge -- the whole of her main
@@ -8103,7 +8272,7 @@ export const HULL_TOUGHNESS = 1.8;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'hood', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shinano'];
 
 export function getClass(id) {
