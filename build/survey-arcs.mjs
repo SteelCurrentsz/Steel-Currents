@@ -165,7 +165,10 @@ function surveyAll() {
     const muzzles = m.userData.muzzles || [V(0, 0, 1)];
     const reach = Math.max(...muzzles.map((q) => q.length())) + 2;
     const at = new THREE.Vector3().setFromMatrixPosition(m.matrixWorld);
-    const targets = allMeshes.filter((o) => owner.get(o) !== m && !barrel.has(o) && !planes.has(o));
+    // Nor a light gun that rides on its roof (`ride`; see kgv.js), which goes
+    // round with it and is never where its barrels are.
+    const rides = (o) => { const w = owner.get(o); return !!(w && w.userData.ride && w.userData.ride.turret === m); };
+    const targets = allMeshes.filter((o) => owner.get(o) !== m && !barrel.has(o) && !planes.has(o) && !rides(o));
     const near = targets.filter((o) => {
       const s = sphereOf.get(o);
       return s.center.distanceTo(at) < s.radius + reach + 1;
