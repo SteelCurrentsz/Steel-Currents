@@ -3031,13 +3031,15 @@ function loire(g, x, y, z, ry, opts = {}) {
   // radiator under its nose, and the airscrew on its tail -- a pusher, turning
   // aft of the wing's trailing edge.
   const NY = WY + 0.92;
+  // Tail first, the way airframe lofts a body: listed nose first, it came out
+  // inside out.
   airframe(p, TOP, [
-    { z: 1.75, w: 0.20, h: 0.22, y: NY },
-    { z: 1.40, w: 0.54, h: 0.62, y: NY },
-    { z: 0.50, w: 0.66, h: 0.76, y: NY },
-    { z: -0.70, w: 0.64, h: 0.72, y: NY },
-    { z: -1.55, w: 0.46, h: 0.50, y: NY },
     { z: -1.95, w: 0.24, h: 0.26, y: NY },
+    { z: -1.55, w: 0.46, h: 0.50, y: NY },
+    { z: -0.70, w: 0.64, h: 0.72, y: NY },
+    { z: 0.50, w: 0.66, h: 0.76, y: NY },
+    { z: 1.40, w: 0.54, h: 0.62, y: NY },
+    { z: 1.75, w: 0.20, h: 0.22, y: NY },
   ], { flat: 0.05, e: 0.9, mBot: TOP });
   box(p, M.gunDark, 0.42, 0.28, 0.70, 0, NY - 0.42, 0.85);
   for (const sx of [-1, 1]) {
@@ -3181,13 +3183,15 @@ function walrus(g, x, y, z, ry, opts = {}) {
   // The engine: a Pegasus in a long nacelle under the centre section, on its
   // struts down to the hull, with the airscrew on the back of it.
   const NY = UY - 0.62;
+  // Tail first, the way airframe lofts a body: listed nose first, it came out
+  // inside out.
   airframe(p, TOP, [
-    { z: 1.25, w: 0.34, h: 0.36, y: NY },
-    { z: 0.95, w: 1.05, h: 1.00, y: NY },
-    { z: 0.20, w: 1.12, h: 1.06, y: NY },
-    { z: -0.70, w: 0.92, h: 0.88, y: NY },
-    { z: -1.35, w: 0.50, h: 0.50, y: NY },
     { z: -1.60, w: 0.24, h: 0.24, y: NY },
+    { z: -1.35, w: 0.50, h: 0.50, y: NY },
+    { z: -0.70, w: 0.92, h: 0.88, y: NY },
+    { z: 0.20, w: 1.12, h: 1.06, y: NY },
+    { z: 0.95, w: 1.05, h: 1.00, y: NY },
+    { z: 1.25, w: 0.34, h: 0.36, y: NY },
   ], { flat: 0.05, e: 0.95, mBot: TOP });
   for (const sx of [-1, 1]) {
     for (const zz of [0.70, -0.60]) strut(p, TOP, [sx * 0.34, NY - 0.32, zz], [sx * 0.62, 1.78, zz + 0.05], 0.05);

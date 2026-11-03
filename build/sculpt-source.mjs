@@ -338,7 +338,12 @@ export function weldByPaint(m) {
  * within anything of where the tube's were, and weighing them keeps the tube
  * round.
  */
-export function decimate(simplify, m, ratio, error, normalWeight = 0) {
+/**
+ * `flags` are meshoptimizer's simplifier flags: 'Prune' lets it take off
+ * small disconnected bits -- a rail, a cleat -- rather than crumple them into
+ * shards to keep them.
+ */
+export function decimate(simplify, m, ratio, error, normalWeight = 0, flags = []) {
   const idx = Uint32Array.from(m.T);
   const pos = Float32Array.from(m.P);
   const target = Math.floor((idx.length / 3) * ratio) * 3;
@@ -346,9 +351,9 @@ export function decimate(simplify, m, ratio, error, normalWeight = 0) {
   if (normalWeight > 0) {
     simplify.useExperimentalFeatures = true;
     [out, err] = simplify.simplifyWithAttributes(idx, pos, 3, Float32Array.from(m.N), 3,
-      [normalWeight, normalWeight, normalWeight], null, target, error, []);
+      [normalWeight, normalWeight, normalWeight], null, target, error, flags);
   } else {
-    [out, err] = simplify.simplify(idx, pos, 3, target, error, []);
+    [out, err] = simplify.simplify(idx, pos, 3, target, error, flags);
   }
   // Only the points still used.
   const used = new Int32Array(m.P.length / 3).fill(-1);

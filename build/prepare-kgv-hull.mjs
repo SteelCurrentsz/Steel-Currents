@@ -43,7 +43,8 @@ import {
 } from './sculpt.mjs';
 import { blank, tube, lathe } from './fuso-parts.mjs';
 import { subMesh, dropLoose, turnInward, thinFaces, creased, measureLines } from './sculpt-parts.mjs';
-import { middle, append, splitAlong, closeSmallHoles, splitLong, twinSheets } from './kgv-mesh.mjs';
+import { middle, append, splitAlong, closeSmallHoles, splitLong, twinSheets, capPlane } from './kgv-mesh.mjs';
+import { ShapeUtils, Vector2 } from '../vendor/three.module.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ASSET = (name) => path.join(ROOT, 'assets/models', name);
@@ -369,7 +370,7 @@ const LAID = (() => {
  * says (in its own frame), put on her, cut to where it is hers (`keep`, of a
  * hull station), off its slab and in from her side.
  */
-function superstructure(file, S, keep, cuts, worldCuts = []) {
+function superstructure(file, S, keep, cuts, worldCuts = [], seamFace = 0) {
   const raw = readGlb(ASSET(file));
   let s = { P: Array.from(raw.pos), N: Array.from(raw.nrm), T: Array.from(raw.idx), C: new Array(raw.idx.length / 3).fill(SUPER_GREY) };
   // Its cast guns, in its own frame: each cut, and what the cut leaves loose
@@ -398,6 +399,12 @@ function superstructure(file, S, keep, cuts, worldCuts = []) {
   splitAlong(s, (x, y, z) => (deck.y(x, z) - 0.05) - y, { drop: true });
   splitAlong(s, (x, y, z) => Math.abs(x) - (halfBreadth(z) - 0.35), { drop: true });
   s = subMesh(s, () => true);
+  // What the seam cut open -- a deckhouse, a platform, a funnel's casing cut
+  // across -- is plated over on the seam, however big.
+  if (seamFace) {
+    const cap = capPlane(s, SEAM_Z, seamFace, { ShapeUtils, Vector2 });
+    console.log(`${file}: ${cap.n} cuts plated over on the seam, ${cap.tris} triangles`);
+  }
   // What is left a piece on its own lying on her deck -- the slab's rails, cut
   // off it -- is not hers; nor is a scrap of wire in the air, a speck the
   // decimation left, or a gun's barrel cut off its gunhouse.
@@ -455,7 +462,7 @@ const front = superstructure('kgv-front.glb', FRONT, (z) => z - SEAM_Z, [
   boxCut([-1.0, -0.745, -0.05, 0.05], -0.25, -0.17),
   // The forward 5.25-inch's barrels, laid along her deck forward of it.
   boxCut([-0.25, -0.03, -0.47, -0.36], -0.29, -0.235),
-], [WALRUS_CUT]);
+], [WALRUS_CUT], -1);
 const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   ...castCuts(AFT),
   // Y turret: its gunhouse off its barbette, under her after superstructure,
@@ -465,7 +472,7 @@ const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   // The barrels of the after pair of 5.25-inch, laid aft.
   boxCut([-0.2, -0.06, 0.24, 0.33], -0.24, -0.16),
   boxCut([0.03, 0.155, 0.27, 0.33], -0.19, -0.12),
-], [WALRUS_CUT]);
+], [WALRUS_CUT], +1);
 
 // Her hull's plating, in pieces short enough to measure: the decimation drew
 // her side amidships as a few triangles tens of metres long, and everything
@@ -589,8 +596,16 @@ recomputeNormals(m);
 const st = stations(m, { length: REAL_LOA, beamCap: 6.8, edgeCap: 10.0, slice: true, beamFloor: 0 });
 const canon = weld(m);
 const thin = thinFaces(m, 0.5);
+// Her superstructure -- what stands on her deck, inboard of her side -- is
+// shaded across the pleats its decimation left, and split only at its corners.
+const soft = new Uint8Array(m.T.length / 3);
+for (let t = 0; t < soft.length; t++) {
+  const [cx, cy, cz] = middle(m, t);
+  soft[t] = cy > deck.y(cx, cz) + 0.1 && Math.abs(cx) < halfBreadth(cz) - 0.6 ? 1 : 0;
+}
 const plating = hardEdges(m, canon, st, {
   crease: 44 * Math.PI / 180, plateTilt: 35 * Math.PI / 180, foot: -4.0, smooth: thin,
+  soft, softCrease: +(process.env.SOFT_CREASE || 75) * Math.PI / 180,
 });
 shadePlating(m, plating, { along: 3.0, up: 0.5 });
 
@@ -603,7 +618,8 @@ shadePlating(m, plating, { along: 3.0, up: 0.5 });
 // twinSheets).
 {
   const nf = m.T.length / 3;
-  const twins = twinSheets(m, { rays: 7, reach: 60, only: (t) => t < nf && middle(m, t)[1] > 1.5 });
+  // Not her superstructure, which is drawn from both sides as it is.
+  const twins = twinSheets(m, { rays: 7, reach: 60, only: (t) => t < nf && !soft[t] && middle(m, t)[1] > 1.5 });
   console.log(`her single sheets: ${twins} faces given a twin`);
 }
 
@@ -659,7 +675,7 @@ function packPiece(mesh) {
 //   cradle    (x, y, z) => whether a point of the sculpt elevates
 //   muzzles   [x, y, z] of each muzzle, in the cradle's frame
 //   house     (mesh) => the house as it is to be (stretched, say)
-function gunPiece(file, { map, turn, trunnion, elev = 0, cradle = () => false, muzzles, holes = 0.5 }) {
+function gunPiece(file, { map, turn, trunnion, elev = 0, cradle = () => false, muzzles, holes = 0.5, byVertex = false }) {
   const raw = readGlb(ASSET(file));
   const P = [], N = [], src = [];
   for (let i = 0; i < raw.pos.length; i += 3) {
@@ -671,6 +687,14 @@ function gunPiece(file, { map, turn, trunnion, elev = 0, cradle = () => false, m
   fixWinding(mesh);
   const lifts = new Uint8Array(mesh.T.length / 3);
   for (let t = 0; t < lifts.length; t++) {
+    if (byVertex) {
+      // A piece whose barrels are welded to its face: what is all barrel
+      // elevates, what is none of it trains, and what spans the two -- the
+      // shards from a muzzle sleeve to the face round it -- goes.
+      const n = [0, 1, 2].filter((j) => cradle(src[mesh.T[t * 3 + j] * 3], src[mesh.T[t * 3 + j] * 3 + 1], src[mesh.T[t * 3 + j] * 3 + 2])).length;
+      lifts[t] = n === 3 ? 1 : n ? 2 : 0;
+      continue;
+    }
     const c = [0, 1, 2].map((k) => (src[mesh.T[t * 3] * 3 + k] + src[mesh.T[t * 3 + 1] * 3 + k] + src[mesh.T[t * 3 + 2] * 3 + k]) / 3);
     lifts[t] = cradle(...c) ? 1 : 0;
   }
@@ -683,7 +707,7 @@ function gunPiece(file, { map, turn, trunnion, elev = 0, cradle = () => false, m
     house.C[t] = ny > 0.9 * Math.hypot(nx, ny, nz) && middle(house, t)[1] < 0.6 ? STEEL : GREY;
   }
   creased(house, 40);
-  const guns = subMesh(mesh, (t) => lifts[t]);
+  const guns = subMesh(mesh, (t) => lifts[t] === 1);
   // Into the cradle's frame: origin on the trunnions, the bore along +z.
   const c = Math.cos(elev), s = Math.sin(elev);
   const [ty, tz] = trunnion;
@@ -734,51 +758,32 @@ const MAIN_A = mainPiece('kgv-14a.glb', { px: -0.626, pz: -0.215, foot: -0.0957,
 const MAIN_B = mainPiece('kgv-14b.glb', { px: -0.005, pz: -0.2316, foot: -0.0953, face: 0.065, barrels: [-0.0636, 0.0531] });
 const MAIN_Y = mainPiece('kgv-14y.glb', { px: 0.626, pz: -0.215, foot: -0.0951, face: 0.075, barrels: [0.4596, 0.5727, 0.6830, 0.7930] });
 
-// Her 5.25-inch Mk I twin: the gunhouse the after sculpt cast abreast her
-// mainmast, at the after sculpt's own scale (0.369 of 119.8 m a unit), which
-// makes its drum five metres across. Its barrels pointed -x in it, cast as
-// two spikes, and are drawn again: a 5.25-inch/50 either side of its shield's
-// middle, from inside the drum to a muzzle six and a half metres out of its
-// trunnions.
-const S525 = AFT.k * UNIT;
+// Her 5.25-inch Mk I twin on the RP10 Mk II mounting: the owner's own model
+// of it (assets/models/KGVSecondary.glb, decimated into kgv-525.glb) -- its
+// drum, its faceted gunhouse with the hatches on its roof, and its two
+// barrels, which it has laid up 26.4 degrees. Its drum, 0.54 across the
+// radius about (0, -0.408), is put to the 2.76 m of the drums the sculpts
+// cast where it stands; its barrels, either side 0.301 out, come out of its
+// face 0.98 short of their muzzles and elevate about trunnions 0.2 inside it.
+const S525 = 2.76 / 0.54;
+const SEC_FOOT = -0.5717, SEC_PIVOT = -0.408, SEC_ELEV = 0.4607;
+const SEC_AXIS = { y: 0.459, z: 0.764 };
+const secAlong = (y, z) => (y - SEC_AXIS.y) * Math.sin(SEC_ELEV) + (z - SEC_AXIS.z) * Math.cos(SEC_ELEV);
+const secOff = (x, y, z) => {
+  const t = secAlong(y, z);
+  return Math.hypot(Math.abs(x) - 0.301, y - SEC_AXIS.y - t * Math.sin(SEC_ELEV), z - SEC_AXIS.z - t * Math.cos(SEC_ELEV));
+};
+const SEC_TRUNNION = { y: SEC_AXIS.y - 0.98 * Math.sin(SEC_ELEV), z: SEC_AXIS.z - 0.98 * Math.cos(SEC_ELEV) };
 const SEC = gunPiece('kgv-525.glb', {
-  map: (x, y, z) => [(z - 0.274) * S525, (y + 0.2545) * S525, -(x + 0.016) * S525],
-  turn: (x, y, z) => [z, y, -x],
-  trunnion: [(-0.188 + 0.2545) * S525, (-0.016 + 0.05) * S525],
-  muzzles: [],
-  holes: 1.5,
+  map: (x, y, z) => [x * S525, (y - SEC_FOOT) * S525, (z - SEC_PIVOT) * S525], turn: ident,
+  trunnion: [(SEC_TRUNNION.y - SEC_FOOT) * S525, (SEC_TRUNNION.z - SEC_PIVOT) * S525],
+  elev: SEC_ELEV,
+  byVertex: true,
+  // The barrels, and their sleeves, from their ports in the face out.
+  cradle: (x, y, z) => secAlong(y, z) > -1.05 && secOff(x, y, z) < 0.135,
+  muzzles: [-1, 1].map((sx) => [+(sx * 0.301 * S525).toFixed(3), 0, +(1.18 * S525).toFixed(3)]),
 });
-// The sculpt drew its drum into the wall of her after superstructure on its
-// inboard side, and that side came off it with the wall: its drum is drawn
-// again whole round it, a hair outside the sculpt's, from its foot to the
-// edge of its roof, with its roof plated under the sculpt's.
-{
-  const R = 0.0625 * S525, top = (-0.1655 + 0.2545) * S525;
-  const g = blank();
-  lathe(g, 0, 0, R, R, [[0.0, 1.0], [top, 1.0]], 64, GREY);
-  // And the band round its foot.
-  lathe(g, 0, 0, R, R, [[0.1, 1.035], [0.3, 1.035]], 64, GREY);
-  for (let t = 0; t < g.T.length / 3; t++) {
-    const [nx, ny, nz] = faceNormal(g, g.T[t * 3], g.T[t * 3 + 1], g.T[t * 3 + 2]);
-    if (ny < -0.5 * Math.hypot(nx, ny, nz)) g.C[t] = -1;
-  }
-  const drum = subMesh(g, (t) => g.C[t] !== -1);
-  creased(drum, 40);
-  append(SEC.house, drum);
-  console.log(`kgv-525.glb: its drum drawn again, ${R.toFixed(2)} m across the radius, ${top.toFixed(2)} m high`);
-}
-{
-  const len = 6.5, xs = [-0.72, 0.38];
-  const g = blank();
-  for (const x of xs) {
-    tube(g, [x, 0, -0.9], [x, 0, 1.6], 0.24, 0.22, 20, GREY);
-    tube(g, [x, 0, 1.6], [x, 0, len - 0.3], 0.13, 0.1, 20, GREY);
-    tube(g, [x, 0, len - 0.3], [x, 0, len], 0.115, 0.11, 20, GREY);
-  }
-  creased(g, 40);
-  SEC.guns = g;
-  SEC.muzzles = xs.map((x) => [x, 0, len]);
-}
+console.log(`kgv-525.glb: barrels ${(0.98 * S525).toFixed(2)} m out of the face, muzzles ${(1.18 * S525).toFixed(2)} m from the trunnions`);
 
 // Her 2-pdr Mk VIII on the octuple Mk VI mounting: the Hood's quadruple
 // (assets/models/kgv-pompom.glb, two rows of two) at 1.6 m a unit, its
@@ -860,6 +865,7 @@ if (process.env.STAGE === 'guns') {
     const all = { P: [...g.house.P], N: [...g.house.N], T: [...g.house.T], C: [...g.house.C] };
     if (g.guns.T.length) append(all, { P: g.guns.P.map((v, i) => v + g.trunnion[i % 3]), N: g.guns.N, T: g.guns.T, C: g.guns.C });
     writeGlb(path.join(dir, `${name}-all.glb`), { P: all.P, N: all.N, T: all.T }, 'piece');
+    writeGlb(path.join(dir, `${name}-house.glb`), { P: g.house.P, N: g.house.N, T: g.house.T }, 'piece');
   }
   process.exit(0);
 }
@@ -938,8 +944,11 @@ const LINES = measureLines(m, st, { z0: -112.9963, dz: 1, nz: 226, y0: -10.5, dy
 }
 
 // ---- slice, pack and write ------------------------------------------------------------
-const surfaceOf = (t) => (m.C[t] === DECK ? 1 : 0);
-const packed = pack(m, col, uvArr, { buckets: 64, length: REAL_LOA, surfaceOf, compact: true });
+// Her plating (0), her planked deck (1), and her superstructure (2), which is
+// drawn from both sides: its platforms, tubs and screens are single sheets of
+// plate, seen from inside as often as out.
+const surfaceOf = (t) => (m.C[t] === DECK ? 1 : t < soft.length && soft[t] ? 2 : 0);
+const packed = pack(m, col, uvArr, { buckets: 64, length: REAL_LOA, surfaceOf, compact: true, kinds: 3 });
 console.log('buckets', packed.buckets, 'tris', packed.tris);
 const b64 = packed.blob.toString('base64');
 console.log('packed hull', packed.blob.length, 'bytes ->', b64.length, 'base64 chars');

@@ -1731,12 +1731,16 @@ export function roundBarrels(m, axes, { from, bin = 0.25, reach = 1.35 }) {
  * Replaces the mesh's vertices; returns, for each new vertex, whether it is
  * her side plating.
  */
-export function hardEdges(m, canon, st, { crease, plateTilt, foot, smooth = null }) {
+export function hardEdges(m, canon, st, { crease, plateTilt, foot, smooth = null, soft = null, softCrease = crease }) {
   const { P, N } = m;
   const T = m.T;
   const nvAll = P.length / 3;
   const { zBin, halfB, edgeY } = st;
   const cosC = Math.cos(crease);
+  // Faces `soft` marks -- a sculpt's superstructure, say, which decimation
+  // has folded into shallow pleats -- are split only at the sharper
+  // `softCrease`: a pleat is shaded across, a corner still is one.
+  const cosSoft = Math.cos(softCrease);
   const sinTilt = Math.sin(plateTilt);
   const nt = T.length / 3;
   const fn = new Float64Array(nt * 3);   // area-weighted
@@ -1787,7 +1791,8 @@ export function hardEdges(m, canon, st, { crease, plateTilt, foot, smooth = null
           // edge is sharper than a crease and none of them is one: it is a
           // tube, and shaded as one.
           const round = smooth && smooth[f] && smooth[g];
-          if (!round && fu[f * 3] * fu[g * 3] + fu[f * 3 + 1] * fu[g * 3 + 1] + fu[f * 3 + 2] * fu[g * 3 + 2] < cosC) continue;
+          const cosAt = soft && soft[f] && soft[g] ? cosSoft : cosC;
+          if (!round && fu[f * 3] * fu[g * 3] + fu[f * 3 + 1] * fu[g * 3 + 1] + fu[f * 3 + 2] * fu[g * 3 + 2] < cosAt) continue;
           parent[find(list[p])] = find(list[q]);
         }
       }
@@ -1978,7 +1983,7 @@ export const heightBytes = (hm) => Buffer.from(Int16Array.from(hm, (v) => Math.r
  * Float32 uv[vertCount*2], Uint16 idx[triCount*3] (every bucket has well under
  * 65536 verts). With `buckets: 1` it is one piece -- a gunhouse, a barrel.
  */
-export function pack(m, col, uv, { buckets: nBuckets, length, surfaceOf = null, compact = false }) {
+export function pack(m, col, uv, { buckets: nBuckets, length, surfaceOf = null, compact = false, kinds: nKinds = 2 }) {
   const { P, N, T } = m;
   const half = length / 2;
   const bucketOf = (z) => Math.max(0, Math.min(nBuckets - 1,
@@ -1986,7 +1991,9 @@ export function pack(m, col, uv, { buckets: nBuckets, length, surfaceOf = null, 
   // With `surfaceOf(triangle)`, each slice is two: her plating and her decks,
   // so each can be drawn with the surface it is -- and the blob says so, in
   // the high bit of its count and a word more at the head of each slice.
-  const kinds = surfaceOf ? 2 : 1;
+  // A ship may have more than two -- her superstructure, drawn from both
+  // sides -- and says how many with `kinds`.
+  const kinds = surfaceOf ? nKinds : 1;
   const buckets = Array.from({ length: nBuckets * kinds }, (_, k) => ({
     map: new Map(), pos: [], nrm: [], col: [], uv: [], idx: [], surface: k % kinds,
   }));

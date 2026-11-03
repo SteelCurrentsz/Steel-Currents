@@ -57,7 +57,10 @@ import { wires, subMesh } from './sculpt-parts.mjs';
 
 const MeshoptSimplifier = await simplifier();
 const writeGlb = (file, m) => writeSourceGlb(file, m, 'build/kgv-source.mjs');
-const decimate = (m, ratio, error, normalWeight = 0) => decimateWith(MeshoptSimplifier, m, ratio, error, normalWeight);
+const decimate = (m, ratio, error, normalWeight = 0, flags = []) => decimateWith(MeshoptSimplifier, m, ratio, error, normalWeight, flags);
+// Her superstructure is pruned as it is decimated: what is too small to keep
+// whole goes, rather than being kept as a shard.
+const PRUNE = process.env.NO_PRUNE ? [] : ['Prune'];
 const asset = (name) => path.join(ROOT, 'assets/models', name);
 const only = process.argv.slice(2);
 const wanted = (name) => !only.length || only.includes(name);
@@ -154,10 +157,15 @@ if (wanted('front')) {
   // Her catapult and the aircraft on it, abaft her funnel, are not kept (the
   // after sculpt has her from her fore funnel aft), so no wire of theirs is
   // looked for there either.
-  m = compactOf(crop(m, (x) => x < 0.62));
+  //
+  // Nor is anything of it abaft the seam with the after sculpt (0.242 in
+  // it; see prepare-kgv-hull.mjs), so it is cut there, a little aft of it,
+  // before it is decimated: what it is decimated to is all spent on her.
+  m = compactOf(crop(m, (x) => x < 0.26));
   m = unrig(m, FRONT.unit, { r: 0.2, minLen: 2.0, girth: 1.0, air: 1.4, loose: true, near: 0.35, crowd: 3 });
   m = dropSmall(m, FRONT.unit, 0.8, 40);
-  writeGlb(asset('kgv-front.glb'), decimate(m, +(process.env.FRONT_RATIO || 0.03), +(process.env.FRONT_ERROR || 0.0012), 0.02));
+  const target = +(process.env.FRONT_TRIS || 115000);
+  writeGlb(asset('kgv-front.glb'), decimate(m, Math.min(1, target / (m.T.length / 3)), +(process.env.FRONT_ERROR || 0.0012), 0.02, PRUNE));
 }
 if (wanted('aft')) {
   const raw = await readCompressed(asset('KGVMidNAftSuperstructure(UseBoiler)-balanced-compressed.glb'));
@@ -167,7 +175,11 @@ if (wanted('aft')) {
   const crane = (x, y, z) => x > 0.2 && x < 0.75 && Math.abs(z) > 0.1 && Math.abs(z) < 0.36 && y > -0.2 && y < 0.0;
   m = unrig(m, AFT.unit, { r: 0.2, minLen: 2.0, girth: 1.0, air: 1.4, loose: true, near: 0.35, crowd: 3 }, crane);
   m = dropSmall(m, AFT.unit, 0.8, 40);
-  writeGlb(asset('kgv-aft.glb'), decimate(m, +(process.env.AFT_RATIO || 0.035), +(process.env.AFT_ERROR || 0.001), 0.02));
+  // Not forward of the seam with the forward sculpt (0.876 in it), cut a
+  // little forward of it before it is decimated.
+  m = compactOf(crop(m, (x) => x < 0.895));
+  const target = +(process.env.AFT_TRIS || 95000);
+  writeGlb(asset('kgv-aft.glb'), decimate(m, Math.min(1, target / (m.T.length / 3)), +(process.env.AFT_ERROR || 0.001), 0.02, PRUNE));
 }
 
 // ---- her guns ---------------------------------------------------------------------
@@ -180,15 +192,14 @@ if (wanted('14')) {
   }
 }
 if (wanted('525')) {
-  // Off the after sculpt: its port after 5.25-inch, abreast her mainmast, the
-  // drum of it about (-0.016, 0.274) on her deck at -0.2545, and the box of
-  // its gun shield standing out of its face; not its barrels, laid aft out
-  // of the shield, which are drawn again.
-  const raw = await readCompressed(asset('KGVMidNAftSuperstructure(UseBoiler)-balanced-compressed.glb'));
-  const gun = dropSmall(compactOf(crop(raw, (x, y, z) => y > -0.2545 && y < -0.153
-    && (Math.hypot(x + 0.016, z - 0.274) < 0.062 || (x > -0.086 && x < -0.04 && z > 0.245 && z < 0.295))
-    && !(x < -0.05 && Math.abs(z - 0.313) < 0.008))), 44.21, 0.6, 60);
-  writeGlb(asset('kgv-525.glb'), decimate(gun, +(process.env.SEC_RATIO || 0.25), 0.0015, 0.02));
+  // The owner's own model of her 5.25-inch twin (assets/models/KGVSecondary.glb):
+  // its drum, its faceted gunhouse and its two barrels, laid up 26 degrees,
+  // the bore along +z. Only decimated here; prepare-kgv-hull.mjs puts it in
+  // the frame of its mounting.
+  const raw = await readCompressed(asset('KGVSecondary.glb'));
+  const gun = dropSmall(compactOf(raw), 5.06, 0.15, 12);
+  console.log(`  KGVSecondary.glb: ${raw.T.length / 3} triangles`);
+  writeGlb(asset('kgv-525.glb'), decimate(gun, +(process.env.SEC_RATIO || 0.012), +(process.env.SEC_ERR || 0.0011), 0.02));
 }
 if (wanted('bofors')) {
   // The mounting, off its block (the top of which is at -0.29).

@@ -359,3 +359,68 @@ export function twinSheets(m, { rays = 7, reach = 6, only = () => true } = {}) {
   }
   return twin.length;
 }
+
+/**
+ * Cap what a cut across z = `at` left open: every loop of rim edges lying
+ * on that plane (within `tol`) is filled, however big, as the polygon it is
+ * -- ear-clipped, not fanned, since a deckhouse cut across can be any shape
+ * -- facing `face` along z (-1 or +1), and painted as the face it bounds.
+ */
+export function capPlane(m, at, face, { tol = 0.03, ShapeUtils, Vector2 } = {}) {
+  const { P, N, T, C } = m;
+  const canon = weld(m);
+  const nTri = T.length / 3;
+  const on = (v) => Math.abs(P[v * 3 + 2] - at) < tol;
+  const key = (a, b) => `${a},${b}`;
+  const half = new Set();
+  for (let t = 0; t < nTri; t++) {
+    for (let e = 0; e < 3; e++) half.add(key(canon[T[t * 3 + e]], canon[T[t * 3 + (e + 1) % 3]]));
+  }
+  const next = new Map(), paintAt = new Map();
+  for (let t = 0; t < nTri; t++) {
+    for (let e = 0; e < 3; e++) {
+      const a = canon[T[t * 3 + e]], b = canon[T[t * 3 + (e + 1) % 3]];
+      if (a === b || half.has(key(b, a)) || !on(a) || !on(b)) continue;
+      if (!next.has(a)) next.set(a, []);
+      next.get(a).push(b);
+      paintAt.set(a, C[t]);
+    }
+  }
+  const used = new Set();
+  let n = 0, tris = 0;
+  for (const start of next.keys()) {
+    if (used.has(start)) continue;
+    const loop = [start];
+    used.add(start);
+    let v = start, closed = false;
+    for (let guard = 0; guard < 5000; guard++) {
+      const outs = (next.get(v) || []).filter((w) => w === start || !used.has(w));
+      if (!outs.length) break;
+      const w = outs.includes(start) && loop.length > 2 ? start : outs[0];
+      if (w === start) { closed = true; break; }
+      loop.push(w); used.add(w); v = w;
+    }
+    if (!closed || loop.length < 3) continue;
+    const pts = loop.map((u) => new Vector2(P[u * 3], P[u * 3 + 1]));
+    let area = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = pts[(i + 1) % pts.length];
+      area += p.x * q.y - q.x * p.y;
+    }
+    if (Math.abs(area) / 2 < 0.02) continue;
+    const faces = ShapeUtils.triangulateShape(pts, []);
+    const base = P.length / 3;
+    for (const u of loop) { P.push(P[u * 3], P[u * 3 + 1], at); N.push(0, 0, face); }
+    for (const [a, b, c] of faces) {
+      // Wound so its face looks along `face`.
+      const [pa, pb, pc] = [pts[a], pts[b], pts[c]];
+      const cross = (pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x);
+      if (cross * face > 0) T.push(base + a, base + b, base + c);
+      else T.push(base + a, base + c, base + b);
+      C.push(paintAt.get(loop[a]) ?? C[0]);
+      tris++;
+    }
+    n++;
+  }
+  return { n, tris };
+}

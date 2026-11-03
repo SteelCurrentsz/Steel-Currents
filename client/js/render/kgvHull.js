@@ -74,7 +74,8 @@ export function kgvMaterials() {
 export function buildKgvHull(g) {
   const m = kgvMaterials();
   for (const geo of slices()) {
-    g.add(new THREE.Mesh(geo, geo.userData.surface === 1 ? m.deck : m.plating));
+    // Her superstructure (2) from both sides: see prepare-kgv-hull.mjs.
+    g.add(new THREE.Mesh(geo, [m.plating, m.deck, m.sheet][geo.userData.surface] || m.plating));
   }
 }
 
