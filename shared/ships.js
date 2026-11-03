@@ -3941,7 +3941,7 @@ export const SHIP_CLASSES = {
     // quadruple turrets, A forward and Y aft, and a twin, B, superfiring over
     // A -- on a hull 227 metres long that made twenty-eight knots. Sixteen
     // 5.25-inch dual-purpose in eight twin turrets, four a side; and by 1945
-    // her octuple pom-poms, four quadruple Bofors and thirty-six Oerlikons.
+    // four octuple pom-poms, two quadruple Bofors and thirty-six Oerlikons.
     //
     // She is drawn from the owner's sculpts of her (see kgv.js): her hull,
     // her superstructure and every one of her guns, at her own length --
@@ -4025,8 +4025,7 @@ export const SHIP_CLASSES = {
       range: 5000, dps: 110,
       guns: [
         // Her octuple pom-poms: one a side on the platforms abreast her
-        // foremast and on the roof of her hangar abreast her fore funnel, and
-        // one on her centreline on her after superstructure over Y.
+        // foremast and on the roof of her hangar abreast her fore funnel.
         { name: '2-pdr Mk VIII', caliber: 40, role: 'aa', reload: 0.5, range: 3400,
           elev: { min: -0.17, max: 1.40 },
           mounts: [
@@ -4034,15 +4033,11 @@ export const SHIP_CLASSES = {
             { x: -6.92, z: 9.58, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 8, my: 15.79 },
             { x: 5.83, z: 1.41, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 8, my: 18.7 },
             { x: -5.83, z: 1.41, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 8, my: 18.7 },
-            { x: 0, z: -52.4, angle: 3.14, arc: 3, rest: Math.PI, guns: 8, my: 13.51 },
           ] },
-        // Her four quadruple Bofors: a pair on her forecastle abaft A, and a
-        // pair on her quarterdeck abaft Y.
+        // Her two quadruple Bofors, a pair on her quarterdeck abaft Y.
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400,
           elev: { min: -0.26, max: 1.57 },
           mounts: [
-            { x: 8, z: 46, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 4, my: 9.79 },
-            { x: -8, z: 46, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 4, my: 9.79 },
             { x: 4.6, z: -84.5, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 4, my: 9.04 },
             { x: -4.6, z: -84.5, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 4, my: 9.04 },
           ] },
@@ -4118,8 +4113,8 @@ export const SHIP_CLASSES = {
       mainRounds: 1000,
       secondary: { caliber: 133, label: '5.25"', barrels: 16, rounds: 6400 },
       tertiary: [
-        { caliber: 40, label: '2-pdr', barrels: 40, rounds: 72000 },
-        { caliber: 40, label: '40mm', barrels: 16, rounds: 19200 },
+        { caliber: 40, label: '2-pdr', barrels: 32, rounds: 57600 },
+        { caliber: 40, label: '40mm', barrels: 8, rounds: 9600 },
         { caliber: 20, label: '20mm', barrels: 36, rounds: 86400 },
       ],
     },

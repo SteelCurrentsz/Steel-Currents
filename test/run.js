@@ -2895,8 +2895,9 @@ check('the King George V is commissioned after the Hood and before the Rodney, a
   assert.equal(cls.nation, 'gbr');
   assert.equal(cls.type, 'BB');
   // Two quadruple 14-inch and a twin; eight twin 5.25-inch, four a side;
-  // four to six octuple pom-poms; four quadruple Bofors (her two singles
-  // given quadruples); thirty-six Oerlikons.
+  // four to six octuple pom-poms; two quadruple Bofors, on her quarterdeck
+  // (the pair once on her forecastle between A and B taken off); thirty-six
+  // Oerlikons.
   assert.deepEqual(cls.turrets.map((t) => t.guns), [4, 2, 4], 'she does not carry A and Y quadruple and B twin');
   assert.equal(cls.secondary.mounts.length, 8, 'she does not carry eight 5.25-inch twins');
   assert.ok(cls.secondary.mounts.every((m) => m.guns === 2), 'a 5.25-inch is not a twin');
@@ -2904,7 +2905,8 @@ check('the King George V is commissioned after the Hood and before the Rodney, a
   assert.equal(cls.secondary.role, 'dp', 'her 5.25-inch are not dual-purpose');
   const [pp, bf, oe] = cls.aa.guns;
   assert.ok(pp.mounts.length >= 4 && pp.mounts.length <= 6 && pp.mounts.every((m) => m.guns === 8), 'she does not carry four to six octuple pom-poms');
-  assert.equal(bf.mounts.length, 4, 'she does not carry four quadruple Bofors');
+  assert.equal(bf.mounts.length, 2, 'she does not carry two quadruple Bofors');
+  assert.ok(bf.mounts.every((m) => m.z < -60), 'a Bofors stands anywhere but her quarterdeck');
   assert.ok(bf.mounts.every((m) => m.guns === 4), 'a Bofors is not a quadruple');
   assert.equal(oe.mounts.reduce((n, m) => n + m.guns, 0), 36, 'she does not carry thirty-six Oerlikons');
   assert.equal(cls.torpedoes, null, 'she carried no torpedo tubes');

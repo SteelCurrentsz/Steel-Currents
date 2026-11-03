@@ -317,14 +317,15 @@ export const SECONDARY = CAST_525.map((c) => {
 console.log('her 5.25-inch:', SECONDARY.map((s) => `${s.name} ${s.x}/${s.z} at ${s.y}`).join('; '));
 
 // Her octuple pom-poms: one a side abreast her foremast, on the platform the
-// forward sculpt cast one on; one a side abreast her fore funnel, on the
-// roof of her hangar; and one on her centreline on her after superstructure,
-// over Y turret -- each where the after sculpt has its tub. The sculpt's own,
+// forward sculpt cast one on; and one a side abreast her fore funnel, on the
+// roof of her hangar, where the after sculpt has its tub. The sculpt's own,
 // melted, is cut out of each down to the floor, and kgv.js stands hers there.
+// (The sculpt's after superstructure also carried one out over Y on a
+// platform of its own; that platform, and the pom-pom, are not hers -- see
+// OVER_Y below.)
 const CAST_POMPOM = [
   { name: 'pom-pom foremast', S: FRONT, x: 0.15, z: -0.215, floor: -0.16, box: [0.085, 0.215, -0.31, -0.12] },
   { name: 'pom-pom fore funnel', S: AFT, x: 0.765, z: -0.145, floor: -0.052, r: 0.05 },
-  { name: 'pom-pom after superstructure', S: AFT, x: -0.452, z: 0, floor: -0.135, r: 0.05, centre: true },
 ];
 
 // ---- her hull, cut down to her deck --------------------------------------------------------
@@ -545,6 +546,34 @@ const BRIDGE_525_CUT = (() => {
     c.barbette + 0.05 - Math.hypot(Math.abs(px) - ax, pz - z),
     Math.min(Math.abs(px) - (ax + 0.2), 3.4 - Math.abs(pz - z))));
 })();
+// Her forecastle round B and abreast her bridge, cleared of what the sculpt
+// left lying there: a boat either side of B, shredded by the decimation, and
+// the shards of it and of her bridge's skirts strewn over her deck and stuck
+// to B's barbette -- everything under B's seat and outside its barbette,
+// abaft A, but not the neck of her bridge that stands up against B. Abreast
+// her bridge, outboard of it, the litter on her deck. And the deckhouse the
+// sculpt slumped against the after side of her forward 5.25-inch, between it
+// and the next one aft, a sloping lump that read as a barbette run off its
+// drum: her side there is her deck.
+// B's barbette is walled round again at this radius, from her deck to her
+// seat (see BARBETTE_TOPS): what the sculpt welded to the foot of it -- the
+// blocks and shards of what stood round it -- has nothing to hang on.
+const B_DRUM = 5.2;
+const FORE_DECK_CUT = (() => {
+  const B = TURRETS[1];
+  const c = CAST_525[0];
+  const [mx, , mz] = superToWorld(c.S, c.x, c.seat, c.z);
+  const ax5 = Math.abs(mx);
+  return (x, y, z) => {
+    const ax = Math.abs(x);
+    const dy = y - deck.y(x, z);
+    const roundB = Math.min(z - 26.0, 46 - z, Math.hypot(x - B.x, z - B.z) - (B_DRUM + 0.02),
+      Math.max(ax - (dy < 1.6 ? 2.6 : 4.8), z - 31.2), B.seat - 0.1 - y, dy + 0.2);
+    const abreast = Math.min(z - 15.8, 24.5 - z, ax - 9.3, 2.5 - dy, dy + 0.2);
+    const house = Math.min(z - 6.2, 11.0 - z, ax - 9.4, Math.hypot(ax - ax5, z - mz) - (c.barbette + 0.05), 14.5 - y, dy + 0.2);
+    return Math.max(roundB, abreast, house);
+  };
+})();
 const front = superstructure('kgv-front.glb', FRONT, (z) => z - SEAM_Z, [
   ...castCuts(FRONT),
   // B turret: its gunhouse, off its barbette, and its barrels.
@@ -555,7 +584,7 @@ const front = superstructure('kgv-front.glb', FRONT, (z) => z - SEAM_Z, [
   boxCut([-1.0, -0.745, -0.05, 0.05], -0.25, -0.17),
   // The forward 5.25-inch's barrels, laid along her deck forward of it.
   boxCut([-0.25, -0.03, -0.47, -0.36], -0.29, -0.235),
-], [WALRUS_CUT, BRIDGE_525_CUT], -1);
+], [WALRUS_CUT, BRIDGE_525_CUT, FORE_DECK_CUT], -1);
 const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   ...castCuts(AFT),
   // Y turret: its gunhouse off its barbette, under her after superstructure,
@@ -565,7 +594,14 @@ const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   // The barrels of the after pair of 5.25-inch, laid aft.
   boxCut([-0.2, -0.06, 0.24, 0.33], -0.24, -0.16),
   boxCut([0.03, 0.155, 0.27, 0.33], -0.19, -0.12),
-], [WALRUS_CUT], +1);
+], [WALRUS_CUT,
+  // A strip of the slab's own deck, a lip standing a hand proud of hers
+  // right across her abaft Y: a grey line over her planking from side to side.
+  (x, y, z) => Math.min(z + 74.8, -73.3 - z, deck.y(x, z) + 0.45 - y),
+  // And a rail lying along her deck by her side abaft her after 5.25-inch,
+  // clear of its barbette.
+  (x, y, z) => Math.min(z + 48, -29 - z, Math.abs(x) - 11.8, deck.y(x, z) + 0.9 - y,
+    Math.hypot(Math.abs(x) - 10.98, z + 33.21) - 3.15)], +1);
 
 // Her hull's plating, in pieces short enough to measure: the decimation drew
 // her side amidships as a few triangles tens of metres long, and everything
@@ -749,12 +785,13 @@ for (const f of FLOATS) {
 // open: each is plated over, a hair under where kgv.js stands the gunhouse.
 // A's is drawn by kgv.js, up from her deck.
 export const BARBETTE_TOPS = [
-  { name: 'B', z: TURRETS[1].z, r: 4.85 },
+  { name: 'B', z: TURRETS[1].z, r: B_DRUM, wall: true },
   { name: 'Y', z: TURRETS[2].z, r: 5.05 },
 ];
 for (const b of BARBETTE_TOPS) {
   const t = TURRETS.find((q) => q.name === b.name);
   capDisk(m, 0, t.seat - 0.01, b.z, b.r, b.r);
+  if (b.wall) ringWall(m, 0, b.z, b.r, deck.y(0, b.z) - 0.3, t.seat - 0.01, 0, SUPER_GREY, 96);
 }
 
 if (process.env.DUMP) {
@@ -766,6 +803,7 @@ if (process.env.DUMP) {
 }
 
 // ---- scraps lying on her deck ---------------------------------------------------------
+export const OVER_Y = { z0: -58.6, z1: -48.5, x: 6.5 };
 // What the cuts left lying flat on her deck by itself -- a strip of the
 // sculpt's waterway, a rail's foot -- comes off: a piece on its own, not a
 // hand high, low on her deck.
@@ -774,7 +812,30 @@ if (process.env.DUMP) {
   let n = 0;
   for (const c of components(m).slice(1)) {
     const mid = [(c.lo[0] + c.hi[0]) / 2, (c.lo[2] + c.hi[2]) / 2];
+    // OVER_Y: the platform the after sculpt carried out from her after
+    // superstructure over Y's gunhouse, a piece on its own -- with its tub,
+    // its rails and the block under it -- that read as a lump of hull grown
+    // on to the turret.
+    if (c.lo[2] > OVER_Y.z0 && c.hi[2] < OVER_Y.z1 && Math.max(-c.lo[0], c.hi[0]) < OVER_Y.x) {
+      for (const t of c.tris) drop[t] = 1;
+      n++;
+      console.log(`the platform over Y: ${c.tris.length} triangles taken off`);
+      continue;
+    }
     const flat = c.hi[1] - c.lo[1] < 0.25 && c.hi[1] < deck.y(mid[0], mid[1]) + 0.6;
+    // Nor a lump standing loose on her deck, no more than a man high and a
+    // couple of metres across: what the clearing left of a locker, a
+    // ventilator or a boat's chock, on its own.
+    const lump = c.lo[1] < deck.y(mid[0], mid[1]) + 0.3 && c.hi[1] < deck.y(mid[0], mid[1]) + 2.2
+      && Math.max(c.hi[0] - c.lo[0], c.hi[2] - c.lo[2]) < 2.5 && c.tris.length < 400;
+    // And the litter: a rail, a stanchion, a ladder or a gangway's frame the
+    // cuts left lying along her deck, low and thin -- grey lines drawn over
+    // her planking. Not what was built here round her turrets and 5.25-inch.
+    const ownBuilt = TURRETS.some((t) => Math.hypot(mid[0] - t.x, mid[1] - t.z) < t.r + 1.5)
+      || SECONDARY.some((q) => Math.hypot(Math.abs(mid[0]) - q.x, mid[1] - q.z) < 1.5);
+    const litter = !ownBuilt && c.lo[1] < deck.y(mid[0], mid[1]) + 0.35 && c.hi[1] < deck.y(mid[0], mid[1]) + 2.0
+      && Math.max(c.hi[0] - c.lo[0], c.hi[2] - c.lo[2]) < 16 && c.tris.length < 600;
+    if (lump || litter) { for (const t of c.tris) drop[t] = 1; n++; continue; }
     if (!flat || Math.max(c.hi[0] - c.lo[0], c.hi[2] - c.lo[2]) > 8) continue;
     for (const t of c.tris) drop[t] = 1;
     n++;
@@ -784,7 +845,6 @@ if (process.env.DUMP) {
   m.T = T; m.C = C;
   console.log(`scraps on her deck: ${n} taken off`);
 }
-
 // ---- her paint, where the decimation smeared it ---------------------------------------
 // Nothing over her boot topping is red, and nothing a metre and a half over
 // her waterline is boot topping.
@@ -907,7 +967,7 @@ function packPiece(mesh) {
 //   cradle    (x, y, z) => whether a point of the sculpt elevates
 //   muzzles   [x, y, z] of each muzzle, in the cradle's frame
 //   house     (mesh) => the house as it is to be (stretched, say)
-function gunPiece(file, { map, turn, trunnion, elev = 0, cradle = () => false, muzzles, holes = 0.5, byVertex = false }) {
+function gunPiece(file, { map, turn, trunnion, elev = 0, cradle = () => false, muzzles, holes = 0.5, byVertex = false, dropFloor = false }) {
   const raw = readGlb(ASSET(file));
   const P = [], N = [], src = [];
   for (let i = 0; i < raw.pos.length; i += 3) {
@@ -931,8 +991,21 @@ function gunPiece(file, { map, turn, trunnion, elev = 0, cradle = () => false, m
     lifts[t] = cradle(...c) ? 1 : 0;
   }
   // Off square at its foot: nothing under it.
-  const house = subMesh(mesh, (t) => !lifts[t]);
+  let house = subMesh(mesh, (t) => !lifts[t]);
   splitAlong(house, (x, y) => -y, { drop: true });
+  // And, if asked, without the plate the sculpt stood it on: a sheet of its
+  // own a couple of centimetres thick, lying on the deck wider than the
+  // mounting -- a grey slab under it on hers.
+  if (dropFloor) {
+    const flat = new Uint8Array(house.T.length / 3);
+    for (const c of components(house)) if (c.hi[1] < 0.05) for (const t of c.tris) flat[t] = 1;
+    // And the rest of it, welded under the mounting's feet: nothing of it
+    // within a hand of its foot.
+    for (let t = 0; t < flat.length; t++) {
+      if (Math.max(...[0, 1, 2].map((j) => house.P[house.T[t * 3 + j] * 3 + 1])) < 0.12) flat[t] = 1;
+    }
+    house = subMesh(house, (t) => !flat[t]);
+  }
   const shut = closeSmallHoles(house, holes);
   for (let t = 0; t < house.T.length / 3; t++) {
     const [nx, ny, nz] = faceNormal(house, house.T[t * 3], house.T[t * 3 + 1], house.T[t * 3 + 2]);
@@ -1068,6 +1141,7 @@ const BOFORS = (() => {
       return u > -0.3 && v > -0.2 && v < 0.22 && Math.abs(x) > 0.17 && Math.abs(x) < 0.5;
     },
     muzzles: [-0.3875, -0.275, 0.275, 0.3875].map((x) => [+(x * scale).toFixed(3), 0, +(0.96 * scale).toFixed(3)]),
+    dropFloor: true,
   });
 })();
 
@@ -1124,12 +1198,9 @@ const seatAt = (x, z, r = 1.0) => {
 const standing = (list) => list.map((g) => ({ ...g, y: +seatAt(g.x, g.z, g.r || 1.0).toFixed(3) }));
 const edge = (z, inset) => +(halfBreadth(z) - inset).toFixed(2);
 
-// Her four quadruple Bofors -- two as she carried them in 1945 and two more
-// where she carried single ones -- one a side on her forecastle abaft A
-// turret, and one a side on her quarterdeck abaft Y, each clear of the sweep
-// of its turret's barrels.
+// Her two quadruple Bofors, one a side on her quarterdeck abaft Y, clear of
+// the sweep of its barrels. Her forecastle between A and B is left clear.
 export const BOFORS_SEATS = standing([
-  { name: 'Bofors forecastle', x: 8.0, z: 46.0, r: 2.0 },
   { name: 'Bofors quarterdeck', x: 4.6, z: -84.5, r: 2.0 },
 ]);
 

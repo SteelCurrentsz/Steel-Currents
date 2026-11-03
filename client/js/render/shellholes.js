@@ -67,7 +67,16 @@ let INSIDE = null;
 /** The inside face of a holed plate: dark steel, unlit, fogged like everything else. */
 function insideMaterial() {
   if (!INSIDE) {
-    INSIDE = new THREE.MeshBasicMaterial({ color: 0x0b0a09, side: THREE.BackSide });
+    // Pushed back a little in depth. A plate drawn from both sides -- a
+    // single sheet given a twin facing the other way, or a superstructure
+    // drawn two-sided -- has its inside on the very same plane as paint seen
+    // from outside, and on a tie the lining won: a ship's first hole turned
+    // every such plate on her black, her deck in blotches from end to end.
+    // Only where the paint has been cut away does the lining now show.
+    INSIDE = new THREE.MeshBasicMaterial({
+      color: 0x0b0a09, side: THREE.BackSide,
+      polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 6,
+    });
     INSIDE.userData.inside = true;
   }
   return INSIDE;
