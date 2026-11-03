@@ -40,6 +40,7 @@ import { box, cyl, strip, sheet } from './shipkit.js';
 import {
   buildKgvHull, kgvSurfaceY, MOUNT_SEATS, SCULPT_LINES, kgvMaterials, gunPiece,
 } from './kgvHull.js';
+import { SCREWS } from './kgvHull.data.js';
 
 const CLS = SHIP_CLASSES.kgv;
 export const LOA = CLS.hull.length;
@@ -103,6 +104,16 @@ export function shellAt(t, y) {
 /** Her lines, for the interior and the tests. */
 export const LINES = { loa: LOA, sheer: deckOver, keelY, shellAt, zAt };
 const INNER_BOTTOM = 0.15;
+/**
+ * The bottom of her insides at station t: over her keel, and aft, where her
+ * keel line runs along the bottoms of her bossings, over her own bottom
+ * between them (see prepare-kgv-hull.mjs).
+ */
+function innerBottom(t) {
+  const f = along(zAt(t));
+  const floor = L.floor ? Math.max(lerp(L.floor, Math.floor(f)), lerp(L.floor, Math.ceil(f))) : -99;
+  return Math.max(keelY(t), floor > -50 ? floor : -99) + INNER_BOTTOM;
+}
 /** Where her deck is at (0, z): her own surface on the centreline. */
 export const deckAt = (z) => kgvSurfaceY(0, z);
 
@@ -277,20 +288,21 @@ function armour(g) {
 
 // --------------------------------------------------------------- screws --
 
-// Her four screws, on the ends of her shafts: three-bladed, four and a half
-// metres across, and handed -- the inner pair a little further aft than the
-// wing pair, as hers were.
-export const SCREWS = [
-  { x: -6.6, y: -6.4, z: -88.5, r: 2.2, wing: true },
-  { x: 6.6, y: -6.4, z: -88.5, r: 2.2, wing: true },
-  { x: -2.8, y: -6.9, z: -94.0, r: 2.2 },
-  { x: 2.8, y: -6.9, z: -94.0, r: 2.2 },
-];
+// Her four screws, on the ends of her shafts (see prepare-kgv-hull.mjs):
+// three-bladed, four and a half metres across, and handed; the wing pair's
+// shafts run forward into her from them.
 function screws(g) {
   for (const s of SCREWS) {
-    // Its shaft, run forward into her from the hub, and its bracket.
-    const shaft = cyl(g, M.steelDark, 0.28, 0.28, 10.0, s.x, s.y + 0.25, s.z + 5.0, 12);
-    shaft.rotation.x = Math.PI / 2 - 0.05;
+    if (s.wing) {
+      // Its shaft, run forward into her from the hub, and the A-bracket
+      // that carries it a little forward of the screw.
+      const shaft = cyl(g, M.steelDark, 0.28, 0.28, 14.0, s.x, s.y + 0.5, s.z + 7.0, 12);
+      shaft.rotation.x = Math.PI / 2 - 0.07;
+      for (const lean of [-0.45, 0.45]) {
+        const strut = box(g, M.steel, 0.25, 2.6, 0.6, s.x + Math.sin(lean) * 0.9 * Math.sign(s.x), s.y + 1.3, s.z + 2.0);
+        strut.rotation.z = lean;
+      }
+    }
     const hub = new THREE.Group();
     hub.position.set(s.x, s.y, s.z);
     hub.userData.dynamic = true;
@@ -320,7 +332,7 @@ const STATIC = [
 export function buildKgv() {
   const g = new THREE.Group();
   for (const [, build] of STATIC) build(g);
-  buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + INNER_BOTTOM, sheer: deckOver, zAt });
+  buildInterior(g, { loa: LOA, shellAt, keelY: innerBottom, sheer: deckOver, zAt });
   mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
   mountings(g);

@@ -94,6 +94,22 @@ const m = (() => {
     lo.map((v) => v.toFixed(2)).join(' '), '..', hi.map((v) => v.toFixed(2)).join(' '));
 }
 console.log('winding fixed:', fixWinding(m), 'of', m.T.length / 3, 'triangles were backwards');
+// ---- her screws ---------------------------------------------------------------------
+// The sculpt drew her two inner shafts, carried aft in long bossings to a
+// screw of no particular shape on the end of each, abreast her rudders; her
+// wing shafts it left off. Its screws are cut off, and kgv.js draws four that
+// turn: the inner pair where the sculpt had them, the wing pair further
+// forward and outboard on their own shafts, as she had them.
+export const SCREWS = [
+  { x: -3.45, y: -6.9, z: -95.3, r: 2.2 },
+  { x: 3.45, y: -6.9, z: -95.3, r: 2.2 },
+  { x: -7.4, y: -5.6, z: -78.0, r: 2.2, wing: true },
+  { x: 7.4, y: -5.6, z: -78.0, r: 2.2, wing: true },
+];
+for (const sc of SCREWS.filter((q) => !q.wing)) {
+  const b = { x0: sc.x - 2.0, x1: sc.x + 2.0, y0: -9.5, y1: -4.6, z0: -96.6, z1: -94.4 };
+  splitAlong(m, (x, y, z) => Math.min(x - b.x0, b.x1 - x, y - b.y0, b.y1 - y, z - b.z0, b.z1 - z), { drop: true });
+}
 dropLoose(m, { maxArea: 3, maxDiag: 4 });
 // Where she sat on her stand's two pillars, her keel was left open: closed,
 // each hole in its own plane, with every other the decimation left.
@@ -390,7 +406,11 @@ function superstructure(file, S, keep, cuts) {
       const low = c.hi[1] < deck.y(mid[0], mid[2]) + 0.8 && diag < 12;
       const speck = diag < 0.5 || (diag < 2.5 && c.tris.length < 120);
       const barrel = ext[2] < 9 && ext[1] < 0.75 && ext[2] > 2 && c.tris.length < 1500;
-      if (!low && !speck && !barrel) continue;
+      // And what hangs in the air by itself, high over her: a flag, a scrap of
+      // a yard the de-rigging left with nothing under it.
+      const adrift = diag < 8 && c.lo[1] > deck.y(mid[0], mid[2]) + 14 && c.tris.length < 2000;
+      if (process.env.ADRIFT && adrift) console.log('adrift', c.tris.length, c.lo.map((v) => v.toFixed(1)).join(','), c.hi.map((v) => v.toFixed(1)).join(','));
+      if (!low && !speck && !barrel && !adrift) continue;
       for (const t of c.tris) drop[t] = 1;
       n++;
     }
@@ -570,8 +590,13 @@ shadePlating(m, plating, { along: 3.0, up: 0.5 });
 // twinSheets).
 {
   const nf = m.T.length / 3;
-  const twins = twinSheets(m, { rays: 7, reach: 8, only: (t) => t < nf && middle(m, t)[1] > 1.5 });
+  const twins = twinSheets(m, { rays: 7, reach: 60, only: (t) => t < nf && middle(m, t)[1] > 1.5 });
   console.log(`her single sheets: ${twins} faces given a twin`);
+}
+
+if (process.env.DUMP_FINAL) {
+  const { writeGlb } = await import('./sculpt-source.mjs');
+  writeGlb(process.env.DUMP_FINAL, { P: m.P, N: m.N, T: m.T }, 'dump');
 }
 
 // ---- her surface, as a height map --------------------------------------------------
@@ -877,6 +902,27 @@ console.log('her pom-poms:', POMPOMS.map((s) => `${s.x}/${s.z}@${s.y}`).join(' '
 // Off the round metre, so a plane through a station's points does not cut
 // each triangle there at a corner (see prepare-fuso-hull.mjs).
 const LINES = measureLines(m, st, { z0: -112.9963, dz: 1, nz: 226, y0: -10.5, dy: 0.5, ny: 40 }, deck.y(0, 0));
+// And how high her bottom comes inboard, station by station: the highest of
+// the lowest point of her at every half metre across the middle of her. Her
+// keel line runs along the bottoms of her bossings aft, and her insides fitted
+// over that would stand out of her bottom between them.
+{
+  const under = heightmap({ P: m.P.map((v, i) => (i % 3 === 1 ? -v : v)), T: m.T }, HM);
+  LINES.floor = [];
+  for (let k = 0; k < LINES.nz; k++) {
+    const z = LINES.z0 + k * LINES.dz;
+    const j = Math.round((z - HM.z0) / HM.step);
+    const w = Math.max(1, halfBreadth(z) * 0.55);
+    let top = -99;
+    for (let x = -w; x <= w + 1e-6; x += HM.step) {
+      const i = Math.round((x - HM.x0) / HM.step);
+      if (j < 0 || j >= HM.nz || i < 0 || i >= HM.nx) continue;
+      const v = under[j * HM.nx + i];
+      if (v > -50) top = Math.max(top, -v);
+    }
+    LINES.floor.push(+top.toFixed(2));
+  }
+}
 
 // ---- slice, pack and write ------------------------------------------------------------
 const surfaceOf = (t) => (m.C[t] === DECK ? 1 : 0);
@@ -916,6 +962,8 @@ writeFileSync(OUT_DATA,
   + `// Where her turrets, her 5.25-inch and her light guns stand; port side,\n`
   + `// the starboard ones their mirrors.\n`
   + `export const KGV_MOUNTS = ${JSON.stringify(mounts)};\n`
+  + `// Her four screws, on the ends of her shafts.\n`
+  + `export const SCREWS = ${JSON.stringify(SCREWS)};\n`
   + `// Her lines as the sculpt has them: keel, the deck over her insides, and\n`
   + `// her half-breadth at every half metre of height, a metre at a time.\n`
   + `export const KGV_LINES = ${JSON.stringify(LINES)};\n`);
