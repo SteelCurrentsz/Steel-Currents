@@ -1010,7 +1010,7 @@ const DECK_OERLIKONS = standing([
 // superstructure abreast her mainmast...
 const SUPER_OERLIKONS = standing([
   [3.0, 22.5], [7.5, 16.0], [7.0, 19.6], [5.0, 5.0], [7.0, -2.0],
-  [4.5, -22.0], [5.0, -31.0], [6.5, -38.0], [7.0, -42.0],
+  [4.0, -21.0], [5.0, -31.0], [6.5, -38.0], [7.0, -42.0],
 ].map(([x, z]) => ({ name: 'Oerlikon', x, z, r: 0.5 })));
 // ...and eight on the roofs of her turrets, as she carried them in 1945: a
 // pair on A and on B, on the flat of the roof abaft the sighting hoods, and
