@@ -4011,8 +4011,8 @@ export const SHIP_CLASSES = {
       caliber: 133, reload: 6, traverse: 0.18, range: 11000, sigma: 1.25,
       shells: shells(133, 2100, 1800, 110, 792, 0.08),
       mounts: [
-        { x: 12.42, z: 13.39, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 10.63 },
-        { x: -12.42, z: 13.39, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 10.63 },
+        { x: 11.9, z: 13.39, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 10.63 },
+        { x: -11.9, z: 13.39, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 10.63 },
         { x: 11.83, z: 2.51, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 15.69 },
         { x: -11.83, z: 2.51, angle: -1.57, arc: 2.6, rest: -Math.PI / 2, guns: 2, my: 15.69 },
         { x: 11.91, z: -23.18, angle: 1.57, arc: 2.6, rest: Math.PI / 2, guns: 2, my: 13.43 },
@@ -4109,7 +4109,7 @@ export const SHIP_CLASSES = {
       // Where the shot leaves her: off whichever beam the car was thrown to,
       // a little abaft her middle because her catapult is -- measured off the
       // same integrated shot the model on her catapult flies.
-      runOut: 197.6, runBearing: 1.629, runHeading: 1.571, launchSpeed: 31,
+      runOut: 193.0, runBearing: 1.630, runHeading: 1.571, launchSpeed: 31,
       flight: { fighters: 0, dive: 2, torpedo: 0 },
     },
     datasheet: {

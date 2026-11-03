@@ -303,7 +303,9 @@ console.log('her turrets:', TURRETS.map((t) => `${t.name} z ${t.z} seat ${t.seat
 // sculpt cast one -- the middle of its drum, the top of the barbette it
 // stands on -- and its drum's radius, in the sculpt's units.
 const CAST_525 = [
-  { name: '5.25 bridge', S: FRONT, x: 0.042, z: -0.386, seat: -0.3615, r: 0.08 },
+  // The sculpt cast this pair half a metre further out, its drum over her
+  // side: it is stood in on her deck, on a drum that stops inside her edge.
+  { name: '5.25 bridge', S: FRONT, x: 0.042, z: -0.370, seat: -0.3615, r: 0.08, barbette: 2.95 },
   { name: '5.25 fore funnel', S: AFT, x: 0.79, z: -0.294, seat: -0.165, r: 0.05 },
   { name: '5.25 after funnel', S: AFT, x: 0.209, z: -0.296, seat: -0.192, r: 0.058 },
   { name: '5.25 mainmast', S: AFT, x: -0.018, z: -0.273, seat: -0.242, r: 0.058 },
@@ -350,14 +352,69 @@ export const CLEARED = { z0: -107, z1: 104, edge: 0.55, under: 0.15 };
   splitAlong(m, fin, { drop: true });
   dropLoose(m, { maxArea: 1, maxDiag: 3 });
 }
+// Her side, smooth along her: her half-breadth under her deck, read between
+// the metres it is measured at.
+const sideAt = (z) => {
+  const k = Math.floor(z), f = z - k;
+  return halfBreadth(k) * (1 - f) + halfBreadth(k + 1) * f;
+};
+// Her deck's edge, the sculpt's torn and pleated by the decimation -- its
+// waterway and the top strake of her side ragged, notched open in places --
+// comes off from a hand under her deck up, out to her side and over it, and
+// is drawn again (EDGE): her side carried up clean to a gunwale a hand over
+// her deck.
+export const EDGE = { under: 0.15, drop: 0.6, lip: 0.12, inset: 0.12 };
+{
+  const band = (x, y, z) => Math.min(y - (deck.y(x, z) - EDGE.under), Math.abs(x) - (sideAt(z) - CLEARED.edge - 0.05),
+    z - CLEARED.z0, CLEARED.z1 - z);
+  const before = m.T.length / 3;
+  splitAlong(m, band, { drop: true });
+  dropLoose(m, { maxArea: 2, maxDiag: 4 });
+  console.log(`her deck edge cut down: ${before} triangles, ${m.T.length / 3} left`);
+}
+const EDGE_MESH = (() => {
+  const g = blank();
+  const quad = (a, b, c, d, want) => {
+    const base = g.P.length / 3;
+    for (const p of [a, b, c, d]) { g.P.push(...p); g.N.push(...want); }
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const ok = n[0] * want[0] + n[1] * want[1] + n[2] * want[2] >= 0;
+    if (ok) g.T.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    else g.T.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    g.C.push(GREY, GREY);
+  };
+  const dz = 0.5;
+  const at = (z, sd) => {
+    const x = sideAt(z), yd = deck.y(x, z);
+    return {
+      ob: [sd * (x + 0.01), yd - EDGE.drop, z], ot: [sd * (x + 0.01), yd + EDGE.lip, z],
+      it: [sd * (x - EDGE.inset), yd + EDGE.lip, z], ib: [sd * (x - EDGE.inset), yd - 0.05, z],
+    };
+  };
+  for (const sd of [1, -1]) {
+    for (let z = CLEARED.z0; z < CLEARED.z1 - 1e-6; z += dz) {
+      const a = at(z, sd), b = at(Math.min(z + dz, CLEARED.z1), sd);
+      quad(a.ob, b.ob, b.ot, a.ot, [sd, 0, 0]);
+      quad(a.ot, b.ot, b.it, a.it, [0, 1, 0]);
+      quad(a.it, b.it, b.ib, a.ib, [-sd, 0, 0]);
+    }
+    // Its ends, where the sculpt's own edge takes over.
+    for (const [z, f] of [[CLEARED.z0, -1], [CLEARED.z1, 1]]) {
+      const a = at(z, sd);
+      quad(a.ob, a.ot, a.it, a.ib, [0, 0, f]);
+    }
+  }
+  return g;
+})();
 // And laid again: a sheet over what was cleared, a hair over where her deck
-// was and a hand out over the edge of the cut, along her camber.
+// was, out to the gunwale, along her camber.
 const LAID = (() => {
   const g = blank();
   const z0 = CLEARED.z0, z1 = CLEARED.z1, dz = 1.0, nx = 24;
   const rows = [];
   for (let z = z0; z <= z1 + 1e-6; z += dz) {
-    const w = halfBreadth(z) - CLEARED.edge + 0.35;
+    const w = sideAt(z) - EDGE.inset + 0.02;
     const row = [];
     for (let i = 0; i <= nx; i++) {
       const x = -w + (2 * w * i) / nx;
@@ -418,6 +475,11 @@ function superstructure(file, S, keep, cuts, worldCuts = [], seamFace = 0) {
   splitAlong(s, (x, y, z) => -keep(z), { drop: true });
   splitAlong(s, (x, y, z) => (deck.y(x, z) - 0.05) - y, { drop: true });
   splitAlong(s, (x, y, z) => Math.abs(x) - (halfBreadth(z) - 0.35), { drop: true });
+  // Nor, low down, over her deck's edge, which is drawn again (EDGE); nor
+  // its slab's own deck, out towards her side, where it stands a hair proud
+  // of hers.
+  splitAlong(s, (x, y, z) => Math.min(Math.abs(x) - (halfBreadth(z) - CLEARED.edge - 0.05), deck.y(x, z) + 1.2 - y), { drop: true });
+  splitAlong(s, (x, y, z) => Math.min(Math.abs(x) - (halfBreadth(z) - 2.0), deck.y(x, z) + 0.3 - y), { drop: true });
   s = subMesh(s, () => true);
   // What the seam cut open -- a deckhouse, a platform, a funnel's casing cut
   // across -- is plated over on the seam, however big.
@@ -472,6 +534,17 @@ const WALRUS_CUT = (x, y, z) => Math.min(x + 7.9, 7.8 - x, 11.6 - y, z + 16.75, 
   // Down to the top of the girder over it, and down to her deck either side
   // of it, where her lower wings and her floats were.
   Math.max(y - 8.62, Math.min(y - 7.6, Math.abs(z + 11.4) - 1.45)));
+// Where the sculpt cast the forward pair of 5.25-inch, half a metre out of
+// where they stand: its drum, and the skirt it flared out over her side
+// with, come off from her deck up, out to her side, either side.
+const BRIDGE_525_CUT = (() => {
+  const c = CAST_525[0];
+  const [x, y, z] = superToWorld(c.S, c.x, c.seat, c.z);
+  const ax = Math.abs(x);
+  return (px, py, pz) => Math.min(py - 7.0, y + 4.6 - py, Math.max(
+    c.barbette + 0.05 - Math.hypot(Math.abs(px) - ax, pz - z),
+    Math.min(Math.abs(px) - (ax + 0.2), 3.4 - Math.abs(pz - z))));
+})();
 const front = superstructure('kgv-front.glb', FRONT, (z) => z - SEAM_Z, [
   ...castCuts(FRONT),
   // B turret: its gunhouse, off its barbette, and its barrels.
@@ -482,7 +555,7 @@ const front = superstructure('kgv-front.glb', FRONT, (z) => z - SEAM_Z, [
   boxCut([-1.0, -0.745, -0.05, 0.05], -0.25, -0.17),
   // The forward 5.25-inch's barrels, laid along her deck forward of it.
   boxCut([-0.25, -0.03, -0.47, -0.36], -0.29, -0.235),
-], [WALRUS_CUT], -1);
+], [WALRUS_CUT, BRIDGE_525_CUT], -1);
 const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   ...castCuts(AFT),
   // Y turret: its gunhouse off its barbette, under her after superstructure,
@@ -504,7 +577,47 @@ const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   splitLong(m, 3.0);
   console.log(`her plating: ${before} triangles split to ${m.T.length / 3}, none longer than 3 m along an edge`);
 }
+// Her side's plating, smoothed of the slivers its decimation folded into it
+// (they catch the light as streaks), from a little over her waterline to just
+// under her deck; her waterline, her deck's edge and her ends kept as they are.
+{
+  const { sigmaS } = denoise(m, {
+    normalIters: 12, vertexIters: 24, sigmaR: 0.3,
+    keep: (x, y, z) => y < 1.2 || y > deck.y(x, z) - EDGE.drop - 0.1 || z < CLEARED.z0 || z > CLEARED.z1 - 6,
+  });
+  console.log(`her side smoothed, faces ${sigmaS.toFixed(2)} m apart`);
+}
+// Her hawse pockets either side of her bow, crumpled by the decimation into
+// shards: pressed flush with her side round them, in and out.
+{
+  const box = { z0: 98.5, z1: 104.2, y0: 2.6, y1: 7.0 };
+  for (const sd of [1, -1]) {
+    // Her side round the pocket, as a plane x = a + b y + c z, by least squares.
+    const rows = [];
+    for (let i = 0; i < m.P.length; i += 3) {
+      const x = m.P[i] * sd, y = m.P[i + 1], z = m.P[i + 2];
+      if (x < 1) continue;
+      const inside = z > box.z0 && z < box.z1 && y > box.y0 && y < box.y1;
+      const near = z > box.z0 - 2.5 && z < box.z1 + 1.0 && y > box.y0 - 1.5 && y < box.y1 + 0.6;
+      if (near && !inside) rows.push([1, y, z, x]);
+    }
+    const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], bv = [0, 0, 0];
+    for (const r of rows) for (let a = 0; a < 3; a++) { bv[a] += r[a] * r[3]; for (let b = 0; b < 3; b++) A[a][b] += r[a] * r[b]; }
+    const det3 = (M) => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+    const D = det3(A);
+    const coef = [0, 1, 2].map((k) => det3(A.map((row, i) => row.map((v, j) => (j === k ? bv[i] : v)))) / D);
+    let n = 0;
+    for (let i = 0; i < m.P.length; i += 3) {
+      const x = m.P[i] * sd, y = m.P[i + 1], z = m.P[i + 2];
+      if (!(z > box.z0 && z < box.z1 && y > box.y0 && y < box.y1) || x < 1) continue;
+      const side = coef[0] + coef[1] * y + coef[2] * z;
+      if (Math.abs(x - side) > 0.01) { m.P[i] = sd * side; n++; }
+    }
+    console.log(`hawse pocket ${sd > 0 ? 'starboard' : 'port'}: ${n} points pressed out, from ${rows.length} round it`);
+  }
+}
 append(m, LAID);
+append(m, EDGE_MESH);
 append(m, front);
 append(m, aft);
 
@@ -577,7 +690,7 @@ export const SEC_BARBETTES = [];
 for (const c of CAST_525) {
   for (const side of [-1, 1]) {
     const [x, y, z] = superToWorld(c.S, c.x, c.seat + 0.003, side * c.z);
-    const r = Math.max((c.r + 0.005) * c.S.k * UNIT + 0.15, 3.05);
+    const r = c.barbette ?? Math.max((c.r + 0.005) * c.S.k * UNIT + 0.15, 3.05);
     const hs = [];
     for (let k = 0; k < 16; k++) {
       const a = (2 * Math.PI * k) / 16;
@@ -650,6 +763,26 @@ if (process.env.DUMP) {
   for (let t = 0; t < m.T.length / 3; t++) for (let j = 0; j < 3; j++) paintOf[m.T[t * 3 + j]] = m.C[t];
   writeGlb(process.env.DUMP, { P: m.P, N: m.N, T: m.T, paint: paintOf }, 'dump');
   if (process.env.STAGE === 'merge') process.exit(0);
+}
+
+// ---- scraps lying on her deck ---------------------------------------------------------
+// What the cuts left lying flat on her deck by itself -- a strip of the
+// sculpt's waterway, a rail's foot -- comes off: a piece on its own, not a
+// hand high, low on her deck.
+{
+  const drop = new Uint8Array(m.T.length / 3);
+  let n = 0;
+  for (const c of components(m).slice(1)) {
+    const mid = [(c.lo[0] + c.hi[0]) / 2, (c.lo[2] + c.hi[2]) / 2];
+    const flat = c.hi[1] - c.lo[1] < 0.25 && c.hi[1] < deck.y(mid[0], mid[1]) + 0.6;
+    if (!flat || Math.max(c.hi[0] - c.lo[0], c.hi[2] - c.lo[2]) > 8) continue;
+    for (const t of c.tris) drop[t] = 1;
+    n++;
+  }
+  const T = [], C = [];
+  for (let t = 0; t < m.T.length / 3; t++) if (!drop[t]) { T.push(m.T[t * 3], m.T[t * 3 + 1], m.T[t * 3 + 2]); C.push(m.C[t]); }
+  m.T = T; m.C = C;
+  console.log(`scraps on her deck: ${n} taken off`);
 }
 
 // ---- her paint, where the decimation smeared it ---------------------------------------
