@@ -4046,42 +4046,44 @@ export const SHIP_CLASSES = {
             { x: 4.6, z: -84.5, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 4, my: 9.04 },
             { x: -4.6, z: -84.5, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 4, my: 9.04 },
           ] },
-        // Her thirty-six Oerlikons: twenty-eight along the edges of her deck,
-        // forecastle to quarterdeck, and eight on the roofs of her turrets --
-        // a pair on A and on B, two pairs on Y -- which ride round with them
-        // (`turret`; see kgv.js). Each roof gun is given where it stands with
-        // its turret trained fore and aft.
+        // Her thirty-six Oerlikons: ten along the edges of her deck, on her
+        // forecastle and her quarterdeck; eighteen up on her superstructure --
+        // on the top of her bridge, on the platforms beside it and her
+        // foremast, beside her funnels and on her after superstructure; and
+        // eight on the roofs of her turrets -- a pair on A and on B, two pairs
+        // on Y -- which ride round with them (`turret`; see kgv.js). Each roof
+        // gun is given where it stands with its turret trained fore and aft.
         { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
           elev: { min: -0.17, max: 1.48 },
           mounts: [
             { x: 5.35, z: 92, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.65 },
             { x: -5.35, z: 92, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.65 },
-            { x: 6.62, z: 86, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.63 },
-            { x: -6.62, z: 86, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.63 },
             { x: 7.7, z: 80, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.61 },
             { x: -7.7, z: 80, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.61 },
-            { x: 11.45, z: 51, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.33 },
-            { x: -11.45, z: 51, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.33 },
             { x: 12.18, z: 42, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.26 },
             { x: -12.18, z: 42, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.26 },
-            { x: 13.57, z: 24, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 9.05 },
-            { x: -13.57, z: 24, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 9.05 },
-            { x: 14.57, z: -4, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.8 },
-            { x: -14.57, z: -4, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.8 },
-            { x: 14.58, z: -14, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.89 },
-            { x: -14.58, z: -14, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.89 },
-            { x: 14.15, z: -44, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.73 },
-            { x: -14.15, z: -44, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.73 },
-            { x: 13.06, z: -58, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.65 },
-            { x: -13.06, z: -58, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.65 },
             { x: 11.82, z: -70, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.59 },
             { x: -11.82, z: -70, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.59 },
-            { x: 10.08, z: -82, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.56 },
-            { x: -10.08, z: -82, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.56 },
             { x: 7.29, z: -94, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.54 },
             { x: -7.29, z: -94, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.54 },
-            { x: 3.4, z: -101, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 8.53 },
-            { x: -3.4, z: -101, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 8.53 },
+            { x: 3, z: 22.5, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 26.27 },
+            { x: -3, z: 22.5, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 26.27 },
+            { x: 7.5, z: 16, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 14.87 },
+            { x: -7.5, z: 16, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 14.87 },
+            { x: 7, z: 19.6, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 14.78 },
+            { x: -7, z: 19.6, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 14.78 },
+            { x: 5, z: 5, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 19.04 },
+            { x: -5, z: 5, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 19.04 },
+            { x: 7, z: -2, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 17.04 },
+            { x: -7, z: -2, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 17.04 },
+            { x: 4.5, z: -22, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 14.29 },
+            { x: -4.5, z: -22, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 14.29 },
+            { x: 5, z: -31, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 15.82 },
+            { x: -5, z: -31, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 15.82 },
+            { x: 6.5, z: -38, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 13.75 },
+            { x: -6.5, z: -38, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 13.75 },
+            { x: 7, z: -42, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 13.77 },
+            { x: -7, z: -42, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 13.77 },
             { x: 3.5, z: 54.24, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 12.8, turret: 'A' },
             { x: -3.5, z: 54.24, angle: -1.57, arc: 3, rest: -Math.PI / 2, guns: 1, my: 12.8, turret: 'A' },
             { x: 1.2, z: 32.99, angle: 1.57, arc: 3, rest: Math.PI / 2, guns: 1, my: 16.25, turret: 'B' },

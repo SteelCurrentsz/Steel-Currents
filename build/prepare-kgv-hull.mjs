@@ -43,7 +43,7 @@ import {
 } from './sculpt.mjs';
 import { blank, tube, lathe } from './fuso-parts.mjs';
 import { subMesh, dropLoose, turnInward, thinFaces, creased, measureLines } from './sculpt-parts.mjs';
-import { middle, append, splitAlong, closeSmallHoles, splitLong, twinSheets, capPlane } from './kgv-mesh.mjs';
+import { middle, append, splitAlong, closeSmallHoles, splitLong, twinSheets, capPlane, denoise, flattenLump } from './kgv-mesh.mjs';
 import { ShapeUtils, Vector2 } from '../vendor/three.module.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -401,6 +401,12 @@ function superstructure(file, S, keep, cuts, worldCuts = [], seamFace = 0) {
   }
   s = { P, N, T: s.T, C: s.C };
   fixWinding(s);
+  // Its plating smoothed of the lumps and pleats the decimation left in it,
+  // its corners kept.
+  if (process.env.DENOISE !== '0') {
+    const { sigmaS } = denoise(s, { normalIters: +(process.env.DN_N || 6), vertexIters: +(process.env.DN_V || 12), sigmaR: +(process.env.DN_R || 0.35) });
+    console.log(`${file}: smoothed, faces ${sigmaS.toFixed(2)} m apart`);
+  }
   // And what is cut out of it in her own frame.
   for (const g of worldCuts) {
     splitAlong(s, g, { drop: true });
@@ -520,27 +526,103 @@ function capRect(mesh, x0, x1, y, z0, z1, paintOf = SUPER_GREY) {
   for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]) { mesh.P.push(x, y, z); mesh.N.push(0, 1, 0); }
   mesh.T.push(base, base + 2, base + 1, base, base + 3, base + 2); mesh.C.push(paintOf, paintOf);
 }
-// Where the 5.25-inch were cut off their barbettes, and the pom-poms out of
-// their tubs: each plated over a hair over the cut, which is what kgv.js
-// stands the gun on.
+/** The highest of her under (x, z) below `ceil`: what a barbette stood there stands on. */
+function topBelow(mesh, x, z, ceil) {
+  const { P, T } = mesh;
+  let top = -99;
+  for (let t = 0; t < T.length; t += 3) {
+    const a = T[t] * 3, b = T[t + 1] * 3, c = T[t + 2] * 3;
+    if (Math.min(P[a], P[b], P[c]) > x || Math.max(P[a], P[b], P[c]) < x) continue;
+    if (Math.min(P[a + 2], P[b + 2], P[c + 2]) > z || Math.max(P[a + 2], P[b + 2], P[c + 2]) < z) continue;
+    const ax = P[a], az = P[a + 2], bx = P[b], bz = P[b + 2], cx = P[c], cz = P[c + 2];
+    const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+    if (Math.abs(d) < 1e-9) continue;
+    const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d;
+    const l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
+    const l3 = 1 - l1 - l2;
+    if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
+    const y = l1 * P[a + 1] + l2 * P[b + 1] + l3 * P[c + 1];
+    if (y < ceil && y > top) top = y;
+  }
+  return top;
+}
+/** An open round wall about (cx, cz), radius r, from y0 up to y1, and a lip `lip` wide round its top. */
+function ringWall(mesh, cx, cz, r, y0, y1, lip = 0, paintOf = SUPER_GREY, SEG = 64) {
+  const base = mesh.P.length / 3;
+  const rings = [[r, y0], [r, y1]];
+  if (lip) rings.push([r + lip, y1], [r + lip, y1 - 0.12]);
+  for (const [rr, y] of rings) {
+    for (let k = 0; k < SEG; k++) {
+      const a = (2 * Math.PI * k) / SEG;
+      mesh.P.push(cx + rr * Math.cos(a), y, cz + rr * Math.sin(a));
+      mesh.N.push(Math.cos(a), 0, Math.sin(a));
+    }
+  }
+  // Each band faces out (it is drawn from both sides, being over her deck).
+  for (let q = 0; q + 1 < rings.length; q++) {
+    for (let k = 0; k < SEG; k++) {
+      const k1 = (k + 1) % SEG;
+      const a = base + q * SEG + k, b = base + q * SEG + k1, c = base + (q + 1) * SEG + k1, d = base + (q + 1) * SEG + k;
+      mesh.T.push(a, c, b, a, d, c); mesh.C.push(paintOf, paintOf);
+    }
+  }
+}
+// Where the 5.25-inch were cut off their barbettes: each plated over a hair
+// over the cut, which is what kgv.js stands the gun on, and walled round
+// clean from what it stands on up to that plate -- the sculpt's own drums,
+// melted by the decimation, inside it.
+export const SEC_BARBETTES = [];
 for (const c of CAST_525) {
   for (const side of [-1, 1]) {
     const [x, y, z] = superToWorld(c.S, c.x, c.seat + 0.003, side * c.z);
-    const r = (c.r + 0.005) * c.S.k * UNIT + 0.15;
+    const r = Math.max((c.r + 0.005) * c.S.k * UNIT + 0.15, 3.05);
+    const hs = [];
+    for (let k = 0; k < 16; k++) {
+      const a = (2 * Math.PI * k) / 16;
+      const h = topBelow(m, x + (r + 0.35) * Math.cos(a), z + (r + 0.35) * Math.sin(a), y - 0.4);
+      if (h > -50) hs.push(h);
+    }
+    hs.sort((p, q) => p - q);
+    const foot = Math.max(hs.length ? hs[hs.length >> 1] : -99, deck.y(x, z) - 0.15);
+    ringWall(m, x, z, r, foot - 0.15, y + 0.01);
     capDisk(m, x, y + 0.01, z, r, r);
+    SEC_BARBETTES.push({ name: c.name, x: +x.toFixed(2), z: +z.toFixed(2), r: +r.toFixed(2), foot: +foot.toFixed(2), seat: +y.toFixed(2) });
   }
 }
+console.log('her 5.25-inch barbettes:', SEC_BARBETTES.map((b) => `${b.x}/${b.z} r ${b.r} ${b.foot}-${b.seat}`).join('; '));
+// The pom-poms' tubs, the sculpt's shredded by the decimation: what stood in
+// each over its floor is cut away, and each is floored and walled round
+// again, waist high with a lip, wide enough for its mounting to train in.
+export const TUB_R = 2.75, TUB_WALL = 1.1;
 for (const c of CAST_POMPOM) {
   for (const side of c.centre ? [1] : [-1, 1]) {
+    const [x, y, z] = superToWorld(c.S, c.x, c.floor + 0.003, side * c.z);
+    splitAlong(m, (px, py, pz) => Math.min(TUB_R + 0.25 - Math.hypot(px - x, pz - z), py - (y + 0.02), y + 2.6 - py), { drop: true });
     if (c.box) {
       const [x0, x1, z0, z1] = c.box;
       const a = superToWorld(c.S, x0, c.floor + 0.003, side * z0), b = superToWorld(c.S, x1, c.floor + 0.003, side * z1);
       capRect(m, Math.min(a[0], b[0]), Math.max(a[0], b[0]), Math.max(a[1], b[1]) + 0.01, Math.min(a[2], b[2]), Math.max(a[2], b[2]));
-    } else {
-      const [x, y, z] = superToWorld(c.S, c.x, c.floor + 0.003, side * c.z);
-      const r = c.r * c.S.k * UNIT;
-      capDisk(m, x, y + 0.01, z, r, r);
     }
+    capDisk(m, x, y + 0.012, z, TUB_R, TUB_R);
+    ringWall(m, x, z, TUB_R, y - 0.3, y + TUB_WALL, 0.1);
+  }
+}
+dropLoose(m, { maxArea: 1, maxDiag: 2 });
+
+// ---- the floats lashed to her bridge ------------------------------------------------
+// Her Carley floats, each a ring a couple of metres across lashed flat to a
+// wall, which the decimation fused into the wall as a melted lump: pressed
+// flat into the wall they hung on, either side. Each is given by a point on
+// it and the way the wall faces, starboard side.
+export const FLOATS = [
+  { c: [6.2, 11.6, 25.2], n: [0.65, 0, 0.76], a0: -3.1, a1: 5.6, y0: 9.05, y1: 13.2, wall: -0.83, depth: 1.25 },
+  { c: [9.0, 12.6, 11.0], n: [1, 0, 0.1], a0: -2.4, a1: 1.8, y0: 10.0, y1: 14.8, wall: -0.31, depth: 1.7 },
+  { c: [9.0, 12.6, 11.0], n: [1, 0, 0.1], a0: -5.0, a1: -2.4, y0: 10.0, y1: 14.8, wall: -0.2, depth: 1.5 },
+];
+for (const f of FLOATS) {
+  for (const side of [1, -1]) {
+    const moved = flattenLump(m, { ...f, c: [side * f.c[0], f.c[1], f.c[2]], n: [side * f.n[0], 0, f.n[2]] });
+    console.log(`float at ${side * f.c[0]}/${f.c[2]}: ${moved} points pressed flat`);
   }
 }
 
@@ -913,19 +995,23 @@ export const BOFORS_SEATS = standing([
   { name: 'Bofors quarterdeck', x: 4.6, z: -84.5, r: 2.0 },
 ]);
 
-// Her thirty-six Oerlikons, eighteen a side, along the edge of her deck as
-// she carried them by 1945: on her forecastle forward of A and abreast B, on
-// her deck abreast her superstructure clear of her 5.25-inch and her boats,
-// and on her quarterdeck abreast Y and abaft it, with a second row inboard
-// near her stern. Her superstructure's decks are too crowded to take one.
-// Twenty-eight along her deck edges, forecastle to quarterdeck, the
-// starboard ones their mirrors...
+// Her thirty-six Oerlikons, eighteen a side, as she carried them by 1945.
+// Ten along the edge of her deck, the starboard ones their mirrors: on her
+// forecastle forward of A and abreast B, and on her quarterdeck abreast Y and
+// abaft it...
 const DECK_OERLIKONS = standing([
-  { z: 92.0, inset: 1.3 }, { z: 86.0, inset: 1.3 }, { z: 80.0, inset: 1.3 }, { z: 51.0, inset: 1.3 },
-  { z: 42.0, inset: 1.3 }, { z: 24.0, inset: 1.3 }, { z: -4.0, inset: 1.2 }, { z: -14.0, inset: 1.2 },
-  { z: -44.0, inset: 1.2 }, { z: -58.0, inset: 1.3 }, { z: -70.0, inset: 1.3 }, { z: -82.0, inset: 1.3 },
-  { z: -94.0, inset: 1.3 }, { z: -101.0, inset: 2.9 },
+  { z: 92.0, inset: 1.3 }, { z: 80.0, inset: 1.3 }, { z: 42.0, inset: 1.3 },
+  { z: -70.0, inset: 1.3 }, { z: -94.0, inset: 1.3 },
 ].map(({ z, inset }) => ({ name: 'Oerlikon', x: edge(z, inset), z, r: 0.8 })));
+// ...eighteen up on her superstructure, nine a side, each on a flat of it
+// open to the sky: on the top of her bridge, on the platforms either side
+// of her bridge, on the platforms either side of her fore funnel and of her
+// after funnel clear of where her 5.25-inch swing, and on her after
+// superstructure abreast her mainmast...
+const SUPER_OERLIKONS = standing([
+  [3.0, 22.5], [7.5, 16.0], [7.0, 19.6], [5.0, 5.0], [7.0, -2.0],
+  [4.5, -22.0], [5.0, -31.0], [6.5, -38.0], [7.0, -42.0],
+].map(([x, z]) => ({ name: 'Oerlikon', x, z, r: 0.5 })));
 // ...and eight on the roofs of her turrets, as she carried them in 1945: a
 // pair on A and on B, on the flat of the roof abaft the sighting hoods, and
 // two pairs on Y. Each is put on its turret's roof in its turret's own frame
@@ -952,7 +1038,30 @@ const ROOF_OERLIKONS = [
     x: +(t.x + lx * c + lz * sn).toFixed(2), z: +(t.z - lx * sn + lz * c).toFixed(2), y: +(t.seat + ly).toFixed(3),
   };
 });
-export const OERLIKON_SEATS = [...DECK_OERLIKONS, ...ROOF_OERLIKONS];
+export const OERLIKON_SEATS = [...DECK_OERLIKONS, ...SUPER_OERLIKONS, ...ROOF_OERLIKONS];
+if (process.env.FINDSPOTS) {
+  // Where an Oerlikon could stand on her superstructure, starboard side: the
+  // surface within half a metre level to 0.2, 2.5 m or more over her deck,
+  // and no gun or turret near. A starred spot has a drop of 1.5 m outboard.
+  const taken = [...TURRETS.map((t) => [0, t.z, 8]), ...SECONDARY.map((s) => [s.x, s.z, 4.6]), ...POMPOMS.map((s) => [s.x, s.z, 3.6]), ...BOFORS_SEATS.map((s) => [s.x, s.z, 3.0])];
+  for (let z = -60; z <= 40; z += 1.0) {
+    const row = [];
+    for (let x = 0.5; x <= 14; x += 0.5) {
+      if (taken.some(([tx, tz, r]) => Math.hypot(x - tx, z - tz) < r)) continue;
+      const y = surfaceAt(x, z);
+      if (y < deck.y(x, z) + 2.5) continue;
+      let ok = true;
+      for (let dz = -0.5; dz <= 0.5 && ok; dz += 0.5) for (let dx = -0.5; dx <= 0.5 && ok; dx += 0.5) if (Math.abs(surfaceAt(x + dx, z + dz) - y) > 0.2) ok = false;
+      if (!ok) continue;
+      // How far out over the edge it can see: the drop within 2.5 m outboard.
+      const out = y - Math.min(surfaceAt(x + 2.0, z), surfaceAt(x + 2.5, z));
+      row.push(`${x}${out > 1.5 ? '*' : ''}@${y.toFixed(1)}`);
+    }
+    if (row.length) console.log('spot z', z, row.join(' '));
+  }
+  process.exit(0);
+}
+
 console.log('her Bofors:', BOFORS_SEATS.map((s) => `${s.x}/${s.z}@${s.y}`).join(' '));
 console.log('her Oerlikons:', OERLIKON_SEATS.map((s) => `${s.x}/${s.z}@${s.y}`).join(' '));
 console.log('her pom-poms:', POMPOMS.map((s) => `${s.x}/${s.z}@${s.y}`).join(' '));

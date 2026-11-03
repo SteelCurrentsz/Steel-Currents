@@ -3143,13 +3143,17 @@ check('the King George V carries her guns where they can be trained from', () =>
       assert.ok(Math.hypot(m.x - t.x, m.z - t.z) > t.r + 3, `the mounting at ${m.x}, ${m.z} stands where ${t.name} trains`);
     }
   }
-  // Her Oerlikons all round her: on her forecastle, amidships, on her
-  // quarterdeck, and on the roofs of her turrets.
+  // Her Oerlikons all round her: most of them up on her bridge and her
+  // superstructure, some on her forecastle and her quarterdeck, and on the
+  // roofs of her turrets.
   const oer = cls.aa.guns.find((q) => q.caliber === 20).mounts;
   assert.equal(oer.length, 36, `she carries ${oer.length} Oerlikons`);
   assert.ok(oer.filter((m) => m.turret).length >= 6, 'she carries no Oerlikons on her turrets');
-  for (const [lo, hi, where] of [[60, 120, 'forecastle'], [-40, 60, 'waist'], [-120, -40, 'quarterdeck']]) {
-    assert.ok(oer.filter((m) => !m.turret && m.z >= lo && m.z < hi).length >= 6, `she has hardly an Oerlikon on her ${where}`);
+  const up = oer.filter((m) => !m.turret && m.my > 11);
+  assert.ok(up.length >= 12, `only ${up.length} of her Oerlikons are up on her superstructure`);
+  assert.ok(up.some((m) => m.z > 10) && up.some((m) => m.z < -20), 'her superstructure carries Oerlikons only at one end');
+  for (const [lo, hi, where] of [[60, 120, 'forecastle'], [-120, -40, 'quarterdeck']]) {
+    assert.ok(oer.filter((m) => !m.turret && m.my < 11 && m.z >= lo && m.z < hi).length >= 4, `she has hardly an Oerlikon on her ${where}`);
   }
   surveyedArcsHold('kgv');
 });

@@ -424,3 +424,140 @@ export function capPlane(m, at, face, { tol = 0.03, ShapeUtils, Vector2 } = {}) 
   }
   return { n, tris };
 }
+
+/**
+ * Smooths the lumps and pleats a decimation leaves in a sculpt's flat plating
+ * while keeping its corners: bilateral filtering of its faces' normals (each
+ * the weighted mean of its neighbours' that face nearly the same way), and its
+ * points moved to lie on the filtered planes of the faces about them. Points
+ * are welded by position for it, so the sheets either side of a split normal
+ * move together. `sigmaR` is how far apart (as the length of their
+ * difference) two normals may be and still be one surface.
+ */
+export function denoise(mesh, { normalIters = 6, vertexIters = 12, sigmaR = 0.35, keep = null } = {}) {
+  const { P, T } = mesh;
+  const nv = P.length / 3, nf = T.length / 3;
+  // Weld.
+  const canon = new Int32Array(nv);
+  const map = new Map();
+  for (let v = 0; v < nv; v++) {
+    const k = `${Math.round(P[v * 3] * 1e4)},${Math.round(P[v * 3 + 1] * 1e4)},${Math.round(P[v * 3 + 2] * 1e4)}`;
+    let c = map.get(k);
+    if (c === undefined) { c = v; map.set(k, v); }
+    canon[v] = c;
+  }
+  const F = new Int32Array(nf * 3);
+  for (let i = 0; i < nf * 3; i++) F[i] = canon[T[i]];
+  // Faces about each point.
+  const cnt = new Int32Array(nv + 1);
+  for (let i = 0; i < nf * 3; i++) cnt[F[i] + 1]++;
+  for (let v = 0; v < nv; v++) cnt[v + 1] += cnt[v];
+  const ring = new Int32Array(nf * 3);
+  const fill = cnt.slice();
+  for (let f = 0; f < nf; f++) for (let k = 0; k < 3; k++) ring[fill[F[f * 3 + k]]++] = f;
+  const X = Float64Array.from(P);
+  const n = new Float64Array(nf * 3), c = new Float64Array(nf * 3), A = new Float64Array(nf);
+  const faces = () => {
+    for (let f = 0; f < nf; f++) {
+      const a = F[f * 3] * 3, b = F[f * 3 + 1] * 3, d = F[f * 3 + 2] * 3;
+      const ux = X[b] - X[a], uy = X[b + 1] - X[a + 1], uz = X[b + 2] - X[a + 2];
+      const vx = X[d] - X[a], vy = X[d + 1] - X[a + 1], vz = X[d + 2] - X[a + 2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const l = Math.hypot(nx, ny, nz);
+      A[f] = l / 2;
+      if (l > 0) { nx /= l; ny /= l; nz /= l; }
+      n[f * 3] = nx; n[f * 3 + 1] = ny; n[f * 3 + 2] = nz;
+      for (let k = 0; k < 3; k++) c[f * 3 + k] = (X[a + k] + X[b + k] + X[d + k]) / 3;
+    }
+  };
+  faces();
+  // The spread in space: the mean distance between neighbouring faces.
+  let sum = 0, num = 0;
+  for (let f = 0; f < nf; f += 7) {
+    const v = F[f * 3];
+    for (let q = cnt[v]; q < cnt[v + 1]; q++) {
+      const g = ring[q];
+      if (g === f) continue;
+      sum += Math.hypot(c[f * 3] - c[g * 3], c[f * 3 + 1] - c[g * 3 + 1], c[f * 3 + 2] - c[g * 3 + 2]); num++;
+    }
+  }
+  const sigmaS = (sum / Math.max(1, num)) || 1;
+  const m = new Float64Array(nf * 3);
+  const seen = new Int32Array(nf).fill(-1);
+  for (let it = 0; it < normalIters; it++) {
+    for (let f = 0; f < nf; f++) {
+      let sx = 0, sy = 0, sz = 0;
+      for (let k = 0; k < 3; k++) {
+        const v = F[f * 3 + k];
+        for (let q = cnt[v]; q < cnt[v + 1]; q++) {
+          const g = ring[q];
+          if (seen[g] === f) continue;
+          seen[g] = f;
+          const dn = Math.hypot(n[f * 3] - n[g * 3], n[f * 3 + 1] - n[g * 3 + 1], n[f * 3 + 2] - n[g * 3 + 2]);
+          const ds = Math.hypot(c[f * 3] - c[g * 3], c[f * 3 + 1] - c[g * 3 + 1], c[f * 3 + 2] - c[g * 3 + 2]);
+          const w = A[g] * Math.exp(-(ds * ds) / (2 * sigmaS * sigmaS)) * Math.exp(-(dn * dn) / (2 * sigmaR * sigmaR));
+          sx += w * n[g * 3]; sy += w * n[g * 3 + 1]; sz += w * n[g * 3 + 2];
+        }
+      }
+      const l = Math.hypot(sx, sy, sz);
+      if (l > 0) { m[f * 3] = sx / l; m[f * 3 + 1] = sy / l; m[f * 3 + 2] = sz / l; }
+      else { m[f * 3] = n[f * 3]; m[f * 3 + 1] = n[f * 3 + 1]; m[f * 3 + 2] = n[f * 3 + 2]; }
+    }
+    seen.fill(-1);
+    n.set(m);
+  }
+  const target = Float64Array.from(n);
+  for (let it = 0; it < vertexIters; it++) {
+    for (let v = 0; v < nv; v++) {
+      if (canon[v] !== v || cnt[v + 1] === cnt[v]) continue;
+      if (keep && keep(X[v * 3], X[v * 3 + 1], X[v * 3 + 2])) continue;
+      let dx = 0, dy = 0, dz = 0;
+      for (let q = cnt[v]; q < cnt[v + 1]; q++) {
+        const f = ring[q];
+        const nx = target[f * 3], ny = target[f * 3 + 1], nz = target[f * 3 + 2];
+        const d = nx * (c[f * 3] - X[v * 3]) + ny * (c[f * 3 + 1] - X[v * 3 + 1]) + nz * (c[f * 3 + 2] - X[v * 3 + 2]);
+        dx += nx * d; dy += ny * d; dz += nz * d;
+      }
+      const k = cnt[v + 1] - cnt[v];
+      X[v * 3] += dx / k; X[v * 3 + 1] += dy / k; X[v * 3 + 2] += dz / k;
+    }
+    faces();
+  }
+  for (let v = 0; v < nv; v++) {
+    const w = canon[v];
+    P[v * 3] = X[w * 3]; P[v * 3 + 1] = X[w * 3 + 1]; P[v * 3 + 2] = X[w * 3 + 2];
+  }
+  return { sigmaS };
+}
+
+/**
+ * A lump on a wall -- a Carley float the decimation fused into it -- pressed
+ * flat into the wall. `n` is the wall's outward normal (horizontal), `c` a
+ * point on the lump; the wall is the plane facing out
+ * along `n`, `wall` out from `c`; between `a0` and `a1` along it and `y0` and
+ * `y1` up, every point standing up to `depth` proud of it is put back on it.
+ */
+export function flattenLump(mesh, { c, n, a0, a1, y0, y1, wall, depth = 0.9 }) {
+  const { P, N } = mesh;
+  const l = Math.hypot(n[0], n[2]);
+  const nx = n[0] / l, nz = n[2] / l, tx = -nz, tz = nx;
+  const inside = [];
+  const facing = [];
+  for (let v = 0; v < P.length / 3; v++) {
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+    if (y < y0 || y > y1) continue;
+    const along = (x - c[0]) * tx + (z - c[2]) * tz;
+    const out = (x - c[0]) * nx + (z - c[2]) * nz;
+    if (along < a0 || along > a1 || out < wall - 0.3 || out > wall + depth) continue;
+    inside.push([v, out]);
+  }
+  let moved = 0;
+  for (const [v, out] of inside) {
+    const d = out - wall;
+    if (d <= 0.02 || d > depth) continue;
+    P[v * 3] -= d * nx; P[v * 3 + 2] -= d * nz;
+    N[v * 3] = nx; N[v * 3 + 1] = 0; N[v * 3 + 2] = nz;
+    moved++;
+  }
+  return moved;
+}

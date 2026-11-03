@@ -199,7 +199,7 @@ if (wanted('525')) {
   const raw = await readCompressed(asset('KGVSecondary.glb'));
   const gun = dropSmall(compactOf(raw), 5.06, 0.15, 12);
   console.log(`  KGVSecondary.glb: ${raw.T.length / 3} triangles`);
-  writeGlb(asset('kgv-525.glb'), decimate(gun, +(process.env.SEC_RATIO || 0.012), +(process.env.SEC_ERR || 0.0011), 0.02));
+  writeGlb(asset('kgv-525.glb'), decimate(gun, +(process.env.SEC_RATIO || 0.035), +(process.env.SEC_ERR || 0.0005), 0.02));
 }
 if (wanted('bofors')) {
   // The mounting, off its block (the top of which is at -0.29).
