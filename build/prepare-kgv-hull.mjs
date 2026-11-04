@@ -306,12 +306,23 @@ const CAST_525 = [
   // The sculpt cast this pair half a metre further out, its drum over her
   // side: it is stood in on her deck, on a drum that stops inside her edge.
   { name: '5.25 bridge', S: FRONT, x: 0.042, z: -0.370, seat: -0.3615, r: 0.08, barbette: 2.95 },
-  { name: '5.25 fore funnel', S: AFT, x: 0.79, z: -0.294, seat: -0.165, r: 0.05 },
+  // The sculpt stood this pair on a drum of its own two and a quarter metres
+  // over its twin abaft, skirted round its foot with a flare the decimation
+  // tore open: it comes off, and the pair stands at its twin's height on a
+  // drum walled round clean from her deck (FUNNEL_525_CUT).
+  { name: '5.25 fore funnel', S: AFT, x: 0.79, z: -0.294, seat: -0.165, r: 0.05, level: '5.25 after funnel' },
   { name: '5.25 after funnel', S: AFT, x: 0.209, z: -0.296, seat: -0.192, r: 0.058 },
   { name: '5.25 mainmast', S: AFT, x: -0.018, z: -0.273, seat: -0.242, r: 0.058 },
 ];
+/** Where a 5.25-inch cast stands: where the sculpt cast it, or at the height of the twin it is levelled with. */
+const seatOf525 = (c, dy = 0) => {
+  const [x, y, z] = superToWorld(c.S, c.x, c.seat + dy, c.z);
+  if (!c.level) return [x, y, z];
+  const t = CAST_525.find((q) => q.name === c.level);
+  return [x, superToWorld(t.S, t.x, t.seat + dy, t.z)[1], z];
+};
 export const SECONDARY = CAST_525.map((c) => {
-  const [x, y, z] = superToWorld(c.S, c.x, c.seat, c.z);
+  const [x, y, z] = seatOf525(c);
   return { name: c.name, x: +Math.abs(x).toFixed(2), z: +z.toFixed(2), y: +y.toFixed(3), rest: Math.PI / 2 };
 });
 console.log('her 5.25-inch:', SECONDARY.map((s) => `${s.name} ${s.x}/${s.z} at ${s.y}`).join('; '));
@@ -546,6 +557,19 @@ const BRIDGE_525_CUT = (() => {
     c.barbette + 0.05 - Math.hypot(Math.abs(px) - ax, pz - z),
     Math.min(Math.abs(px) - (ax + 0.2), 3.4 - Math.abs(pz - z))));
 })();
+// The drum the sculpt stood its second pair of 5.25-inch on, and the torn
+// skirt round its foot, come off from her deck up, either side: the pair is
+// stood lower, on a drum of its own (see SEC_BARBETTES). Not the
+// superstructure inboard of it.
+const FUNNEL_525_CUT = (() => {
+  const c = CAST_525.find((q) => q.level);
+  const [x, y, z] = superToWorld(c.S, c.x, c.seat, c.z);
+  const ax = Math.abs(x);
+  return (px, py, pz) => Math.min(py - (deck.y(px, pz) + 0.12), y + 4.6 - py,
+    4.45 - Math.hypot(Math.abs(px) - ax, pz - z), Math.abs(px) - (ax - 3.4),
+    // Inboard of her gunwale, which is drawn again (EDGE).
+    sideAt(pz) - EDGE.inset - 0.05 - Math.abs(px));
+})();
 // Her forecastle round B and abreast her bridge, cleared of what the sculpt
 // left lying there: a boat either side of B, shredded by the decimation, and
 // the shards of it and of her bridge's skirts strewn over her deck and stuck
@@ -584,7 +608,7 @@ const front = superstructure('kgv-front.glb', FRONT, (z) => z - SEAM_Z, [
   boxCut([-1.0, -0.745, -0.05, 0.05], -0.25, -0.17),
   // The forward 5.25-inch's barrels, laid along her deck forward of it.
   boxCut([-0.25, -0.03, -0.47, -0.36], -0.29, -0.235),
-], [WALRUS_CUT, BRIDGE_525_CUT, FORE_DECK_CUT], -1);
+], [WALRUS_CUT, BRIDGE_525_CUT, FORE_DECK_CUT, FUNNEL_525_CUT], -1);
 const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   ...castCuts(AFT),
   // Y turret: its gunhouse off its barbette, under her after superstructure,
@@ -594,7 +618,7 @@ const aft = superstructure('kgv-aft.glb', AFT, (z) => SEAM_Z - z, [
   // The barrels of the after pair of 5.25-inch, laid aft.
   boxCut([-0.2, -0.06, 0.24, 0.33], -0.24, -0.16),
   boxCut([0.03, 0.155, 0.27, 0.33], -0.19, -0.12),
-], [WALRUS_CUT,
+], [WALRUS_CUT, FUNNEL_525_CUT,
   // A strip of the slab's own deck, a lip standing a hand proud of hers
   // right across her abaft Y: a grey line over her planking from side to side.
   (x, y, z) => Math.min(z + 74.8, -73.3 - z, deck.y(x, z) + 0.45 - y),
@@ -718,6 +742,27 @@ function ringWall(mesh, cx, cz, r, y0, y1, lip = 0, paintOf = SUPER_GREY, SEG = 
     }
   }
 }
+// What of that drum's skirt came in with her hull rather than with the
+// sculpt it stood on, off her too.
+splitAlong(m, (x, y, z) => Math.min(FUNNEL_525_CUT(x, y, z), y - (deck.y(x, z) + 0.015)), { drop: true });
+// And the stub of the skirt's foot that stands a hand proud of her deck,
+// which a cut along her deck would take the planking with: the faces of it
+// that stand up, round the new drum.
+{
+  const keep = [];
+  for (let t = 0; t < m.T.length / 3; t++) {
+    const v = [0, 1, 2].map((j) => m.T[t * 3 + j] * 3);
+    const c = [0, 1, 2].map((d) => (m.P[v[0] + d] + m.P[v[1] + d] + m.P[v[2] + d]) / 3);
+    const u = [0, 1, 2].map((d) => m.P[v[1] + d] - m.P[v[0] + d]), w = [0, 1, 2].map((d) => m.P[v[2] + d] - m.P[v[0] + d]);
+    const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+    const up = Math.abs(n[1]) / (Math.hypot(...n) || 1);
+    const dy = c[1] - deck.y(c[0], c[2]);
+    keep.push(!(up < 0.7 && dy > -0.2 && dy < 0.3 && FUNNEL_525_CUT(c[0], deck.y(c[0], c[2]) + 0.2, c[2]) > 0));
+  }
+  const before = m.T.length / 3;
+  Object.assign(m, subMesh(m, (t) => keep[t]));
+  console.log(`the foot of the skirt round her second 5.25-inch: ${before - m.T.length / 3} faces off`);
+}
 // Where the 5.25-inch were cut off their barbettes: each plated over a hair
 // over the cut, which is what kgv.js stands the gun on, and walled round
 // clean from what it stands on up to that plate -- the sculpt's own drums,
@@ -725,7 +770,7 @@ function ringWall(mesh, cx, cz, r, y0, y1, lip = 0, paintOf = SUPER_GREY, SEG = 
 export const SEC_BARBETTES = [];
 for (const c of CAST_525) {
   for (const side of [-1, 1]) {
-    const [x, y, z] = superToWorld(c.S, c.x, c.seat + 0.003, side * c.z);
+    const [x, y, z] = seatOf525({ ...c, z: side * c.z }, 0.003);
     const r = c.barbette ?? Math.max((c.r + 0.005) * c.S.k * UNIT + 0.15, 3.05);
     const hs = [];
     for (let k = 0; k < 16; k++) {
