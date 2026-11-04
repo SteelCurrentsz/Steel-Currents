@@ -3707,17 +3707,21 @@ export const SHIP_CLASSES = {
       range: 6000, dps: 120,
       guns: [
         // Her 100 mm B-54 twins, in their shields on the barbettes abreast her
-        // after funnel, two a side.
+        // after funnel, two a side: the forward pair train from ahead round to
+        // abaft the beam, the after pair from forward of the beam round to
+        // astern, her superstructure masking each the rest of the way.
         { name: '100 mm B-54', caliber: 100, role: 'dp', reload: 4.0, range: 6000,
           elev: { min: -0.14, max: 1.48 },
           mounts: [
-            { x: -9.0, z: -25.05, angle: -1.57, arc: 2.4, rest: 0, guns: 2, my: 13.65 },
-            { x: 9.24, z: -25.05, angle: 1.57, arc: 2.4, rest: 0, guns: 2, my: 13.65 },
-            { x: -9.24, z: -35.75, angle: -1.57, arc: 2.4, rest: -Math.PI, guns: 2, my: 13.65 },
-            { x: 9.0, z: -35.75, angle: 1.57, arc: 2.4, rest: Math.PI, guns: 2, my: 13.65 },
+            { x: -9.0, z: -25.05, angle: -0.9, arc: 1.3, rest: 0, guns: 2, my: 13.65 },
+            { x: 9.24, z: -25.05, angle: 0.9, arc: 1.3, rest: 0, guns: 2, my: 13.65 },
+            { x: -9.24, z: -35.75, angle: -2.2, arc: 1.3, rest: -Math.PI, guns: 2, my: 13.65 },
+            { x: 9.0, z: -35.75, angle: 2.2, arc: 1.3, rest: Math.PI, guns: 2, my: 13.65 },
           ] },
         // Her 37 mm 70-K, behind their shields on her main deck: two a side
-        // abreast B, and two a side on her quarterdeck forward of C.
+        // abreast B, which bear from ahead to astern, and two a side on her
+        // quarterdeck forward of C, which her superstructure masks from
+        // ahead.
         { name: '37 mm 70-K', caliber: 37, role: 'aa', reload: 0.4, range: 3200,
           elev: { min: -0.17, max: 1.48 },
           mounts: [
@@ -3725,10 +3729,10 @@ export const SHIP_CLASSES = {
             { x: 14.34, z: 25.39, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 1, my: 8.88 },
             { x: -14.35, z: 14.09, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 1, my: 8.88 },
             { x: 14.34, z: 14.1, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 1, my: 8.88 },
-            { x: -14.99, z: -49.73, angle: -1.57, arc: 2.6, rest: -Math.PI * 3 / 4, guns: 1, my: 8.88 },
-            { x: 15.0, z: -49.72, angle: 1.57, arc: 2.6, rest: Math.PI * 3 / 4, guns: 1, my: 8.88 },
-            { x: -9.21, z: -56.29, angle: -1.57, arc: 2.6, rest: -Math.PI * 3 / 4, guns: 1, my: 8.88 },
-            { x: 9.21, z: -56.28, angle: 1.57, arc: 2.6, rest: Math.PI * 3 / 4, guns: 1, my: 8.88 },
+            { x: -14.99, z: -49.73, angle: -2.0, arc: 1.6, rest: -Math.PI * 3 / 4, guns: 1, my: 8.88 },
+            { x: 15.0, z: -49.72, angle: 2.0, arc: 1.6, rest: Math.PI * 3 / 4, guns: 1, my: 8.88 },
+            { x: -9.21, z: -56.29, angle: -2.0, arc: 1.6, rest: -Math.PI * 3 / 4, guns: 1, my: 8.88 },
+            { x: 9.21, z: -56.28, angle: 2.0, arc: 1.6, rest: Math.PI * 3 / 4, guns: 1, my: 8.88 },
           ] },
       ],
     },
