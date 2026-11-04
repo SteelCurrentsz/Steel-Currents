@@ -3734,6 +3734,32 @@ export const SHIP_CLASSES = {
             { x: -9.21, z: -56.29, angle: -2.0, arc: 1.6, rest: -Math.PI * 3 / 4, guns: 1, my: 8.88 },
             { x: 9.21, z: -56.28, angle: 2.0, arc: 1.6, rest: Math.PI * 3 / 4, guns: 1, my: 8.88 },
           ] },
+        // Her 37 mm twins in their round shields, four a side: one on the
+        // flank of her tower and one on the platform over it, facing out on
+        // the beam; and two on her after superstructure facing out over her
+        // quarter. Drawn as the model drew them (`piece: 'tub'`). Each is
+        // masked where her own superstructure stands across its sight within
+        // 40 m, measured off the model a five-degree bearing at a time.
+        { name: '37 mm twin', caliber: 37, role: 'aa', piece: 'tub', reload: 0.4, range: 3200,
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: -10.96, z: 2.78, angle: -1.57, arc: 1.5, rest: -Math.PI / 2, guns: 2, my: 12.82,
+              mask: [[-3.107, -2.827]] },
+            { x: 10.96, z: 2.78, angle: 1.57, arc: 1.5, rest: Math.PI / 2, guns: 2, my: 12.82,
+              mask: [[2.827, 3.107]] },
+            { x: -5.67, z: 9.14, angle: -1.57, arc: 1.5, rest: -Math.PI / 2, guns: 2, my: 15.57,
+              mask: [[-3.107, -2.915]] },
+            { x: 5.67, z: 9.14, angle: 1.57, arc: 1.5, rest: Math.PI / 2, guns: 2, my: 15.57,
+              mask: [[2.915, 3.107]] },
+            { x: 9.5, z: -43.11, angle: 2.36, arc: 1.5, rest: Math.PI * 3 / 4, guns: 2, my: 11.99,
+              mask: [[-3.019, -2.391]] },
+            { x: -9.5, z: -43.11, angle: -2.36, arc: 1.5, rest: -Math.PI * 3 / 4, guns: 2, my: 11.99,
+              mask: [[2.391, 3.019]] },
+            { x: 5.5, z: -47.34, angle: 2.36, arc: 1.5, rest: Math.PI * 3 / 4, guns: 2, my: 15.14,
+              mask: [[-2.932, -2.391]] },
+            { x: -5.5, z: -47.34, angle: -2.36, arc: 1.5, rest: -Math.PI * 3 / 4, guns: 2, my: 15.14,
+              mask: [[2.391, 2.932]] },
+          ] },
       ],
     },
     // Her KOR-1 scouts, off the catapult on her quarterdeck abaft No.3
@@ -3761,7 +3787,7 @@ export const SHIP_CLASSES = {
       secondary: { caliber: 152, label: '152mm', barrels: 12, rounds: 2040 },
       tertiary: [
         { caliber: 100, label: '100mm', barrels: 8, rounds: 3200 },
-        { caliber: 37, label: '37mm', barrels: 8, rounds: 8000 },
+        { caliber: 37, label: '37mm', barrels: 24, rounds: 24000 },
       ],
     },
   },

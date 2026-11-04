@@ -162,7 +162,7 @@ function mountings(g) {
   const aa = [];
   const lights = lightMounts(CLS);
   for (const gun of CLS.aa.guns) {
-    const kind = gun.caliber === 100 ? 'dp' : 'aa';
+    const kind = gun.piece || (gun.caliber === 100 ? 'dp' : 'aa');
     for (const spec of gun.mounts) {
       const s = seatFor(MOUNT_SEATS[kind], spec.x, spec.z, `${gun.caliber} mm`);
       const a = sculpted(g, kind, s.x, s.y, s.z, stowed(spec), kind === 'dp' ? 0.3 : 0.7);

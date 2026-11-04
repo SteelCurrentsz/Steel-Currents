@@ -496,9 +496,17 @@ const KINDS = {
   aa: G([115, 114, 116, 113, 393, 392, 395, 394]),
   // Her three screws.
   screw: G([493, 41, 416]),
+  // Her twin light guns in their round shields, four a side: two on the
+  // flanks of her tower and two on her after superstructure, each with the
+  // ladder and director at the back of its shield (see TUB_PARTS).
+  tub: G([117, 119, 121, 123, 390, 396, 398, 400]),
 };
+// What goes round with each shield: the ladder and the director on its back,
+// a group of the model's own, nearest each.
+const TUB_BACKS = G([118, 120, 122, 124, 391, 397, 399, 401]);
 const kindOf = new Map();
 for (const [k, list] of Object.entries(KINDS)) for (const g of list) kindOf.set(g, k);
+for (const g of TUB_BACKS) kindOf.set(g, 'tub');
 
 /** A mesh of the triangles `pick` picks, painted by palette index a triangle. */
 function subMeshOf(pick) {
@@ -842,6 +850,30 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
   console.log(`stations: ${cuts} triangles of her underwater body cut every ${STEP} m;`, hull.T.length / 3, 'triangles');
 }
 
+// Her decks all one colour: every face that looks at the sky and is painted
+// a deck's warm brown or brown-grey -- her planking, the red-brown of her
+// superstructure decks, the grey-brown patches on her main deck -- is
+// painted the colour most of her deck already is.
+{
+  const warm = (c) => { const [r, , b] = PAL.cent[c]; return r > b + 0.005 && r > 0.2; };
+  const up = (t) => {
+    const [x, y, z] = faceNormal(hull, hull.T[t * 3], hull.T[t * 3 + 1], hull.T[t * 3 + 2]);
+    const l = Math.hypot(x, y, z);
+    return y > 0.85 * l ? l / 2 : 0;
+  };
+  const area = new Map();
+  for (let t = 0; t < hull.T.length / 3; t++) {
+    const a = up(t);
+    if (a && warm(hull.C[t])) area.set(hull.C[t], (area.get(hull.C[t]) || 0) + a);
+  }
+  const DECK = [...area].sort((p, q) => q[1] - p[1])[0][0];
+  let n = 0;
+  for (let t = 0; t < hull.T.length / 3; t++) {
+    if (hull.C[t] !== DECK && up(t) && warm(hull.C[t])) { hull.C[t] = DECK; n++; }
+  }
+  console.log(`deck: ${n} faces painted ${PAL.cent[DECK].map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}`);
+}
+
 // Her decks: whatever faces the sky and is the colour of her planking -- her
 // main deck, which was laid in wood; her superstructure decks were painted
 // steel, and are plating.
@@ -875,7 +907,30 @@ console.log('packed hull', packed.blob.length, 'bytes in', packed.buckets, 'slic
 
 // ---- her guns ----------------------------------------------------------------------------
 /** A group's triangles, as a mesh of its own, with the piece each came from. */
-const groupMesh = (g) => subMeshOf((t) => model.G[t] === g);
+// Each shield's back, by whichever is nearest it.
+const TUB_PARTNER = (() => {
+  const mid = new Map();
+  for (let t = 0; t < nTri; t++) {
+    const g = model.G[t];
+    if (kindOf.get(g) !== 'tub') continue;
+    if (!mid.has(g)) mid.set(g, [0, 0, 0]);
+    const a = mid.get(g);
+    for (let k = 0; k < 3; k++) { const v = model.T[t * 3 + k]; a[0] += model.P[v * 3]; a[1] += model.P[v * 3 + 2]; a[2]++; }
+  }
+  const at = (g) => { const a = mid.get(g); return [a[0] / a[2], a[1] / a[2]]; };
+  const out = new Map();
+  for (const g of KINDS.tub) {
+    const [x, z] = at(g);
+    let best = null, bd = Infinity;
+    for (const b of TUB_BACKS) { const [bx, bz] = at(b); const d = Math.hypot(bx - x, bz - z); if (d < bd) { bd = d; best = b; } }
+    out.set(g, best);
+  }
+  if (new Set(out.values()).size !== TUB_BACKS.length) throw new Error('a shield without its back');
+  return out;
+})();
+const groupMesh = (g) => (TUB_PARTNER.has(g)
+  ? subMeshOf((t) => model.G[t] === g || model.G[t] === TUB_PARTNER.get(g))
+  : subMeshOf((t) => model.G[t] === g));
 
 /**
  * Where a mounting stands and which way it faces, off its own group: its
@@ -921,7 +976,7 @@ function toMount(m, s) {
  * forward its full breadth goes; a piece of the model is a barrel if it is
  * narrow, lies along the bore, and runs out past the face.
  */
-function splitBarrels(m, guns, minLen) {
+function splitBarrels(m, guns, minLen, test = null) {
   let wide = 0;
   for (let i = 0; i < m.P.length; i += 3) wide = Math.max(wide, Math.abs(m.P[i]));
   // The face: a metre-by-metre profile of how far across it goes.
@@ -952,7 +1007,9 @@ function splitBarrels(m, guns, minLen) {
     }
     const narrow = px1 - px0 < Math.max(0.9, (wide * 2) / guns * 0.6);
     const along = pz1 - pz0 > (py1 - py0) * 1.5;
-    if (narrow && ((pz1 > face + minLen && along) || pz0 > face - 0.05)) for (const t of tris) isBarrel[t] = 1;
+    const is = test ? test({ px0, px1, py0, py1, pz0, pz1, face })
+      : narrow && ((pz1 > face + minLen && along) || pz0 > face - 0.05);
+    if (is) for (const t of tris) isBarrel[t] = 1;
   }
   const part = (want) => {
     const map = new Map();
@@ -1007,12 +1064,12 @@ function boresOf(bar, guns, face) {
  * barrels on their cradle -- the trunnions just inside the face, the bore
  * along +Z -- with their muzzles. Painted as the model painted it.
  */
-function gunKind(kind, { guns, minLen, tris, barrelTris, inside = 0.6 }) {
+function gunKind(kind, { guns, minLen, tris, barrelTris, inside = 0.6, test = null }) {
   const g0 = KINDS[kind][0];
   const raw = groupMesh(g0);
   const s = seatOf(raw);
   const local = toMount(raw, s);
-  const { house, barrels, face } = splitBarrels({ ...local, LF: raw.LF }, guns, minLen);
+  const { house, barrels, face } = splitBarrels({ ...local, LF: raw.LF }, guns, minLen, test);
   const { fits, pitch } = boresOf(barrels, guns, face);
   const tz = face - inside;
   const ty = fits.reduce((a, f) => a + f.yAt(tz), 0) / guns;
@@ -1056,7 +1113,22 @@ const GUNS = {
   sec: gunKind('sec', { guns: 2, minLen: 2, tris: 1800, barrelTris: 500 }),
   dp: gunKind('dp', { guns: 2, minLen: 1.5, tris: 1800, barrelTris: 500 }),
   aa: gunKind('aa', { guns: 1, minLen: 0.8, tris: 900, barrelTris: 200, inside: 0.3 }),
+  // The twins in their shields: the guns are wholly inside the shield bar
+  // their muzzles, so a barrel is any slim piece of it lying along the bore,
+  // up at the height of the guns, in the forward part of the shield.
+  tub: gunKind('tub', { guns: 2, minLen: 0.3, tris: 1400, barrelTris: 300, inside: 0.9,
+    test: ({ px0, px1, py0, py1, pz0, pz1, face }) => px1 - px0 < 0.3 && pz1 - pz0 > 0.2
+      && pz1 - pz0 > (px1 - px0) * 1.5 && py0 > 1.4 && py1 < 2.8 && pz1 > face - 1.2 }),
 };
+
+// A twin's two guns lie either side of its middle; the breeches inside the
+// shield muddle which points belong to which, so the muzzle the fit put
+// furthest out is taken for one and mirrored for the other.
+{
+  const t = GUNS.tub;
+  const out = t.muzzles.reduce((a, m) => (Math.abs(m[0]) > Math.abs(a[0]) ? m : a));
+  t.muzzles = [[-Math.abs(out[0]), out[1], out[2]], [Math.abs(out[0]), out[1], out[2]]];
+}
 
 /**
  * Every mounting of a kind where it stands: its pivot, its seat, which way it
@@ -1078,7 +1150,7 @@ function seats(kind) {
     return { x: +s.x.toFixed(3), z: +s.z.toFixed(3), y: +s.y.toFixed(3), rest: +s.rest.toFixed(4), reach: +reach.toFixed(2), my: +my.toFixed(2) };
   });
 }
-const MOUNTS = { main: seats('main'), sec: seats('sec'), dp: seats('dp'), aa: seats('aa') };
+const MOUNTS = { main: seats('main'), sec: seats('sec'), dp: seats('dp'), aa: seats('aa'), tub: seats('tub') };
 for (const [k, list] of Object.entries(MOUNTS)) {
   console.log(k, list.map((s) => `(${s.x}, ${s.z}) y ${s.y} rest ${(s.rest * 180 / Math.PI).toFixed(0)} reach ${s.reach} my ${s.my}`).join('\n   '));
 }

@@ -2905,15 +2905,41 @@ check('the RF Sovetsky Soyuz is commissioned after the KMS Tirpitz, armed as she
   assert.equal(cls.secondary.mounts.length, 6, 'she does not carry six 152 mm twins');
   for (const sgn of [-1, 1]) assert.equal(cls.secondary.mounts.filter((m) => Math.sign(m.x) === sgn).length, 3, 'three 152 mm a side');
   assert.equal(cls.torpedoes, null, 'she carried no torpedo tubes');
+  // And the 37 mm twins in their round shields, four a side, two on her tower
+  // and two on her after superstructure.
+  const tubs = cls.aa.guns.find((g) => g.piece === 'tub');
+  assert.ok(tubs && tubs.mounts.length === 8, 'she does not carry her eight shielded 37 mm twins');
+  for (const sgn of [-1, 1]) assert.equal(tubs.mounts.filter((m) => Math.sign(m.x) === sgn).length, 4, 'four shielded twins a side');
+  assert.equal(tubs.mounts.filter((m) => m.z > 0).length, 4, 'two a side on her tower');
   const built = buildSoyuz();
   assert.equal(built.turrets.length, 3);
   assert.equal(built.secMounts.length, 6);
   assert.equal(built.aaMounts.length, lightMounts(cls).length);
-  // Every mounting stands where the model stood it, on her deck.
+  // Every mounting stands where the model stood it, on her deck. Her height
+  // map is the top of her, and a shield on the flank of her tower stands
+  // under the bridge wing over it: there, what it stands on is found by
+  // looking straight down from its seat.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
   for (const [kind, list] of Object.entries(SOYUZ_SEATS)) {
     for (const st of list) {
-      assert.ok(Math.abs(soyuzSurfaceY(st.x, st.z) - st.y) < 1.5 || soyuzSurfaceY(st.x, st.z) < st.y + 0.05,
-        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${soyuzSurfaceY(st.x, st.z)}`);
+      const top = soyuzSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+      assert.ok(top <= st.y + 3 || deck > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands on nothing`);
     }
   }
 });
