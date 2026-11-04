@@ -38,7 +38,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * background once the title screen is up, and waited for by the shipyard and
  * before a battle is joined.
  */
-let buildSpee, buildTakao, buildHood, buildKgv, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
+let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin;
 const SCULPTED = {
@@ -53,6 +53,7 @@ const SCULPTED = {
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
   hood: () => import('./hood.js').then((m) => { buildHood = m.buildHood; }),
   kgv: () => import('./kgv.js').then((m) => { buildKgv = m.buildKgv; }),
+  soyuz: () => import('./soyuz.js').then((m) => { buildSoyuz = m.buildSoyuz; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
   baltimore: () => import('./baltimore.js').then((m) => { buildBaltimore = m.buildBaltimore; }),
   massachusetts: () => import('./massachusetts.js')
@@ -950,6 +951,21 @@ function buildModel(classId) {
   // superstructure and every gun she carried.
   if (cls.id === 'kgv') {
     const built = buildKgv();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Sovetsky Soyuz: the owner's model of her hull, her
+  // superstructure and every gun she carried.
+  if (cls.id === 'soyuz') {
+    const built = buildSoyuz();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

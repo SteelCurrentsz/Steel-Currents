@@ -3623,6 +3623,128 @@ export const SHIP_CLASSES = {
     },
   },
 
+  soyuz: {
+    // RF Sovetsky Soyuz, the name ship of the Soviet Union's Project 23: the
+    // largest battleships anyone in Europe laid down. Nine 406 mm B-37 in
+    // three triples -- A and B forward, B superfiring, C aft -- on a hull 269
+    // metres long, behind 420 mm of belt, designed for twenty-eight knots.
+    // Twelve 152 mm in six twin turrets, three a side round her
+    // superstructure; 100 mm twins abreast her after funnel and 37 mm on her
+    // deck. She was laid down at Leningrad in 1938 and never finished: the war
+    // stopped her on the slip.
+    //
+    // She is drawn from the owner's model of her (see soyuz.js): her hull,
+    // her superstructure and every one of her guns, at the model's own length
+    // -- 270.85 m -- and beam, floated at 10.1 m.
+    id: 'soyuz',
+    name: 'Sovetsky Soyuz',
+    fullName: 'RF Sovetsky Soyuz',
+    className: 'Sovetsky Soyuz',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'sov',
+    blurb: 'Nine sixteen-inch guns on the largest hull ever laid down in Europe. The war left her on the slip; here she is finished.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -11, 25.0], [0, -41, 25.0]], length: 270.85, beam: 38.7, draft: 10.1, superstructure: 1.45 },
+    hp: 84000,
+    // Twenty-eight knots designed, on a long hull that turned wide.
+    maxSpeed: 28 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.35,
+    turnRate: 0.045,
+    rudderShift: 16,
+    speedLossInTurn: 0.16,
+    concealment: 17000,
+    fireDetectPenalty: 7100,
+    radarRange: 9000,
+    repairCooldown: 105,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // A 420 mm belt over her magazines and 375 over her machinery, inclined
+    // five degrees, and a 155 mm armour deck; 495 mm on her turret faces.
+    armor: { belt: 420, deck: 155, citadel: 420, bow: 20, superstructure: 25 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, and C on her quarterdeck
+      // facing astern, each where the model stood it (see
+      // build/prepare-soyuz-hull.mjs).
+      { id: 0, name: 'A', x: 0, z: 63.69, angle: 0, arc: 2.6, guns: 3, my: 8.84 },
+      { id: 1, name: 'B', x: 0, z: 38.98, angle: 0, arc: 2.6, guns: 3, my: 12.35 },
+      { id: 2, name: 'C', x: 0, z: -73.7, angle: -3.14, arc: 2.6, guns: 3, my: 10.06 },
+    ],
+    gun: {
+      name: '406 mm B-37', role: 'surface',
+      // Two below the horizontal to forty-five up.
+      elev: { min: -0.035, max: 0.785 },
+      // Pivot to muzzle on the model's turret.
+      reach: 20.52,
+      caliber: 406, reload: 30, traverse: 0.07, range: 22400, sigma: 1.35,
+      // The 1,108 kg shell at 830 m/s.
+      shells: shells(406, 13200, 6200, 630, 830, 0.27),
+    },
+    torpedoes: null,
+    // Twelve 152 mm B-38 in six twin MK-4 turrets, three a side: two abreast
+    // her tower, the after one superfiring, and one abreast her after funnel
+    // facing aft.
+    secondary: {
+      name: '152 mm B-38', role: 'surface',
+      // Five below the horizontal to forty-five up.
+      elev: { min: -0.087, max: 0.785 },
+      reach: 8.93,
+      caliber: 152, reload: 8, traverse: 0.11, range: 14800, sigma: 1.4,
+      shells: shells(152, 2900, 2300, 165, 950, 0.11),
+      mounts: [
+        { x: -14.85, z: -4.12, angle: -1.57, arc: 2.3, rest: 0, guns: 2, my: 9.26 },
+        { x: 14.85, z: -4.12, angle: 1.57, arc: 2.3, rest: 0, guns: 2, my: 9.26 },
+        { x: -14.75, z: -20.35, angle: -1.57, arc: 2.3, rest: 0, guns: 2, my: 11.22 },
+        { x: 14.75, z: -20.35, angle: 1.57, arc: 2.3, rest: 0, guns: 2, my: 11.22 },
+        { x: -14.57, z: -31.27, angle: -1.57, arc: 2.3, rest: -Math.PI, guns: 2, my: 9.26 },
+        { x: 14.57, z: -31.27, angle: 1.57, arc: 2.3, rest: Math.PI, guns: 2, my: 9.26 },
+      ],
+    },
+    aa: {
+      range: 6000, dps: 120,
+      guns: [
+        // Her 100 mm B-54 twins, in their shields on the barbettes abreast her
+        // after funnel, two a side.
+        { name: '100 mm B-54', caliber: 100, role: 'dp', reload: 4.0, range: 6000,
+          elev: { min: -0.14, max: 1.48 },
+          mounts: [
+            { x: -9.0, z: -25.05, angle: -1.57, arc: 2.4, rest: 0, guns: 2, my: 13.65 },
+            { x: 9.24, z: -25.05, angle: 1.57, arc: 2.4, rest: 0, guns: 2, my: 13.65 },
+            { x: -9.24, z: -35.75, angle: -1.57, arc: 2.4, rest: -Math.PI, guns: 2, my: 13.65 },
+            { x: 9.0, z: -35.75, angle: 1.57, arc: 2.4, rest: Math.PI, guns: 2, my: 13.65 },
+          ] },
+        // Her 37 mm 70-K, behind their shields on her main deck: two a side
+        // abreast B, and two a side on her quarterdeck forward of C.
+        { name: '37 mm 70-K', caliber: 37, role: 'aa', reload: 0.4, range: 3200,
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: -14.35, z: 25.39, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 1, my: 8.88 },
+            { x: 14.34, z: 25.39, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 1, my: 8.88 },
+            { x: -14.35, z: 14.09, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 1, my: 8.88 },
+            { x: 14.34, z: 14.1, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 1, my: 8.88 },
+            { x: -14.99, z: -49.73, angle: -1.57, arc: 2.6, rest: -Math.PI * 3 / 4, guns: 1, my: 8.88 },
+            { x: 15.0, z: -49.72, angle: 1.57, arc: 2.6, rest: Math.PI * 3 / 4, guns: 1, my: 8.88 },
+            { x: -9.21, z: -56.29, angle: -1.57, arc: 2.6, rest: -Math.PI * 3 / 4, guns: 1, my: 8.88 },
+            { x: 9.21, z: -56.28, angle: 1.57, arc: 2.6, rest: Math.PI * 3 / 4, guns: 1, my: 8.88 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 59150,
+      aircraft: 0,
+      mainRounds: 900,
+      secondary: { caliber: 152, label: '152mm', barrels: 12, rounds: 2040 },
+      tertiary: [
+        { caliber: 100, label: '100mm', barrels: 8, rounds: 3200 },
+        { caliber: 37, label: '37mm', barrels: 8, rounds: 8000 },
+      ],
+    },
+  },
+
   hood: {
     // HMS Hood, the last battlecruiser of the Royal Navy and for twenty years
     // the largest warship in the world: eight 15-inch in four twin turrets,
@@ -8288,7 +8410,7 @@ export const HULL_TOUGHNESS = 1.8;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shinano'];
 
 export function getClass(id) {

@@ -143,6 +143,10 @@ import {
 } from '../client/js/render/kgv.js';
 import { kgvSurfaceY, MOUNT_SEATS as KGV_SEATS, gunPiece as kgvGunPiece } from '../client/js/render/kgvHull.js';
 import {
+  buildSoyuz, shellAt as soyuzShellAt, keelY as soyuzKeel, deckOver as soyuzSheer, zAt as soyuzZAt,
+} from '../client/js/render/soyuz.js';
+import { soyuzSurfaceY, MOUNT_SEATS as SOYUZ_SEATS } from '../client/js/render/soyuzHull.js';
+import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
 } from '../client/js/render/kongo.js';
@@ -2630,10 +2634,10 @@ check('the Fuso trains her catapults out over her quarters and shoots on the sim
   assert.notEqual(shots[0], shots[1], 'she shot both Jakes off the same catapult');
 });
 
-check('the Hood is commissioned after the Tirpitz, and the King George V after her, before the Rodney', () => {
+check('the Hood is commissioned after the Sovetsky Soyuz, and the King George V after her, before the Rodney', () => {
   const i = SHIP_ORDER.indexOf('hood');
   assert.ok(i >= 0, 'the Hood is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'tirpitz', `before the Hood comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 1], 'soyuz', `before the Hood comes ${SHIP_ORDER[i - 1]}`);
   assert.equal(SHIP_ORDER[i + 1], 'kgv', `after the Hood comes ${SHIP_ORDER[i + 1]}`);
   assert.equal(SHIP_ORDER[i + 2], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 2]}`);
   const cls = SHIP_CLASSES.hood;
@@ -2883,6 +2887,115 @@ check('a layer standing at a Hood gun looks out over it, round its arc and nowhe
         `${kind} ${i} is taken laid on ${((start * 180) / Math.PI).toFixed(0)} degrees, where it cannot fire`);
     });
   }
+});
+
+check('the RF Sovetsky Soyuz is commissioned after the KMS Tirpitz, armed as she was designed', () => {
+  const i = SHIP_ORDER.indexOf('soyuz');
+  assert.ok(i >= 0, 'the Sovetsky Soyuz is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'tirpitz', `before the Sovetsky Soyuz comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'hood', `after the Sovetsky Soyuz comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.soyuz;
+  assert.equal(cls.fullName, 'RF Sovetsky Soyuz');
+  assert.equal(cls.type, 'BB');
+  // Three 406 mm triples, A and B forward and C aft; six 152 mm twins, three
+  // a side; her 100 mm twins and her 37 mm; no tubes.
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3, 3], 'she does not carry three triples');
+  assert.ok(cls.turrets[0].z > 0 && cls.turrets[1].z > 0 && cls.turrets[2].z < 0, 'she does not carry two triples forward and one aft');
+  assert.equal(cls.gun.caliber, 406);
+  assert.equal(cls.secondary.mounts.length, 6, 'she does not carry six 152 mm twins');
+  for (const sgn of [-1, 1]) assert.equal(cls.secondary.mounts.filter((m) => Math.sign(m.x) === sgn).length, 3, 'three 152 mm a side');
+  assert.equal(cls.torpedoes, null, 'she carried no torpedo tubes');
+  const built = buildSoyuz();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, 6);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every mounting stands where the model stood it, on her deck.
+  for (const [kind, list] of Object.entries(SOYUZ_SEATS)) {
+    for (const st of list) {
+      assert.ok(Math.abs(soyuzSurfaceY(st.x, st.z) - st.y) < 1.5 || soyuzSurfaceY(st.x, st.z) < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${soyuzSurfaceY(st.x, st.z)}`);
+    }
+  }
+});
+
+check("the Sovetsky Soyuz's shell has no holes in it", () => {
+  // Her sides fired at from abeam at every height her own lines say she has a
+  // side at, a ray dropped anywhere on her deck, and a ray sent up from under
+  // her keel all meet her plating.
+  const built = buildSoyuz();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = soyuzSheer(t);
+    const ys = [];
+    for (let y = soyuzKeel(t) + 0.3; y <= top - 0.4; y += 0.6) ys.push(y);
+    for (const y of ys) {
+      const w = soyuzShellAt(t, y);
+      if (w < 0.35) continue;
+      // Under her quarters her lines run out along her wing shafts, which
+      // leave her side well forward of their screws: there the sea runs
+      // between them and her.
+      if (soyuzZAt(t) < -88 && y < -4) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, soyuzZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > soyuzKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 2000, `only ${tested} stations of plating were tested`);
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+  const bare = [];
+  for (let i = 1; i < 240; i++) {
+    const t = -0.96 + (1.92 * i) / 240;
+    const w = soyuzShellAt(t, soyuzSheer(t) - 0.8);
+    for (const u of [0, 0.4, 0.75, -0.4, -0.75]) {
+      if (Math.abs(u) * w < 0.1) continue;
+      ray.set(new THREE.Vector3(u * w * 0.95, 140, soyuzZAt(t)), new THREE.Vector3(0, -1, 0));
+      if (!ray.intersectObjects(meshes, false).length) bare.push(`${(u * w).toFixed(1)}, ${soyuzZAt(t).toFixed(0)}`);
+    }
+  }
+  assert.equal(bare.length, 0, `${bare.length} hole(s) in her deck: ${bare[0]}`);
+  const open = [];
+  for (let t = -0.9; t <= 0.9; t += 0.01) {
+    const k = soyuzKeel(t);
+    if (k > -2) continue;
+    const w = soyuzShellAt(t, k * 0.4);
+    for (const u of [0, 0.5, -0.5, 0.85, -0.85]) {
+      ray.set(new THREE.Vector3(u * w, -70, soyuzZAt(t)), new THREE.Vector3(0, 1, 0));
+      if (!ray.intersectObjects(meshes, false).length) open.push(`t ${t.toFixed(2)}`);
+    }
+  }
+  assert.equal(open.length, 0, `${open.length} hole(s) in her bottom: ${open[0]}`);
+});
+
+check("the Sovetsky Soyuz's insides and armour are inside her, and her three screws turn", () => {
+  const built = buildSoyuz();
+  built.group.updateMatrixWorld(true);
+  const plating = [], inside = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh) return;
+    if (o.userData.inside || o.userData.mergeKey === 'in') inside.push(o); else plating.push(o);
+  });
+  assert.ok(inside.length > 0, 'she has no insides');
+  const ray = new THREE.Raycaster();
+  const out = [];
+  for (let z = -120; z <= 120; z += 2) {
+    for (const [o, d] of [[[60, 2, z], [-1, 0, 0]], [[-60, 2, z], [1, 0, 0]], [[0, -60, z], [0, 1, 0]], [[4, -60, z], [0, 1, 0]], [[-4, -60, z], [0, 1, 0]]]) {
+      ray.set(new THREE.Vector3(...o), new THREE.Vector3(...d));
+      const a = ray.intersectObjects(plating, false)[0], b = ray.intersectObjects(inside, false)[0];
+      if (b && (!a || b.distance < a.distance - 0.05)) out.push(`${o.join(',')}`);
+    }
+  }
+  assert.equal(out.length, 0, `her insides stand out of her at ${out.slice(0, 4).join('; ')}`);
+  let screws = 0;
+  built.group.traverse((o) => { if (o.userData.screw) screws++; });
+  assert.equal(screws, 3, 'she does not have three screws');
 });
 
 check('the King George V is commissioned after the Hood and before the Rodney, armed as she was in 1945', () => {
@@ -3172,16 +3285,18 @@ check('a layer standing at a King George V gun looks out over it, round its arc 
   }
 });
 
-check('the KMS Bismarck is commissioned before her sister, and her sister before the Hood, the King George V and the Rodney', () => {
+check('the KMS Bismarck is commissioned before her sister, and her sister before the Sovetsky Soyuz, the Hood, the King George V and the Rodney', () => {
   // She comes into the yard with her sister Tirpitz immediately behind her,
-  // then the Hood she sank in the Denmark Strait on 24 May 1941, and then the
-  // two battleships that closed her three days later.
+  // then the Sovetsky Soyuz, then the Hood she sank in the Denmark Strait on
+  // 24 May 1941, and then the two battleships that closed her three days
+  // later.
   const i = SHIP_ORDER.indexOf('bismarck');
   assert.ok(i >= 0, 'the Bismarck is not in the yard');
   assert.equal(SHIP_ORDER[i + 1], 'tirpitz', `after the Bismarck comes ${SHIP_ORDER[i + 1]}`);
-  assert.equal(SHIP_ORDER[i + 2], 'hood', `after the Tirpitz comes ${SHIP_ORDER[i + 2]}`);
-  assert.equal(SHIP_ORDER[i + 3], 'kgv', `after the Hood comes ${SHIP_ORDER[i + 3]}`);
-  assert.equal(SHIP_ORDER[i + 4], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 4]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'soyuz', `after the Tirpitz comes ${SHIP_ORDER[i + 2]}`);
+  assert.equal(SHIP_ORDER[i + 3], 'hood', `after the Sovetsky Soyuz comes ${SHIP_ORDER[i + 3]}`);
+  assert.equal(SHIP_ORDER[i + 4], 'kgv', `after the Hood comes ${SHIP_ORDER[i + 4]}`);
+  assert.equal(SHIP_ORDER[i + 5], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 5]}`);
   const cls = SHIP_CLASSES.bismarck;
   assert.equal(cls.fullName, 'KMS Bismarck');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -4384,7 +4499,7 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
   // engaging a dive bomber directly overhead pointed its guns at the horizon
   // and the aeroplane fell out of a clear sky.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     // A ship stripped to her hull while she is rebuilt has no battery to lay.
     if (BARE_HULL.has(id)) continue;
@@ -4578,7 +4693,7 @@ check('a shell leaves the muzzle it was fired from', () => {
   const V = new THREE.Vector3();
   const O = new THREE.Vector3();
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const cls = SHIP_CLASSES[id];
     const b = buildShip(id);
@@ -4626,7 +4741,7 @@ check('her screws turn, and each shaft the way it is handed', () => {
   // welded into the hull: four bronze propellers standing dead still under a
   // battleship making thirty-three knots.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const cls = SHIP_CLASSES[id];
     const view = new ShipView({ add() {}, remove() {} }, id, 0, false);
@@ -13373,7 +13488,7 @@ check('every ship has an inside, and it is inside her', () => {
   // built to the wrong beam sticks out through the plating, and what you get
   // is a boiler hanging in the air alongside an undamaged ship.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
@@ -14119,7 +14234,7 @@ check('a hole is only a hole, and she can be holed anywhere on her', () => {
   // plating taken out of her and nothing put round it -- no collar of torn
   // metal stood off the mouth of it, and no soot on her paint.
   for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso',
-    'scharnhorst', 'bismarck', 'tirpitz', 'richelieu']) {
+    'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
     const plating = new Plating(built.group);
@@ -14157,7 +14272,7 @@ check('the damage board is drawn on her own lines, not on a box', () => {
   // the buffers she is drawn with instead, so the sea in her is the shape of
   // the inside of the ship.
   for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'yamato', 'takao', 'hood', 'kgv', 'rodney',
-    'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu']) {
+    'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu']) {
     const g = buildShip(id).group;
     g.updateMatrixWorld(true);
     const lines = measureLines(g);
@@ -15775,7 +15890,7 @@ check('every ship is built out of pieces that can be found again', () => {
   // that went in now leaves a note saying which vertices and which triangles
   // used to be it -- so a funnel is still a funnel afterwards.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const built = buildShip(id);
     const f = new Fittings(built.group);
@@ -16345,7 +16460,7 @@ check('her upperworks have an inside, with a bridge in it', () => {
   // of her sheer forward, which passed this only while she was drawn half
   // again her size.
   for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'spee',
-    'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu']) {
+    'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu']) {
     const built = buildShip(id);
     const lines = built.group.userData.lines;
     const deck = lines.sheer(0);
@@ -16628,7 +16743,7 @@ check('the arsenal says what the gun will go through, and shows where it is', ()
   // Two things a gunnery officer needs off a weapon list and could not get:
   // what it will penetrate, and which lumps of the ship in front of him it is.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const rows = arsenal(SHIP_CLASSES[id]);
     assert.ok(rows.length, `${id} carries nothing at all`);
@@ -17567,7 +17682,7 @@ check('you cannot see straight through a gunhouse', () => {
   // a ray fired at her from either beam has to meet the near side, not the
   // inside of the far one.
   for (const id of ['spee', 'hipper', 'cleveland', 'fletcher', 'u48', 'iowa', 'yamato',
-    'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu',
+    'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu',
     'shinano', 'grafzeppelin']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
@@ -17982,7 +18097,7 @@ check('every deckhouse in the fleet has sides and a roof', () => {
   // answers -- as the renderer sees her, and with both faces of everything
   // turned on -- have to agree.
   for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'spee',
-    'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
@@ -21353,7 +21468,7 @@ check('from outside her you never see her insides', () => {
   // and every height her hull occupies, and the first thing the eye meets must
   // be the ship and not the inside of the ship.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
