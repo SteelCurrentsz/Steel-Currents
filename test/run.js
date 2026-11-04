@@ -14312,7 +14312,11 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // So is the Kongo's: the bulges she was given when she was rebuilt are
     // carried down to her bilge in the sculpt, and her section is fullest a
     // few metres under her waterline and still nearly as full at her bilge.
-    const box = id === 'musashi' || id === 'yamato' ? 0.97 : id === 'bismarck' || id === 'tirpitz' ? 0.995
+    //
+    // And the Sovetsky Soyuz's: the owner's model of her carries her side
+    // out to its full breadth five metres under her waterline, over her
+    // underwater protection, and her section is nearly as full at her bilge.
+    const box = id === 'musashi' || id === 'yamato' ? 0.97 : id === 'bismarck' || id === 'tirpitz' || id === 'soyuz' ? 0.995
       : id === 'richelieu' || id === 'kongo' ? 0.975 : 0.92;
     assert.ok(deep < mid * box,
       `${id} has no turn of bilge: her section is a box`);
@@ -14352,7 +14356,7 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // bulges, which are fullest three metres under it, and the Scharnhorst's
     // side, which is widest four or five metres under hers.)
     if (id === 'bismarck' || id === 'tirpitz' || id === 'richelieu' || id === 'fuso' || id === 'kongo'
-      || id === 'scharnhorst') {
+      || id === 'scharnhorst' || id === 'soyuz') {
       let side = 0;
       for (let j = 0; j <= 10; j++) {
         side = Math.max(side, halfBeamAt(lines, -half * 0.2 + (half * 0.4 * j) / 10, waterTop(lines, 0.5)));

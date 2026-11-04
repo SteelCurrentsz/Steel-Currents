@@ -742,6 +742,52 @@ let hull = creaseNormals(reduce(hullRaw, +(process.env.HULL_TRIS || 140000), +(p
   (process.env.HULL_FLAGS ?? 'Prune').split(',').filter(Boolean)));
 console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points');
 
+// Her underwater body cut across every two metres of her length. Decimated,
+// her flat midbody is a handful of plates forty metres long, and the damage
+// board reads her lines off her points: a station with no point of her in it
+// reads as no ship at all. A cut across a plate adds points along it and
+// changes nothing of her shape.
+{
+  const STEP = 2;
+  let cuts = 0;
+  for (let c = -Math.floor(LOA / 2 / STEP) * STEP; c < LOA / 2; c += STEP) {
+    const { P, N, T, C, S } = hull;
+    const made = new Map();
+    const cross = (a, b) => {
+      const key = a < b ? `${a},${b}` : `${b},${a}`;
+      if (made.has(key)) return made.get(key);
+      const s = (c - P[a * 3 + 2]) / (P[b * 3 + 2] - P[a * 3 + 2]);
+      const w = P.length / 3;
+      P.push(P[a * 3] + (P[b * 3] - P[a * 3]) * s, P[a * 3 + 1] + (P[b * 3 + 1] - P[a * 3 + 1]) * s, c);
+      const n = [0, 1, 2].map((k) => N[a * 3 + k] + (N[b * 3 + k] - N[a * 3 + k]) * s);
+      const l = Math.hypot(...n) || 1;
+      N.push(n[0] / l, n[1] / l, n[2] / l);
+      made.set(key, w);
+      return w;
+    };
+    const T2 = [], C2 = [], S2 = [];
+    for (let t = 0; t < T.length / 3; t++) {
+      const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
+      const sd = v.map((i) => Math.sign(P[i * 3 + 2] - c));
+      const low = v.some((i) => P[i * 3 + 1] < 0.5);
+      if (!low || !(sd.includes(1) && sd.includes(-1))) { T2.push(...v); C2.push(C[t]); S2.push(S[t]); continue; }
+      cuts++;
+      const fore = [], aft = [];
+      for (let k = 0; k < 3; k++) {
+        const a = v[k], b = v[(k + 1) % 3];
+        if (sd[k] >= 0) fore.push(a);
+        if (sd[k] <= 0) aft.push(a);
+        if (sd[k] * sd[(k + 1) % 3] < 0) { const w = cross(a, b); fore.push(w); aft.push(w); }
+      }
+      for (const poly of [fore, aft]) {
+        for (let k = 1; k + 1 < poly.length; k++) { T2.push(poly[0], poly[k], poly[k + 1]); C2.push(C[t]); S2.push(S[t]); }
+      }
+    }
+    hull = { P, N, T: T2, C: C2, S: S2 };
+  }
+  console.log(`stations: ${cuts} triangles of her underwater body cut every ${STEP} m;`, hull.T.length / 3, 'triangles');
+}
+
 // Her decks: whatever faces the sky and is the colour of her planking -- her
 // main deck, which was laid in wood; her superstructure decks were painted
 // steel, and are plating.
