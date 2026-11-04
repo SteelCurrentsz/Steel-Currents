@@ -850,6 +850,80 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
   console.log(`stations: ${cuts} triangles of her underwater body cut every ${STEP} m;`, hull.T.length / 3, 'triangles');
 }
 
+// The cracks the decimator leaves between her plates. Where two of the
+// model's plates meet edge to edge without sharing their points, each is
+// decimated on its own, and the two edges come out different lines: one keeps
+// a knuckle the other has straightened, and the sliver between them is open to
+// her insides -- on her port bow, under water, it showed her bulkheads to a
+// ray along her side. Wherever a corner of an open edge stands off another
+// open edge by no more than a sliver's width, the sliver is plated -- under
+// water only: above it, her belt's plates lap over one another, an open edge
+// there is covered, and plating across one is a bright streak down her side.
+{
+  const { P, N, T, C, S } = hull;
+  const key = (i) => `${Math.round(P[i * 3] * 1000)},${Math.round(P[i * 3 + 1] * 1000)},${Math.round(P[i * 3 + 2] * 1000)}`;
+  const id = new Map(), rep = [];
+  const vk = (i) => { const k = key(i); let v = id.get(k); if (v === undefined) { v = rep.length; id.set(k, v); rep.push(i); } return v; };
+  const edges = new Map();
+  for (let t = 0; t < T.length / 3; t++) {
+    for (let k = 0; k < 3; k++) {
+      const a = vk(T[t * 3 + k]), b = vk(T[t * 3 + (k + 1) % 3]);
+      const e = a < b ? `${a},${b}` : `${b},${a}`;
+      const was = edges.get(e);
+      edges.set(e, was ? { n: was.n + 1, t } : { n: 1, t });
+    }
+  }
+  const at = (v) => [P[rep[v] * 3], P[rep[v] * 3 + 1], P[rep[v] * 3 + 2]];
+  const MAXY = 0, TOL = 0.3, CELL = 1;
+  const open = [], ends = new Set();
+  for (const [e, { n, t }] of edges) {
+    if (n !== 1) continue;
+    const [a, b] = e.split(',').map(Number);
+    if (at(a)[1] > MAXY && at(b)[1] > MAXY) continue;
+    open.push([a, b, t]); ends.add(a); ends.add(b);
+  }
+  const grid = new Map();
+  const cellOf = (p) => p.map((x) => Math.floor(x / CELL));
+  for (let i = 0; i < open.length; i++) {
+    const [a, b] = open[i].slice(0, 2).map(at);
+    const lo = cellOf(a.map((x, d) => Math.min(x, b[d]) - TOL)), hi = cellOf(a.map((x, d) => Math.max(x, b[d]) + TOL));
+    for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++) {
+      const k = `${x},${y},${z}`;
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(i);
+    }
+  }
+  let plated = 0;
+  for (const v of ends) {
+    const p = at(v);
+    if (p[1] > MAXY) continue;
+    for (const i of grid.get(cellOf(p).join(',')) || []) {
+      const [a, b, t] = open[i];
+      if (a === v || b === v) continue;
+      const pa = at(a), pb = at(b);
+      const ab = pb.map((x, d) => x - pa[d]), ap = p.map((x, d) => x - pa[d]);
+      const len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+      if (!(len2 > 1e-6)) continue;
+      const s = (ab[0] * ap[0] + ab[1] * ap[1] + ab[2] * ap[2]) / len2;
+      if (s <= 0.02 || s >= 0.98) continue;
+      const off = Math.hypot(...ap.map((x, d) => x - ab[d] * s));
+      // A sliver, and not the far side of an opening: close to the edge, and
+      // thin against its length.
+      if (off < 0.005 || off > TOL || off > 0.15 * Math.sqrt(len2)) continue;
+      // Painted and lit as the plate it closes -- points of its own, with that
+      // plate's normals, not whichever of the points there a deck's normal
+      // was split onto -- and drawn from both sides.
+      const n = [0, 1, 2].map((d) => N[T[t * 3] * 3 + d] + N[T[t * 3 + 1] * 3 + d] + N[T[t * 3 + 2] * 3 + d]);
+      const nl = Math.hypot(...n) || 1;
+      const base = P.length / 3;
+      for (const q of [pa, p, pb]) { P.push(...q); N.push(n[0] / nl, n[1] / nl, n[2] / nl); }
+      T.push(base, base + 1, base + 2); C.push(C[t]); S.push(1);
+      plated++;
+    }
+  }
+  console.log(`cracks: ${plated} slivers between her plates closed, of ${open.length} open edges below ${MAXY} m`);
+}
+
 // Her decks all one colour: every face that looks at the sky and is painted
 // a deck's warm brown or brown-grey -- her planking, the red-brown of her
 // superstructure decks, the grey-brown patches on her main deck -- is
