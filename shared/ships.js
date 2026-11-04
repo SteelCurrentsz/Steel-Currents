@@ -3736,10 +3736,27 @@ export const SHIP_CLASSES = {
           ] },
       ],
     },
-    planes: null,
+    // Her KOR-1 scouts, off the catapult on her quarterdeck abaft No.3
+    // turret, with a crane either side of it to fish them out of the water
+    // again. She works one catapult, so they go off one at a time and all of
+    // them over her stern.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 50, strikeRange: 8000,
+      rearm: 115, hp: 600, dropSpread: 0.08,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      // Two hundred-kilogram bombs under her lower wing.
+      bombDamage: 620, bombHit: 0.26, bombFire: 0.1, bombPen: 20, bombBore: 0.17,
+      type: 'kor1',
+      catapult: true, deckRun: 9.4, deckCycle: 34,
+      runHeight: 25.2,
+      // Where the shot leaves her: dead astern, off the end of her girder --
+      // measured off the same integrated shot the model on her catapult flies.
+      runOut: 251.7, runBearing: Math.PI, runSide: 1, runHeading: Math.PI, launchSpeed: 30,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
     datasheet: {
       displacement: 59150,
-      aircraft: 0,
+      aircraft: 4,
       mainRounds: 900,
       secondary: { caliber: 152, label: '152mm', barrels: 12, rounds: 2040 },
       tertiary: [

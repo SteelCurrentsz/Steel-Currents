@@ -143,7 +143,7 @@ import {
 } from '../client/js/render/kgv.js';
 import { kgvSurfaceY, MOUNT_SEATS as KGV_SEATS, gunPiece as kgvGunPiece } from '../client/js/render/kgvHull.js';
 import {
-  buildSoyuz, shellAt as soyuzShellAt, keelY as soyuzKeel, deckOver as soyuzSheer, zAt as soyuzZAt,
+  buildSoyuz, shellAt as soyuzShellAt, keelY as soyuzKeel, deckOver as soyuzSheer, zAt as soyuzZAt, LOA as LOA_SOYUZ,
 } from '../client/js/render/soyuz.js';
 import { soyuzSurfaceY, MOUNT_SEATS as SOYUZ_SEATS } from '../client/js/render/soyuzHull.js';
 import {
@@ -208,7 +208,7 @@ import {
   flightState, partHit,
 } from '../shared/airframe.js';
 import {
-  arado, kingfisher, walrus, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
+  arado, kingfisher, walrus, kor1, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
   b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
   bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d, hellcat as pkHellcat, sbd as pkSbd, tbf as pkTbf,
@@ -1410,7 +1410,7 @@ check('every catapult hands her scout over where and the way the plot has her, a
     ['baltimore', buildBaltimore], ['massachusetts', buildMassachusetts],
     ['musashi', buildMusashi], ['fuso', buildFuso], ['kongo', buildKongo],
     ['bismarck', buildBismarck], ['richelieu', buildRichelieu],
-    ['hipper', buildHipper], ['spee', buildSpee],
+    ['hipper', buildHipper], ['spee', buildSpee], ['soyuz', () => buildSoyuz().group],
   ];
   const fwd = new THREE.Vector3();
   for (const [id, build] of ships) {
@@ -3188,6 +3188,77 @@ check("the King George V throws a Walrus off either beam from her cross-deck cat
     for (const c of cats) assert.ok(!c.gone && c.plane.visible, 'she never got her Walrus back');
   }
   assert.notEqual(shots[0], shots[1], 'she shot both Walruses off the same end of her catapult');
+});
+
+check("the Sovetsky Soyuz throws a KOR-1 off her stern catapult, on the simulation's clock", () => {
+  // The girder the model drew on her quarterdeck, fore and aft on her
+  // centreline abaft No.3 turret: a car on it with a KOR-1 facing aft, run
+  // down it and thrown off over her stern on the tick the simulation puts her
+  // flight on the plot.
+  const P = SHIP_CLASSES.soyuz.planes;
+  assert.ok(P && P.catapult && P.type === 'kor1', 'she carries no KOR-1 to throw off');
+  assert.equal(SHIP_CLASSES.soyuz.datasheet.aircraft, P.squadrons * P.perSquadron,
+    'her sheet and her air group disagree on how many scouts she carries');
+  const g = buildSoyuz().group;
+  const deck = g.userData.deck;
+  assert.ok(deck, 'she has no catapult');
+  assert.equal(deck.cats.length, 1, `she has ${deck.cats.length} cars on her catapult`);
+  const [c] = deck.cats;
+  g.userData.step(0);
+  g.updateMatrixWorld(true);
+  const p = c.group.position;
+  const cTurret = SHIP_CLASSES.soyuz.turrets.find((t) => t.name === 'C');
+  assert.ok(Math.abs(p.x) < 0.01 && p.z < cTurret.z - 20 && p.z > -LOA_SOYUZ / 2,
+    `her car runs from ${p.x.toFixed(1)}, ${p.z.toFixed(1)}, not her quarterdeck abaft No.3`);
+  assert.ok(Math.abs(Math.abs(c.group.rotation.y) - Math.PI) < 1e-6, 'her catapult does not face astern');
+  // The scout stands on her car clear of her deck and of No.3's barrels.
+  const box = new THREE.Box3().setFromObject(c.plane);
+  assert.ok(box.min.y > soyuzSurfaceY(6, p.z) + 3, 'her KOR-1 stands in her deck');
+  assert.ok(box.max.z < cTurret.z - 15, 'her KOR-1 stands in No.3 turret');
+  const shots = [];
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    let away = null;
+    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+      if (deck.airborne && away === null) away = t - t0;
+    }
+    assert.ok(away !== null && Math.abs(away - P.deckRun) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${P.deckRun}s on the plot`);
+    assert.ok(deck.endMatrix, 'nothing latched where the shot left her');
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    for (const side of [-1, 1]) {
+      const off = launchOffset(SHIP_CLASSES.soyuz, side);
+      const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+      assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+        `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+        + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    }
+    assert.ok(end.z < -LOA_SOYUZ / 2, 'the shot did not leave her over her stern');
+    assert.ok(Math.abs(end.y - P.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
+    shots.push(end.z);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
+    assert.ok(!c.gone && c.plane.visible, 'she never got her KOR-1 back');
+    assert.ok(Math.abs(c.car.position.z - deck.rig.A) < 1e-6, 'her car was not run back to the breech');
+  }
+});
+
+check('the Sovetsky Soyuz launches her KOR-1s, and nothing flies before she has shot it off', () => {
+  const state = createState(generateWorld(7721, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Sovetsky Soyuz', classId: 'soyuz', team: 0, index: 0 });
+  ship.aimX = ship.x + 4000;
+  ship.aimZ = ship.z + 4000;
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(state.planes.length, 0, 'an aeroplane appeared before the shot');
+  const run = SHIP_CLASSES.soyuz.planes.deckRun;
+  for (let i = 0; i < Math.ceil((run - 0.5) / DT); i++) step(state, DT);
+  assert.equal(state.planes.length, 0, 'she flew one off early');
+  for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
+  assert.ok(state.planes.length > 0, 'nothing left the catapult at all');
+  assert.ok(state.planes.every((p) => p.type === 'kor1'), 'what left her catapult was not a KOR-1');
 });
 
 check('the King George V launches her Walruses, and nothing flies before she has shot it off', () => {
@@ -9866,16 +9937,16 @@ function buildPlane(kind, opts = {}) {
   const g = new THREE.Group();
   const f = {
     wildcat: pkWildcat, dauntless: pkDauntless, avenger: pkAvenger, arado,
-    kingfisher, walrus, zero: pkZero, suisei: pkSuisei, b5n: pkB5n, jake: pkJake,
+    kingfisher, walrus, kor1, zero: pkZero, suisei: pkSuisei, b5n: pkB5n, jake: pkJake,
   }[kind];
   if (kind === 'avenger') f(g, 0, 0, 0, 0, false, false, opts);
-  else if (kind === 'kingfisher' || kind === 'walrus') f(g, 0, 0, 0, 0, opts);
+  else if (kind === 'kingfisher' || kind === 'walrus' || kind === 'kor1') f(g, 0, 0, 0, 0, opts);
   else f(g, 0, 0, 0, 0, false, opts);
   g.updateMatrixWorld(true);
   return g;
 }
 
-const PLANE_KINDS = ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher', 'walrus',
+const PLANE_KINDS = ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher', 'walrus', 'kor1',
   'zero', 'suisei', 'b5n', 'jake'];
 
 check('nothing on an aeroplane is hanging in the air on its own', () => {

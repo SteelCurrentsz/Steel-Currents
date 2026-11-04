@@ -133,6 +133,15 @@ export const AERO = {
     thrust: 10400, vMax: 60, name: 'Walrus I',
     helix: 0.048, gLimit: 3.5,
   },
+  // The Sovetsky Soyuz's scout: a Beriev KOR-1, a biplane on a single float
+  // with an M-25 radial of seven hundred horsepower. Two and a half tonnes and
+  // a great deal of wing, so she climbs off a catapult well and is slow
+  // everywhere: a hundred and fifty-odd miles an hour flat out.
+  kor1: {
+    mass: 2486, wing: 29.5, span: 11.00, clMax: 1.52, cd0: 0.0500,
+    thrust: 9600, vMax: 68, name: 'KOR-1',
+    helix: 0.050, gLimit: 3.8,
+  },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
   // anything, which is exactly why she is shot off a catapult instead.

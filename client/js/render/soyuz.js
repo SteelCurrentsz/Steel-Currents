@@ -31,7 +31,9 @@ import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { lightMounts } from '../../../shared/sim.js';
-import { cyl, strip, sheet } from './shipkit.js';
+import { box, cyl, strip, sheet } from './shipkit.js';
+import { RIG, fitCatapults } from './catapult.js';
+import { kor1 } from './planekit.js';
 import {
   buildSoyuzHull, soyuzSurfaceY, MOUNT_SEATS, SCULPT_LINES, soyuzMaterials, gunPiece,
 } from './soyuzHull.js';
@@ -45,6 +47,8 @@ export const DRAFT = CLS.hull.draft;
 
 const P = {
   armour: 0x4a5158,
+  steelDark: 0x5a6168,
+  gunDark: 0x40464c,
 };
 
 const MATS = {};
@@ -248,12 +252,57 @@ function screws(g) {
   });
 }
 
+// ------------------------------------------------------------- catapult ----
+//
+// Her catapult: the girder the model drew on her quarterdeck, on her
+// centreline between No.3 turret and her stern, on a turntable a little aft
+// of its middle. It is the model's and stays where the model put it, fore and
+// aft; the car on its rails and the KOR-1 on the car are drawn here and worked
+// by fitCatapults, which runs the car aft down the girder and throws the
+// scout off over her stern.
+//
+// Measured off the model's girder (build/prepare-soyuz-hull.mjs, group 47):
+// the turntable at 121 m abaft her middle, the rails 8.4 m over her
+// waterline, and the girder from 107.5 m to 132 m aft.
+export const CAT_Z = -121.0;
+export const CAT_Y = 8.40;
+export const CAT_RIG = {
+  // In the turntable's own frame, which faces astern: its after end is ahead.
+  ...RIG, BACK: -13.5, FRONT: 10.8, A: -9.0, STROKE: 19.6, REST: 0, OUT: 0, PLANE_Y: 0.45, PLANE_Z: 0,
+};
+
+/** The car on her girder, and the KOR-1 on it facing aft over her stern. */
+function aviation(g) {
+  const cat = new THREE.Group();
+  cat.position.set(0, CAT_Y, CAT_Z);
+  cat.rotation.y = Math.PI;
+  cat.userData.dynamic = true;
+  g.add(cat);
+  const car = new THREE.Group();
+  car.position.set(0, 0, CAT_RIG.A);
+  car.userData.dynamic = true;
+  cat.add(car);
+  // The trolley on the rails, and the cradle her float sits in: a chock under
+  // it forward and aft and the arms up to its shoulders.
+  box(car, M.gunDark, 1.6, 0.22, 3.0, 0, 0.11, 0);
+  for (const cz of [1.0, -1.1]) {
+    box(car, M.steelDark, 0.5, 0.24, 0.4, 0, 0.33, cz);
+    for (const sx of [-1, 1]) {
+      const arm = box(car, M.steelDark, 0.10, 0.55, 0.12, sx * 0.50, 0.45, cz);
+      arm.rotation.z = -sx * 0.35;
+    }
+  }
+  const plane = kor1(car, 0, CAT_RIG.PLANE_Y, CAT_RIG.PLANE_Z, 0, { spin: true });
+  g.userData.catapults = [{ group: cat, car, plane, prop: plane.userData.prop, sgn: 1, base: Math.PI }];
+}
+
 // ---------------------------------------------------------------- build ----
 
 const STATIC = [
   ['hullModel', buildSoyuzHull],
   ['armour', armour],
   ['screws', screws],
+  ['aviation', aviation],
 ];
 
 export function buildSoyuz() {
@@ -265,6 +314,10 @@ export function buildSoyuz() {
   mountings(g);
   mergeMoving(g);
   g.userData.classId = 'soyuz';
+  fitCatapults(g, {
+    cats: g.userData.catapults, rig: CAT_RIG, deckY: CAT_Y,
+    catX: 0, catZ: CAT_Z, run: CLS.planes.deckRun, aero: 'kor1',
+  });
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
