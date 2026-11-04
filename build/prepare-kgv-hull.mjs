@@ -861,6 +861,18 @@ for (const sd of [-1, 1]) {
   wallPlate(m, x, 5.0, x, 12.0, deck.y(x, 8) - 0.2, 14.6, sd, 0);
   OPENINGS.push({ x, z0: 5.0, z1: 12.0, y1: 14.6 });
 }
+// And aft of that, behind the drum of her second 5.25-inch: the cut that
+// took the sculpt's drum off (FUNNEL_525_CUT) took her side with it from the
+// drum aft to the block abreast her fore funnel, and left a slot right through
+// her, from her deck to her shelter deck. Plated in flush with the plate
+// forward of it: low down back into that block, which stands further out, and
+// higher up to its face, which stands in.
+for (const sd of [-1, 1]) {
+  const x = sd * 9.4;
+  wallPlate(m, x, -1.7, x, 5.0, deck.y(x, 1) - 0.2, 12.0, sd, 0);
+  wallPlate(m, x, -1.4, x, 5.0, 11.9, 15.3, sd, 0);
+  OPENINGS.push({ x, z0: -1.7, z1: 5.0, y1: 15.3 });
+}
 wallPlate(m, -4.6, 25.0, 4.6, 25.0, deck.y(0, 25) - 0.2, deck.y(0, 25) + 2.4, 0, 1);
 OPENINGS.push({ z: 25.0, x0: -4.6, x1: 4.6 });
 // And the sides of the neck of her bridge where it runs forward to B's

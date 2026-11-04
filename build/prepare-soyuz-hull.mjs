@@ -363,6 +363,41 @@ for (let t = 0; t < nTri; t++) {
   }
   rgb[t * 3] = c[0]; rgb[t * 3 + 1] = c[1]; rgb[t * 3 + 2] = c[2];
 }
+// No markings: the model put the state emblem on her stern and a brand's
+// cigarette packet on her deck, each its own picture. Their faces are given
+// the paint round them -- the mean of every other face within a few metres --
+// so she carries no device or label of anybody's.
+{
+  const PLAIN = new Set([28, 67]);
+  const marked = (t) => {
+    const tx = (j.materials[model.M[t]] || {}).pbrMetallicRoughness?.baseColorTexture;
+    return !!tx && PLAIN.has(j.textures[tx.index].source);
+  };
+  const mid = (t) => [0, 1, 2].map((d) => (model.P[model.T[t * 3] * 3 + d] + model.P[model.T[t * 3 + 1] * 3 + d] + model.P[model.T[t * 3 + 2] * 3 + d]) / 3);
+  const marks = [];
+  for (let t = 0; t < nTri; t++) if (marked(t)) marks.push(t);
+  // Each mark is a metre or less: one paint for the faces round each.
+  const R = 3;
+  const groups = new Map();
+  for (const t of marks) { const g = model.G[t]; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(t); }
+  for (const tris of groups.values()) {
+    const c = [0, 0, 0];
+    tris.forEach((t) => mid(t).forEach((v, d) => { c[d] += v / tris.length; }));
+    const acc = [0, 0, 0];
+    let w = 0;
+    for (let t = 0; t < nTri; t++) {
+      if (marked(t)) continue;
+      const m = mid(t);
+      if (Math.abs(m[0] - c[0]) > R || Math.abs(m[1] - c[1]) > R || Math.abs(m[2] - c[2]) > R) continue;
+      const a = triArea(model.P, model.T, t);
+      for (let k = 0; k < 3; k++) acc[k] += rgb[t * 3 + k] * a;
+      w += a;
+    }
+    if (!(w > 0)) throw new Error('a marking with nothing of her round it');
+    for (const t of tris) for (let k = 0; k < 3; k++) rgb[t * 3 + k] = acc[k] / w;
+  }
+  console.log(`markings: ${marks.length} faces of ${groups.size} painted out`);
+}
 // Her shell, one paint over her waterline and one under it: each the mean of
 // what the atlas painted there.
 {

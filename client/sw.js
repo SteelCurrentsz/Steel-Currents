@@ -16,7 +16,11 @@
 //
 // With the line up, the network is asked first so a captain is always on the
 // current build; a request it has not answered in a few seconds, or cannot
-// answer at all, is answered from the store instead.
+// answer at all, is answered from the store instead. But a data file -- a
+// hull, an aeroplane, the voices, megabytes each -- put away under this very
+// version is this build's own, and is handed back from the store at once:
+// asking the network for it again was a second download of every ship in a
+// battle, on the line the battle was waiting on.
 
 /* global OFFLINE */
 const CACHE = 'steel-currents';
@@ -32,13 +36,22 @@ const FILES = OFFLINE.files.map(at);
 // Where the store notes the version it has every file of.
 const FILLED = at('./__filled');
 
+// Every file put away carries the version it was put away under.
+const STAMP = 'x-steel-currents-version';
+function stamped(res) {
+  const headers = new Headers(res.headers);
+  headers.set(STAMP, OFFLINE.version);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+const isData = (key) => /\.data\.js$/.test(key);
+
 async function keep(cache, f) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), STALL);
   try {
     const res = await fetch(f, { cache: 'no-cache', signal: ctl.signal });
     if (!res.ok) return false;
-    await cache.put(f, res);
+    await cache.put(f, stamped(res));
     return true;
   } catch {
     return false;
@@ -47,12 +60,25 @@ async function keep(cache, f) {
   }
 }
 
-async function keepAll(files, lanes) {
+// Held while the page waits on a battle's own ships (loadShips in ships.js):
+// saving everything for later must not take the line from what is wanted
+// now. Each file not yet begun waits for the word to go on.
+let held = false;
+let waiting = [];
+const goOn = () => (held ? new Promise((resolve) => waiting.push(resolve)) : Promise.resolve());
+self.addEventListener('message', (e) => {
+  if (!e.data || (e.data.t !== 'hold' && e.data.t !== 'go')) return;
+  held = e.data.t === 'hold';
+  if (!held) { const w = waiting; waiting = []; w.forEach((r) => r()); }
+});
+
+async function keepAll(files, lanes, yieldToPage = false) {
   const cache = await caches.open(CACHE);
   const queue = [...files];
   let all = true;
   const lane = async () => {
     for (let f = queue.shift(); f; f = queue.shift()) {
+      if (yieldToPage) await goOn();
       if (!(await keep(cache, f))) all = false;
     }
   };
@@ -82,11 +108,17 @@ self.addEventListener('message', (e) => {
     const cache = await caches.open(CACHE);
     const done = await cache.match(FILLED);
     if (done && (await done.text()) === OFFLINE.version) return;
-    // What the store has none of first, then the rest brought up to date.
+    // What the store has none of first, then the rest brought up to date --
+    // all but what it already has of this version, which is fetched no more.
     const missing = [];
     const have = [];
-    for (const f of FILES) ((await cache.match(f)) ? have : missing).push(f);
-    const all = await keepAll([...missing, ...have], 2);
+    for (const f of FILES) {
+      const hit = await cache.match(f);
+      if (!hit) missing.push(f);
+      else if (hit.headers.get(STAMP) !== OFFLINE.version) have.push(f);
+    }
+    // One file at a time, behind the game: the line is the captain's first.
+    const all = await keepAll([...missing, ...have], 1, true);
     if (all) await cache.put(FILLED, new Response(OFFLINE.version));
   })().finally(() => { filling = null; });
   e.waitUntil(filling);
@@ -137,8 +169,12 @@ async function answer(req, key) {
     const hit = await stored();
     if (hit) return hit;
   }
+  if (isData(key)) {
+    const hit = await stored();
+    if (hit && hit.headers.get(STAMP) === OFFLINE.version) return hit;
+  }
   const net = fetch(req).then((res) => {
-    if (res.ok && res.type === 'basic') cache.put(key, res.clone()).catch(() => {});
+    if (res.ok && res.type === 'basic') cache.put(key, stamped(res.clone())).catch(() => {});
     return res;
   });
   let timer;

@@ -109,10 +109,16 @@ export function fleetReady(classIds) {
  * an ask made `quiet` (a hull drawn as a stand-in, asked after every frame),
  * the next one after RETRY.
  */
-export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { quiet = false } = {}) {
+export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { quiet = false, background = false } = {}) {
   const keys = [...new Set(['planes', ...classIds.flatMap(needs)])];
   let done = 0;
-  return Promise.all(keys.map((k) => {
+  // Anything asked for in earnest holds back what is only fetched for later
+  // -- the preload behind the title screen, and the offline worker saving
+  // every file -- until it is in: on a slow line they shared it four ways,
+  // and the ships a battle was waiting on came down at a quarter of it.
+  const wanted = !background && keys.some((k) => !ready.has(k));
+  if (wanted) holdBackground(+1);
+  const all = Promise.all(keys.map((k) => {
     if (!fetched.has(k)) {
       if (quiet && Date.now() - (failed.get(k) || -Infinity) < RETRY) {
         return Promise.reject(new Error(`Steel Currents: ${k} could not be fetched`));
@@ -122,10 +128,35 @@ export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { qui
     }
     return fetched.get(k).then(() => { done++; onEach?.(done, keys.length); });
   }));
+  if (wanted) all.finally(() => holdBackground(-1)).catch(() => {});
+  return all;
+}
+
+// How many earnest asks are outstanding, and the preload's wait for none.
+let wantedNow = 0;
+let clear = null;
+function holdBackground(d) {
+  const was = wantedNow;
+  wantedNow += d;
+  const worker = typeof navigator !== 'undefined' && navigator.serviceWorker?.controller;
+  if (!was && wantedNow) worker?.postMessage({ t: 'hold' });
+  if (was && !wantedNow) {
+    worker?.postMessage({ t: 'go' });
+    clear?.();
+    clear = null;
+  }
+}
+function lineClear() {
+  if (!wantedNow) return Promise.resolve();
+  return new Promise((resolve) => {
+    const before = clear;
+    clear = () => { before?.(); resolve(); };
+  });
 }
 
 /**
- * Fetch every sculpted ship in the background, one at a time.
+ * Fetch every sculpted ship in the background, one at a time, and none
+ * while a battle's own are coming down.
  *
  * All of them at once was forty megabytes asked for in a single breath, and
  * the two or three a battle actually needed came down at a thirteenth of the
@@ -135,7 +166,9 @@ export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { qui
  */
 export async function preloadShips() {
   for (const k of Object.keys(SCULPTED)) {
-    try { await loadShips([k]); } catch { /* tried again when it is wanted */ }
+    // Never alongside a battle's own ships: each waits for them to be in.
+    await lineClear();
+    try { await loadShips([k], null, { background: true }); } catch { /* tried again when it is wanted */ }
   }
 }
 

@@ -384,6 +384,8 @@ import {
   applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
   worksTargets, worksTarget, townTargetId, wallTargetId, wallHp, WALL_SCARS,
 } from '../shared/works.js';
+import { packData } from '../build/pack-data.mjs';
+import { gunzip, unpack } from '../client/js/unpack.js';
 // The sculpted ships are fetched on demand in the browser; here, all of them up front.
 await loadShips();
 
@@ -21551,6 +21553,53 @@ check('the Surcouf fights with the battery she actually carried', () => {
   }
 });
 
+check('the King George V has no slot through her behind her second 5.25-inch', () => {
+  // The cut that took the sculpt's raised drum off her second pair of
+  // 5.25-inch took her side with it, from the drum aft to the block abreast
+  // her fore funnel: a slot from her deck to her shelter deck, and a ray
+  // into it came out of her far side. Every ray at her there, either side,
+  // has to meet her within her beam.
+  const built = buildShip('kgv');
+  built.group.updateMatrixWorld(true);
+  const solid = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.dynamic) solid.push(o); });
+  const rc = new THREE.Raycaster();
+  const through = [];
+  for (const side of [1, -1]) {
+    for (let y = 8.5; y <= 15.5; y += 0.25) {
+      for (let z = -1.7; z <= 5; z += 0.1) {
+        rc.set(new THREE.Vector3(side * 40, y, z), new THREE.Vector3(-side, 0, 0));
+        const h = rc.intersectObjects(solid, false)[0];
+        if (!h || side * h.point.x < 5) through.push(`${side > 0 ? 'starboard' : 'port'} ${y.toFixed(2)} m up at z ${z.toFixed(1)}`);
+      }
+    }
+  }
+  assert.equal(through.length, 0, `${through.length} rays go into her there, first ${through[0]}`);
+});
+
+check('the published build\'s packed ship data opens to exactly what was packed', () => {
+  // build/pack-data.mjs gzips every long string of a data file into one, and
+  // client/js/unpack.js opens it again in the browser: what the game is handed
+  // has to be, string for string, what the data file said.
+  for (const f of ['speeHull.data.js', 'zeroModel.data.js', 'soyuzHull.data.js']) {
+    const src = readFileSync(new URL(`../client/js/render/${f}`, import.meta.url), 'utf8');
+    const packed = packData(src);
+    assert.ok(packed.length < src.length * 0.9, `${f} packs to no smaller than it was`);
+    const payload = packed.match(/await unpack\("([^"]+)"\)/)[1];
+    const strings = [...src.matchAll(/"([A-Za-z0-9+/=]{256,})"/g)].map((m) => m[1]);
+    // By hand, as a browser without DecompressionStream opens it.
+    assert.deepEqual(new TextDecoder().decode(gunzip(Buffer.from(payload, 'base64'))).split(','), strings,
+      `${f} does not open by hand to what was packed`);
+    // And what is left of the module refers to them in order.
+    const refs = [...packed.matchAll(/__z\[(\d+)\]/g)].map((m) => +m[1]);
+    assert.deepEqual(refs, strings.map((_, i) => i), `${f} does not refer to its strings in order`);
+  }
+  // What has nothing long in it, and the already-squeezed voices, go as they are.
+  const small = 'export const A = [1, 2, 3];\n';
+  assert.equal(packData(small), small, 'a data file with nothing long in it was packed anyway');
+  assert.equal(typeof unpack, 'function');
+});
+
 check('from outside her you never see her insides', () => {
   // The one thing a hull has to do. Everything about a ship's interior is
   // invisible if her plating is closed and glaring if it is not: a slab of
@@ -23741,47 +23790,56 @@ check('a dive bomber\'s bomb comes down on the ship, where she will be when it l
   // by then. Hits used to be sent at the middle of her as she was at the
   // release, so they came down in her wake, and misses went anything up to
   // a quarter of a mile off.
-  const state = createState(generateWorld(11, 'open_ocean'), { mode: 'deathmatch' });
-  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
-  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
-  foe.x = ship.x + 9000; foe.z = ship.z + 3000;
-  ship.aimX = foe.x; ship.aimZ = foe.z;
-  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
-  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  //
+  // Four bombs is a small sample, and which way each aeroplane weaves on her
+  // run is set off her number -- and the numbers run on through every check
+  // before this one, so the same strike came down with no hit at all one run
+  // in several. So it is flown in four seas, and every bomb of all four is
+  // held to where it fell.
   const cls = SHIP_CLASSES.fletcher;
   const L = cls.hull.length / 2, B = cls.hull.beam / 2;
-  const falling = [];
-  let landed = 0, hits = 0, t = 0, way = 0;
-  for (let i = 0; i < 400 / DT; i++) {
-    foe.notch = 4;
-    foe.rudderCmd = 0.2;
-    for (const s of state.ships) s.spottedBy = [true, true];
-    for (const ev of step(state, DT)) {
-      if (ev.e !== 'bomb') continue;
-      const p = state.planes.find((q) => q.id === ev.i);
-      const h = p.y - 12, down = Math.max(0, -p.vy);
-      falling.push({ at: t + (-down + Math.sqrt(down * down + 2 * 9.80665 * h)) / 9.80665, ev });
-    }
-    t += DT;
-    for (const b of falling) {
-      if (b.done || t < b.at) continue;
-      b.done = true;
-      landed++;
-      way = Math.max(way, foe.speed);
-      const l = worldToLocal(b.ev.tx - foe.x, b.ev.tz - foe.z, foe.heading);
-      const onHer = Math.abs(l.x) <= B + 1 && Math.abs(l.z) <= L + 1;
-      if (b.ev.hit) {
-        hits++;
-        assert.ok(onHer, `a hit came down ${l.x.toFixed(0)} m across and ${l.z.toFixed(0)} m along her`);
-      } else {
-        assert.ok(!onHer, 'a miss came down on her deck');
-        assert.ok(Math.abs(l.x) < B + 50 && Math.abs(l.z) < L + 50,
-          `a miss went in ${l.x.toFixed(0)} m across and ${l.z.toFixed(0)} m along her`);
+  let landed = 0, hits = 0;
+  for (const seed of [11, 29, 47, 63]) {
+    const state = createState(generateWorld(seed, 'open_ocean'), { mode: 'deathmatch' });
+    const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+    const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+    foe.x = ship.x + 9000; foe.z = ship.z + 3000;
+    ship.aimX = foe.x; ship.aimZ = foe.z;
+    ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+    assert.ok(launchStrike(state, ship), 'she would not launch at all');
+    const falling = [];
+    let t = 0, way = 0;
+    for (let i = 0; i < 400 / DT; i++) {
+      foe.notch = 4;
+      foe.rudderCmd = 0.2;
+      for (const s of state.ships) s.spottedBy = [true, true];
+      for (const ev of step(state, DT)) {
+        if (ev.e !== 'bomb') continue;
+        const p = state.planes.find((q) => q.id === ev.i);
+        const h = p.y - 12, down = Math.max(0, -p.vy);
+        falling.push({ at: t + (-down + Math.sqrt(down * down + 2 * 9.80665 * h)) / 9.80665, ev });
+      }
+      t += DT;
+      for (const b of falling) {
+        if (b.done || t < b.at) continue;
+        b.done = true;
+        landed++;
+        way = Math.max(way, foe.speed);
+        const l = worldToLocal(b.ev.tx - foe.x, b.ev.tz - foe.z, foe.heading);
+        const onHer = Math.abs(l.x) <= B + 1 && Math.abs(l.z) <= L + 1;
+        if (b.ev.hit) {
+          hits++;
+          assert.ok(onHer, `a hit came down ${l.x.toFixed(0)} m across and ${l.z.toFixed(0)} m along her`);
+        } else {
+          assert.ok(!onHer, 'a miss came down on her deck');
+          assert.ok(Math.abs(l.x) < B + 50 && Math.abs(l.z) < L + 50,
+            `a miss went in ${l.x.toFixed(0)} m across and ${l.z.toFixed(0)} m along her`);
+        }
       }
     }
+    assert.ok(way > 8, 'the target was not under way when the bombs came down');
   }
-  assert.ok(way > 8, 'the target was not under way when the bombs came down');
-  assert.ok(landed >= 2, `only ${landed} bombs came down`);
+  assert.ok(landed >= 4, `only ${landed} bombs came down`);
   assert.ok(hits > 0, 'not one bomb hit her');
 });
 
