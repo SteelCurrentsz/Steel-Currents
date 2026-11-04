@@ -641,6 +641,60 @@ function creaseNormals(m, deg = 38) {
 const hullRaw = subMeshOf((t) => !kindOf.has(model.G[t]));
 console.log('hull:', hullRaw.T.length / 3, 'triangles before decimation');
 
+// The model is short a plate of her port bilge, under and between her funnels --
+// some twenty-five square metres of it, open to her insides -- where her
+// starboard bilge is whole. Every plate of the starboard bilge there that
+// has nothing of her port side over its mirror image is mirrored across.
+{
+  const BAND = { ax: [10, 20], y: [-10.3, -7], z: [-30, -10] };
+  const { P, T, C, LF } = hullRaw;
+  const inBand = (c, sg) => sg * c[0] >= BAND.ax[0] && sg * c[0] <= BAND.ax[1]
+    && c[1] >= BAND.y[0] && c[1] <= BAND.y[1] && c[2] >= BAND.z[0] && c[2] <= BAND.z[1];
+  const tri = (t) => [0, 1, 2].map((k) => [0, 1, 2].map((d) => P[T[t * 3 + k] * 3 + d]));
+  const mid = (q) => [0, 1, 2].map((d) => (q[0][d] + q[1][d] + q[2][d]) / 3);
+  // How far a point is from a triangle.
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const away = (p, [a, b, c]) => {
+    const ab = sub(b, a), ac = sub(c, a), ap = sub(p, a);
+    const d1 = dot(ab, ap), d2 = dot(ac, ap);
+    const bp = sub(p, b), d3 = dot(ab, bp), d4 = dot(ac, bp);
+    const cp = sub(p, c), d5 = dot(ab, cp), d6 = dot(ac, cp);
+    const at = (u, v) => Math.hypot(...sub(p, [a[0] + ab[0] * u + ac[0] * v, a[1] + ab[1] * u + ac[1] * v, a[2] + ab[2] * u + ac[2] * v]));
+    if (d1 <= 0 && d2 <= 0) return Math.hypot(...ap);
+    if (d3 >= 0 && d4 <= d3) return Math.hypot(...bp);
+    if (d6 >= 0 && d5 <= d6) return Math.hypot(...cp);
+    const vc = d1 * d4 - d3 * d2;
+    if (vc <= 0 && d1 >= 0 && d3 <= 0) return at(d1 / (d1 - d3), 0);
+    const vb = d5 * d2 - d1 * d6;
+    if (vb <= 0 && d2 >= 0 && d6 <= 0) return at(0, d2 / (d2 - d6));
+    const va = d3 * d6 - d5 * d4;
+    if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return Math.hypot(...sub(p, [b[0] + (c[0] - b[0]) * w, b[1] + (c[1] - b[1]) * w, b[2] + (c[2] - b[2]) * w])); }
+    const den = 1 / (va + vb + vc);
+    return at(vb * den, vc * den);
+  };
+  const port = [], stbd = [];
+  for (let t = 0; t < T.length / 3; t++) {
+    const q = tri(t), c = mid(q);
+    if (inBand(c, -1)) port.push(q);
+    else if (inBand(c, 1)) stbd.push(t);
+  }
+  let added = 0, area = 0;
+  for (const t of stbd) {
+    const q = tri(t).map(([x, y, z]) => [-x, y, z]);
+    const c = mid(q);
+    if (port.some((p) => away(c, p) < 0.15)) continue;
+    // Mirrored, and wound the other way to face out as its twin does.
+    const base = P.length / 3;
+    for (const v of [q[0], q[2], q[1]]) P.push(...v);
+    T.push(base, base + 1, base + 2); C.push(C[t]); LF.push(LF[t]);
+    const e1 = sub(q[1], q[0]), e2 = sub(q[2], q[0]);
+    area += Math.hypot(e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]) / 2;
+    added++;
+  }
+  console.log(`her port bilge made good: ${added} plates of her starboard one mirrored across, ${area.toFixed(1)} m2`);
+}
+
 // ---- which way her faces face ---------------------------------------------------------
 /**
  * The model drew a good many of its faces the wrong way round -- facing into

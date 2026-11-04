@@ -3,6 +3,11 @@
 
     python3 build/voice-lines.py         ->  client/js/render/voices.data.js
     python3 build/voice-lines.py --tts   (also needs: pip install edge-tts)
+    python3 build/voice-lines.py --tts --only=sov   (that navy alone; the rest
+                                         are kept as voices.data.js has them)
+    python3 build/voice-lines.py --espeak --only=sov
+                                        (offline, where the neural voices cannot be
+                                         reached: pip install espeakng-loader)
 
 The takes are in assets/voices, one `<nation>-<order>.mp3` each: performed
 shouting (ElevenLabs voices through Higgsfield, each line led with a
@@ -48,6 +53,7 @@ VOICES = {
     'ger': ('de-DE-ConradNeural', '+14%', '+12Hz'),
     'fra': ('fr-FR-HenriNeural', '+14%', '+12Hz'),
     'jpn': ('ja-JP-KeitaNeural', '+12%', '+12Hz'),
+    'sov': ('ru-RU-DmitryNeural', '+14%', '+12Hz'),
 }
 
 # main: the main battery; sec: the secondaries; torp/torps: one fish or a
@@ -182,6 +188,34 @@ LINES = {
         'd8': 'はち',
         'd9': 'きゅう',
     },
+    # The Red Fleet's own words: "Огонь!" from a gunnery officer, "глубинные
+    # бомбы" for depth charges.
+    'sov': {
+        'main': 'Открыть огонь!',
+        'sec': 'Противоминный калибр, огонь!',
+        'torp': 'Торпеда пошла!',
+        'torps': 'Торпеды пошли!',
+        'aa': 'Огонь по воздушной цели!',
+        'aas': 'Огонь по воздушным целям!',
+        'dc': 'Сбросить глубинные бомбы!',
+        'abandon': 'Покинуть корабль!',
+        'lastShell': 'Будем драться до последнего снаряда!',
+        'spotted': 'Вижу противника, пеленг',
+        'torpPort': 'Попадание торпеды в левый борт!',
+        'torpStbd': 'Попадание торпеды в правый борт!',
+        'breach': 'Пробоина ниже ватерлинии! Принимаем воду!',
+        'seal': 'Задраить все водонепроницаемые переборки! Изолировать отсек!',
+        'd0': 'ноль',
+        'd1': 'один',
+        'd2': 'два',
+        'd3': 'три',
+        'd4': 'четыре',
+        'd5': 'пять',
+        'd6': 'шесть',
+        'd7': 'семь',
+        'd8': 'восемь',
+        'd9': 'девять',
+    },
 }
 
 TAKES = os.path.join(ROOT, 'assets/voices')
@@ -225,7 +259,52 @@ TTS_CHAIN = ','.join([
 
 async def speak(voice, rate, pitch, text, path):
     import edge_tts
-    await edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, volume='+30%').save(path)
+    proxy = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
+    await edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, volume='+30%', proxy=proxy).save(path)
+
+
+# Where the neural voices cannot be reached, espeak-ng's voice of each
+# navy's language, by variant, words a minute and pitch: harsher and flatter
+# than a neural one, and pushed as hard.
+ESPEAK = {
+    'usa': ('en-us+m3', 185, 55),
+    'gbr': ('en-gb+m3', 180, 55),
+    'ger': ('de+m3', 175, 55),
+    'fra': ('fr-fr+m3', 180, 55),
+    'jpn': ('ja+m3', 170, 55),
+    'sov': ('ru+m3', 175, 50),
+}
+
+
+def speak_espeak(nation, text, path):
+    import ctypes
+    import wave
+    import espeakng_loader
+    lib = ctypes.CDLL(espeakng_loader.get_library_path())
+    chunks = []
+
+    @ctypes.CFUNCTYPE(ctypes.c_int, ctypes.POINTER(ctypes.c_short), ctypes.c_int, ctypes.c_void_p)
+    def take(wav, n, _events):
+        if wav and n > 0:
+            chunks.append(ctypes.string_at(wav, n * 2))
+        return 0
+
+    # Synchronous: the samples come back through `take` as they are made.
+    rate = lib.espeak_Initialize(2, 0, espeakng_loader.get_data_path().encode(), 0)
+    lib.espeak_SetSynthCallback(take)
+    voice, wpm, pitch = ESPEAK[nation]
+    lib.espeak_SetVoiceByName(voice.encode())
+    lib.espeak_SetParameter(1, wpm, 0)
+    lib.espeak_SetParameter(3, pitch, 0)
+    lib.espeak_SetParameter(2, 100, 0)
+    words = text.encode('utf-8')
+    lib.espeak_Synth(words, len(words) + 1, 0, 0, 0, 1, None, None)
+    lib.espeak_Synchronize()
+    with wave.open(path, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b''.join(chunks))
 
 
 def rough(src, dst, chain=CHAIN):
@@ -264,10 +343,19 @@ def figure(src, i, dst, tmp):
     rough(cut, dst)
 
 
+ONLY = next((a.split('=', 1)[1].split(',') for a in sys.argv if a.startswith('--only=')), None)
+
+
 async def main():
     out = {}
+    if ONLY:
+        with open(OUT) as f:
+            text = f.read()
+        out = json.loads(text[text.index('{'):text.rindex('}') + 1])
     with tempfile.TemporaryDirectory() as tmp:
         for nation, lines in LINES.items():
+            if ONLY and nation not in ONLY:
+                continue
             voice, rate, pitch = VOICES[nation]
             out[nation] = {}
             for key, text in lines.items():
@@ -282,8 +370,12 @@ async def main():
                     raw = os.path.join(tmp, f'{nation}-{key}-raw.mp3')
                     await speak(voice, rate, pitch, text, raw)
                     rough(raw, done, TTS_CHAIN)
+                elif '--espeak' in sys.argv:
+                    raw = os.path.join(tmp, f'{nation}-{key}-raw.wav')
+                    speak_espeak(nation, text, raw)
+                    rough(raw, done, TTS_CHAIN)
                 else:
-                    sys.exit(f'no take for {nation} {key}: record assets/voices/{nation}-{key}.mp3 or run with --tts')
+                    sys.exit(f'no take for {nation} {key}: record assets/voices/{nation}-{key}.mp3 or run with --tts or --espeak')
                 with open(done, 'rb') as f:
                     out[nation][key] = base64.b64encode(f.read()).decode('ascii')
                 print(f'{nation} {key:5} {text}  {os.path.getsize(done) // 1024} KB', file=sys.stderr)
