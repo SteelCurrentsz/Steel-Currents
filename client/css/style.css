@@ -29,7 +29,10 @@ html, body {
   user-select: none;
 }
 
-#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+/* Graded down: a war at sea, not a postcard. Less colour, a touch more weight
+   in the darks. The HUD is DOM over the top of it and keeps its own colours. */
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block;
+  filter: saturate(0.78) contrast(1.06) brightness(0.96); }
 
 .screen { position: fixed; inset: 0; display: none; }
 .screen.active { display: block; }

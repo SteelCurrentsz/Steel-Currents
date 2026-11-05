@@ -150,10 +150,13 @@ vec4 wakeAt(vec2 p) {
  * patch the wake is carried by its foam, which is all there is to see of one
  * at a kilometre anyway.
  */
-float wakeLift(vec2 p) {
+vec4 wakeNear(vec2 p) {
   vec2 un = vec2(p.x - uWakeNearAt.x, uWakeNearAt.y - p.y) / uWakeNearAt.z * 0.5 + 0.5;
   float en = max(abs(un.x - 0.5), abs(un.y - 0.5)) * 2.0;
-  vec4 w = texture2D(uWakeNear, un) * (1.0 - smoothstep(0.86, 0.99, en));
+  return texture2D(uWakeNear, un) * (1.0 - smoothstep(0.86, 0.99, en));
+}
+float wakeLift(vec2 p) {
+  vec4 w = wakeNear(p);
   return (w.r - w.g) * uWakeScale;
 }
 
@@ -537,9 +540,18 @@ void main() {
   // the surface it actually is at every pixel -- including out beyond where
   // the mesh is fine enough to be displaced at all, which is most of the sea.
   float ws = max(uWakeStep, dcam * 0.004);
-  float hx = wakeLift(q + vec2(ws, 0.0)) - wakeLift(q - vec2(ws, 0.0));
-  float hz = wakeLift(q + vec2(0.0, ws)) - wakeLift(q - vec2(0.0, ws));
+  vec4 wxp = wakeNear(q + vec2(ws, 0.0)), wxm = wakeNear(q - vec2(ws, 0.0));
+  vec4 wzp = wakeNear(q + vec2(0.0, ws)), wzm = wakeNear(q - vec2(0.0, ws));
+  float hx = ((wxp.r - wxp.g) - (wxm.r - wxm.g)) * uWakeScale;
+  float hz = ((wzp.r - wzp.g) - (wzm.r - wzm.g)) * uWakeScale;
   vec2 wslope = vec2(hx, hz) / (2.0 * ws);
+  // Which way the wake's water is spreading here. The aeration is thickest
+  // down her track and thins out either side of it, so straight down its
+  // gradient is away from her -- the way the wash she has thrown aside is
+  // drifting. The same four samples, so it costs nothing.
+  vec2 aGrad = vec2(wxp.a - wxm.a, wzp.a - wzm.a) + vec2(wxp.b - wxm.b, wzp.b - wzm.b) * 0.5;
+  float aGl = length(aGrad);
+  vec2 wFlow = -aGrad / max(aGl, 1e-4) * smoothstep(0.004, 0.04, aGl);
   // Held back with range for the same reason every octave of the chop is: a
   // slope resolved finer than the pixel it lands in is not detail, it is
   // sparkle.
@@ -621,6 +633,28 @@ void main() {
              * smoothstep(0.48, 0.70, lace)
              * smoothstep(0.28, 0.70, gust)
              * mix(1.0, smoothstep(0.36, 0.62, capLace), clamp(260.0 / max(dcam, 1.0), 0.0, 1.0));
+  // And the white horses: the scatter of small breaking crests a working sea
+  // is covered in, whether or not the swell under them is folding. Each one
+  // rides the top of a wave, is drawn out downwind into a streak, and blooms
+  // and dies over a few seconds as the noise it lives on drifts and turns
+  // over -- so the sea is always breaking somewhere and never in the same
+  // place twice.
+  {
+    vec2 wd = normalize(vec2(0.72, 0.69));
+    vec2 ax = vec2(dot(q, wd), dot(q, vec2(-wd.y, wd.x)));
+    float bloom = onoise(ax * vec2(0.055, 0.12) + vec2(-uTime * 0.11, uTime * 0.03))
+                * 0.6
+                + onoise(q * 0.024 + vec2(uTime * 0.035, -uTime * 0.028)) * 0.4;
+    float streak = onoise(ax * vec2(0.16, 0.55) + vec2(-uTime * 0.30, 0.0));
+    float top = smoothstep(uCrest * 0.35, uCrest * 1.05, vCrest);
+    float horse = smoothstep(0.60, 0.70, bloom)
+                * mix(1.0, smoothstep(0.42, 0.66, streak * 0.65 + capLace * 0.35),
+                      clamp(1400.0 / max(dcam, 1.0), 0.0, 1.0))
+                * mix(0.35, 1.0, top)
+                * mix(0.45, 1.0, smoothstep(0.20, 0.60, gust))
+                * clamp(uCrest / 1.4, 0.7, 1.4);
+    foam = max(foam, horse);
+  }
   foam *= clamp(1.0 - dcam / 7000.0, 0.0, 1.0);
 
   // The wake's own white water.
@@ -656,8 +690,30 @@ void main() {
   float vein = 1.0 - abs(n1 - 0.47) * 2.6;
   float fine = mix(n1 * 0.6 + n2 * 0.4, vein * 0.72 + n2 * 0.28, 0.55);
   float fineLod = clamp(500.0 / max(dcam, 1.0), 0.0, 1.0);
+  // The wake's own foam is not fixed to the sea: it is carried outward, away
+  // from her track, the way the wash off a ship eases out across the water
+  // long after she has gone. Two copies of the lace slid along the flow on
+  // staggered clocks and cross-faded, so it moves without ever stretching.
+  float fineW = fine;
+  if (wkB > 0.006 && fineLod > 0.02) {
+    const float FLOW_T = 9.0;          // seconds a copy is slid for
+    const float FLOW_V = 1.1;          // metres a second, outward
+    float ph0 = fract(uTime / FLOW_T);
+    float ph1 = fract(uTime / FLOW_T + 0.5);
+    vec2 qa = qw - wFlow * (ph0 * FLOW_T * FLOW_V);
+    vec2 qb = qw - wFlow * (ph1 * FLOW_T * FLOW_V) + vec2(17.3, -9.1);
+    float a1 = onoise(qa * 0.27), a2 = onoise(qa * 0.93);
+    float b1 = onoise(qb * 0.27), b2 = onoise(qb * 0.93);
+    float fa = mix(a1 * 0.6 + a2 * 0.4, (1.0 - abs(a1 - 0.47) * 2.6) * 0.72 + a2 * 0.28, 0.55);
+    float fb = mix(b1 * 0.6 + b2 * 0.4, (1.0 - abs(b1 - 0.47) * 2.6) * 0.72 + b2 * 0.28, 0.55);
+    float wA = 1.0 - abs(ph0 * 2.0 - 1.0);
+    fineW = mix(fb, fa, wA);
+    // Cross-fading two thresholded fields thins the middle of the fade; put
+    // back what averaging two noises takes out of their contrast.
+    fineW = 0.5 + (fineW - 0.5) * mix(1.0, 1.35, 1.0 - abs(wA * 2.0 - 1.0));
+  }
   float thr = mix(0.80, 0.30, wkB);
-  float threads = smoothstep(thr - 0.06, thr + 0.14, fine) * smoothstep(0.015, 0.12, wkB);
+  float threads = smoothstep(thr - 0.06, thr + 0.14, fineW) * smoothstep(0.015, 0.12, wkB);
   // And a finer speckle of bubbles round the threads, so the edge of the
   // white water is a scatter rather than a line.
   float speck = smoothstep(0.62, 0.80, onoise(qw * 2.3 + uTime * 0.07)) * smoothstep(0.05, 0.35, wkB) * fineLod;
@@ -669,7 +725,7 @@ void main() {
   // moment she is in it -- which is a thing anybody who has seen a photograph
   // of a torpedoed tanker has seen and nobody ever draws.
   float clean = 1.0 - oilCov * 0.95;
-  col = mix(col, white, foam * 0.5 * clean);
+  col = mix(col, white, foam * 0.62 * clean);
   // Never quite opaque: even the boil under her counter is broken water with
   // the sea showing through it, and thin foam is half see-through.
   col = mix(col, white, wkFoam * (0.48 + 0.42 * wkB) * clean);
@@ -798,18 +854,18 @@ export const OCEAN_PRESETS = {
     lightDir: new THREE.Vector3(0.35, 0.42, -1).normalize(),
   },
   dawn: {
-    deep: 0x0a1c2c, shallow: 0x1f4558, sky: 0x8a7570,
-    light: 0xffc98f, specular: 0.9, amp: 2.6, fog: 0.000045, fogColor: 0x3a3f52,
+    deep: 0x0a161f, shallow: 0x1d3742, sky: 0x6f6763,
+    light: 0xe8c39c, specular: 0.9, amp: 2.6, fog: 0.000045, fogColor: 0x34383f,
     lightDir: new THREE.Vector3(0.75, 0.18, -0.6).normalize(),
   },
   dusk: {
-    deep: 0x0b2030, shallow: 0x234c60, sky: 0x7d6672,
-    light: 0xffd9b3, specular: 0.85, amp: 3.2, fog: 0.00005, fogColor: 0x2f3247,
+    deep: 0x0a1820, shallow: 0x1f3a46, sky: 0x625c62,
+    light: 0xe3cdb4, specular: 0.85, amp: 3.2, fog: 0.00005, fogColor: 0x2c2e36,
     lightDir: new THREE.Vector3(-0.6, 0.25, -1).normalize(),
   },
   day: {
-    deep: 0x05182e, shallow: 0x144870, sky: 0x86abcf,
-    light: 0xffffff, specular: 0.8, amp: 2.4, fog: 0.00004, fogColor: 0x8fadc2,
+    deep: 0x061626, shallow: 0x183c52, sky: 0x77858f,
+    light: 0xe9e7e1, specular: 0.7, amp: 2.4, fog: 0.00004, fogColor: 0x848f96,
     lightDir: new THREE.Vector3(0.4, 0.75, -0.5).normalize(),
   },
 };

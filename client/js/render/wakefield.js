@@ -223,7 +223,8 @@ void main() {
   float runS = max(run - uStern, 0.0);
   // Sublinear, because a wake broadens quickly just astern of the screws and
   // then hardly at all.
-  float openAft = pow(runS, 0.80) * 0.15;
+  float openAft = pow(runS, 0.80) * 0.15
+                + min(max(vAge - uStern / max(vSpeed, 2.0), 0.0), 140.0) * 0.10;
   // What the stem itself throws: a couple of feet of white at the bow,
   // standing well off her side by the time it is abreast of the bridge.
   float bowOut = min(run * 0.30, uBeam * 0.62);
@@ -309,7 +310,15 @@ void main() {
   // it on and dies there. It used to be measured from her stem, and slid
   // after her down the wake -- and jumped back twenty metres every time she
   // laid another piece of track.
-  vec2 wq = vec2(m * sgn, vOdo);
+  //
+  // Across her track, though, the water is not still: what she has thrown
+  // aside goes on spreading away from her, slowly, for as long as it lasts.
+  // The noise is read at a point that falls back toward her track as the
+  // water ages, so every patch and thread on it is carried outward at a
+  // walking pace -- the wash easing away from her rather than lying where
+  // she dropped it.
+  float outM = max(m - min(vAge, 140.0) * 0.55, 0.0);
+  vec2 wq = vec2(outM * sgn, vOdo);
   // The water does go on moving, slowly, on its own clock: the noise turns
   // over on the age of the water, so a patch changes shape as it dies rather
   // than sitting there like a transfer.
@@ -353,7 +362,7 @@ void main() {
              * (1.0 - smoothstep(uStern * 0.95, uStern * 1.45, run))
              * drive;
   float froth = fbm(vec2(wq.x * 0.06, wq.y * 0.05) + stir);
-  band *= smoothstep(0.22, 0.66, froth + 0.20);
+  band *= smoothstep(0.30, 0.74, froth + 0.12);
 
   // The wash off her screws. Nearly solid straight astern of the transom; a
   // few hundred metres back it has broken into threads drawn out along the
@@ -376,13 +385,11 @@ void main() {
              * (1.0 - smoothstep(uStern * 1.05, uStern * 1.6, run))
              * (1.0 - smoothstep(coreW * 0.35, coreW * 0.85, m)) * drive;
 
-  // And the crests of the diverging waves, where they are steep enough to
-  // break -- close in on her bow and nowhere else.
-  float lace = fbm(vec2(wq.x * 0.075, wq.y * 0.07) + stir * 2.0);
-  float steepD = abs(ampD) * kD;
-  float crest = smoothstep(0.010, 0.05, steepD)
-              * smoothstep(0.68, 0.98, sin(phD) * 0.5 + 0.5)
-              * smoothstep(0.34, 0.60, lace);
+  // No white on the crests of the diverging waves. It used to be put there,
+  // and from any height it was a row of evenly spaced white blobs standing
+  // off each side of her -- a second, dotted arrowhead ruled outside the
+  // wake. The diverging waves are still in the water, as shape; a real
+  // ship's are not breaking a hundred metres off her beam.
 
   // The bow wave itself, where it curls over off her shoulder: a ridge of
   // white standing just off her side over the forward third of her, broken
@@ -393,8 +400,8 @@ void main() {
              * (1.0 - smoothstep(uStern * 0.35, uStern * 0.75, run))
              * smoothstep(0.30, 0.62, froth + 0.12) * drive;
 
-  float foam = clamp(stem * 0.85 + band * 0.75 + core + race * 0.90 + curl * 0.70
-                     + crest * 0.60, 0.0, 0.94);
+  float foam = clamp(stem * 0.85 + band * 0.50 + core + race * 0.90 + curl * 0.62,
+                     0.0, 0.94);
 
   // ---- aeration -----------------------------------------------------------
   // The water her screws and her bow have been through, foam or no foam. It

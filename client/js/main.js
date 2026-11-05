@@ -258,7 +258,7 @@ let canvas = real.domElement;
 renderer.setClearColor(0x050c16);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.18;
+renderer.toneMappingExposure = 1.04;
 
 // Every battle is hosted here, in the tab: the simulation, the bot captains
 // and the room they fight in all run on this device, so the game plays with

@@ -52,8 +52,8 @@ export class ShipyardScene {
     // Deeper and less mirror-bright than the battle sea: a hull is being looked
     // at here, and a blown-out glare path across the frame competes with it.
     const ou = this.ocean.material.uniforms;
-    ou.uDeep.value = new THREE.Color(0x0a1c27);
-    ou.uShallow.value = new THREE.Color(0x1c414d);
+    ou.uDeep.value = new THREE.Color(0x07182a);
+    ou.uShallow.value = new THREE.Color(0x1a3d52);
     ou.uSpecular.value = 0.20;
     // The sun sits abaft the beam rather than over the shoulder, so its path on
     // the water runs away behind her instead of washing out the near field.
@@ -61,20 +61,22 @@ export class ShipyardScene {
     // Seen from below, a single-sided sea is not there at all — and going under
     // her keel is half the reason for this screen.
     this.ocean.material.side = THREE.DoubleSide;
-    this.ocean.setSeaState(1);
+    // A working sea rather than a millpond: enough wind to put white horses
+    // on it.
+    this.ocean.setSeaState(2);
     this.scene.add(this.ocean.mesh);
 
-    this.hemi = new THREE.HemisphereLight(0xbcd6ef, 0x2a3742, 1.05);
+    this.hemi = new THREE.HemisphereLight(0xa6b2bb, 0x252e35, 1.0);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff2dc, 1.5);
+    this.sun = new THREE.DirectionalLight(0xebe4d6, 1.35);
     this.sun.position.set(-420, 520, 320);
     this.scene.add(this.sun);
-    const fill = new THREE.DirectionalLight(0x8fb2d4, 0.45);
+    const fill = new THREE.DirectionalLight(0x8496a6, 0.4);
     fill.position.set(380, 180, -420);
     this.scene.add(fill);
 
     // Above water she is seen through clear air; below it, through water.
-    this.airFog = new THREE.FogExp2(0x9fbcd4, 0.00007);
+    this.airFog = new THREE.FogExp2(0x8a959c, 0.00008);
     this.seaFog = new THREE.FogExp2(0x0d3348, 0.0013);
     this.scene.fog = this.airFog;
 

@@ -49,9 +49,11 @@ import { clamp } from '../../../shared/math.js';
 
 const SKY = {
   night: { top: 0x050d1c, bottom: 0x1d3550 },
-  dawn: { top: 0x142b4f, bottom: 0xc98a5e },
-  dusk: { top: 0x1d2542, bottom: 0x8a5f50 },
-  day: { top: 0x2f6ea8, bottom: 0xa8cbe0 },
+  dawn: { top: 0x1a2738, bottom: 0x8d7262 },
+  dusk: { top: 0x1c2232, bottom: 0x6e5a54 },
+  // A wartime sky, not a holiday one: high haze and a lid of grey over the
+  // blue, so the noon sea is heavy and cold rather than bright.
+  day: { top: 0x3f5466, bottom: 0x96a2aa },
 };
 
 /**
@@ -2033,8 +2035,8 @@ export class BattleScene {
     // The sky term is held up more than the sun is: under cloud the light is
     // all sky and no sun, which is why an overcast day is flat rather than dark.
     this.scene.add(new THREE.HemisphereLight(
-      preset === 'day' ? 0xa8cee6 : preset === 'dusk' ? 0x7e8fb0 : 0x4a6c9c,
-      preset === 'day' ? 0x2c5a72 : 0x111a26,
+      preset === 'day' ? 0x9eacb7 : preset === 'dusk' ? 0x737d90 : 0x44597a,
+      preset === 'day' ? 0x25343f : 0x111a26,
       // Held up more than the sun, or a ship in a typhoon is a black shape
       // on a black sea; but it goes down with it.
       (preset === 'day' ? 1.0 : preset === 'dusk' ? 0.7 : 0.55) * (0.45 + 0.55 * wx.light)
