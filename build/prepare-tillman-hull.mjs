@@ -21,6 +21,9 @@
 //     +Y up, y = 0 her waterline -- and brought up to her own length;
 //   * every triangle is painted the colour of the texture under it, but for
 //     her bottom, cut along her waterline and painted one colour under it;
+//   * under her waterline, her four sections -- which the model leaves
+//     stepped and cracked where they meet -- are plated over again in one
+//     skin, lofted through them from her skegs to her forefoot;
 //   * her guns, her catapults and her screws are lifted out of her, mounting
 //     by mounting; every face of what is left is turned to face the way it
 //     can be seen from;
@@ -268,6 +271,161 @@ function isShell(t) {
   console.log(`waterline: ${split} triangles of her shell cut along it`);
 }
 
+// Her bottom, made whole. The model draws her hull in four sections -- bow,
+// two amidships, stern -- each one closed off on its own, and under her
+// waterline they do not meet: where one ends and the next begins, the bottom
+// of the one stops short of the other's, and there is a step and a crack
+// between them, open to her insides. So under her waterline, from forward of
+// her skegs and screws to her forefoot, the sections' plating is taken off
+// and she is plated again in one skin, lofted through her own sections: at
+// every station, how far out the outermost of them stands at each height, and
+// how deep the deepest goes, eased along her length over a dozen metres or so
+// the steps between them are faired out. At her waterline the skin meets her
+// side exactly where the model has it; aft, where her stern's own plating
+// takes over, it meets that.
+{
+  // Half a metre off the whole metre: her lines are read a metre apart, on
+  // the whole metre, and a ring of points exactly on a station reads as none.
+  const LOFT_AFT = +(process.env.LOFT_AFT ?? -99.5);
+  // FAIR: how many stations either side her sides are eased over.
+  const LEVELS = 24, DZ = 1, FAIR = +(process.env.FAIR ?? 7);
+  const { P, UV } = model;
+  // Its points are marked by their u, which the texture wraps to the bottom
+  // plating's own, so that her bottom paint is still the mean of the model's.
+  const LOFT_U = UV[0] - 8;
+  const isHull = (t) => /^HP_(Bow|MidFront|MidBack|Stern)$/.test(pieceName(t));
+  const hullT = [];
+  for (let t = 0; t < model.T.length / 3; t++) if (isHull(t)) hullT.push(t);
+  // Each hull triangle's z extent, binned a metre at a time for the sections.
+  const bins = new Map();
+  for (const t of hullT) {
+    let z0 = Infinity, z1 = -Infinity;
+    for (let k = 0; k < 3; k++) { const z = P[model.T[t * 3 + k] * 3 + 2]; z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    for (let b = Math.floor(z0); b <= Math.floor(z1); b++) { if (!bins.has(b)) bins.set(b, []); bins.get(b).push(t); }
+  }
+  /** Her section at z: the segments every hull piece cuts it in, (x, y). */
+  const section = (z) => {
+    const segs = [];
+    for (const t of bins.get(Math.floor(z)) || []) {
+      const pts = [];
+      for (let k = 0; k < 3; k++) {
+        const a = model.T[t * 3 + k], b = model.T[t * 3 + (k + 1) % 3];
+        const za = P[a * 3 + 2], zb = P[b * 3 + 2];
+        if ((za - z) * (zb - z) < 0) {
+          const s = (z - za) / (zb - za);
+          pts.push([P[a * 3] + (P[b * 3] - P[a * 3]) * s, P[a * 3 + 1] + (P[b * 3 + 1] - P[a * 3 + 1]) * s]);
+        }
+      }
+      if (pts.length === 2) segs.push(pts);
+    }
+    return segs;
+  };
+  /** How far out to one side (+1 starboard, -1 port) her section reaches at y. */
+  const reach = (segs, y, side) => {
+    let m = 0;
+    for (const [a, b] of segs) {
+      if ((a[1] - y) * (b[1] - y) > 0 || a[1] === b[1]) continue;
+      const x = a[0] + (b[0] - a[0]) * ((y - a[1]) / (b[1] - a[1]));
+      if (x * side > m) m = x * side;
+    }
+    return m;
+  };
+  // Her stations, from LOFT_AFT to her forefoot.
+  const st = [];
+  for (let z = LOFT_AFT; ; z += DZ) {
+    const segs = section(z + 1e-3);
+    let keel = 0;
+    for (const s of segs) for (const p of s) if (p[1] < keel) keel = p[1];
+    if (keel > -0.5) break;
+    st.push({ z, keel, segs });
+  }
+  // Her keel, eased; her sides measured at fractions of her depth there, and
+  // eased too -- all but at her waterline, where she meets her side as drawn.
+  const ease = (arr, r) => arr.map((_, i) => {
+    let s = 0, n = 0;
+    for (let k = Math.max(0, i - r); k <= Math.min(arr.length - 1, i + r); k++) { s += arr[k]; n++; }
+    return s / n;
+  });
+  const keel = ease(st.map((s) => s.keel), 3);
+  // Aft, it is held where she meets her stern's plating. Forward, the model
+  // stops her keel dead under her stem, a square foot to her; it is swept up
+  // to her stem instead, over the last FOREFOOT metres, as a ship's is.
+  keel[0] = st[0].keel;
+  const FOREFOOT = +(process.env.FOREFOOT ?? 18);
+  const zStem = st[st.length - 1].z + DZ;
+  for (let i = 0; i < st.length; i++) {
+    const s = (st[i].z - (zStem - FOREFOOT)) / FOREFOOT;
+    if (s > 0) keel[i] *= Math.sqrt(1 - Math.min(1, s) ** 2) * 0.85 + 0.15 * (1 - s);
+  }
+  // Her bottom is flat, near enough, with a little rise of floor out to her
+  // bilge: the first height her side is read at is a hand over her keel, or
+  // the rise reads as the bilge and her bottom comes out a V.
+  const lv = (i, k) => (k ? keel[i] * (1 - k / LEVELS) : keel[i] + Math.min(0.35, -keel[i] / LEVELS * 0.6));
+  // Read to each side; but under water she is given the outer of her two
+  // sides at every height, both sides alike. The model's bottom amidships is
+  // drawn tilted, her port bilge a metre higher than her starboard, and her
+  // insides -- built square to her centreline -- came out through it.
+  const raws = [1, -1].map((side) => st.map((s, i) => Array.from({ length: LEVELS + 1 }, (_, k) => reach(s.segs, lv(i, k), side))));
+  const sym = raws[0].map((r, i) => r.map((v, k) => Math.max(v, raws[1][i][k])));
+  // A crack between two of her sections reads as nothing there: each
+  // station takes the outermost of itself and the one either side, which
+  // bridges it, before the easing.
+  const full = sym.map((r, i) => r.map((v, k) => Math.max(v, sym[i - 1]?.[k] ?? 0, sym[i + 1]?.[k] ?? 0)));
+  for (let i = 0; i < 2; i++) full[i] = sym[i].slice();
+  const eased = [];
+  for (let k = 0; k < LEVELS; k++) eased[k] = ease(full.map((r) => r[k]), FAIR);
+  const half = raws.map((raw) => {
+    const out = raw.map((r) => r.slice());
+    for (let k = 0; k < LEVELS; k++) {
+      const w = Math.min(1, (LEVELS - k) / 3); // eased in fully a metre or more under her waterline
+      for (let i = 1; i < st.length; i++) out[i][k] = raw[i][k] * (1 - w) + eased[k][i] * w;
+    }
+    return out;
+  });
+  // The old plating: every face of her hull pieces wholly under her waterline
+  // and wholly forward of LOFT_AFT -- her shell, and the ledges and caps of
+  // her sections along with it, which stand inside the new skin or just
+  // proud of it.
+  const keep = [];
+  let dropped = 0, tri0 = -1;
+  for (let t = 0; t < model.T.length / 3; t++) {
+    let under = isHull(t);
+    for (let k = 0; under && k < 3; k++) {
+      const v = model.T[t * 3 + k];
+      if (P[v * 3 + 1] > WATERLINE + 1e-4 || P[v * 3 + 2] < LOFT_AFT) under = false;
+    }
+    if (!under) keep.push(t); else { dropped++; if (tri0 < 0 && pieceName(t) === 'HP_MidFront') tri0 = t; }
+  }
+  const T2 = [], G2 = [], L2 = [], M2 = [];
+  for (const t of keep) { T2.push(model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]); }
+  // The new: a ring of points round each station, keel to waterline and
+  // back, and every pair of rings joined. Her forefoot closes on her stem.
+  const g = model.G[tri0], l = model.L[tri0], m = model.M[tri0];
+  const ring = [];
+  const point = (x, y, z) => { const w = P.length / 3; P.push(x, y, z); model.N.push(0, -1, 0); UV.push(LOFT_U, UV[model.T[tri0 * 3] * 2 + 1]); return w; };
+  for (let i = 0; i < st.length; i++) {
+    const r = [];
+    // Port waterline down to keel, the keel, keel up to starboard waterline.
+    for (let k = LEVELS; k >= 0; k--) r.push(point(-half[1][i][k], lv(i, k), st[i].z));
+    r.push(point(0, keel[i], st[i].z));
+    for (let k = 0; k <= LEVELS; k++) r.push(point(half[0][i][k], lv(i, k), st[i].z));
+    ring.push(r);
+  }
+  const face = (a, b, c) => { T2.push(a, b, c); G2.push(g); L2.push(l); M2.push(m); };
+  for (let i = 0; i + 1 < ring.length; i++) {
+    const A = ring[i], B = ring[i + 1];
+    for (let k = 0; k + 1 < A.length; k++) { face(A[k], B[k + 1], B[k]); face(A[k], A[k + 1], B[k + 1]); }
+  }
+  // Her forefoot: the last ring drawn in to her stem, a metre on.
+  {
+    const A = ring[ring.length - 1], zEnd = zStem;
+    const stem = A.map((v) => point(0, P[v * 3 + 1], zEnd));
+    for (let k = 0; k + 1 < A.length; k++) { face(A[k], stem[k + 1], stem[k]); face(A[k], A[k + 1], stem[k + 1]); }
+  }
+  model.T = T2; model.G = G2; model.L = L2; model.M = M2;
+  console.log(`bottom: ${dropped} faces of her sections' plating under water replaced by one skin, ${st.length} stations from ${LOFT_AFT} to ${st[st.length - 1].z + DZ} m`);
+}
+
 // Her decks and her sides cut small. The model plates a deck or a side in
 // triangles tens of metres long, and the paint a face gets is the mean of
 // what its texture holds -- her dazzle's light and dark, her forecastle's red
@@ -415,11 +573,15 @@ for (let t = 0; t < nTri; t++) {
   const shell = new Uint8Array(nTri);
   const sum = [0, 0, 0, 0];
   for (let t = 0; t < nTri; t++) {
-    if (!isShell(t)) continue;
+    // Her new skin under water (see "her bottom, made whole") is all bottom,
+    // whichever way a face of it looks.
+    const skin = model.UV[model.T[t * 3] * 2] < -4;
+    if (!skin && !isShell(t)) continue;
     let cy = 0;
     for (let k = 0; k < 3; k++) cy += model.P[model.T[t * 3 + k] * 3 + 1] / 3;
     if (cy >= WATERLINE) continue;
     shell[t] = 1;
+    if (skin) continue; // painted, but not counted
     const a = triArea(model.P, model.T, t);
     for (let k = 0; k < 3; k++) sum[k] += rgb[t * 3 + k] * a;
     sum[3] += a;
@@ -1023,6 +1185,21 @@ const hm = heightmap(hull, HM);
 // under (see measureLines).
 const st = stations(hull, { length: LOA, beamCap: 6.0, edgeCap: 12.0, slice: true, beamFloor: -10 });
 const LINES = measureLines(hull, st, { z0: -150, dz: 1, nz: 301, y0: -12.5, dy: 0.5, ny: 56 }, 6.4);
+// A station of her new bottom that the cut across her misses -- a face
+// standing edge-on to it on her centreline -- reads as no bottom at all and a
+// keel up at her deck. Between two that read true, it takes theirs.
+{
+  const { keel, half, ny, z0, dz } = LINES;
+  let mended = 0;
+  for (let k = 1; k + 1 < keel.length; k++) {
+    const z = z0 + k * dz, a = keel[k - 1], b = keel[k + 1];
+    if (z < -99 || keel[k] < Math.max(a, b) + 3 || a > 0 || b > 0) continue;
+    keel[k] = +((a + b) / 2).toFixed(2);
+    for (let j = 0; j < ny; j++) half[k * ny + j] = +((half[(k - 1) * ny + j] + half[(k + 1) * ny + j]) / 2).toFixed(2);
+    mended++;
+  }
+  console.log(`lines: ${mended} stations mended`);
+}
 
 const col = new Uint8Array(hull.P.length / 3 * 3);
 for (let t = 0; t < hull.T.length / 3; t++) {

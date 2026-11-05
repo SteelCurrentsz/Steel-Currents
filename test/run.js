@@ -3602,6 +3602,36 @@ check("the Tillman's shell has no holes in it", () => {
   assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes.slice(0, 4).join('; ')}`);
 });
 
+check('the Tillman\'s bottom is one skin from her skegs to her forefoot, with nothing of her insides under it', () => {
+  // The model draws her in four sections whose bottoms neither meet nor
+  // match: a step and a crack at every join, and her chain lockers hanging
+  // out under her amidships. Seen from under her, every ray up into her
+  // bottom meets her plating first, and it lies smooth along her.
+  const built = buildTillman();
+  built.group.updateMatrixWorld(true);
+  const all = [];
+  built.group.traverse((o) => { if (o.isMesh) all.push(o); });
+  const isInside = (o) => { for (let q = o; q; q = q.parent) if (q.userData.inside) return true; return false; };
+  const ray = new THREE.Raycaster();
+  const bad = [];
+  let steps = 0, tested = 0;
+  for (const x of [-12, -6, 0, 6, 12]) {
+    let last = null;
+    for (let z = -95.3; z <= 125; z += 1) {
+      if (tillmanShellAt((2 * z) / 300, -6) < Math.abs(x) + 1.5) { last = null; continue; }
+      ray.set(new THREE.Vector3(x, -40, z), new THREE.Vector3(0, 1, 0));
+      const hit = ray.intersectObjects(all, false)[0];
+      tested++;
+      if (!hit || isInside(hit.object)) { bad.push(`x ${x} z ${z.toFixed(1)}: ${hit ? 'her insides' : 'nothing'}`); last = null; continue; }
+      if (last !== null && Math.abs(hit.point.y - last) > 0.6) steps++;
+      last = hit.point.y;
+    }
+  }
+  assert.ok(tested > 800, `only ${tested} rays were tested`);
+  assert.deepEqual(bad, [], `her bottom shows: ${bad.slice(0, 4).join('; ')}`);
+  assert.ok(steps === 0, `${steps} step(s) in her bottom along her`);
+});
+
 check('the Credits screen credits the model the Tillman is drawn from, after the Morosini', () => {
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   const screen = html.slice(html.indexOf('id="screen-credits"'));
