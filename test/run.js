@@ -3527,12 +3527,12 @@ check('USS Tillman Modernized is in the Premium Equipment store and not the yard
   assert.equal(cls.type, 'BB', 'she is not a battleship');
   assert.equal(cls.nation, 'usa');
   assert.ok(cls.premium, 'she is not marked premium');
-  // Four quadruple turrets of 24-inch, forty seconds a round, a wide pattern
+  // Four quadruple turrets of 24-inch, thirty seconds a round, a wide pattern
   // and an error of laying; better 5-inch than the fleet's; 40 mm and 20 mm.
   assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'X', 'Y']);
   assert.ok(cls.turrets.every((t) => t.guns === 4), 'a turret of hers is not a quadruple');
   assert.equal(cls.gun.caliber, 610);
-  assert.equal(cls.gun.reload, 40);
+  assert.equal(cls.gun.reload, 30);
   assert.ok(cls.gun.sigma < SHIP_CLASSES.iowa.gun.sigma, 'her main battery is not more dispersed than an Iowa\'s');
   assert.ok(cls.gun.aimError > 0, 'her main battery lays true');
   assert.equal(cls.secondary.caliber, 127);

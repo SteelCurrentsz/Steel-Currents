@@ -14116,7 +14116,10 @@ export const PARTY_JOBS = ['pump', 'repair', 'guns', 'engine'];
 let PARTY_SPAN = null;
 export function partyCount(cls) {
   if (!PARTY_SPAN) {
-    const lens = Object.values(SHIP_CLASSES).map((c) => c.hull.length);
+    // The fleet's hulls only: a premium hull longer than any of them (the
+    // Tillman's 300 m) is clamped to eight, and does not shorten everybody
+    // else's complement by stretching the span.
+    const lens = Object.values(SHIP_CLASSES).filter((c) => !c.premium).map((c) => c.hull.length);
     PARTY_SPAN = [Math.min(...lens), Math.max(...lens)];
   }
   const [lo, hi] = PARTY_SPAN;

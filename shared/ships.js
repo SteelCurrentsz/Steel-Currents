@@ -7196,7 +7196,7 @@ export const SHIP_CLASSES = {
     typeName: 'Battleship',
     nation: 'usa',
     premium: true,
-    blurb: 'Sixteen 24-inch guns on 115,000 tons. Slow to load and wild in the fall of shot, and every salvo that lands is a catastrophe.',
+    blurb: 'Sixteen 24-inch guns on 115,000 tons. Wild in the fall of shot, and every salvo that lands is a catastrophe.',
     hull: {
       // Where her two funnels come out, [across, along, up] in metres off
       // her model: what she makes smoke from. See funnelsOf in game.js.
@@ -7234,11 +7234,11 @@ export const SHIP_CLASSES = {
       elev: { min: -0.087, max: 0.698 },
       // Pivot to muzzle on the model's turret.
       reach: 21.24,
-      // A shell of two and a half tonnes: the heaviest in the fleet, forty
+      // A shell of two and a half tonnes: the heaviest in the fleet, thirty
       // seconds between rounds, and a gun whose shells fall wide of each other
       // (a low sigma: a wide pattern) and of where they were laid
       // (`aimError`: the whole salvo off its point, by a share of the range).
-      caliber: 610, reload: 40, traverse: 0.05, range: 26500, sigma: 0.9, aimError: 0.012,
+      caliber: 610, reload: 30, traverse: 0.05, range: 26500, sigma: 0.9, aimError: 0.012,
       shells: shells(610, 22500, 10600, 960, 760, 0.34),
     },
     torpedoes: null,
