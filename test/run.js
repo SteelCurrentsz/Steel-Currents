@@ -23238,8 +23238,9 @@ check('her integrity is every way she is hurt, never mends to a hundred, and at 
     `mended, her integrity is ${a.integrity}: it should come back, but not all the way`);
   assert.ok(shipSnapshot(a, true).igc < 1000, 'the wire does not say how far she can be mended');
   // And run down to nothing, she starts going down -- not blown up, not gone.
-  damageShip(state, a, null, a.maxHp * 0.9, 'shell', 'mid');
+  damageShip(state, a, null, a.maxHp * 0.93, 'shell', 'mid');
   for (const k of SECTIONS) a.sections[k.k].fire = 1;
+  for (const t of a.turrets) t.hurt = 3;
   step(state, DT);
   assert.ok(a.sinking && a.alive, `at ${a.integrity} integrity she is not going down`);
 });

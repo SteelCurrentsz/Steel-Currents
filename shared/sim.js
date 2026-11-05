@@ -13697,7 +13697,7 @@ export function suction(c, vol) {
 // ------------------------------------------------------------- integrity
 
 /** What each kind of damage counts for against her integrity, at its worst. */
-export const INTEGRITY_WEIGHTS = { structure: 0.8, flooding: 0.5, fire: 0.3, weapons: 0.3 };
+export const INTEGRITY_WEIGHTS = { structure: 0.75, flooding: 0.3, fire: 0.3, weapons: 0.15 };
 /** How much of the integrity she loses she never gets back, whatever is mended. */
 export const INTEGRITY_SCAR = 0.2;
 /** How much integrity she has to be brought back to before she can be saved from going down on it. */
