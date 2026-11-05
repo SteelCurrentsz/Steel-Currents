@@ -142,6 +142,15 @@ export const AERO = {
     thrust: 9600, vMax: 68, name: 'KOR-1',
     helix: 0.050, gLimit: 3.8,
   },
+  // The Morosini's scout: an IMAM Ro.43, a biplane on a single float with a
+  // Piaggio P.XR radial of seven hundred horsepower. Lighter and cleaner than
+  // the KOR-1 and a good deal quicker, a hundred and eighty miles an hour
+  // flat out, but no stouter: she was made to be thrown off a catapult.
+  ro43: {
+    mass: 2400, wing: 33.4, span: 11.57, clMax: 1.50, cd0: 0.0440,
+    thrust: 9800, vMax: 76, name: 'Ro.43',
+    helix: 0.052, gLimit: 4.0,
+  },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
   // anything, which is exactly why she is shot off a catapult instead.

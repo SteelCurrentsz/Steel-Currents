@@ -1859,14 +1859,14 @@ export const SHIP_CLASSES = {
             { x: 10.686, z: 10.522, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
             { x: -10.55, z: 5.905, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
             { x: 10.621, z: 5.905, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
-            { x: -10.55, z: -7.282, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
-            { x: 10.621, z: -7.282, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
-            { x: -10.55, z: -11.936, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
-            { x: 10.686, z: -11.936, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
-            { x: -9.872, z: -16.544, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
-            { x: 10.008, z: -16.544, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
-            { x: -9.077, z: -20.958, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
-            { x: 9.213, z: -20.958, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -10.55, z: -7.282, angle: -1.57, arc: 1.4, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.621, z: -7.282, angle: 1.57, arc: 1.4, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -10.55, z: -11.936, angle: -1.57, arc: 1.4, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.686, z: -11.936, angle: 1.57, arc: 1.4, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -9.872, z: -16.544, angle: -1.57, arc: 1.4, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.008, z: -16.544, angle: 1.57, arc: 1.4, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -9.077, z: -20.958, angle: -1.57, arc: 1.4, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 9.213, z: -20.958, angle: 1.57, arc: 1.4, rest: Math.PI / 2, guns: 2, my: 8.01 },
           ] },
         // Her 37 mm/54 Breda twins: a pair at the eyes of her forecastle,
         // three abreast A and B, and one on her quarterdeck.
@@ -1878,14 +1878,31 @@ export const SHIP_CLASSES = {
             { x: -8.224, z: 48.736, angle: -1.57, arc: 2.6, rest: 2.374, guns: 2, my: 5.48 },
             { x: 8.252, z: 48.709, angle: 1.57, arc: 2.6, rest: -2.339, guns: 2, my: 5.48 },
             { x: 8.711, z: 44.893, angle: 1.57, arc: 2.6, rest: -2.339, guns: 2, my: 5.46 },
-            { x: 7.342, z: -79.817, angle: 1.57, arc: 2.6, rest: -0.052, guns: 2, my: 3.74 },
+            { x: 7.342, z: -79.817, angle: 1.57, arc: 1.5, rest: -0.052, guns: 2, my: 3.74 },
           ] },
       ],
     },
-    planes: null,
+    // Her Ro.43 scouts, off the fixed catapult on her quarterdeck abaft No.4
+    // turret, with the crane on her port quarter to fish them out of the
+    // water again. She works one catapult, so they go off one at a time and
+    // all of them over her stern.
+    planes: {
+      squadrons: 1, perSquadron: 3, cruiseSpeed: 52, strikeRange: 8000,
+      rearm: 115, hp: 600, dropSpread: 0.08,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      // Two sixty-kilogram bombs under her lower wing.
+      bombDamage: 360, bombHit: 0.26, bombFire: 0.1, bombPen: 12, bombBore: 0.12,
+      type: 'ro43',
+      catapult: true, deckRun: 9.4, deckCycle: 34,
+      runHeight: 24.8,
+      // Where the shot leaves her: dead astern, off the end of her girder --
+      // measured off the same integrated shot the model on her catapult flies.
+      runOut: 217.1, runBearing: Math.PI, runSide: 1, runHeading: Math.PI, launchSpeed: 30,
+      flight: { fighters: 0, dive: 3, torpedo: 0 },
+    },
     datasheet: {
       displacement: 34000,
-      aircraft: 0,
+      aircraft: 3,
       mainRounds: 640,
       secondary: { caliber: 135, label: '135mm', barrels: 16, rounds: 3200 },
       tertiary: [

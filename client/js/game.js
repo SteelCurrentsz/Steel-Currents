@@ -264,6 +264,7 @@ const FLIGHT_NAME = {
   loire: 'her Loires',
   walrus: 'her Walruses',
   kor1: 'her KOR-1s',
+  ro43: 'her Ro.43s',
   bf109: 'her Messerschmitts',
   ju87c: 'her Stukas',
   ju87d: 'her torpedo Stukas',
@@ -276,7 +277,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 const PLANE_NAME = {
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
-  walrus: 'Supermarine Walrus', kor1: 'Beriev KOR-1',
+  walrus: 'Supermarine Walrus', kor1: 'Beriev KOR-1', ro43: 'IMAM Ro.43',
   zero: 'A6M Zero',
   suisei: 'D4Y Suisei', b5n: 'B5N2 Type 97', jake: 'E13A Jake',
   bf109: 'Bf 109T', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
@@ -308,6 +309,8 @@ const GUN_CALIBRE = {
   walrus: 7.7,
   // And the KOR-1's ShKAS firing through her airscrew: 7.62 mm.
   kor1: 7.62,
+  // And the Ro.43's Breda-SAFAT firing through her airscrew: 7.7 mm.
+  ro43: 7.7,
   bf109: 20,          // two MG FF in the wings and two MG 17 over the engine
   ju87c: 7.92,        // an MG 17 in each wing
   ju87d: 7.92,
@@ -324,7 +327,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
 };

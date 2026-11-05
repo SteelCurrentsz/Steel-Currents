@@ -31,7 +31,9 @@ import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { lightMounts } from '../../../shared/sim.js';
-import { cyl, strip, sheet } from './shipkit.js';
+import { box, cyl, strip, sheet } from './shipkit.js';
+import { RIG, fitCatapults } from './catapult.js';
+import { ro43 } from './planekit.js';
 import {
   buildMorosiniHull, morosiniSurfaceY, MOUNT_SEATS, SCULPT_LINES, morosiniMaterials, gunPiece,
 } from './morosiniHull.js';
@@ -249,12 +251,57 @@ function screws(g) {
   });
 }
 
+// ------------------------------------------------------------- catapult ----
+//
+// Her catapult: the girder the model drew on her quarterdeck, fixed on her
+// centreline between No.4 turret and her stern, on two pedestals, its rails
+// level 5.05 m over her waterline from 80 m to 95 m abaft her middle and
+// stepping up to its buffer at its after end. It is the model's and stays
+// where the model put it; the car on its rails and the Ro.43 on the car are
+// drawn here and worked by fitCatapults, which runs the car aft down the
+// girder and throws the scout off over her stern.
+//
+// Measured off the model's girder (ic001_catapult in
+// build/prepare-morosini-hull.mjs's frame).
+export const CAT_Z = -88.0;
+export const CAT_Y = 5.05;
+export const CAT_RIG = {
+  // In the girder's own frame, which faces astern: its after end is ahead.
+  ...RIG, BACK: -8.0, FRONT: 10.0, A: -5.5, STROKE: 14.5, REST: 0, OUT: 0, PLANE_Y: 0.45, PLANE_Z: 0,
+};
+
+/** The car on her girder, and the Ro.43 on it facing aft over her stern. */
+function aviation(g) {
+  const cat = new THREE.Group();
+  cat.position.set(0, CAT_Y, CAT_Z);
+  cat.rotation.y = Math.PI;
+  cat.userData.dynamic = true;
+  g.add(cat);
+  const car = new THREE.Group();
+  car.position.set(0, 0, CAT_RIG.A);
+  car.userData.dynamic = true;
+  cat.add(car);
+  // The trolley on the rails, and the cradle her float sits in: a chock under
+  // it forward and aft and the arms up to its shoulders.
+  box(car, M.gunDark, 1.4, 0.22, 3.0, 0, 0.11, 0);
+  for (const cz of [1.0, -1.1]) {
+    box(car, M.steelDark, 0.5, 0.24, 0.4, 0, 0.33, cz);
+    for (const sx of [-1, 1]) {
+      const a = box(car, M.steelDark, 0.10, 0.55, 0.12, sx * 0.50, 0.45, cz);
+      a.rotation.z = -sx * 0.35;
+    }
+  }
+  const plane = ro43(car, 0, CAT_RIG.PLANE_Y, CAT_RIG.PLANE_Z, 0, { spin: true });
+  g.userData.catapults = [{ group: cat, car, plane, prop: plane.userData.prop, sgn: 1, base: Math.PI }];
+}
+
 // ---------------------------------------------------------------- build ----
 
 const STATIC = [
   ['hullModel', buildMorosiniHull],
   ['armour', armour],
   ['screws', screws],
+  ['aviation', aviation],
 ];
 
 export function buildMorosini() {
@@ -266,6 +313,10 @@ export function buildMorosini() {
   mountings(g);
   mergeMoving(g);
   g.userData.classId = 'morosini';
+  fitCatapults(g, {
+    cats: g.userData.catapults, rig: CAT_RIG, deckY: CAT_Y,
+    catX: 0, catZ: CAT_Z, run: CLS.planes.deckRun, aero: 'ro43',
+  });
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),

@@ -152,6 +152,7 @@ import {
 import { hagenSurfaceY, MOUNT_SEATS as HAGEN_SEATS, buildHagenHull, hagenMaterials } from '../client/js/render/hagenHull.js';
 import {
   buildMorosini, shellAt as morosiniShellAt, keelY as morosiniKeel, deckOver as morosiniSheer, zAt as morosiniZAt,
+  LOA as LOA_MOROSINI,
 } from '../client/js/render/morosini.js';
 import { morosiniSurfaceY, MOUNT_SEATS as MOROSINI_SEATS } from '../client/js/render/morosiniHull.js';
 import {
@@ -216,7 +217,7 @@ import {
   flightState, partHit,
 } from '../shared/airframe.js';
 import {
-  arado, kingfisher, walrus, kor1, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
+  arado, kingfisher, walrus, kor1, ro43, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
   b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
   bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d, hellcat as pkHellcat, sbd as pkSbd, tbf as pkTbf,
@@ -3509,6 +3510,73 @@ check("the Sovetsky Soyuz throws a KOR-1 off her stern catapult, on the simulati
     assert.ok(!c.gone && c.plane.visible, 'she never got her KOR-1 back');
     assert.ok(Math.abs(c.car.position.z - deck.rig.A) < 1e-6, 'her car was not run back to the breech');
   }
+});
+
+check("the RN Morosini throws a Ro.43 off her stern catapult, on the simulation's clock", () => {
+  // The girder the model drew on her quarterdeck, fixed on her centreline
+  // abaft No.4 turret: a car on it with a Ro.43 facing aft, run down it and
+  // thrown off over her stern on the tick the simulation puts her flight on
+  // the plot.
+  const cls = SHIP_CLASSES.morosini;
+  const P = cls.planes;
+  assert.ok(P && P.catapult && P.type === 'ro43', 'she carries no Ro.43 to throw off');
+  assert.equal(cls.datasheet.aircraft, P.squadrons * P.perSquadron,
+    'her sheet and her air group disagree on how many scouts she carries');
+  const g = buildMorosini().group;
+  const deck = g.userData.deck;
+  assert.ok(deck, 'she has no catapult');
+  assert.equal(deck.cats.length, 1, `she has ${deck.cats.length} cars on her catapult`);
+  const [c] = deck.cats;
+  g.userData.step(0);
+  g.updateMatrixWorld(true);
+  const p = c.group.position;
+  const yTurret = cls.turrets.find((t) => t.name === 'Y');
+  assert.ok(Math.abs(p.x) < 0.01 && p.z < yTurret.z - 20 && p.z > -LOA_MOROSINI / 2,
+    `her car runs from ${p.x.toFixed(1)}, ${p.z.toFixed(1)}, not her quarterdeck abaft No.4`);
+  assert.ok(Math.abs(Math.abs(c.group.rotation.y) - Math.PI) < 1e-6, 'her catapult does not face astern');
+  // The scout stands on her car clear of her deck and of No.4's barrels.
+  const box = new THREE.Box3().setFromObject(c.plane);
+  assert.ok(box.min.y > morosiniSurfaceY(6, p.z) + 1.5, 'her Ro.43 stands in her deck');
+  assert.ok(box.max.z < yTurret.z - 18, 'her Ro.43 stands in No.4 turret');
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    let away = null;
+    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+      if (deck.airborne && away === null) away = t - t0;
+    }
+    assert.ok(away !== null && Math.abs(away - P.deckRun) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${P.deckRun}s on the plot`);
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    const off = launchOffset(cls, 1);
+    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+    assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+      `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    assert.ok(end.z < -LOA_MOROSINI / 2, 'the shot did not leave her over her stern');
+    assert.ok(Math.abs(end.y - P.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
+    assert.ok(!c.gone && c.plane.visible, 'she never got her Ro.43 back');
+    assert.ok(Math.abs(c.car.position.z - deck.rig.A) < 1e-6, 'her car was not run back to the breech');
+  }
+});
+
+check('the RN Morosini launches her Ro.43s, and nothing flies before she has shot one off', () => {
+  const state = createState(generateWorld(7722, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'RN Morosini', classId: 'morosini', team: 0, index: 0 });
+  ship.aimX = ship.x + 4000;
+  ship.aimZ = ship.z + 4000;
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(state.planes.length, 0, 'an aeroplane appeared before the shot');
+  const run = SHIP_CLASSES.morosini.planes.deckRun;
+  for (let i = 0; i < Math.ceil((run - 0.5) / DT); i++) step(state, DT);
+  assert.equal(state.planes.length, 0, 'she flew one off early');
+  for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
+  assert.ok(state.planes.length > 0, 'nothing left the catapult at all');
+  assert.ok(state.planes.every((p) => p.type === 'ro43'), 'what left her catapult was not a Ro.43');
 });
 
 check('the Sovetsky Soyuz launches her KOR-1s, and nothing flies before she has shot it off', () => {
@@ -10205,16 +10273,16 @@ function buildPlane(kind, opts = {}) {
   const g = new THREE.Group();
   const f = {
     wildcat: pkWildcat, dauntless: pkDauntless, avenger: pkAvenger, arado,
-    kingfisher, walrus, kor1, zero: pkZero, suisei: pkSuisei, b5n: pkB5n, jake: pkJake,
+    kingfisher, walrus, kor1, ro43, zero: pkZero, suisei: pkSuisei, b5n: pkB5n, jake: pkJake,
   }[kind];
   if (kind === 'avenger') f(g, 0, 0, 0, 0, false, false, opts);
-  else if (kind === 'kingfisher' || kind === 'walrus' || kind === 'kor1') f(g, 0, 0, 0, 0, opts);
+  else if (kind === 'kingfisher' || kind === 'walrus' || kind === 'kor1' || kind === 'ro43') f(g, 0, 0, 0, 0, opts);
   else f(g, 0, 0, 0, 0, false, opts);
   g.updateMatrixWorld(true);
   return g;
 }
 
-const PLANE_KINDS = ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher', 'walrus', 'kor1',
+const PLANE_KINDS = ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher', 'walrus', 'kor1', 'ro43',
   'zero', 'suisei', 'b5n', 'jake'];
 
 check('nothing on an aeroplane is hanging in the air on its own', () => {
