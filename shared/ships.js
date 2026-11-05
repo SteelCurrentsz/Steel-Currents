@@ -7235,10 +7235,9 @@ export const SHIP_CLASSES = {
       // Pivot to muzzle on the model's turret.
       reach: 21.24,
       // A shell of two and a half tonnes: the heaviest in the fleet, thirty
-      // seconds between rounds, and a gun whose shells fall wide of each other
-      // (a low sigma: a wide pattern) and of where they were laid
-      // (`aimError`: the whole salvo off its point, by a share of the range).
-      caliber: 610, reload: 30, traverse: 0.05, range: 26500, sigma: 0.9, aimError: 0.012,
+      // seconds between rounds, and a gun whose shells fall wide of each
+      // other (a low sigma: a wide pattern).
+      caliber: 610, reload: 30, traverse: 0.05, range: 26500, sigma: 0.9,
       shells: shells(610, 22500, 10600, 960, 760, 0.34),
     },
     torpedoes: null,
