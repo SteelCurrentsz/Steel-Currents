@@ -54,7 +54,7 @@ const LINES = {
 };
 const KEEPS = { order: 2.5, report: 8 };
 /** The navies that have their own voice; any other ship speaks as an American. */
-const NAVIES = new Set(['usa', 'gbr', 'ger', 'fra', 'jpn', 'sov']);
+const NAVIES = new Set(['usa', 'gbr', 'ger', 'fra', 'jpn', 'sov', 'ita']);
 
 /**
  * The order the takes are built in: what is heard in the first seconds of a

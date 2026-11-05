@@ -54,6 +54,7 @@ VOICES = {
     'fra': ('fr-FR-HenriNeural', '+14%', '+12Hz'),
     'jpn': ('ja-JP-KeitaNeural', '+12%', '+12Hz'),
     'sov': ('ru-RU-DmitryNeural', '+14%', '+12Hz'),
+    'ita': ('it-IT-DiegoNeural', '+14%', '+12Hz'),
 }
 
 # main: the main battery; sec: the secondaries; torp/torps: one fish or a
@@ -216,6 +217,34 @@ LINES = {
         'd8': 'восемь',
         'd9': 'девять',
     },
+    # The Regia Marina's own words: "Fuoco!" from a gunnery officer, "bombe
+    # di profondità" for depth charges.
+    'ita': {
+        'main': 'Aprite il fuoco!',
+        'sec': 'Artiglieria secondaria, fuoco!',
+        'torp': 'Siluro fuori!',
+        'torps': 'Siluri fuori!',
+        'aa': 'Fuoco sul bersaglio aereo!',
+        'aas': 'Fuoco sui bersagli aerei!',
+        'dc': 'Lanciare bombe di profondità!',
+        'abandon': 'Abbandonare la nave!',
+        'lastShell': "Combatteremo fino all'ultimo colpo!",
+        'spotted': 'Nemico in vista, rilevamento',
+        'torpPort': 'Siluro a sinistra!',
+        'torpStbd': 'Siluro a dritta!',
+        'breach': "Falla sotto la linea di galleggiamento! Imbarchiamo acqua!",
+        'seal': 'Chiudere tutte le porte stagne! Isolare il compartimento!',
+        'd0': 'zero',
+        'd1': 'uno',
+        'd2': 'due',
+        'd3': 'tre',
+        'd4': 'quattro',
+        'd5': 'cinque',
+        'd6': 'sei',
+        'd7': 'sette',
+        'd8': 'otto',
+        'd9': 'nove',
+    },
 }
 
 TAKES = os.path.join(ROOT, 'assets/voices')
@@ -273,6 +302,7 @@ ESPEAK = {
     'fra': ('fr-fr+m3', 180, 55),
     'jpn': ('ja+m3', 170, 55),
     'sov': ('ru+m3', 175, 50),
+    'ita': ('it+m3', 180, 55),
 }
 
 
