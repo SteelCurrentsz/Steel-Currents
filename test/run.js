@@ -3584,22 +3584,50 @@ check("the Tillman's shell has no holes in it", () => {
   // falls on them, and a ray laid exactly along a cut runs down the seam.
   for (let t = -0.95 + 0.0009; t <= 0.95; t += 0.01) {
     const top = tillmanSheer(t);
-    for (let y = tillmanKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+    const ys = [];
+    for (let y = tillmanKeel(t) + 0.3; y <= top - 0.4; y += 0.6) ys.push(y);
+    for (const y of ys) {
       const w = tillmanShellAt(t, y);
       if (w < 0.35) continue;
       if (tillmanZAt(t) < -105 && y < -3) continue;
       tested++;
       for (const side of [-1, 1]) {
-        ray.set(new THREE.Vector3(side * 80, y, tillmanZAt(t)), new THREE.Vector3(-side, 0, 0));
-        const hit = ray.intersectObjects(meshes, false)[0];
-        // Over her bilge, two and a half metres of the keel: her bilge keels
-        // stand out from a tight turn there and are what her lines read.
-        if (!hit || (y > tillmanKeel(t) + 2.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+        // A ray is a line: one laid exactly along the edge between two of
+        // her plates, or the hairline where two meet without sharing their
+        // points, goes through -- a hole is one that a ray three centimetres
+        // either side of it goes through as well.
+        const through = [-0.03, 0, 0.03].every((dy) => {
+          ray.set(new THREE.Vector3(side * 80, y + dy, tillmanZAt(t)), new THREE.Vector3(-side, 0, 0));
+          const hit = ray.intersectObjects(meshes, false)[0];
+          // Over her bilge, two and a half metres of the keel: her bilge keels
+          // stand out from a tight turn there and are what her lines read.
+          return !hit || (y > tillmanKeel(t) + 2.5 && side * hit.point.x < w - 1.5);
+        });
+        if (through) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
       }
     }
   }
-  assert.ok(tested > 1500, `only ${tested} stations of plating were tested`);
-  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes.slice(0, 4).join('; ')}`);
+  // And just over her waterline, every quarter metre along her new bottom's
+  // length: there her side's plating stops and her bottom's skin starts, two
+  // edges the decimator once slid apart, leaving a notch a metre long.
+  for (let z = -99; z <= 140; z += 0.25) {
+    const t = (2 * z) / LOA_TILLMAN;
+    for (const y of [0.2, 0.4]) {
+      const w = tillmanShellAt(t, y);
+      if (w < 2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        const through = [-0.03, 0, 0.03].every((dy) => {
+          ray.set(new THREE.Vector3(side * 80, y + dy, z), new THREE.Vector3(-side, 0, 0));
+          const hit = ray.intersectObjects(meshes, false)[0];
+          return !hit || side * hit.point.x < w - 1.5;
+        });
+        if (through) holes.push(`z ${z.toFixed(2)} y ${y} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 3000, `only ${tested} stations of plating were tested`);
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes.slice(0, 4).join('; ')}`);
 });
 
 check('the Tillman\'s bottom is one skin from her skegs to her forefoot, with nothing of her insides under it', () => {

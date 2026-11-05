@@ -197,6 +197,8 @@ const pieceName = (t) => j.nodes[model.G[t]]?.name || '';
 // down, and either out at her side or under her waterline.
 const SHELL_MAT = model.M[model.L.findIndex((l) => /^HP_Bow_/.test(j.nodes[l].name))];
 const WATERLINE = 0.0;
+// Where her new bottom's skin starts, forward of her skegs (see below).
+const LOFT_AFT_Z = +(process.env.LOFT_AFT ?? -99.5);
 const deep = new Set();
 for (let t = 0; t < model.T.length / 3; t++) {
   if (model.P[model.T[t * 3] * 3 + 1] < -5) deep.add(model.G[t]);
@@ -286,7 +288,7 @@ function isShell(t) {
 {
   // Half a metre off the whole metre: her lines are read a metre apart, on
   // the whole metre, and a ring of points exactly on a station reads as none.
-  const LOFT_AFT = +(process.env.LOFT_AFT ?? -99.5);
+  const LOFT_AFT = LOFT_AFT_Z;
   // FAIR: how many stations either side her sides are eased over.
   const LEVELS = 24, DZ = 1, FAIR = +(process.env.FAIR ?? 7);
   const { P, UV } = model;
@@ -882,10 +884,15 @@ function weldPainted(m) {
 }
 
 /** Decimated to `target` triangles, its paint back on a triangle, and whether it is seen from both sides. */
-function reduce(m, target, error, flags = []) {
+function reduce(m, target, error, flags = [], pinned = null) {
   const w = weldPainted(m);
   const ratio = Math.min(1, target / (w.T.length / 3));
-  const d = ratio < 1 ? decimateWith(MeshoptSimplifier, w, ratio, error, 0, flags) : w;
+  let lock = null;
+  if (pinned) {
+    lock = new Uint8Array(w.P.length / 3);
+    for (let v = 0; v < lock.length; v++) lock[v] = pinned(w.P[v * 3], w.P[v * 3 + 1], w.P[v * 3 + 2]) ? 1 : 0;
+  }
+  const d = ratio < 1 ? decimateWith(MeshoptSimplifier, w, ratio, error, 0, flags, lock) : w;
   const C = [], S = [];
   for (let t = 0; t < d.T.length / 3; t++) { const pk = d.paint[d.T[t * 3]]; C.push(pk >> 1); S.push(pk & 1); }
   return { P: d.P, T: d.T, C, S };
@@ -1037,8 +1044,14 @@ function orient(m, cell = 0.4) {
 hullRaw.S0 = orient(hullRaw);
 // Pruned as it is decimated: what is too small to keep whole -- a cleat, a
 // stanchion -- goes, rather than being kept as a shard.
+// And her waterline held where it is drawn, the length of her new bottom:
+// there her side's plating stops at it and her bottom's skin starts, two
+// paints and so two edges, and the decimator, free to slide an edge along
+// itself, slid her side's off a metre of her starboard bow and left a notch
+// open to her insides.
 let hull = creaseNormals(reduce(hullRaw, +(process.env.HULL_TRIS || 115000), +(process.env.HULL_ERROR || 0.002),
-  (process.env.HULL_FLAGS ?? 'Prune').split(',').filter(Boolean)));
+  (process.env.HULL_FLAGS ?? 'Prune').split(',').filter(Boolean),
+  (x, y, z) => Math.abs(y - WATERLINE) < 1e-3 && z > LOFT_AFT_Z - 1));
 console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points');
 
 // Her underwater body cut across every two metres of her length. Decimated,

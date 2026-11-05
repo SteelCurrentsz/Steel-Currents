@@ -341,17 +341,18 @@ export function weldByPaint(m) {
 /**
  * `flags` are meshoptimizer's simplifier flags: 'Prune' lets it take off
  * small disconnected bits -- a rail, a cleat -- rather than crumple them into
- * shards to keep them.
+ * shards to keep them. `lock`, if given, is one byte a point: a point marked
+ * 1 stays where it is, and no edge is collapsed onto or off it.
  */
-export function decimate(simplify, m, ratio, error, normalWeight = 0, flags = []) {
+export function decimate(simplify, m, ratio, error, normalWeight = 0, flags = [], lock = null) {
   const idx = Uint32Array.from(m.T);
   const pos = Float32Array.from(m.P);
   const target = Math.floor((idx.length / 3) * ratio) * 3;
   let out, err;
-  if (normalWeight > 0) {
+  if (normalWeight > 0 || lock) {
     simplify.useExperimentalFeatures = true;
     [out, err] = simplify.simplifyWithAttributes(idx, pos, 3, Float32Array.from(m.N), 3,
-      [normalWeight, normalWeight, normalWeight], null, target, error, flags);
+      [normalWeight, normalWeight, normalWeight], lock, target, error, flags);
   } else {
     [out, err] = simplify.simplify(idx, pos, 3, target, error, flags);
   }
