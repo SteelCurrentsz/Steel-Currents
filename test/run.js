@@ -34,7 +34,7 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER, mortarFlight,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
-import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine } from '../shared/sim.js';
 import {
@@ -155,6 +155,12 @@ import {
   LOA as LOA_MOROSINI,
 } from '../client/js/render/morosini.js';
 import { morosiniSurfaceY, MOUNT_SEATS as MOROSINI_SEATS } from '../client/js/render/morosiniHull.js';
+import {
+  buildTillman, shellAt as tillmanShellAt, keelY as tillmanKeel, deckOver as tillmanSheer, zAt as tillmanZAt,
+  LOA as LOA_TILLMAN,
+} from '../client/js/render/tillman.js';
+import { tillmanSurfaceY, MOUNT_SEATS as TILLMAN_SEATS } from '../client/js/render/tillmanHull.js';
+import { ADS_REQUIRED, premiumUnlocked } from '../client/js/premium.js';
 import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
@@ -330,7 +336,7 @@ function shellRuler(group) {
   };
 }
 import {
-  angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, makeRng, worldToLocal,
+  angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, KNOTS, makeRng, worldToLocal,
 } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import {
@@ -3509,6 +3515,148 @@ check("the Sovetsky Soyuz throws a KOR-1 off her stern catapult, on the simulati
     g.userData.step(t0 + 60);
     assert.ok(!c.gone && c.plane.visible, 'she never got her KOR-1 back');
     assert.ok(Math.abs(c.car.position.z - deck.rig.A) < 1e-6, 'her car was not run back to the breech');
+  }
+});
+
+check('USS Tillman Modernized is in the Premium Equipment store and not the yard, armed as the owner asked', () => {
+  assert.ok(!SHIP_ORDER.includes('tillman'), 'the Tillman is in the yard\'s list');
+  assert.ok(PREMIUM_ORDER.includes('tillman'), 'the Tillman is not in the store');
+  assert.ok(PLAYABLE.includes('tillman'), 'a fleet cannot have the Tillman in it');
+  const cls = SHIP_CLASSES.tillman;
+  assert.equal(cls.fullName, 'USS Tillman Modernized');
+  assert.equal(cls.type, 'BB', 'she is not a battleship');
+  assert.equal(cls.nation, 'usa');
+  assert.ok(cls.premium, 'she is not marked premium');
+  // Four quadruple turrets of 24-inch, forty seconds a round, a wide pattern
+  // and an error of laying; better 5-inch than the fleet's; 40 mm and 20 mm.
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'X', 'Y']);
+  assert.ok(cls.turrets.every((t) => t.guns === 4), 'a turret of hers is not a quadruple');
+  assert.equal(cls.gun.caliber, 610);
+  assert.equal(cls.gun.reload, 40);
+  assert.ok(cls.gun.sigma < SHIP_CLASSES.iowa.gun.sigma, 'her main battery is not more dispersed than an Iowa\'s');
+  assert.ok(cls.gun.aimError > 0, 'her main battery lays true');
+  assert.equal(cls.secondary.caliber, 127);
+  assert.ok(cls.secondary.reload < SHIP_CLASSES.iowa.secondary.reload, 'her 5-inch loads no quicker than an Iowa\'s');
+  assert.ok(cls.secondary.sigma > SHIP_CLASSES.iowa.secondary.sigma, 'her 5-inch shoot no closer than an Iowa\'s');
+  assert.ok(cls.aa.guns.some((g) => g.caliber === 40), 'she has no Bofors');
+  assert.ok(cls.aa.guns.some((g) => g.caliber === 20), 'she has no Oerlikons');
+  assert.ok(cls.planes && cls.planes.catapult, 'she has no catapult');
+  assert.equal(Math.round(cls.maxSpeed / KNOTS), 26);
+  assert.equal(Math.round(cls.armor.belt / 25.4), 13, 'her belt is not thirteen inches');
+  assert.equal(cls.datasheet.displacement, 115000);
+  const built = buildTillman();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every mounting stands where the model stood it, on her.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(TILLMAN_SEATS)) {
+    for (const st of list) {
+      const top = tillmanSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+    }
+  }
+});
+
+check("the Tillman's shell has no holes in it", () => {
+  const built = buildTillman();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  // Every station a few centimetres off the cuts her build makes across her
+  // underwater body every two metres: on a 300 m hull the test's own step
+  // falls on them, and a ray laid exactly along a cut runs down the seam.
+  for (let t = -0.95 + 0.0009; t <= 0.95; t += 0.01) {
+    const top = tillmanSheer(t);
+    for (let y = tillmanKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = tillmanShellAt(t, y);
+      if (w < 0.35) continue;
+      if (tillmanZAt(t) < -105 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 80, y, tillmanZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        // Over her bilge, two and a half metres of the keel: her bilge keels
+        // stand out from a tight turn there and are what her lines read.
+        if (!hit || (y > tillmanKeel(t) + 2.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1500, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes.slice(0, 4).join('; ')}`);
+});
+
+check('the Credits screen credits the model the Tillman is drawn from, after the Morosini', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('US Super Battleship Rhodeisland');
+  assert.ok(at >= 0, 'the model is not credited');
+  assert.ok(at > screen.indexOf('Italian Battleship Francesco Morosini'), 'the Tillman is not credited below the Morosini');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/oHGQz') && credit.includes('全斗焕')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
+});
+
+check('Premium Equipment, Ships has a screen, and the Tillman is free to sail while ads are off', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(html.includes('id="screen-premium-ships"'), 'there is no Premium Ships screen');
+  assert.ok(html.includes('data-premium="ships"'), 'the store has no Ships department');
+  assert.equal(ADS_REQUIRED, false, 'premium hulls are locked behind ads already');
+  assert.ok(premiumUnlocked('tillman'), 'the Tillman is locked');
+});
+
+check('USS Tillman throws a Kingfisher off a catapult trained out over her quarter, on the simulation\'s clock', () => {
+  const cls = SHIP_CLASSES.tillman;
+  const P = cls.planes;
+  assert.ok(P && P.catapult && P.type === 'kingfisher', 'she carries no Kingfisher to throw off');
+  assert.equal(cls.datasheet.aircraft, P.squadrons * P.perSquadron,
+    'her sheet and her air group disagree on how many scouts she carries');
+  const g = buildTillman().group;
+  const deck = g.userData.deck;
+  assert.ok(deck, 'she has no catapult');
+  assert.equal(deck.cats.length, 2, `she has ${deck.cats.length} catapults`);
+  const yTurret = cls.turrets.find((t) => t.name === 'Y');
+  for (const c of deck.cats) {
+    assert.ok(c.group.position.z < yTurret.z - 40, 'a catapult of hers is not on her quarterdeck abaft Y');
+  }
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    let away = null;
+    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+      if (deck.airborne && away === null) away = t - t0;
+    }
+    assert.ok(away !== null && Math.abs(away - P.deckRun) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${P.deckRun}s on the plot`);
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    const off = launchOffset(cls, n ? -1 : 1);
+    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+    assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+      `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    assert.ok(Math.abs(end.y - P.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
   }
 });
 

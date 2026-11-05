@@ -2906,9 +2906,14 @@ export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}
     const bearing = wrapAngle(ship.heading + t.angle);
     // Dispersion: a cone that widens with range, tightened by the gun's sigma.
     const spreadBase = (d * 0.0125) / gun.sigma;
+    // And how far off its point the whole salvo falls, on a gun that lays
+    // badly: one error for every shell of it, over and above their spread
+    // about each other. Most guns have none.
+    const missR = gun.aimError ? clamp(gauss(state.rng), -2.4, 2.4) * d * gun.aimError : 0;
+    const missL = gun.aimError ? clamp(gauss(state.rng), -2.4, 2.4) * d * gun.aimError * 0.35 : 0;
     for (let g = 0; g < tSpec.guns; g++) {
-      const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
-      const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
+      const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35 + missL;
+      const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase + missR;
       const aimDist = clamp(d + rng, 300, gun.range);
       // Each barrel from its own muzzle: the three shells of a salvo leave
       // three bores a yard apart, not one point in the middle of the turret.

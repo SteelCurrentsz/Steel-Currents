@@ -7170,6 +7170,212 @@ export const SHIP_CLASSES = {
     },
   },
 
+  tillman: {
+    // USS Tillman Modernized: a super battleship of the United States Navy,
+    // on the lines of the Tillman designs -- the 80,000-ton battleships with
+    // which the Bureau of Construction and Repair answered a Senator's
+    // question in 1917, of how big a battleship the Panama Canal's locks would
+    // take -- here grown to 115,000 tons and built: sixteen 24-inch guns in
+    // four quadruple turrets, A and B forward with B superfiring, X
+    // superfiring over Y aft; twenty 5-inch/54 in ten twins, five a side;
+    // twenty-one 40 mm Bofors quadruples and forty 20 mm Oerlikons; and two
+    // catapults on her quarterdeck with four Kingfishers to throw off them.
+    //
+    // A premium hull: she is not in the yard's list but in the Premium
+    // Equipment store's (PREMIUM_ORDER, below), free to sail for now.
+    //
+    // She is drawn from the owner's model of her (see tillman.js) -- "US Super
+    // Battleship Rhodeisland" by 全斗焕, under Creative Commons Attribution
+    // 4.0, credited on the Credits screen -- brought up to 300 m over all,
+    // which makes her 39.4 m across, floated twelve metres deep.
+    id: 'tillman',
+    name: 'Tillman',
+    fullName: 'USS Tillman Modernized',
+    className: 'Tillman',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'usa',
+    premium: true,
+    blurb: 'Sixteen 24-inch guns on 115,000 tons. Slow to load and wild in the fall of shot, and every salvo that lands is a catastrophe.',
+    hull: {
+      // Where her two funnels come out, [across, along, up] in metres off
+      // her model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 12, 27], [0, -9.5, 26.5]], length: 300, beam: 39.4, draft: 12.1, superstructure: 1.45 },
+    hp: 99000,
+    // Twenty-six knots: her guns and her armour took the weight a faster
+    // ship would have spent on machinery, and she turns like what she is.
+    maxSpeed: 26 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.32,
+    turnRate: 0.042,
+    rudderShift: 17,
+    speedLossInTurn: 0.19,
+    concealment: 18200,
+    fireDetectPenalty: 7200,
+    radarRange: 14000,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // Thirteen inches of belt (330 mm) over her citadel, 190 mm of armour
+    // deck behind it, and 50 mm at her ends.
+    armor: { belt: 330, deck: 190, citadel: 330, bow: 50, superstructure: 50 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, X superfiring over Y on
+      // her quarterdeck, both facing astern, each where the model stood it
+      // (see build/prepare-tillman-hull.mjs).
+      { id: 0, name: 'A', x: 0, z: 76.834, angle: 0, arc: 2.6, guns: 4, my: 8.57 },
+      { id: 1, name: 'B', x: 0, z: 54.79, angle: 0, arc: 2.6, guns: 4, my: 11.64 },
+      { id: 2, name: 'X', x: 0, z: -50.161, angle: Math.PI, arc: 2.6, guns: 4, my: 11.64 },
+      { id: 3, name: 'Y', x: 0, z: -73.544, angle: Math.PI, arc: 2.6, guns: 4, my: 8.57 },
+    ],
+    gun: {
+      name: '24"/50 Mk 1', role: 'surface',
+      // Five below the horizontal to forty up.
+      elev: { min: -0.087, max: 0.698 },
+      // Pivot to muzzle on the model's turret.
+      reach: 21.24,
+      // A shell of two and a half tonnes: the heaviest in the fleet, forty
+      // seconds between rounds, and a gun whose shells fall wide of each other
+      // (a low sigma: a wide pattern) and of where they were laid
+      // (`aimError`: the whole salvo off its point, by a share of the range).
+      caliber: 610, reload: 40, traverse: 0.05, range: 26500, sigma: 0.9, aimError: 0.012,
+      shells: shells(610, 22500, 10600, 960, 760, 0.34),
+    },
+    torpedoes: null,
+    // Her 5-inch/54 twins, five a side: the three forward pairs stowed
+    // forward and the two after pairs stowed aft. A better gun than the
+    // 5-inch/38 the fleet carries, laid by better directors: quicker to
+    // load, and closer in its fall of shot.
+    secondary: {
+      name: '5"/54 Mk 16', role: 'dp',
+      elev: { min: -0.26, max: 1.48 },
+      reach: 7.88,
+      caliber: 127, reload: 3.0, traverse: 0.44, range: 9800, sigma: 1.6,
+      shells: shells(127, 2150, 1850, 90, 808, 0.08),
+      mounts: [
+        { x: -16.205, z: 32.545, angle: -1.2, arc: 1.8, rest: 0, guns: 2, my: 8.63 },
+        { x: 16.206, z: 32.545, angle: 1.2, arc: 1.8, rest: 0, guns: 2, my: 8.63 },
+        { x: -11.18, z: 17.83, angle: -1.2, arc: 1.8, rest: 0, guns: 2, my: 10.97 },
+        { x: 11.181, z: 17.83, angle: 1.2, arc: 1.8, rest: 0, guns: 2, my: 10.97 },
+        { x: -16.355, z: 3.093, angle: -1.2, arc: 1.8, rest: 0, guns: 2, my: 8.63 },
+        { x: 16.356, z: 3.093, angle: 1.2, arc: 1.8, rest: 0, guns: 2, my: 8.63 },
+        { x: -10.85, z: -11.469, angle: -1.94, arc: 1.8, rest: -Math.PI, guns: 2, my: 10.97 },
+        { x: 10.85, z: -11.469, angle: 1.94, arc: 1.8, rest: Math.PI, guns: 2, my: 10.97 },
+        { x: -16.356, z: -25.553, angle: -1.94, arc: 1.8, rest: -Math.PI, guns: 2, my: 8.63 },
+        { x: 16.355, z: -25.553, angle: 1.94, arc: 1.8, rest: Math.PI, guns: 2, my: 8.63 },
+      ],
+    },
+    aa: {
+      range: 6200, dps: 135,
+      guns: [
+        // Her 40 mm Bofors quadruples: a pair on her forecastle, pairs on
+        // her superstructure, and five round her quarterdeck.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.24, range: 3600, piece: 'aa40',
+          elev: { min: -0.26, max: 1.57 },
+          mounts: [
+            { x: -3.932, z: 103.27, angle: -1, arc: 2.09, rest: -1, guns: 4, my: 10.79 },
+            { x: 3.932, z: 103.27, angle: 1, arc: 2.09, rest: 1, guns: 4, my: 10.79 },
+            { x: -6.838, z: 33.284, angle: -Math.PI / 2, arc: 1.75, rest: -Math.PI / 2, guns: 4, my: 16.71 },
+            { x: 6.838, z: 33.284, angle: Math.PI / 2, arc: 1.75, rest: Math.PI / 2, guns: 4, my: 16.71 },
+            { x: -6.905, z: 27.358, angle: -Math.PI / 2, arc: 1.75, rest: -Math.PI / 2, guns: 4, my: 19.06 },
+            { x: 6.905, z: 27.358, angle: Math.PI / 2, arc: 1.75, rest: Math.PI / 2, guns: 4, my: 19.06 },
+            { x: 5.951, z: 5.521, angle: Math.PI / 2, arc: 1.75, rest: Math.PI / 2, guns: 4, my: 14.38 },
+            { x: -5.951, z: 5.521, angle: -Math.PI / 2, arc: 1.75, rest: -Math.PI / 2, guns: 4, my: 14.38 },
+            { x: 6.059, z: -0.51, angle: Math.PI / 2, arc: 1.75, rest: Math.PI / 2, guns: 4, my: 16.64 },
+            { x: -6.059, z: -0.51, angle: -Math.PI / 2, arc: 1.75, rest: -Math.PI / 2, guns: 4, my: 16.64 },
+            { x: 5.951, z: -6.027, angle: Math.PI / 2, arc: 1.75, rest: Math.PI / 2, guns: 4, my: 14.38 },
+            { x: -5.951, z: -6.027, angle: -Math.PI / 2, arc: 1.75, rest: -Math.PI / 2, guns: 4, my: 14.38 },
+            { x: 4.421, z: -21.753, angle: Math.PI / 2, arc: 1.75, rest: Math.PI / 2, guns: 4, my: 16.64 },
+            { x: -4.421, z: -21.753, angle: -Math.PI / 2, arc: 1.75, rest: -Math.PI / 2, guns: 4, my: 16.64 },
+            { x: 4.512, z: -27.459, angle: Math.PI / 2, arc: 1.75, rest: Math.PI / 2, guns: 4, my: 14.4 },
+            { x: -4.512, z: -27.459, angle: -Math.PI / 2, arc: 1.75, rest: -Math.PI / 2, guns: 4, my: 14.4 },
+            { x: 14.612, z: -96.636, angle: 2.1, arc: 2.09, rest: 2.1, guns: 4, my: 9.52 },
+            { x: -14.612, z: -96.636, angle: -2.1, arc: 2.09, rest: -2.1, guns: 4, my: 9.52 },
+            { x: 0.001, z: -108.542, angle: Math.PI, arc: 2.09, rest: Math.PI, guns: 4, my: 9.52 },
+            { x: -5.377, z: -142.971, angle: -2.1, arc: 2.09, rest: -2.1, guns: 4, my: 9.52 },
+            { x: 5.377, z: -142.971, angle: 2.1, arc: 2.09, rest: 2.1, guns: 4, my: 9.52 },
+          ] },
+        // Her 20 mm Oerlikon twins behind their shields, in rows along her
+        // forecastle and her quarterdeck and abreast her bridge.
+        { name: '20mm Oerlikon twin', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa20t',
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: -12.006, z: 60.754, angle: -1, arc: 2.09, rest: -1, guns: 2, my: 7.55 },
+            { x: 12.006, z: 60.754, angle: 1, arc: 2.09, rest: 1, guns: 2, my: 7.55 },
+            { x: -13.487, z: 57.863, angle: -1, arc: 2.09, rest: -1, guns: 2, my: 7.55 },
+            { x: 13.487, z: 57.863, angle: 1, arc: 2.09, rest: 1, guns: 2, my: 7.55 },
+            { x: -14.967, z: 54.972, angle: -1, arc: 2.09, rest: -1, guns: 2, my: 7.55 },
+            { x: 14.967, z: 54.972, angle: 1, arc: 2.09, rest: 1, guns: 2, my: 7.55 },
+            { x: -16.448, z: 52.079, angle: -1, arc: 2.09, rest: -1, guns: 2, my: 7.55 },
+            { x: 16.448, z: 52.079, angle: 1, arc: 2.09, rest: 1, guns: 2, my: 7.55 },
+            { x: 17.585, z: 24.989, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 2, my: 7.55 },
+            { x: -17.585, z: 24.989, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 2, my: 7.55 },
+            { x: 17.585, z: 21.741, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 2, my: 7.55 },
+            { x: -17.585, z: 21.741, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 2, my: 7.55 },
+            { x: 17.585, z: 18.492, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 2, my: 7.55 },
+            { x: -17.585, z: 18.492, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 2, my: 7.55 },
+            { x: -17.004, z: -44.824, angle: -2.1, arc: 2.09, rest: -2.1, guns: 2, my: 7.56 },
+            { x: 17.004, z: -44.824, angle: 2.1, arc: 2.09, rest: 2.1, guns: 2, my: 7.56 },
+            { x: -15.254, z: -47.562, angle: -2.1, arc: 2.09, rest: -2.1, guns: 2, my: 7.56 },
+            { x: 15.254, z: -47.562, angle: 2.1, arc: 2.09, rest: 2.1, guns: 2, my: 7.56 },
+            { x: -13.503, z: -50.298, angle: -2.1, arc: 2.09, rest: -2.1, guns: 2, my: 7.56 },
+            { x: 13.503, z: -50.298, angle: 2.1, arc: 2.09, rest: 2.1, guns: 2, my: 7.56 },
+          ] },
+        // And her single Oerlikons, on the galleries of her superstructure.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa20s',
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: -7.337, z: 19.217, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 14.7 },
+            { x: 7.337, z: 19.217, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 14.7 },
+            { x: -7.337, z: 15.967, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 14.7 },
+            { x: 7.337, z: 15.967, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 14.7 },
+            { x: -11.211, z: 9.374, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 11.1 },
+            { x: 11.211, z: 9.374, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 11.1 },
+            { x: -11.211, z: 6.126, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 11.1 },
+            { x: 11.211, z: 6.126, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 11.1 },
+            { x: -11.211, z: 2.877, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 11.1 },
+            { x: 11.211, z: 2.877, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 11.1 },
+            { x: -11.211, z: -0.371, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 11.1 },
+            { x: 11.211, z: -0.371, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 11.1 },
+            { x: -10.429, z: -20.551, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 9.84 },
+            { x: 10.429, z: -20.551, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 9.84 },
+            { x: -10.429, z: -24.111, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 9.84 },
+            { x: 10.429, z: -24.111, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 9.84 },
+            { x: -10.429, z: -27.669, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 9.84 },
+            { x: 10.429, z: -27.669, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 9.84 },
+            { x: -11.937, z: -41.728, angle: -Math.PI / 2, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 9.84 },
+            { x: 11.937, z: -41.728, angle: Math.PI / 2, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 9.84 },
+          ] },
+      ],
+    },
+    // Four Kingfishers off the two catapults on her quarterdeck, a pair to
+    // each, which train out over her quarters to shoot.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 58, strikeRange: 9600,
+      rearm: 95, hp: 640, dropSpread: 0.06,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 900, bombHit: 0.32, bombFire: 0.1, bombPen: 25, bombBore: 0.2,
+      type: 'kingfisher',
+      catapult: true, deckRun: 8.6, deckCycle: 30,
+      runHeight: 24.7,
+      // Where the shot leaves her, measured off the same integrated shot the
+      // model on her catapult flies: out over her quarter, the starboard
+      // catapult's first.
+      runOut: 131.7, runBearing: 2.016, runHeading: 1.018, launchSpeed: 32,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 115000,
+      aircraft: 4,
+      mainRounds: 1600,
+      secondary: { caliber: 127, label: '5"', barrels: 20, rounds: 10000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 84, rounds: 100800 },
+        { caliber: 20, label: '20mm', barrels: 60, rounds: 144000 },
+      ],
+    },
+  },
+
   takao: {
     // Ten 20.3 cm in five twin turrets -- three forward, two aft -- and
     // sixteen Long Lance tubes. A Japanese heavy cruiser is a torpedo ship
@@ -8824,6 +9030,16 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shinano'];
+
+/**
+ * The hulls in the Premium Equipment store, and not in the yard's list: a
+ * captain finds them under Premium Equipment, Ships. Every one of them sails
+ * as any other hull does once she is in a fleet (see PLAYABLE).
+ */
+export const PREMIUM_ORDER = ['tillman'];
+
+/** Every hull a fleet can have in it: the yard's and the store's. */
+export const PLAYABLE = [...SHIP_ORDER, ...PREMIUM_ORDER];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

@@ -12,7 +12,7 @@ import {
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
-import { getClass, SHIP_ORDER } from '../shared/ships.js';
+import { getClass, SHIP_ORDER, PLAYABLE } from '../shared/ships.js';
 import { setLamp } from '../shared/searchlights.js';
 import { setGroup, fleetCourse, membersOf, vectorFlight } from '../shared/groups.js';
 import { createBotBrain, stepBot, BOT_NAMES } from './bots.js';
@@ -138,7 +138,7 @@ export class Room {
   join(player, { name, classId, team, at = null }) {
     if (this.players.size >= this.maxPlayers) return { error: 'Room is full' };
     if (this.phase === 'ended') return { error: 'That battle is over' };
-    const cls = SHIP_ORDER.includes(classId) ? classId : 'fletcher';
+    const cls = PLAYABLE.includes(classId) ? classId : 'fletcher';
     const t = this.pickTeam(team);
     const ship = addShip(this.state, {
       name: (name || 'Captain').slice(0, 18),

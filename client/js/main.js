@@ -24,7 +24,9 @@ import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
 import * as account from './account.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
-import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER } from '../../shared/ships.js';
+import { ADS_REQUIRED, premiumUnlocked, unlockWithAd } from './premium.js';
+import { KNOTS } from '../../shared/math.js';
 import { MAP_PRESETS } from '../../shared/world.js';
 import { normaliseAirGroup } from '../../shared/sim.js';
 
@@ -283,7 +285,9 @@ function fleetOf(m) {
       && (m.enemies == null || m.enemies <= enemies.length);
     if (named) return [...new Set([m.classId, ...allies, ...enemies].filter(Boolean))];
   }
-  return SHIP_ORDER;
+  // Her own hull too, which may be one from the Premium Equipment store and
+  // so in no fleet a bot is drawn from.
+  return [...new Set([m.classId, ...SHIP_ORDER].filter(Boolean))];
 }
 /**
  * A page loaded before the game was last published asks for its ships by the
@@ -502,7 +506,7 @@ function rebuild() {
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['gate', 'account', 'title', 'premium', 'pvp', 'custom', 'options', 'credits', 'fleet',
+const screens = ['gate', 'account', 'title', 'premium', 'premium-ships', 'pvp', 'custom', 'options', 'credits', 'fleet',
   'yard', 'guns', 'bombers', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
@@ -733,10 +737,24 @@ document.getElementById('deploy-close').onclick = () => { audio.click(); show('c
 // `refit` is set while the yard is open on one hull already in a fleet --
 // which side, and which of its hulls -- to change her air group and nothing
 // else; null while it is open to commission something new.
-const yardUi = { side: 'ally', index: 0, ag: null, refit: null };
+// `order` is the list the yard walks: the fleet's hulls, or the Premium
+// Equipment store's when it was opened from there (`from`: the screen it goes
+// back to).
+const yardUi = { side: 'ally', index: 0, ag: null, refit: null, order: SHIP_ORDER, from: null };
 
-function openYard(side) {
+/** The hull on the water, or the one `d` along the yard's list from her. */
+function yardShip(d = 0) {
+  const n = yardUi.order.length;
+  return yardUi.order[(((yardUi.index + d) % n) + n) % n];
+}
+
+function openYard(side, { order = SHIP_ORDER, at = null, from = null } = {}) {
   yardUi.side = side;
+  if (order !== yardUi.order || at !== null) {
+    yardUi.order = order;
+    yardUi.index = Math.max(0, at === null ? 0 : order.indexOf(at));
+  }
+  yardUi.from = from;
   if (!yard) {
     yard = new ShipyardScene(renderer);
     yard.resize(window.innerWidth, window.innerHeight);
@@ -754,7 +772,7 @@ function closeYard() {
   closeAirGroup();
   yardUi.refit = null;
   yard?.detach();
-  show('custom');
+  show(yardUi.from || 'custom');
 }
 
 /**
@@ -763,11 +781,10 @@ function closeYard() {
  */
 function openRefit(side, i) {
   const id = briefing.state[side === 'ally' ? 'allyFleet' : 'enemyFleet'][i];
-  const at = SHIP_ORDER.indexOf(id);
-  if (at < 0 || !SHIP_CLASSES[id]?.planes?.group) return;
+  const order = PREMIUM_ORDER.includes(id) ? PREMIUM_ORDER : SHIP_ORDER;
+  if (!order.includes(id) || !SHIP_CLASSES[id]?.planes?.group) return;
   audio.click();
-  yardUi.index = at;
-  openYard(side);
+  openYard(side, { order, at: id });
   yardUi.refit = { side, i, id };
   renderYard();
   openAirGroup();
@@ -798,7 +815,7 @@ function sheet(el, heading, rows) {
 const AG_KINDS = ['fighters', 'dive', 'torpedo'];
 
 function airGroupSpec() {
-  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const id = yardShip();
   return SHIP_CLASSES[id]?.planes?.group || null;
 }
 
@@ -819,7 +836,7 @@ function currentAirGroup(cls) {
 function openAirGroup() {
   const spec = airGroupSpec();
   if (!spec) return;
-  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const id = yardShip();
   yardUi.ag = { ...currentAirGroup(SHIP_CLASSES[id]) };
   document.getElementById('airgroup').hidden = false;
   renderAirGroup();
@@ -839,7 +856,7 @@ function renderAirGroup() {
   document.getElementById('ag-sub').textContent =
     `${spec.total} aircraft in the hangar. Any mix you like, all of one kind or none of another.`;
   // What she actually flies in each role: a Shinano's fighters are Zeros.
-  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const id = yardShip();
   const types = SHIP_CLASSES[id]?.planes?.types || {};
   const NAMES = {
     zero: 'Zero', suisei: 'Suisei', b5n: 'B5N',
@@ -888,19 +905,19 @@ function stepAirGroup(kind, d) {
 }
 
 function renderYard() {
-  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const id = yardShip();
   const cls = SHIP_CLASSES[id];
   // A hull still coming down the wire: the one on the water stays there until
   // she is in, unless the captain has walked on past her by then.
   if (shipReady(id)) yard.setShip(id);
   else {
     loadShips([id]).then(() => {
-      if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
+      if (yard && yardShip() === id) yard.setShip(id);
     }, (e) => {
       if (staleBuild(e)) return;
       // Not coming down -- no signal, or too little of one: she is shown as
       // the hull generated off her class, as a battle would draw her.
-      if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
+      if (yard && yardShip() === id) yard.setShip(id);
       toast('Her hull has not downloaded yet, so she is drawn plain until it does.');
     });
   }
@@ -913,12 +930,15 @@ function renderYard() {
     `${cls.className || cls.name} Class ${cls.typeName}`;
   // The arrows say which ship they go to, so the list can be walked without
   // pressing a chevron nine times to find out what is on the other side of it.
-  const at = (d) => SHIP_CLASSES[
-    SHIP_ORDER[(yardUi.index + d + SHIP_ORDER.length * 2) % SHIP_ORDER.length]].name;
+  const at = (d) => SHIP_CLASSES[yardShip(d)].name;
   const prevName = document.getElementById('yard-prev-name');
   const nextName = document.getElementById('yard-next-name');
   if (prevName) prevName.textContent = at(-1);
   if (nextName) nextName.textContent = at(1);
+  // A list of one -- the store's, with one hull in it -- has nowhere to go.
+  for (const el of ['yard-prev', 'yard-next']) {
+    document.getElementById(el).style.visibility = yardUi.order.length > 1 ? '' : 'hidden';
+  }
   const group = currentAirGroup(cls);
   sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls, group));
   sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group));
@@ -927,7 +947,7 @@ function renderYard() {
 function stepYard(dir) {
   // Walking on to another class is not refitting the one she came in for.
   yardUi.refit = null;
-  yardUi.index = (yardUi.index + dir + SHIP_ORDER.length) % SHIP_ORDER.length;
+  yardUi.index = (yardUi.index + dir + yardUi.order.length) % yardUi.order.length;
   closeAirGroup();
   renderYard();
 }
@@ -987,7 +1007,7 @@ document.getElementById('yard-next').onclick = () => { audio.click(); stepYard(1
 document.getElementById('yard-back').onclick = () => { audio.click(); closeYard(); };
 document.getElementById('yard-commission').onclick = () => {
   audio.click();
-  const id = SHIP_ORDER[yardUi.index % SHIP_ORDER.length];
+  const id = yardShip();
   const whose = yardUi.side === 'ally' ? 'your' : 'the enemy';
   // A carrier goes with the air group the yard has her balanced at, and keeps
   // it: the next one commissioned can be given a different one.
@@ -998,8 +1018,61 @@ document.getElementById('yard-commission').onclick = () => {
     return;
   }
   toast(`${SHIP_CLASSES[id].name} joins ${whose} fleet.`);
+  // Out of the store, she goes to sea from a custom battle's briefing: that
+  // is where a fleet is, and where she has just joined one.
+  const fromStore = Boolean(yardUi.from);
+  yardUi.from = null;
   closeYard();
+  if (fromStore) { briefing.setMode('custom'); briefing.show(); }
 };
+
+// ---------------------------------------------------- premium equipment --
+//
+// The store's three departments, and its hulls. A premium hull is free to
+// sail while the game is in development; once it is published she is
+// unlocked by watching an ad (see premium.js).
+
+for (const btn of document.querySelectorAll('[data-premium]')) {
+  btn.addEventListener('click', () => {
+    audio.resume();
+    audio.click();
+    if (btn.dataset.premium === 'ships') { renderPremiumShips(); show('premium-ships'); return; }
+    toast('This department is not stocked yet.');
+  });
+}
+document.getElementById('premium-ships-back').onclick = () => { audio.click(); show('premium'); };
+
+function renderPremiumShips() {
+  const list = document.getElementById('premium-ships-list');
+  list.innerHTML = '';
+  for (const id of PREMIUM_ORDER) {
+    const c = SHIP_CLASSES[id];
+    const open = premiumUnlocked(id);
+    const guns = c.turrets.reduce((n, t) => n + t.guns, 0);
+    const inches = Math.round(c.gun.caliber / 25.4);
+    const card = document.createElement('div');
+    card.className = 'ship-card premium-ship';
+    card.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
+      <div class="nm">${c.fullName || c.name}</div>
+      <div class="bl">${c.blurb}</div>
+      <div class="ps-stats">${guns} × ${inches}" · ${Math.round(c.maxSpeed / KNOTS)} kn · `
+      + `${Math.round(c.armor.belt / 25.4)}" belt · ${c.datasheet.displacement.toLocaleString('en-US')} t</div>
+      <div class="ps-foot"><span class="ps-badge">${ADS_REQUIRED
+        ? (open ? 'Unlocked' : 'Watch an ad to unlock') : 'Free while the game is in development'}</span>
+      <button class="btn" type="button">${open ? 'Open in the yard' : 'Watch ad'}</button></div>`;
+    card.querySelector('button').onclick = async () => {
+      audio.click();
+      if (!premiumUnlocked(id)) {
+        if (!(await unlockWithAd(id))) { toast('No advertisement could be played. Try again later.'); return; }
+        toast(`${c.fullName || c.name} is unlocked.`);
+        renderPremiumShips();
+        return;
+      }
+      openYard('ally', { order: PREMIUM_ORDER, at: id, from: 'premium-ships' });
+    };
+    list.appendChild(card);
+  }
+}
 
 // --------------------------------------------------------------- gun park --
 // The shipyard's opposite number, and built the same way: one scene, made the
