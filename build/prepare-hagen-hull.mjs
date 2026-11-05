@@ -279,6 +279,49 @@ const CHOCKS = { x: 4.6, z0: -10.3, z1: -4.8, y0: 12.15, y1: 13.0 };
   console.log(`waist: ${boats} faces of her boats and their chocks and ${deck} of the boat deck over her waist taken off`);
 }
 
+// ---- her stern fairlead ------------------------------------------------------------
+// A pocket in her starboard quarter, under her deck edge -- a fairlead her
+// port quarter does not have -- crumpled by the model into shards, open to
+// her inside in places. Pressed flush with her side: each of its points out
+// or in to where her port quarter's plating is, mirrored.
+{
+  const box = { z0: -125.2, z1: -121.6, y0: 3.4, y1: 6.4 };
+  const P = model.P, T = model.T;
+  // Her port quarter's plating round it, facing out: each face as its three
+  // corners mirrored to starboard.
+  const plate = [];
+  for (let t = 0; t < T.length / 3; t++) {
+    const v = [0, 1, 2].map((k) => T[t * 3 + k] * 3);
+    if (!v.every((a) => P[a] < -1 && P[a + 2] > box.z0 - 1.5 && P[a + 2] < box.z1 + 1.5 && P[a + 1] > box.y0 - 1.5 && P[a + 1] < box.y1 + 1)) continue;
+    const [a, b, c] = v.map((q) => [-P[q], P[q + 1], P[q + 2]]);
+    // Mirrored, it must face out to starboard.
+    const nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
+    if (Math.abs(nx) < 1e-9) continue;
+    plate.push([a, b, c]);
+  }
+  // Where that plating is at (y, z): the outermost of it.
+  const sideX = (y, z) => {
+    let best = -Infinity;
+    for (const [a, b, c] of plate) {
+      const d = (b[1] - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (b[2] - a[2]);
+      const u = ((y - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (z - a[2])) / d;
+      const w = ((b[1] - a[1]) * (z - a[2]) - (y - a[1]) * (b[2] - a[2])) / d;
+      if (u < -1e-4 || w < -1e-4 || u + w > 1 + 1e-4) continue;
+      best = Math.max(best, a[0] + u * (b[0] - a[0]) + w * (c[0] - a[0]));
+    }
+    return best;
+  };
+  let n = 0, missed = 0;
+  for (let i = 0; i < P.length; i += 3) {
+    const x = P[i], y = P[i + 1], z = P[i + 2];
+    if (!(z > box.z0 && z < box.z1 && y > box.y0 && y < box.y1) || x < 1) continue;
+    const side = sideX(y, z);
+    if (!(side > 0)) { missed++; continue; }
+    if (Math.abs(x - side) > 0.005) { P[i] = side; n++; }
+  }
+  console.log(`fairlead: ${n} points pressed flush with her side, off ${plate.length} faces of her port quarter${missed ? `, ${missed} with none` : ''}`);
+}
+
 // ---- her shell ------------------------------------------------------------------------
 // Her hull plating, side and bottom: the model's atlas paints it weathered,
 // grey streaked down into a rusted bottom, and a vertex colour a face can say
@@ -317,7 +360,9 @@ function isShell(t) {
   const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
   if (ny > 0.5 * Math.hypot(nx, ny, nz)) return false;
   const cx = (P[a * 3] + P[b * 3] + P[c * 3]) / 3, cy = (P[a * 3 + 1] + P[b * 3 + 1] + P[c * 3 + 1]) / 3, cz = (P[a * 3 + 2] + P[b * 3 + 2] + P[c * 3 + 2]) / 3;
-  return cy < WATERLINE + 0.5 || Math.abs(cx) > hbAt(cz) - 1.2;
+  // Her stern quarters curve in under her counter, further inboard than her
+  // half-breadth there: low on her stern, all of her plating is her side.
+  return cy < WATERLINE + 0.5 || Math.abs(cx) > hbAt(cz) - 1.2 || (cz < -108 && cy < 3);
 }
 // Cut along her waterline: every shell triangle that crosses it is split, so
 // the line runs straight along her and each piece is one paint.
@@ -361,6 +406,74 @@ function isShell(t) {
   }
   model.T = T2; model.G = G2; model.L = L2; model.M = M2;
   console.log(`waterline: ${split} triangles of her shell cut along it`);
+}
+
+// Her decks cut small. The model plates a deck in triangles tens of metres
+// long, split one way to port and another to starboard, and the paint a
+// face gets is the mean of what its texture holds -- planking, grey, or a
+// share of each. Cut to a metre or so, each face is painted with what is
+// under it, and her two sides can be matched where the paint changes. A face
+// looking at the sky has its longest edge cut in two, and so has every face
+// on that edge, until none is bigger than AMAX.
+{
+  const AMAX = 1.2;
+  const { P, UV } = model;
+  const area = (T, t) => {
+    const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, c = T[t * 3 + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz);
+    return ny > 0.85 * l ? l / 2 : 0;
+  };
+  const len2 = (a, b) => (P[a * 3] - P[b * 3]) ** 2 + (P[a * 3 + 1] - P[b * 3 + 1]) ** 2 + (P[a * 3 + 2] - P[b * 3 + 2]) ** 2;
+  const key = (a, b) => (a < b ? a * 4194304 + b : b * 4194304 + a);
+  let made = 0;
+  for (let pass = 0; pass < 16; pass++) {
+    const T = model.T, nf = T.length / 3;
+    const cut = new Map();
+    for (let t = 0; t < nf; t++) {
+      if (area(T, t) <= AMAX) continue;
+      const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
+      let e = 0;
+      for (let k = 1; k < 3; k++) if (len2(v[k], v[(k + 1) % 3]) > len2(v[e], v[(e + 1) % 3])) e = k;
+      cut.set(key(v[e], v[(e + 1) % 3]), -1);
+    }
+    if (!cut.size) break;
+    const mid = (a, b) => {
+      const k = key(a, b);
+      let w = cut.get(k);
+      if (w >= 0) return w;
+      w = P.length / 3;
+      P.push((P[a * 3] + P[b * 3]) / 2, (P[a * 3 + 1] + P[b * 3 + 1]) / 2, (P[a * 3 + 2] + P[b * 3 + 2]) / 2);
+      model.N.push(0, 1, 0);
+      UV.push((UV[a * 2] + UV[b * 2]) / 2, (UV[a * 2 + 1] + UV[b * 2 + 1]) / 2);
+      cut.set(k, w);
+      return w;
+    };
+    const T2 = [], G2 = [], L2 = [], M2 = [];
+    const put = (t, a, b, c) => { T2.push(a, b, c); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]); };
+    for (let t = 0; t < nf; t++) {
+      const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
+      const on = [0, 1, 2].map((k) => cut.has(key(v[k], v[(k + 1) % 3])));
+      const n = on.filter(Boolean).length;
+      if (!n) { put(t, ...v); continue; }
+      // Turned so that the first edge cut is v0-v1.
+      let r = on.indexOf(true);
+      if (n === 2 && !on[(r + 1) % 3]) r = (r + 2) % 3;
+      const [a, b, c] = [v[r], v[(r + 1) % 3], v[(r + 2) % 3]];
+      const ab = mid(a, b);
+      if (n === 1) { put(t, a, ab, c); put(t, ab, b, c); } else if (n === 2) {
+        const bc = mid(b, c);
+        put(t, ab, b, bc); put(t, a, ab, bc); put(t, a, bc, c);
+      } else {
+        const bc = mid(b, c), ca = mid(c, a);
+        put(t, a, ab, ca); put(t, ab, b, bc); put(t, ca, bc, c); put(t, ab, bc, ca);
+      }
+      made += n;
+    }
+    model.T = T2; model.G = G2; model.L = L2; model.M = M2;
+  }
+  console.log(`decks: cut to ${AMAX} m2 a face, ${made} edges halved, ${model.T.length / 3} triangles`);
 }
 
 // ---- her paint ------------------------------------------------------------------------
@@ -431,6 +544,201 @@ for (let t = 0; t < nTri; t++) {
     }
   }
   rgb[t * 3] = c[0]; rgb[t * 3 + 1] = c[1]; rgb[t * 3 + 2] = c[2];
+}
+// Her two sides one paint. The model's atlas paints her mirrored halves off
+// different patches of its texture, so a deck can be planked on one side
+// and steel on the other, or a flank lit on one side and shadowed on the
+// other. Each face is matched with her surface at its mirror across her
+// centreline -- the point (-x, y, z), on a face of the same lie -- and where
+// the two paints differ both sides take the lighter, which drops the shadow
+// the atlas baked into one of them (a deck, its planking over steel); where
+// they nearly agree, their mean.
+{
+  const P = model.P, T = model.T;
+  const C = new Float32Array(nTri * 3), N = new Float32Array(nTri * 3);
+  for (let t = 0; t < nTri; t++) {
+    const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, c = T[t * 3 + 2] * 3;
+    for (let k = 0; k < 3; k++) C[t * 3 + k] = (P[a + k] + P[b + k] + P[c + k]) / 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz);
+    if (l > 0) { N[t * 3] = nx / l; N[t * 3 + 1] = ny / l; N[t * 3 + 2] = nz / l; }
+  }
+  // Every face filed under each metre cell its bounds cover.
+  const CELL = 1, grid = new Map();
+  const cellKey = (i, jj, k) => (i + 64) * 1e8 + (jj + 64) * 1e5 + (k + 512);
+  for (let t = 0; t < nTri; t++) {
+    if (!(N[t * 3] || N[t * 3 + 1] || N[t * 3 + 2])) continue;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let v = 0; v < 3; v++) for (let k = 0; k < 3; k++) {
+      const q = P[T[t * 3 + v] * 3 + k];
+      if (q < lo[k]) lo[k] = q;
+      if (q > hi[k]) hi[k] = q;
+    }
+    for (let i = Math.floor(lo[0] / CELL); i <= Math.floor(hi[0] / CELL); i++)
+      for (let jj = Math.floor(lo[1] / CELL); jj <= Math.floor(hi[1] / CELL); jj++)
+        for (let k = Math.floor(lo[2] / CELL); k <= Math.floor(hi[2] / CELL); k++) {
+          const key = cellKey(i, jj, k);
+          if (!grid.has(key)) grid.set(key, []);
+          grid.get(key).push(t);
+        }
+  }
+  // The face whose surface holds the point p, lying with normal n.
+  const onFace = (u, p, n) => {
+    if (Math.abs(n[0] * N[u * 3] + n[1] * N[u * 3 + 1] + n[2] * N[u * 3 + 2]) < 0.95) return Infinity;
+    const a = T[u * 3] * 3, b = T[u * 3 + 1] * 3, c = T[u * 3 + 2] * 3;
+    const h = (p[0] - P[a]) * N[u * 3] + (p[1] - P[a + 1]) * N[u * 3 + 1] + (p[2] - P[a + 2]) * N[u * 3 + 2];
+    if (Math.abs(h) > 0.04) return Infinity;
+    // Barycentric, in the face's plane.
+    const e1 = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], e2 = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+    const w = [p[0] - P[a], p[1] - P[a + 1], p[2] - P[a + 2]];
+    const d00 = e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2], d01 = e1[0] * e2[0] + e1[1] * e2[1] + e1[2] * e2[2];
+    const d11 = e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2];
+    const d20 = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2], d21 = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
+    const den = d00 * d11 - d01 * d01;
+    if (!(den > 0)) return Infinity;
+    const v = (d11 * d20 - d01 * d21) / den, ww = (d00 * d21 - d01 * d20) / den;
+    const out = Math.max(0, -v, -ww, v + ww - 1) * Math.sqrt(Math.max(d00, d11));
+    return out > 0.03 ? Infinity : Math.abs(h) + out;
+  };
+  const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  const next = new Float32Array(rgb);
+  let matched = 0, changed = 0;
+  for (let t = 0; t < nTri; t++) {
+    const x = C[t * 3];
+    if (Math.abs(x) < 0.05 || !(N[t * 3] || N[t * 3 + 1] || N[t * 3 + 2])) continue;
+    const p = [-x, C[t * 3 + 1], C[t * 3 + 2]], n = [-N[t * 3], N[t * 3 + 1], N[t * 3 + 2]];
+    let best = -1, bd = Infinity;
+    for (const u of grid.get(cellKey(Math.floor(p[0] / CELL), Math.floor(p[1] / CELL), Math.floor(p[2] / CELL))) || []) {
+      if (u === t) continue;
+      const d = onFace(u, p, n);
+      if (d < bd) { bd = d; best = u; }
+    }
+    if (best < 0) continue;
+    matched++;
+    const own = [rgb[t * 3], rgb[t * 3 + 1], rgb[t * 3 + 2]], other = [rgb[best * 3], rgb[best * 3 + 1], rgb[best * 3 + 2]];
+    const so = own.map(toSrgb), sm = other.map(toSrgb);
+    const d = Math.hypot(so[0] - sm[0], so[1] - sm[1], so[2] - sm[2]);
+    if (d < 0.002) continue;
+    // A deck planked on one side and steel on the other is planked on both:
+    // most of her deck is. Otherwise the lighter.
+    const plank = (q) => q[0] > q[2] + 0.03 && q[0] > 0.2;
+    const up = Math.abs(N[t * 3 + 1]) > 0.85;
+    const pick = up && plank(so) !== plank(sm) ? (plank(sm) ? other : own) : (lum(other) > lum(own) ? other : own);
+    const c = d < 0.08 ? own.map((v, k) => (v + other[k]) / 2) : pick;
+    if (c !== own) changed++;
+    next.set(c, t * 3);
+  }
+  rgb.set(next);
+  console.log(`mirror: ${matched} of ${nTri} faces matched across her centreline, ${changed} repainted to match`);
+}
+// Her main deck planked from end to end. The atlas leaves stretches of it
+// steel grey -- amidships, and abreast her after superstructure -- and they
+// are given the mean of the planking round them: every face that looks at
+// the sky at her deck's own height -- found at her side, where it is her hull
+// sections' own -- a metre at a time along her.
+{
+  const P = model.P, T = model.T;
+  const plank = (c) => { const s = c.map(toSrgb); return s[0] > s[2] + 0.03 && s[0] > 0.2; };
+  const faces = [];
+  const DECK = new Float32Array(HB.length).fill(-Infinity), BINS = [];
+  for (let t = 0; t < nTri; t++) {
+    const hullFace = model.M[t] === SHELL_MAT && deep.has(model.G[t]);
+    const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, c = T[t * 3 + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const ny = uz * vx - ux * vz, l = Math.hypot(uy * vz - uz * vy, ny, ux * vy - uy * vx);
+    if (!(ny > 0.9 * l)) continue;
+    const cx = (P[a] + P[b] + P[c]) / 3, cy = (P[a + 1] + P[b + 1] + P[c + 1]) / 3, cz = (P[a + 2] + P[b + 2] + P[c + 2]) / 3;
+    const i = Math.max(0, Math.min(HB.length - 1, Math.round(cz + LOA / 2)));
+    faces.push([t, cy, i, l / 2]);
+    // Her deck at her side: of her hull's faces looking up within 2.5 m of
+    // her edge, the height that covers most -- not the highest, which can be
+    // a crane or a platform overhanging her side.
+    if (hullFace && cy > 2 && Math.abs(cx) > hbAt(cz) - 2.5) {
+      const h = Math.round(cy * 10);
+      if (!BINS[i]) BINS[i] = new Map();
+      BINS[i].set(h, (BINS[i].get(h) || 0) + l / 2);
+    }
+  }
+  for (let i = 0; i < DECK.length; i++) {
+    // A few stations together, so a short one reads her sheer and not its fittings.
+    const m = new Map();
+    for (let r = -3; r <= 3; r++) for (const [h, a] of BINS[i + r] || []) m.set(h, (m.get(h) || 0) + a);
+    if (m.size) DECK[i] = [...m].sort((p, q) => q[1] - p[1])[0][0] / 10;
+  }
+  // A station with no deck at its side takes the nearest that has one.
+  for (let i = 0; i < DECK.length; i++) if (DECK[i] === -Infinity) {
+    for (let r = 1; r < 20; r++) {
+      if (DECK[i - r] > -Infinity) { DECK[i] = DECK[i - r]; break; }
+      if (DECK[i + r] > -Infinity) { DECK[i] = DECK[i + r]; break; }
+    }
+  }
+  const acc = [0, 0, 0];
+  let w = 0;
+  const steel = [], all = [];
+  for (const [t, y, i, a] of faces) {
+    if (Math.abs(y - DECK[i]) > 0.35) continue;
+    const c = [rgb[t * 3], rgb[t * 3 + 1], rgb[t * 3 + 2]];
+    all.push(t);
+    if (plank(c)) { for (let k = 0; k < 3; k++) acc[k] += c[k] * a; w += a; } else steel.push(t);
+  }
+  if (!(w > 0)) throw new Error('no planking on her deck');
+  // All of it the one brown, the planking's mean: two browns a shade apart can
+  // fall either side of a line in her palette, one to her planking and the
+  // other to a grey.
+  for (const t of all) for (let k = 0; k < 3; k++) rgb[t * 3 + k] = acc[k] / w;
+  console.log(`deck: ${all.length} faces of her main deck planked ${acc.map((v) => Math.round(toSrgb(v / w) * 255)).join(',')}, ${steel.length} of them steel before`);
+}
+// Her roofs one grey. The atlas shades its roofs and platforms with the
+// shadows of what stood over them -- mottled, and darkest where her boat
+// deck was. Every grey face looking at the sky takes the mean of the grey
+// faces round it at its own height, within a few metres; what is a paint of
+// its own and not a shade of the one round it -- a hatch, a black funnel cap
+// -- keeps its own.
+{
+  const P = model.P, T = model.T;
+  const plank = (s) => s[0] > s[2] + 0.03 && s[0] > 0.2;
+  const CELL = 3, HB_ = 0.15;
+  const cells = new Map(), roof = [];
+  const cellKey = (i, h, k) => `${i},${h},${k}`;
+  for (let t = 0; t < nTri; t++) {
+    const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, c = T[t * 3 + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const ny = uz * vx - ux * vz, l = Math.hypot(uy * vz - uz * vy, ny, ux * vy - uy * vx);
+    if (!(ny > 0.9 * l) || l < 1e-6) continue;
+    const s = [0, 1, 2].map((k) => toSrgb(rgb[t * 3 + k]));
+    if (plank(s)) continue;
+    const cx = (P[a] + P[b] + P[c]) / 3, cy = (P[a + 1] + P[b + 1] + P[c + 1]) / 3, cz = (P[a + 2] + P[b + 2] + P[c + 2]) / 3;
+    const key = [Math.floor(cx / CELL), Math.round(cy / HB_), Math.floor(cz / CELL)];
+    roof.push([t, key, s, l / 2]);
+    const k = cellKey(...key);
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(roof.length - 1);
+  }
+  // Three times over, so a shadow's gradient across a roof evens out.
+  let n = 0;
+  for (let pass = 0; pass < 3; pass++) {
+    const out = [];
+    for (const [q0, [t, [i, h, k], s, area]] of roof.entries()) {
+      const m = [0, 0, 0];
+      let w = 0;
+      for (let di = -1; di <= 1; di++) for (let dh = -1; dh <= 1; dh++) for (let dk = -1; dk <= 1; dk++) {
+        for (const q of cells.get(cellKey(i + di, h + dh, k + dk)) || []) {
+          const [, , sq, aq] = roof[q];
+          if (Math.hypot(sq[0] - s[0], sq[1] - s[1], sq[2] - s[2]) > 0.2) continue;
+          for (let c = 0; c < 3; c++) m[c] += sq[c] * aq;
+          w += aq;
+        }
+      }
+      if (w > area * 1.5) out.push([q0, m.map((v) => v / w)]);
+    }
+    for (const [q, c] of out) roof[q][2] = c;
+    if (pass === 0) n = out.length;
+  }
+  for (const [t, , s] of roof) rgb.set(s.map(toLin), t * 3);
+  console.log(`roofs: ${n} of ${roof.length} grey faces looking up given the grey round them`);
 }
 // What the boat deck hid, in the grey of the rest of her superstructure: the
 // model painted the end of her forward superstructure under it near black,
@@ -983,7 +1291,7 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
 // superstructure decks, the grey-brown patches on her main deck -- is
 // painted the colour most of her deck already is.
 {
-  const warm = (c) => { const [r, , b] = PAL.cent[c]; return r > b + 0.005 && r > 0.2; };
+  const warm = (c) => { const [r, , b] = PAL.cent[c]; return r > b + 0.03 && r > 0.2; };
   const up = (t) => {
     const [x, y, z] = faceNormal(hull, hull.T[t * 3], hull.T[t * 3 + 1], hull.T[t * 3 + 2]);
     const l = Math.hypot(x, y, z);
@@ -994,7 +1302,11 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
     const a = up(t);
     if (a && warm(hull.C[t])) area.set(hull.C[t], (area.get(hull.C[t]) || 0) + a);
   }
-  const DECK = [...area].sort((p, q) => q[1] - p[1])[0][0];
+  // Her planking can fall into two browns, its lighter and darker boards: of
+  // those that cover a good part of her deck, the lightest.
+  const top = Math.max(...area.values());
+  const lum = (c) => 0.2126 * PAL.cent[c][0] + 0.7152 * PAL.cent[c][1] + 0.0722 * PAL.cent[c][2];
+  const DECK = [...area].filter(([, a]) => a > 0.25 * top).sort((p, q) => lum(q[0]) - lum(p[0]))[0][0];
   let n = 0;
   for (let t = 0; t < hull.T.length / 3; t++) {
     if (hull.C[t] !== DECK && up(t) && warm(hull.C[t])) { hull.C[t] = DECK; n++; }

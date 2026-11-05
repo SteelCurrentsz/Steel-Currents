@@ -149,7 +149,7 @@ import { soyuzSurfaceY, MOUNT_SEATS as SOYUZ_SEATS } from '../client/js/render/s
 import {
   buildHagen, shellAt as hagenShellAt, keelY as hagenKeel, deckOver as hagenSheer, zAt as hagenZAt,
 } from '../client/js/render/hagen.js';
-import { hagenSurfaceY, MOUNT_SEATS as HAGEN_SEATS } from '../client/js/render/hagenHull.js';
+import { hagenSurfaceY, MOUNT_SEATS as HAGEN_SEATS, buildHagenHull, hagenMaterials } from '../client/js/render/hagenHull.js';
 import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
@@ -2966,6 +2966,70 @@ check("the Hagen's shell has no holes in it", () => {
   }
   assert.ok(tested > 1500, `only ${tested} stations of plating were tested`);
   assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+// Her hull as the model has it, on its own; and what is hit first along a
+// ray: where, its paint, whether it is her planking, and whether the ray met
+// the face from its front.
+function hagenHullOnly() {
+  const g = new THREE.Group();
+  buildHagenHull(g);
+  g.updateMatrixWorld(true);
+  return g;
+}
+function hagenHullHit(g, from, dir) {
+  const hit = new THREE.Raycaster(from, dir).intersectObjects(g.children, false)[0];
+  if (!hit) return null;
+  const col = hit.object.geometry.getAttribute('color');
+  const c = [col.getX(hit.face.a), col.getY(hit.face.a), col.getZ(hit.face.a)];
+  const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+  const sheet = hit.object.material === hagenMaterials().sheet;
+  return { p: hit.point, c, deck: hit.object.material === hagenMaterials().deck, front: sheet || n.dot(dir) < 0 };
+}
+
+check('the Hagen is painted the same on both sides of her centreline', () => {
+  const built = hagenHullOnly();
+  const down = new THREE.Vector3(0, -1, 0);
+  let tested = 0;
+  const odd = [];
+  for (let z = -124; z <= 124; z += 1) {
+    for (let x = 0.75; x <= 15; x += 0.5) {
+      const a = hagenHullHit(built, new THREE.Vector3(x, 60, z), down);
+      const b = hagenHullHit(built, new THREE.Vector3(-x, 60, z), down);
+      if (!a || !b || Math.abs(a.p.y - b.p.y) > 0.3) continue;
+      tested++;
+      const d = Math.hypot(a.c[0] - b.c[0], a.c[1] - b.c[1], a.c[2] - b.c[2]);
+      if (d > 0.06 || a.deck !== b.deck) odd.push(`x ${x} z ${z}: ${a.c.map((v) => v.toFixed(2))} ${a.deck ? 'deck' : ''} / ${b.c.map((v) => v.toFixed(2))} ${b.deck ? 'deck' : ''}`);
+    }
+  }
+  assert.ok(tested > 5000, `only ${tested} points of her decks and roofs were tested`);
+  // Her fittings are not all placed alike either side -- a crane, a ladder, a
+  // hatch -- and fall either side of a line in her palette here and there; her
+  // paint as the atlas gave it differed at one point in seven.
+  assert.ok(odd.length < tested * 0.06, `${odd.length} of ${tested} points are painted differently either side of her centreline: ${odd.slice(0, 3).join('; ')}`);
+});
+
+check("the Hagen's stern quarters are her side's own plating, flush and painted as her side", () => {
+  const built = hagenHullOnly();
+  const odd = [];
+  let tested = 0;
+  for (let z = -125; z <= -105; z += 0.25) {
+    for (let y = 0.6; y <= 6; y += 0.2) {
+      const hits = [1, -1].map((sd) => hagenHullHit(built, new THREE.Vector3(sd * 40, y, z), new THREE.Vector3(-sd, 0, 0)));
+      if (!hits[0] || !hits[1]) continue;
+      tested++;
+      // Her side, from outside it: plating seen from the front, the grey of
+      // the rest of her side, and as far out on one side as on the other.
+      for (const [i, h] of hits.entries()) {
+        if (!h.front) odd.push(`${i ? 'port' : 'starboard'} y ${y.toFixed(1)} z ${z}: the inside of her plating`);
+      }
+      if (Math.abs(hits[0].p.x + hits[1].p.x) > 0.15) odd.push(`y ${y.toFixed(1)} z ${z}: her side ${hits[0].p.x.toFixed(2)} to starboard, ${(-hits[1].p.x).toFixed(2)} to port`);
+      const d = Math.hypot(...hits[0].c.map((v, k) => v - hits[1].c[k]));
+      if (d > 0.06) odd.push(`y ${y.toFixed(1)} z ${z}: painted ${hits[0].c.map((v) => v.toFixed(2))} / ${hits[1].c.map((v) => v.toFixed(2))}`);
+    }
+  }
+  assert.ok(tested > 1500, `only ${tested} points of her stern quarters were tested`);
+  assert.ok(odd.length <= 4, `${odd.length} faults in her stern quarters: ${odd.slice(0, 3).join('; ')}`);
 });
 
 check('the Credits screen credits the model the Hagen is drawn from', () => {
