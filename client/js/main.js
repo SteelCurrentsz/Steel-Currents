@@ -502,7 +502,7 @@ function rebuild() {
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['gate', 'account', 'title', 'premium', 'pvp', 'custom', 'options', 'fleet',
+const screens = ['gate', 'account', 'title', 'premium', 'pvp', 'custom', 'options', 'credits', 'fleet',
   'yard', 'guns', 'bombers', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
@@ -565,6 +565,7 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
       case 'arcade': briefing.setMode('arcade'); show('custom'); briefing.show(); break;
       case 'custom': briefing.setMode('custom'); show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
+      case 'credits': show('credits'); break;
       case 'premium': show('premium'); break;
       case 'back': show('title'); break;
       case 'account': openAccount(); break;

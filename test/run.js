@@ -147,6 +147,10 @@ import {
 } from '../client/js/render/soyuz.js';
 import { soyuzSurfaceY, MOUNT_SEATS as SOYUZ_SEATS } from '../client/js/render/soyuzHull.js';
 import {
+  buildHagen, shellAt as hagenShellAt, keelY as hagenKeel, deckOver as hagenSheer, zAt as hagenZAt,
+} from '../client/js/render/hagen.js';
+import { hagenSurfaceY, MOUNT_SEATS as HAGEN_SEATS } from '../client/js/render/hagenHull.js';
+import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
 } from '../client/js/render/kongo.js';
@@ -2891,6 +2895,89 @@ check('a layer standing at a Hood gun looks out over it, round its arc and nowhe
   }
 });
 
+check('the KMS Hagen is commissioned after the Scharnhorst, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('hagen');
+  assert.ok(i >= 0, 'the Hagen is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'scharnhorst', `before the Hagen comes ${SHIP_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.hagen;
+  assert.equal(cls.fullName, 'KMS Hagen');
+  assert.equal(cls.typeName, 'Battlecruiser');
+  assert.equal(cls.nation, 'ger');
+  // Her main battery the 30.5 cm SK C/39, her secondary 12.8 cm.
+  assert.equal(cls.gun.caliber, 305);
+  assert.match(cls.gun.name, /SK C\/39/);
+  assert.equal(cls.secondary.caliber, 128);
+  assert.equal(cls.datasheet.secondary.caliber, 128);
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['Anton', 'Bruno', 'Caesar']);
+  assert.ok(cls.turrets[0].z > 0 && cls.turrets[1].z > 0 && cls.turrets[2].z < 0, 'two turrets forward and one aft');
+  assert.equal(cls.torpedoes.mounts.length, 2, 'her two banks of tubes');
+  const built = buildHagen();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  assert.equal(typeof built.group.userData.fireTubes, 'function', 'her tubes cannot fire');
+  // Every mounting stands where the model stood it, on her.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(HAGEN_SEATS)) {
+    for (const st of list) {
+      const top = hagenSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+    }
+  }
+});
+
+check("the Hagen's shell has no holes in it", () => {
+  const built = buildHagen();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = hagenSheer(t);
+    for (let y = hagenKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = hagenShellAt(t, y);
+      if (w < 0.35) continue;
+      if (hagenZAt(t) < -88 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, hagenZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > hagenKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1500, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Hagen is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const menu = html.slice(html.indexOf('data-action="options"'), html.indexOf('data-action="account"'));
+  assert.ok(menu.includes('data-action="credits"'), 'there is no Credits button under Options / Help');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('The Third Reich Navy large cruiser HAGEN'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/oHuvB') && screen.includes('全斗焕')
+    && screen.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
+});
+
 check('the RF Sovetsky Soyuz is commissioned after the KMS Tirpitz, armed as she was designed', () => {
   const i = SHIP_ORDER.indexOf('soyuz');
   assert.ok(i >= 0, 'the Sovetsky Soyuz is not in the yard');
@@ -3962,12 +4049,14 @@ check('the Tirpitz is built the same on both sides', () => {
   bismarckBuiltAlike('tirpitz');
 });
 
-check('the KMS Scharnhorst is commissioned before the Bismarck', () => {
+check('the KMS Scharnhorst is commissioned before the Bismarck, with the Hagen between them', () => {
   // The first of the Kriegsmarine's new battleships to commission, two years
-  // before the Bismarck: she comes into the yard immediately ahead of her.
+  // before the Bismarck: she comes into the yard ahead of her, and the
+  // battlecruiser Hagen immediately after her.
   const i = SHIP_ORDER.indexOf('scharnhorst');
   assert.ok(i >= 0, 'the Scharnhorst is not in the yard');
-  assert.equal(SHIP_ORDER[i + 1], 'bismarck', `after the Scharnhorst comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'hagen', `after the Scharnhorst comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'bismarck', `after the Hagen comes ${SHIP_ORDER[i + 2]}`);
   const cls = SHIP_CLASSES.scharnhorst;
   assert.equal(cls.fullName, 'KMS Scharnhorst');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -4172,7 +4261,8 @@ check('the FS Richelieu is commissioned before the Scharnhorst, and she before t
   const i = SHIP_ORDER.indexOf('richelieu');
   assert.ok(i >= 0, 'the Richelieu is not in the yard');
   assert.equal(SHIP_ORDER[i + 1], 'scharnhorst', `after the Richelieu comes ${SHIP_ORDER[i + 1]}`);
-  assert.equal(SHIP_ORDER[i + 2], 'bismarck', `after the Scharnhorst comes ${SHIP_ORDER[i + 2]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'hagen', `after the Scharnhorst comes ${SHIP_ORDER[i + 2]}`);
+  assert.equal(SHIP_ORDER[i + 3], 'bismarck', `after the Hagen comes ${SHIP_ORDER[i + 3]}`);
   const cls = SHIP_CLASSES.richelieu;
   assert.equal(cls.fullName, 'FS Richelieu');
   assert.equal(cls.type, 'BB', 'she is not a battleship');

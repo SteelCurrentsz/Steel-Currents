@@ -214,6 +214,11 @@ input[type="range"] { accent-color: var(--red); }
 .help { color: var(--steel); font-size: 0.98rem; line-height: 1.45; margin: 0 0 0.7rem; }
 .muted { color: rgba(154, 166, 178, 0.6); }
 
+/* The credits: each model's attribution, as its licence words it. */
+.credits .credit { color: var(--sand); font-size: 1.05rem; line-height: 1.55; margin: 0; }
+.credits a { color: var(--sand); text-decoration: underline; text-underline-offset: 0.15em; }
+.credits a:hover, .credits a:focus-visible { color: #fff; }
+
 .btn {
   background: var(--red); color: #fff; border: 0; padding: 0.7rem 1.8rem;
   font-family: var(--ui); font-size: 1.15rem; font-weight: 700;

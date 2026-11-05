@@ -2574,6 +2574,162 @@ export const SHIP_CLASSES = {
     },
   },
 
+  hagen: {
+    // KMS Hagen, an O-class battlecruiser: the large cruisers Plan Z called
+    // for in 1939 to raid the Atlantic -- a long, light hull on diesels and
+    // turbines for thirty-three knots, to outrun whatever could outgun her
+    // and outgun whatever could catch her. Three were ordered and none was
+    // ever laid down; the war took the steel. Here she carries nine 30.5 cm
+    // SK C/39 of 56 calibres in three triples -- Anton and Bruno forward,
+    // Bruno superfiring, Caesar aft -- fourteen 12.8 cm in seven twins round
+    // her superstructure, 5.5 cm twins on her platforms, 3 cm twins up her
+    // tower and two quadruple banks of tubes amidships.
+    //
+    // She is drawn from the owner's model of her (see hagen.js) -- "The Third
+    // Reich Navy large cruiser HAGEN" by 全斗焕, under Creative Commons
+    // Attribution 4.0, credited on the Credits screen -- brought up to her
+    // designed length, 256.4 m over all and 30.2 across, floated at 8.2 m.
+    id: 'hagen',
+    name: 'Hagen',
+    fullName: 'KMS Hagen',
+    className: 'O',
+    type: 'BB',
+    typeName: 'Battlecruiser',
+    nation: 'ger',
+    blurb: 'Plan Z\'s raider: nine 30.5 cm guns on a hull built to run at thirty-three knots. None was ever laid down; here she is at sea.',
+    hull: {
+      // Where her funnel comes out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 4, 21.0], [0, -28, 20.5]], length: 256.4, beam: 30.2, draft: 8.2, superstructure: 1.4 },
+    hp: 58800,
+    // Thirty-three and a half knots designed, out of three shafts: the
+    // fastest heavy ship in the yard, and a long one to turn.
+    maxSpeed: 33.5 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.44,
+    turnRate: 0.05,
+    rudderShift: 13,
+    speedLossInTurn: 0.17,
+    concealment: 15600,
+    fireDetectPenalty: 6400,
+    radarRange: 12500,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // A battlecruiser's: 190 mm of belt over her citadel and an 80 mm armour
+    // deck behind it -- her speed was to be her protection, and her armour
+    // was cut to pay for it -- and 60 mm at her ends.
+    armor: { belt: 190, deck: 80, citadel: 190, bow: 60, superstructure: 25 },
+    turrets: [
+      // Anton on her forecastle, Bruno superfiring over it, and Caesar on her
+      // quarterdeck facing astern, each where the model stood it (see
+      // build/prepare-hagen-hull.mjs).
+      { id: 0, name: 'Anton', x: 0, z: 57.357, angle: 0, arc: 2.6, guns: 3, my: 9.6 },
+      { id: 1, name: 'Bruno', x: 0.004, z: 39.215, angle: 0, arc: 2.6, guns: 3, my: 12.18 },
+      { id: 2, name: 'Caesar', x: -0.004, z: -69.976, angle: -3.14, arc: 2.6, guns: 3, my: 8.24 },
+    ],
+    gun: {
+      name: '30.5 cm SK C/39', role: 'surface',
+      // Eight below the horizontal to forty up.
+      elev: { min: -0.14, max: 0.698 },
+      // Pivot to muzzle on the model's turret: a long gun, fifty-six calibres.
+      reach: 16.23,
+      // The 415 kg shell at 895 m/s: flatter and harder-hitting than the
+      // Scharnhorst's 28 cm, and quicker to load than a 38.
+      caliber: 305, reload: 21, traverse: 0.09, range: 22500, sigma: 1.4,
+      shells: shells(305, 10200, 5800, 500, 895, 0.18),
+    },
+    // Her two quadruple banks of 53.3 cm tubes on her upper deck amidships,
+    // one either side, each training out over its own beam. A fish is blown
+    // out of its tube and over her side into the sea before it starts to run
+    // (see fireTorpedoes, and fitTubes in tubes.js).
+    torpedoes: {
+      mounts: [
+        { id: 0, x: -12.244, z: -4.201, angle: -1.57, arc: 1.4, tubes: 4, my: 5.31 },
+        { id: 1, x: 12.244, z: -4.201, angle: 1.57, arc: 1.4, tubes: 4, my: 5.31 },
+      ],
+      name: 'G7a torpedo', role: 'surface', caliber: 533,
+      reach: 4.5,
+      traverse: 0.2,
+      reload: 90, damage: 13700, speed: 32 * KNOTS, range: 6000,
+      detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+      launch: { eject: 12, stagger: 0.35, lanes: [-1.328, -0.443, 0.443, 1.328], lie: 1.0, muzzle: 4.5, height: 5.31 },
+    },
+    // Her 12.8 cm twins, the destroyers' gun put in a turret: two a side
+    // abreast her bridge, the after pair superfiring, one a side abreast her
+    // mainmast facing aft, and one on her centreline over Caesar.
+    secondary: {
+      name: '12.8 cm SK C/41', role: 'surface',
+      elev: { min: -0.175, max: 0.785 },
+      reach: 7.57,
+      caliber: 128, reload: 5, traverse: 0.17, range: 13000, sigma: 1.35,
+      shells: shells(128, 2100, 1800, 115, 880, 0.09),
+      mounts: [
+        { x: -11.884, z: 13.109, angle: -1.57, arc: 1.8, rest: 0, guns: 2, my: 7.74 },
+        { x: 11.884, z: 13.109, angle: 1.57, arc: 1.8, rest: 0, guns: 2, my: 7.74 },
+        { x: -11.884, z: 4.237, angle: -1.57, arc: 1.8, rest: 0, guns: 2, my: 9.84 },
+        { x: 11.884, z: 4.237, angle: 1.57, arc: 1.8, rest: 0, guns: 2, my: 9.84 },
+        { x: -9.702, z: -41.032, angle: -1.57, arc: 1.8, rest: -Math.PI, guns: 2, my: 7.58 },
+        { x: 9.702, z: -41.032, angle: 1.57, arc: 1.8, rest: Math.PI, guns: 2, my: 7.58 },
+        { x: 0, z: -55.568, angle: 3.14, arc: 2.5, rest: Math.PI, guns: 2, my: 10.63 },
+      ],
+    },
+    aa: {
+      range: 5500, dps: 110,
+      guns: [
+        // Her 5.5 cm Gerät 58 twins in their shields: one on her centreline on
+        // the platform over Bruno and one over Caesar, and two a side on her
+        // superstructure, abreast her bridge and abaft her funnel.
+        { name: '5.5 cm Gerät 58', caliber: 55, role: 'dp', reload: 1.0, range: 6000,
+          elev: { min: -0.17, max: 1.57 },
+          mounts: [
+            { x: -0.022, z: -66.376, angle: 3.14, arc: 2.6, rest: Math.PI, guns: 2, my: 14.85 },
+            { x: 6.834, z: 13.202, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 17.21 },
+            { x: -6.834, z: 13.245, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 17.21 },
+            { x: 0.022, z: 35.838, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 18.79 },
+            { x: -6.374, z: -31.737, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 17.17 },
+            { x: 6.374, z: -31.78, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 17.17 },
+          ] },
+        // Her 3 cm Flak 38 twins: two a side on her forecastle deck abreast
+        // Bruno, the rest up her tower and its platforms, and a pair abaft her
+        // mainmast.
+        { name: '3 cm Flak 38', caliber: 30, role: 'aa', reload: 0.3, range: 3500,
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: -5.867, z: 30.258, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 2, my: 10.58 },
+            { x: 5.867, z: 30.258, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 2, my: 10.58 },
+            { x: -9.765, z: 38.739, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 2, my: 8.72 },
+            { x: 9.766, z: 38.738, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 2, my: 8.72 },
+            { x: 2.861, z: 26.168, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 2, my: 17.54 },
+            { x: -2.86, z: 26.168, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 2, my: 17.54 },
+            { x: 2.319, z: 20.846, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 2, my: 19.73 },
+            { x: -2.319, z: 20.847, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 2, my: 19.73 },
+            { x: -3.954, z: 19.383, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 2, my: 26.6 },
+            { x: 3.955, z: 19.382, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 2, my: 26.6 },
+            { x: -5.228, z: 17.201, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 2, my: 22.72 },
+            { x: 5.228, z: 17.2, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 2, my: 22.72 },
+            { x: 3.709, z: 15.605, angle: 1.57, arc: 2.6, rest: Math.PI / 4, guns: 2, my: 29.27 },
+            { x: -3.578, z: 15.606, angle: -1.57, arc: 2.6, rest: -Math.PI / 4, guns: 2, my: 29.27 },
+            { x: 3.709, z: 12.666, angle: 1.57, arc: 2.6, rest: Math.PI * 3 / 4, guns: 2, my: 29.27 },
+            { x: -3.579, z: 12.666, angle: -1.57, arc: 2.6, rest: -Math.PI * 3 / 4, guns: 2, my: 29.27 },
+            { x: -4.448, z: -37.019, angle: -1.57, arc: 2.6, rest: -Math.PI * 3 / 4, guns: 2, my: 15.11 },
+            { x: 4.448, z: -37.019, angle: 1.57, arc: 2.6, rest: Math.PI * 3 / 4, guns: 2, my: 15.11 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 31650,
+      aircraft: 0,
+      mainRounds: 810,
+      secondary: { caliber: 128, label: '128mm', barrels: 14, rounds: 2100 },
+      tertiary: [
+        { caliber: 55, label: '55mm', barrels: 12, rounds: 4800 },
+        { caliber: 30, label: '30mm', barrels: 36, rounds: 36000 },
+      ],
+    },
+  },
+
   bismarck: {
     // KMS Bismarck, the first of the two: eight 38 cm in four twin turrets --
     // Anton and Bruno forward, Caesar and Dora aft -- twelve 15 cm in six twin
@@ -8510,7 +8666,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shinano'];
 
 export function getClass(id) {
