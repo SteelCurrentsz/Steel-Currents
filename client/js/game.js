@@ -6939,6 +6939,10 @@ export class Battle {
         const calm = !s.a ? 0.15 : 1 - 0.75 * settle;
         const r = this.ride;
         view.sea.ride = { heave: r.heave * calm, tilt: r.tilt * calm };
+        // And how she moves in it: waterlogged she wallows, and under way
+        // she squats by the stern. See Seakeeping.
+        view.sea.load = settle;
+        view.sea.speed = s.a ? speed : 0;
       }
       const sea = view.sea.step(att, dt, 0);
       // How she is floating, on top of what the sea is doing to her: the water
@@ -6961,8 +6965,8 @@ export class Battle {
         const gone = cls.mines.carried - s.mnl;
         view.mineRack.forEach((m, k) => { m.visible = k >= gone; });
       }
-      view.group.position.y = sea.heave - 1.0 - view.sinkY - (view.depth || 0);
-      view.group.rotation.x = sea.pitch + view.trimBy;
+      view.group.position.y = sea.heave - 1.0 - view.sinkY - (view.depth || 0) - (sea.squat || 0);
+      view.group.rotation.x = sea.pitch + view.trimBy + (sea.runTrim || 0);
       // Laid over by what is inside her, and leaning outward in a turn: ours
       // off her own prediction so it answers the helm at once.
       const lean = isSelf ? (this.localShip.lean || 0) : view.leanBy;

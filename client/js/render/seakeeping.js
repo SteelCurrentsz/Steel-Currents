@@ -117,6 +117,17 @@ export class Seakeeping {
     // How much of the sea she rides up -- see rideOf in shared/sea.js. All of
     // it, short of a storm.
     this.ride = { heave: 1, tilt: 1 };
+    // Her length, for how hard her speed sits her down by the stern.
+    this.length = hull.length || 100;
+    // How fast she is going through the water, and how much of her reserve
+    // of buoyancy the sea inside her has taken, nought to one. Both are set
+    // from outside before each step; see squatFor and the wallow below.
+    this.speed = 0;
+    this.load = 0;
+    // Her running trim and sinkage, eased: a ship working up to full speed
+    // lifts her bow and settles her stern over a few seconds, not at once.
+    this.squat = 0;
+    this.runTrim = 0;
   }
 
   /**
@@ -132,7 +143,24 @@ export class Seakeeping {
     const n = Math.min(8, Math.max(1, Math.ceil(dt / 0.04)));
     const h = dt / n;
     const ride = this.ride || { heave: 1, tilt: 1 };
-    const rollTo = att.roll * this.rollHeed * ride.tilt + heel;
+    // Waterlogged, she is not the ship she was in a seaway: the water inside
+    // her makes her heavier and the free surface of it takes her stiffness
+    // away, so she rolls slower, further and for longer -- she wallows -- and
+    // she lifts to a sea late and heavily.
+    const load = Math.min(1, Math.max(0, this.load || 0));
+    const rollW = this.rollW * (1 - 0.38 * load);
+    const rollZ = ROLL_ZETA * (1 - 0.35 * load);
+    const rollGain = 1 + 0.55 * load;
+    const heaveW = this.heaveW * (1 - 0.30 * load);
+    // Under way she sits down by the stern and lifts her bow, by her Froude
+    // number: nothing at steerage way, a foot or two and a fraction of a
+    // degree for a battleship at thirty knots, more for a destroyer driven
+    // hard. Eased over a few seconds of her own inertia.
+    const sq = squatFor(this.speed || 0, this.length);
+    const ease = 1 - Math.exp(-dt / 4);
+    this.squat += (sq.sink - this.squat) * ease;
+    this.runTrim += (sq.trim - this.runTrim) * ease;
+    const rollTo = att.roll * this.rollHeed * ride.tilt * rollGain + heel;
     const pitchTo = att.pitch * this.pitchHeed * ride.tilt;
     const heaveTo = att.heave * this.heaveHeed * ride.heave;
     const held = this._support;
@@ -142,8 +170,8 @@ export class Seakeeping {
       seaSupport(att, this.heave, this.pitch, this.draft, held);
       // Roll is lightly damped: critically damped, she would simply track the
       // water and there would be no roll to watch at all.
-      this.rollV += (this.rollW * this.rollW * (rollTo - this.roll)
-        - 2 * ROLL_ZETA * this.rollW * this.rollV) * h;
+      this.rollV += (rollW * rollW * (rollTo - this.roll)
+        - 2 * rollZ * rollW * this.rollV) * h;
       this.roll += this.rollV * h;
       // Pitch is damped much harder, but not to a stop: her weight carries
       // her bow on down into the face of a sea after the water under it has
@@ -153,12 +181,30 @@ export class Seakeeping {
       this.pitch += this.pitchV * h;
       // And she rises and falls on the same sort of spring: late to each
       // sea, and carried a little past it by her own weight.
-      this.heaveV += (this.heaveW * this.heaveW * (heaveTo - this.heave + held.heave * ride.heave)
-        - 2 * HEAVE_ZETA * this.heaveW * this.heaveV) * h;
+      this.heaveV += (heaveW * heaveW * (heaveTo - this.heave + held.heave * ride.heave)
+        - 2 * HEAVE_ZETA * heaveW * this.heaveV) * h;
       this.heave += this.heaveV * h;
     }
     return this;
   }
+}
+
+/**
+ * How far her speed sits her down, in metres, and lifts her bow, in radians
+ * (negative: bow up, the sense of the picture's pitch).
+ *
+ * The bow wave she makes is a crest at her stem and a trough along her
+ * quarter, and she settles into the trough: sinkage grows with the square of
+ * her Froude number and the trim with it, levelling off once she is past
+ * hull speed.
+ */
+export function squatFor(speed, length) {
+  const fn = Math.min(0.5, Math.abs(speed) / Math.sqrt(9.81 * Math.max(10, length)));
+  const k = fn * fn;
+  return {
+    sink: Math.min(1.0, k * 4 * Math.sqrt(length / 100)),
+    trim: -Math.min(0.02, k * 0.11),
+  };
 }
 
 const ROLL_ZETA = SEAWAY.rollZeta;

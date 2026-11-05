@@ -8501,7 +8501,10 @@ SHIP_CLASSES.yamato = {
  * points -- so every class carries this much more structure, and the sea
  * coming in through her holes is left to do what it did.
  */
-export const HULL_TOUGHNESS = 1.8;
+//
+// Raised again from 1.8: battles were still decided by the first few good
+// salvoes. Every hull now takes about a quarter more before she is wrecked.
+export const HULL_TOUGHNESS = 2.3;
 // Not a submarine: a pressure hull split by a charge is a boat lost, however
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);

@@ -14490,11 +14490,14 @@ check('the wire says where the water is running, and which way', () => {
   // Two call-aways and the pumps are going. With the hole shored down to
   // almost nothing they beat it, and the stream on the board runs the other
   // way -- which is the only visible difference the second call-away makes.
+  // Not at once: the pumps take PUMP_SPIN seconds to come up to speed.
   useRepair(state, a);
   a.repairCd = 0;
   useRepair(state, a);
   a.sections.fwd.holeS = 0.02;
   for (let i = 0; i < 30 * 5; i++) step(state, DT);
+  assert.ok(a.pumping > 0 && a.pumping < 0.5, `her pumps are at ${a.pumping} five seconds after the call-away`);
+  for (let i = 0; i < 30 * 40; i++) step(state, DT);
   const pumped = shipSnapshot(a, true);
   assert.ok(pumped.fw[fwd] < 0,
     `the pumps are winning and the wire says ${pumped.fw[fwd]}`);
@@ -23211,6 +23214,60 @@ check('damage control parties: three in the smallest ship, eight in the biggest,
   const snap = shipSnapshot(her, true);
   assert.equal(snap.pa.length, her.parties.length);
   assert.equal(snap.pa[0][0], 'pump');
+});
+
+check('her integrity is every way she is hurt, never mends to a hundred, and at nought she goes down', () => {
+  // Structure, flooding, fire and weapons, added up into one number out of a
+  // hundred that goes over the wire to her own bridge.
+  const { state, a } = duel('cleveland', 'iowa');
+  step(state, DT);
+  assert.equal(shipSnapshot(a, true).ig, 1000, 'a sound ship is not at a hundred per cent');
+  damageShip(state, a, null, a.maxHp * 0.3, 'shell', 'mid');
+  step(state, DT);
+  const hurt = a.integrity;
+  assert.ok(hurt < 0.9, `thirty per cent of her structure gone and her integrity is ${hurt}`);
+  // A fire in her takes more off it.
+  a.sections.fwd.fire = 0.8;
+  step(state, DT);
+  assert.ok(a.integrity < hurt, 'a fire made no difference to her integrity');
+  // Mended right back, every compartment and every fire: not a hundred.
+  for (const k of SECTIONS) { const c = a.sections[k.k]; c.hp = c.max; c.fire = 0; }
+  a.hp = a.maxHp;
+  step(state, DT);
+  assert.ok(a.integrity < 0.99 && a.integrity > hurt,
+    `mended, her integrity is ${a.integrity}: it should come back, but not all the way`);
+  assert.ok(shipSnapshot(a, true).igc < 1000, 'the wire does not say how far she can be mended');
+  // And run down to nothing, she starts going down -- not blown up, not gone.
+  damageShip(state, a, null, a.maxHp * 0.9, 'shell', 'mid');
+  for (const k of SECTIONS) a.sections[k.k].fire = 1;
+  step(state, DT);
+  assert.ok(a.sinking && a.alive, `at ${a.integrity} integrity she is not going down`);
+});
+
+check('a ship that is saved comes back up gradually, not in one tick', () => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'H', classId: 'cleveland', team: 0, index: 0 });
+  openHull(st, her, 'mid', 1.5, 1, 3);
+  for (let i = 0; i < 30 * 15; i++) step(st, DT);
+  startSinking(st, her, 'flooding');
+  her.parties.forEach((_, i) => setParty(her, i, 'pump'));
+  let saved = false;
+  let worst = 0;
+  let prev = her.sink;
+  let deepest = 0;
+  for (let i = 0; i < 30 * 400; i++) {
+    const ev = step(st, DT);
+    worst = Math.max(worst, Math.abs(her.sink - prev));
+    prev = her.sink;
+    deepest = Math.max(deepest, her.sink);
+    if (ev.some((e) => e.e === 'saved' && e.ship === her.id)) saved = true;
+  }
+  assert.ok(saved && !her.sinking && her.alive, 'she was not saved');
+  assert.ok(deepest > 0.3, `she never went down far enough to see her come back (${deepest.toFixed(2)} m)`);
+  assert.ok(worst < 0.03, `she came up ${worst.toFixed(2)} m in one tick`);
+  assert.ok(her.sink < 0.15, `she is still ${her.sink.toFixed(2)} m down long after she was saved`);
 });
 
 check('a ship going down from flooding can be saved by her parties, and steams on', () => {

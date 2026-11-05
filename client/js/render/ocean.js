@@ -557,7 +557,7 @@ void main() {
   // into the backs of the waves. Water scatters green, which is why a wave
   // with the sun behind it glows and the rest of the sea does not.
   float lift = clamp(vCrest / max(uCrest * 1.6, 0.001), -1.0, 1.0);
-  vec3 body = mix(uDeep, uShallow, clamp(lift * 0.5 + 0.5, 0.0, 1.0));
+  vec3 body = mix(uDeep * 0.85, uShallow, smoothstep(-0.9, 1.0, lift));
   float sss = pow(clamp(dot(v, -l) * 0.5 + 0.5, 0.0, 1.0), 3.0)
             * clamp(lift, 0.0, 1.0) * clamp(1.0 - ndv, 0.0, 1.0);
   // Green, not white: what comes back out of the back of a wave has been
@@ -572,13 +572,16 @@ void main() {
   // the wake is a pale green-blue against the dark sea round it -- the colour
   // of the water, lifted, rather than white. The foam on top of it is the
   // white, and there is a good deal less of that than there is of this.
-  vec3 aqua = mix(uShallow * 1.9, white * vec3(0.40, 0.64, 0.62), 0.30);
-  body = mix(body, aqua, aer * 0.52);
+  vec3 aqua = mix(uShallow * 2.1, white * vec3(0.42, 0.70, 0.72), 0.32);
+  body = mix(body, aqua, aer * 0.66);
 
   // The sky it is reflecting: brighter overhead, and the horizon haze low down.
   vec3 r = reflect(-v, n);
-  vec3 sky = mix(uFogColor, uSkyTint, clamp(r.y * 1.8 + 0.15, 0.0, 1.0));
-  vec3 col = mix(body, sky, fres);
+  vec3 sky = mix(uFogColor, uSkyTint, clamp(r.y * 3.2 + 0.22, 0.0, 1.0));
+  // A little under the full mirror: the reflected sky is what washes a sea
+  // out to grey at a glancing angle, and real water a few hundred metres off
+  // still shows the dark blue of its own body through the reflection.
+  vec3 col = mix(body, sky, fres * 0.86);
 
   // ---- the light on it -----------------------------------------------------
   // A rough microfacet lobe rather than a mirror: the sun's disc smeared over
@@ -607,13 +610,17 @@ void main() {
   // height the sea was dappled with cloud -- and as the swell was a lattice,
   // so were they. Now they need a crest that is actually folding, a patch of
   // the fine lace to break in, and a gust to be blowing over it.
-  float breaking = smoothstep(0.30, 0.04, vFold);
+  float breaking = smoothstep(0.32, 0.04, vFold);
   float crest = smoothstep(uCrest * 1.0, uCrest * 1.7, vCrest);
   float lace = onoise(q * 0.061 + vec2(uTime * 0.05, -uTime * 0.03)) * 0.6
              + onoise(q * 0.23 - uTime * 0.04) * 0.4;
+  // And broken up within itself: a whitecap is a spill of streaks and
+  // flecks down the face of the crest, not a flat white patch.
+  float capLace = onoise(q * 0.52 + vec2(uTime * 0.11, uTime * 0.07));
   float foam = clamp(breaking + crest * 0.30, 0.0, 1.0)
-             * smoothstep(0.50, 0.70, lace)
-             * smoothstep(0.30, 0.70, gust);
+             * smoothstep(0.48, 0.70, lace)
+             * smoothstep(0.28, 0.70, gust)
+             * mix(1.0, smoothstep(0.36, 0.62, capLace), clamp(260.0 / max(dcam, 1.0), 0.0, 1.0));
   foam *= clamp(1.0 - dcam / 7000.0, 0.0, 1.0);
 
   // The wake's own white water.
@@ -639,14 +646,23 @@ void main() {
   // paint does and foam does not; folded, its middle contour becomes a ridge,
   // and a threshold on a ridge is a net of threads -- the lace a wake's foam
   // actually breaks up into.
-  float n1 = onoise(q * 0.27 + vec2(uTime * 0.03, -uTime * 0.02));
-  float n2 = onoise(q * 0.93 - uTime * 0.045);
+  // Warped by a coarser noise first, so the foam curls and marbles the way
+  // churned water does instead of lying in a regular net: the eddies off her
+  // screws stir it round as it drifts astern.
+  vec2 warp = vec2(onoise(q * 0.045 + 3.1 + uTime * 0.01), onoise(q * 0.045 - 7.7 - uTime * 0.012)) - 0.5;
+  vec2 qw = q + warp * 30.0 * clamp(wkB * 2.0 + aer, 0.0, 1.0);
+  float n1 = onoise(qw * 0.27 + vec2(uTime * 0.03, -uTime * 0.02));
+  float n2 = onoise(qw * 0.93 - uTime * 0.045);
   float vein = 1.0 - abs(n1 - 0.47) * 2.6;
   float fine = mix(n1 * 0.6 + n2 * 0.4, vein * 0.72 + n2 * 0.28, 0.55);
   float fineLod = clamp(500.0 / max(dcam, 1.0), 0.0, 1.0);
   float thr = mix(0.80, 0.30, wkB);
-  float threads = smoothstep(thr - 0.06, thr + 0.16, fine) * smoothstep(0.02, 0.16, wkB);
-  float wkFoam = mix(wkB * 0.55, threads, fineLod)
+  float threads = smoothstep(thr - 0.06, thr + 0.14, fine) * smoothstep(0.015, 0.12, wkB);
+  // And a finer speckle of bubbles round the threads, so the edge of the
+  // white water is a scatter rather than a line.
+  float speck = smoothstep(0.62, 0.80, onoise(qw * 2.3 + uTime * 0.07)) * smoothstep(0.05, 0.35, wkB) * fineLod;
+  threads = max(threads, speck * 0.6);
+  float wkFoam = mix(wkB * 0.60, threads, fineLod)
                * clamp(1.0 - dcam / 9000.0, 0.0, 1.0);
   // Foam will not form on oil. A whitecap running into a slick stops at the
   // edge of it, and the wash off a ship steaming through one goes out the
@@ -656,7 +672,7 @@ void main() {
   col = mix(col, white, foam * 0.5 * clean);
   // Never quite opaque: even the boil under her counter is broken water with
   // the sea showing through it, and thin foam is half see-through.
-  col = mix(col, white, wkFoam * (0.42 + 0.38 * wkB) * clean);
+  col = mix(col, white, wkFoam * (0.48 + 0.42 * wkB) * clean);
   // And the water a hull is holding off, which has just hit her side and come
   // apart against it: broken white along her plating where the wave struck,
   // in the same threads the wake breaks into, and thinning outward from her.
@@ -782,17 +798,17 @@ export const OCEAN_PRESETS = {
     lightDir: new THREE.Vector3(0.35, 0.42, -1).normalize(),
   },
   dawn: {
-    deep: 0x0b1b25, shallow: 0x22404a, sky: 0x8a7570,
+    deep: 0x0a1c2c, shallow: 0x1f4558, sky: 0x8a7570,
     light: 0xffc98f, specular: 0.9, amp: 2.6, fog: 0.000045, fogColor: 0x3a3f52,
     lightDir: new THREE.Vector3(0.75, 0.18, -0.6).normalize(),
   },
   dusk: {
-    deep: 0x0e202b, shallow: 0x284a55, sky: 0x7d6672,
+    deep: 0x0b2030, shallow: 0x234c60, sky: 0x7d6672,
     light: 0xffd9b3, specular: 0.85, amp: 3.2, fog: 0.00005, fogColor: 0x2f3247,
     lightDir: new THREE.Vector3(-0.6, 0.25, -1).normalize(),
   },
   day: {
-    deep: 0x0b1f2b, shallow: 0x1e4652, sky: 0x9cb4c3,
+    deep: 0x05182e, shallow: 0x144870, sky: 0x86abcf,
     light: 0xffffff, specular: 0.8, amp: 2.4, fog: 0.00004, fogColor: 0x8fadc2,
     lightDir: new THREE.Vector3(0.4, 0.75, -0.5).normalize(),
   },

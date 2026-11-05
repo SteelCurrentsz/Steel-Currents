@@ -403,8 +403,9 @@
       <div class="spec-what" id="spec-what"></div>
       <div class="spec-sub" id="spec-sub"></div>
     </div>
-    <!-- No bar. What she is worth is what her compartments are worth, and that
-         is read off the damage board behind the wrench. -->
+    <!-- Her integrity: every way she has been hurt, added up. The pale end of
+         the track is what she can never be mended back to. Where the damage
+         is stays on the damage board behind the wrench. -->
     <!-- Walking about her in the human view: the stick moves you, a drag
          anywhere else turns your head. -->
     <div class="human-stick" id="human-stick" hidden>
@@ -412,6 +413,13 @@
     </div>
     <div class="ship-plate">
       <div class="name" id="own-name">—</div>
+      <div class="integrity" id="integrity" title="Integrity: structural, flooding, fire and weapon damage together">
+        <div class="integrity-head"><span>INTEGRITY</span><b id="integrity-pct">100%</b></div>
+        <div class="integrity-track">
+          <div class="integrity-lost" id="integrity-lost"></div>
+          <div class="integrity-fill" id="integrity-fill"></div>
+        </div>
+      </div>
       <div class="cond-row" id="cond-row"></div>
       <div class="status-row" id="status-row"></div>
     </div>

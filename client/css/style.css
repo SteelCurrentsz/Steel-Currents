@@ -301,8 +301,35 @@ input[type="range"] { accent-color: var(--red); }
    transom, filled with what is left of it. They have gone: her condition is
    read off the ship herself, on the damage board, where a hole is in a place
    rather than being a number beside a label. What is left here is the one
-   line a bridge messenger would give you.
-   There is no health bar anywhere in the game: a ship is not a number. */
+   line a bridge messenger would give you, under her integrity bar. */
+/* Her integrity: the one bar there is. Every way she has been hurt added
+   up, and the hatched end of the track is the part of her that can never be
+   mended back. Red under a quarter, and pulsing when she is going down on it. */
+.integrity { margin-top: 0.45rem; }
+.integrity-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 0.64rem; letter-spacing: 0.14em; color: var(--steel);
+}
+.integrity-head b { font-size: 0.8rem; color: var(--sand-bright); letter-spacing: 0.06em; }
+.integrity-track {
+  position: relative; height: 7px; margin-top: 0.2rem;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.integrity-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 100%;
+  background: linear-gradient(90deg, #4fb37a, #8fd6a0);
+  transition: width 0.35s ease-out, background-color 0.35s;
+}
+.integrity-lost {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 0;
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0 3px, transparent 3px 6px);
+}
+.integrity.warn .integrity-fill { background: linear-gradient(90deg, #c9a13a, #e8c96a); }
+.integrity.bad .integrity-fill { background: linear-gradient(90deg, #b8332c, #e2574c); }
+.integrity.bad .integrity-head b { color: #ff8a7a; }
+.integrity.sinking .integrity-track { animation: integrity-pulse 1s ease-in-out infinite; }
+@keyframes integrity-pulse { 50% { border-color: #ff5a4c; box-shadow: 0 0 6px #ff5a4c; } }
 .cond-row { display: flex; align-items: center; margin-top: 0.4rem; }
 .cond-row span {
   font-size: 0.66rem; letter-spacing: 0.12em;

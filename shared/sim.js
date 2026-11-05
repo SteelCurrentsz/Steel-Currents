@@ -7369,7 +7369,7 @@ function stepTorpedoes(state, dt) {
         // wrecks is local to where it went off: frames, the plating round it,
         // whatever was standing against that bulkhead. The ship is killed by
         // the water, and the water is what this is really for.
-        damageShip(state, target, owner, tp.damage * 0.28 * (1 - reduction), 'torpedo', hole);
+        damageShip(state, target, owner, tp.damage * 0.28 * TORP_BLAST * (1 - reduction), 'torpedo', hole);
         target.sections[hole].pens++;
         // Four metres under water and against her side, which is where a
         // torpedo goes off and a long way below anything that trains.
@@ -7384,7 +7384,7 @@ function stepTorpedoes(state, dt) {
         // does not close it: that is what the bulges were for.
         const side = lt.x >= 0 ? 1 : -1;
         openHull(state, target, hole,
-          (34 + state.rng() * 30) * (1 - reduction), side, 4 + state.rng() * 2.5);
+          (34 + state.rng() * 30) * TORP_RENT * (1 - reduction), side, 4 + state.rng() * 2.5);
         if (owner) owner.ribbons.torps++;
         state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
         // And the column of water it throws up her side, which is a wave like
@@ -7398,6 +7398,17 @@ function stepTorpedoes(state, dt) {
   }
   state.torps = out;
 }
+
+/**
+ * How hard a torpedo hits, against what it used to.
+ *
+ * One fish was taking a cruiser out of the fight and two were rolling a
+ * battleship over before her parties had reached the hole. The warhead now
+ * wrecks a fifth less of the structure round it and opens a fifth less of her
+ * side, so a torpedo is still the thing that sinks ships -- just not on its own.
+ */
+export const TORP_BLAST = 0.8;
+export const TORP_RENT = 0.8;
 
 // ---------------------------------------------------------------------------
 // Depth charges
@@ -13121,14 +13132,18 @@ function stepFlooding(state, ship, dt) {
   // whichever compartment has most in it, which is where the suctions are led
   // first.
   if (ship.pumping > 0) {
-    let left = pumpRate(cls) * dt;
+    // They come up to speed slowly: the suctions have to be led to the
+    // flooded spaces and the pumps primed before they draw anything like
+    // what they are rated at. See PUMP_SPIN.
+    if (ship.pumping < 1) ship.pumping = Math.min(1, ship.pumping + dt / PUMP_SPIN);
+    let left = pumpRate(cls) * ship.pumping * dt;
     const wet = SECTIONS
       .filter((s) => s.from !== null && ship.sections[s.k].water > 0)
       .sort((a, q) => ship.sections[q.k].water - ship.sections[a.k].water);
     for (const s of wet) {
       if (left <= 0) break;
       const c = ship.sections[s.k];
-      const q = Math.min(c.water, left);
+      const q = Math.min(c.water, left * suction(c, sectionVolume(cls, s.k)));
       c.water -= q;
       left -= q;
       c.inflow = (c.inflow || 0) - q / dt;
@@ -13180,6 +13195,20 @@ function stepFlooding(state, ship, dt) {
   ship.sink = after.sink;
   ship.heel = after.heel;
   ship.trim = after.trim;
+  // Coming back up after she was saved. She does not bob up out of the sea
+  // the moment the last of the danger is past: the water lying on her decks
+  // and in her upper spaces has to run off and be pumped out, so the depth
+  // and the list her going down had put on her come off over the next minute
+  // or so. See saved.
+  if (ship.rising) {
+    const R = ship.rising;
+    const k = Math.exp(-dt / RISE_T);
+    R.sink *= k; R.heel *= k; R.trim *= k;
+    ship.sink += R.sink;
+    ship.heel += R.heel;
+    ship.trim += R.trim;
+    if (Math.abs(R.sink) < 0.02 && Math.abs(R.heel) < 0.002 && Math.abs(R.trim) < 0.001) ship.rising = null;
+  }
   // Her back can go before she does. Once it has, there is no ship: two
   // halves, and neither of them floats for long.
   //
@@ -13295,8 +13324,11 @@ function stepSinking(state, ship, dt) {
   // with nothing more of going down added on.
   if (saved(ship, S, dt)) {
     ship.sinking = null;
-    const b = buoyancy(ship);
-    ship.sink = b.sink; ship.heel = b.heel; ship.trim = b.trim;
+    // Not all at once: what going down had done to her comes off gradually
+    // (see stepFlooding). She stays where she is this tick.
+    const prev = ship.rising || { sink: 0, heel: 0, trim: 0 };
+    ship.rising = { sink: prev.sink + S.down, heel: prev.heel + S.heel, trim: prev.trim + S.trim };
+    ship.sink += S.down; ship.heel += S.heel; ship.trim += S.trim;
     state.events.push({ e: 'saved', ship: ship.id, x: r(ship.x), z: r(ship.z) });
     return;
   }
@@ -13639,6 +13671,106 @@ export function sectionAt(rel, part) {
   return rel > 0 ? 'bow' : 'stern';
 }
 
+/** How long a ship's own pumps take to come up to full speed, in seconds. */
+export const PUMP_SPIN = 40;
+/** How long a party takes to rig and prime a portable pump, in seconds. */
+export const PARTY_SPIN = 20;
+/** How long what going down did to her takes to come off once she is saved, in seconds. */
+export const RISE_T = 22;
+/** How long she has to be held out of danger before she counts as saved, in seconds. */
+export const SAVE_HOLD = 20;
+
+/**
+ * How much of a pump's rating it draws out of a compartment this full.
+ *
+ * A pump draws well while its suction is deep in water and badly once the
+ * level is down round the strum box: the last of the water in a compartment
+ * comes out slowly, which is why pumping a ship out takes a long time and is
+ * never a matter of a few seconds.
+ */
+export function suction(c, vol) {
+  if (!vol) return 1;
+  const full = clamp(c.water / vol, 0, 1);
+  return 0.3 + 0.7 * Math.min(1, full * 5);
+}
+
+// ------------------------------------------------------------- integrity
+
+/** What each kind of damage counts for against her integrity, at its worst. */
+export const INTEGRITY_WEIGHTS = { structure: 0.8, flooding: 0.5, fire: 0.3, weapons: 0.3 };
+/** How much of the integrity she loses she never gets back, whatever is mended. */
+export const INTEGRITY_SCAR = 0.2;
+/** How much integrity she has to be brought back to before she can be saved from going down on it. */
+export const INTEGRITY_SAVE = 0.12;
+
+/**
+ * How much of her is still a ship, nought to one, and what it is made of.
+ *
+ * Not her structure alone: the sum of every way she has been hurt -- her
+ * structure shot away, the sea in her, the fires burning in her and the guns
+ * she has lost. Each counts for its weight at its worst, and the weights add
+ * up to more than one, so a ship hurt every way at once runs out of integrity
+ * well before any one of them has finished her.
+ */
+export function integrityParts(ship) {
+  const cls = shipClass(ship);
+  const structure = clamp(1 - ship.hp / Math.max(1, ship.maxHp), 0, 1);
+  const b = buoyancy(ship);
+  const flooding = clamp(Math.max(1 - b.reserve, 0) * Math.min(1, b.water / Math.max(1, b.free) * 4), 0, 1);
+  let burning = 0;
+  let n = 0;
+  for (const s of SECTIONS) { burning += ship.sections[s.k].fire || 0; n++; }
+  const fire = clamp(burning / Math.max(1, n * 0.35), 0, 1);
+  let worst = 0;
+  let mounts = 0;
+  const count = (list, specs) => {
+    (list || []).forEach((m, i) => {
+      mounts++;
+      worst += gunState(ship, cls, specs ? specs[m.id ?? i] : null, m, true) / 3;
+    });
+  };
+  count(ship.turrets, cls.turrets);
+  if (cls.secondary) count(ship.secMounts, cls.secondary.mounts);
+  for (const m of ship.torpMounts || []) { mounts++; if (m.lost) worst += 1; }
+  const weapons = mounts ? clamp(worst / mounts, 0, 1) : 0;
+  return { structure, flooding, fire, weapons };
+}
+
+/** Her integrity as it stands, before the scar of what she has had done to her. */
+export function rawIntegrity(ship) {
+  const p = integrityParts(ship);
+  const W = INTEGRITY_WEIGHTS;
+  const loss = p.structure * W.structure + p.flooding * W.flooding + p.fire * W.fire + p.weapons * W.weapons;
+  return clamp(1 - loss, 0, 1);
+}
+
+/**
+ * Her integrity, kept up to date, and what happens when it runs out.
+ *
+ * It goes down as she is hurt and comes back up as she is mended, pumped out
+ * and her fires put out -- but never all the way: a part of everything she
+ * loses is gone for good (INTEGRITY_SCAR), and once she has been hurt at all
+ * she is never quite the ship she was. At nought she starts going down; her
+ * parties can still save her, if they get enough of it back in time.
+ */
+function stepIntegrity(state, ship, dt) {
+  // How fast her reserve of buoyancy is coming or going, a share of it a
+  // second: her pumps, her parties and the sea together. Smoothed over a few
+  // seconds, since the sea comes in gulps. See saved.
+  const reserve = buoyancy(ship).reserve;
+  if (ship.reserveWas != null && dt > 0) {
+    const k = 1 - Math.exp(-dt / 3);
+    ship.reserveRate = (ship.reserveRate || 0) + ((reserve - ship.reserveWas) / dt - (ship.reserveRate || 0)) * k;
+  }
+  ship.reserveWas = reserve;
+  const raw = rawIntegrity(ship);
+  if (ship.igCap == null) ship.igCap = 1;
+  const loss = 1 - raw;
+  if (loss > 0.002) ship.igCap = Math.min(ship.igCap, 1 - Math.max(0.01, loss * INTEGRITY_SCAR));
+  ship.integrity = Math.min(raw, ship.igCap);
+  if (ship.alive && !ship.sinking && ship.integrity <= 0) startSinking(state, ship, 'integrity');
+}
+
 /** A fresh set of compartments, all sound. */
 export function freshSections(maxHp) {
   const out = {};
@@ -13955,7 +14087,8 @@ export function useRepair(state, ship) {
   ship.shored = 1;
   for (const sec of SECTIONS) ship.sections[sec.k].fire = 0;
   ship.fires = 0;
-  if (ship.dcStage >= 2) ship.pumping = 1;
+  // The pumps are got going, and come up to speed from nothing.
+  if (ship.dcStage >= 2 && !(ship.pumping > 0)) ship.pumping = 0.02;
   ship.sink = buoyancy(ship).sink;
   ship.flooding = floodedCount(ship);
   ship.engineDamage = 0; ship.steeringDamage = 0;
@@ -14021,7 +14154,7 @@ function partyEffort(ship) {
  * hand in twenty seconds against the seventy its own crew takes.
  */
 const PARTY = {
-  pump: 0.6, // of her own pumpRate, cubic metres a second
+  pump: 0.42, // of her own pumpRate, cubic metres a second, once it is running
   patch: 0.07, // square metres of hole closed a second
   fire: 0.03, // of a compartment's fire put out a second
   hull: 0.0004, // of her full structure put back a second
@@ -14209,6 +14342,10 @@ function stepParties(state, ship, dt) {
   const cls = shipClass(ship);
   const eff = partyEffort(ship);
   let mended = false;
+  // How many parties are already on the pumps in each compartment this tick:
+  // a second portable pump in the same flat shares the same sump and does
+  // less than the first.
+  const onPump = {};
   ship.parties.forEach((p, i) => {
     const job = p.job === 'auto' ? autoJob(ship, cls, i) : p.job;
     const w = job ? partyWork(ship, cls, job) : null;
@@ -14219,6 +14356,8 @@ function stepParties(state, ship, dt) {
       if (!w) { p.lag = 0; p.on = null; return; }
       if (!p.on && (p.lag = (p.lag || 0) + dt) < AUTO_LAG) return;
     }
+    // A party that has moved to something else has to rig its pump again.
+    if (!w || w.on !== p.on) p.spin = 0;
     p.on = w ? w.on : null;
     if (!w) return;
     if (job === 'pump' && w.what === 'trim') {
@@ -14226,7 +14365,12 @@ function stepParties(state, ship, dt) {
       c.cf = Math.min(1, (c.cf || 0) + PARTY.trim * eff * dt);
     } else if (job === 'pump') {
       const c = ship.sections[w.k];
-      const q = Math.min(c.water, partyPump(cls, ship) * dt);
+      // Rigged and primed over the first PARTY_SPIN seconds.
+      p.spin = Math.min(1, (p.spin || 0) + dt / PARTY_SPIN);
+      const n = (onPump[w.k] = (onPump[w.k] || 0) + 1);
+      const share = Math.pow(0.7, n - 1);
+      const q = Math.min(c.water,
+        partyPump(cls, ship) * p.spin * share * suction(c, sectionVolume(cls, w.k)) * dt);
       c.water -= q;
       c.inflow = (c.inflow || 0) - q / dt;
     } else if (job === 'repair') {
@@ -14281,10 +14425,19 @@ function saved(ship, S, dt) {
   if (!working) { S.held = 0; return false; }
   // Held there, not touched for a moment: twenty seconds with her deck edge
   // clear and her list coming off before anybody can call her safe.
+  //
+  // And she has to be gaining on it, not losing: a ship whose deck edge is
+  // clear for a moment with the sea still putting her deeper has not been
+  // saved. Her reserve of buoyancy is what is watched rather than the water
+  // in her, because counter-flooding lets more water in on purpose and is
+  // still the thing that brings her back. Gone down on her integrity alone,
+  // she needs enough of it back to be a ship again.
   const b = buoyancy(ship);
-  const ok = b.reserve >= 0.15 && Math.abs(b.heel) < 0.5;
-  S.held = ok ? (S.held || 0) + dt : 0;
-  return S.held >= 20;
+  const gaining = (ship.reserveRate || 0) >= -0.0015;
+  const whole = S.kind !== 'integrity' || (ship.integrity ?? 1) >= INTEGRITY_SAVE;
+  const ok = b.reserve >= 0.15 && Math.abs(b.heel) < 0.5 && gaining && whole;
+  S.held = ok ? (S.held || 0) + dt : Math.max(0, (S.held || 0) - dt * 2);
+  return S.held >= SAVE_HOLD;
 }
 
 /** How long a stretch of smoke lies on the sea before it has thinned out. */
@@ -14364,6 +14517,7 @@ function stepDamageOverTime(state, ship, dt) {
   stepFires(state, ship, dt);
   stepParties(state, ship, dt);
   stepFlooding(state, ship, dt);
+  stepIntegrity(state, ship, dt);
   if (ship.repairActive > 0) {
     ship.repairActive -= dt;
     // Into her compartments, where the damage actually is: plating over what

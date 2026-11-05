@@ -292,6 +292,8 @@ class HudBase {
     this.world = world;
     this.el = {
       ownName: $('own-name'), condRow: $('cond-row'),
+      integrity: $('integrity'), integrityPct: $('integrity-pct'),
+      integrityFill: $('integrity-fill'), integrityLost: $('integrity-lost'),
       status: $('status-row'),
       targetPlate: $('target-plate'), targetName: $('target-name'),
       shellCam: $('shell-cam'),
@@ -815,6 +817,23 @@ class HudBase {
     if (gone) bits.push(`${gone} compartment${gone === 1 ? '' : 's'} open`);
     if (!bits.length) bits.push(worst >= 99 ? 'sound' : `${worst}%`);
     this.condCount.textContent = bits.join(' · ');
+  }
+
+  /**
+   * Her integrity: structure, flooding, fire and weapons added up, out of a
+   * hundred, and the part of the track she can never get back hatched off.
+   */
+  paintIntegrity(own) {
+    const el = this.el;
+    if (!el.integrity) return;
+    const ig = Math.max(0, Math.min(1000, own.ig ?? 1000)) / 10;
+    const cap = Math.max(0, Math.min(1000, own.igc ?? 1000)) / 10;
+    el.integrityPct.textContent = `${ig < 10 ? ig.toFixed(1) : Math.round(ig)}%`;
+    el.integrityFill.style.width = `${ig}%`;
+    el.integrityLost.style.width = `${100 - cap}%`;
+    el.integrity.classList.toggle('warn', ig < 55 && ig >= 25);
+    el.integrity.classList.toggle('bad', ig < 25);
+    el.integrity.classList.toggle('sinking', own.sn != null);
   }
 
   /** Whatever panel is up, showing the state it is a control for. */
@@ -2461,6 +2480,7 @@ class HudBase {
     // Her condition, in a line: how many holes are in her and how much of her
     // is open. Where they are is on the board, drawn on the ship.
     this.paintCondition(own.sec);
+    this.paintIntegrity(own);
 
     const chips = [];
     if (own.f) chips.push(`<span class="status-chip fire">FIRE ×${own.f}</span>`);

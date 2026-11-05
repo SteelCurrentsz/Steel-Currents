@@ -207,6 +207,10 @@ export function shipSnapshot(ship, full, state = null) {
     // The bridge has to know, because the first call-away only buys her time
     // and it is the second that starts taking the water out of her.
     s.dc = Math.min(2, ship.dcStage || 0);
+    // Her integrity, in tenths of a per cent, and the most of it she can ever
+    // be brought back to. See stepIntegrity.
+    s.ig = Math.round((ship.integrity ?? 1) * 1000);
+    s.igc = Math.round((ship.igCap ?? 1) * 1000);
     // The depth charge gear, for the bridge that works it: how many charges
     // are left in the stowage, what the pistols are wound to, how long each
     // rack and thrower has to go, and whether her own anti-submarine officer
@@ -238,7 +242,7 @@ export function shipSnapshot(ship, full, state = null) {
     // side is told: it is an intention, and intentions are not visible to the
     // enemy through a pair of binoculars.
     // Her compartments: what is left of each, and how many holes are in it.
-    // This is what a captain reads her condition off now -- there is no bar.
+    // This is where her damage is; her integrity (above) is how much of it.
     s.sec = SECTIONS.map((k) => {
       const c = ship.sections[k.k];
       return [Math.round((c.hp / c.max) * 100), c.pens];
