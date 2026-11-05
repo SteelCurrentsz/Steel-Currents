@@ -188,7 +188,11 @@ console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SC
 // (gm078, "monogramm"): it is taken off her, and she carries no device of
 // anybody's.
 {
-  const keep = (t) => !/monogramm/i.test(j.nodes[model.L[t]].name || '');
+  // And the grilles the model drew as one sheet with a see-through texture
+  // over it (c005_grid_2_alpha) over the vent at the after end of her forward
+  // superstructure, which the fleet's plating has no way to see
+  // through and drew as blocks of black.
+  const keep = (t) => !/monogramm|midfront_c005_grid_2_alpha/i.test(j.nodes[model.L[t]].name || '');
   const T2 = [], G2 = [], L2 = [], M2 = [];
   let gone = 0;
   for (let t = 0; t < model.T.length / 3; t++) {
@@ -198,7 +202,81 @@ console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SC
   }
   if (!gone) throw new Error('no emblem on her stern to take off');
   model.T = T2; model.G = G2; model.L = L2; model.M = M2;
-  console.log(`markings: ${gone} faces of her stern emblem taken off`);
+  console.log(`markings: ${gone} faces of her stern emblem and her black grilles taken off`);
+}
+
+// ---- her waist, open to the sky -------------------------------------------------------
+// The model carries a boat deck across her waist between her forward and
+// after superstructures: a planked platform on girders over her upper deck,
+// stowed with her admiral's gig, two launches and four long boats, the gig and
+// the launches running on forward on their chocks over the roof of her
+// forward superstructure. All of it is taken off her -- the boats, their
+// chocks, the platform and what held it up -- and her
+// waist is left open from her upper deck to the sky, her catapult athwart it
+// and her cranes over it as they were.
+let SLOT_V = -1;
+const WAIST = { x: 6.0, z0: -25.4, z1: -11.6, y0: 6.7, y1: 16 };
+// The chocks the gig and the launches sat in, on that roof.
+const CHOCKS = { x: 4.6, z0: -10.3, z1: -4.8, y0: 12.15, y1: 13.0 };
+{
+  const BOATS = /admiral_gig|lauch_11m|long_boat_8m|^gm501\d*_transparent_glass/;
+  const KEEP = /catapult|crane/;
+  const P = model.P;
+  const T2 = [], G2 = [], L2 = [], M2 = [];
+  let boats = 0, deck = 0;
+  for (let t = 0; t < model.T.length / 3; t++) {
+    const name = j.nodes[model.L[t]].name || '';
+    const a = model.T[t * 3], b = model.T[t * 3 + 1], c = model.T[t * 3 + 2];
+    const cx = (P[a * 3] + P[b * 3] + P[c * 3]) / 3, cy = (P[a * 3 + 1] + P[b * 3 + 1] + P[c * 3 + 1]) / 3, cz = (P[a * 3 + 2] + P[b * 3 + 2] + P[c * 3 + 2]) / 3;
+    // Her boats, wherever their keels are -- the gig and the launches run on
+    // forward over the roof of her forward superstructure.
+    const boat = BOATS.test(name) && cz > WAIST.z0 - 1 && cz < WAIST.z1 + 7;
+    const over = !KEEP.test(name) && Math.abs(cx) < WAIST.x && cz > WAIST.z0 && cz < WAIST.z1 && cy > WAIST.y0 && cy < WAIST.y1;
+    const chock = /^GSC022_Siegfried_1945_midfront/.test(name) && Math.abs(cx) < CHOCKS.x
+      && cz > CHOCKS.z0 && cz < CHOCKS.z1 && cy > CHOCKS.y0 && cy < CHOCKS.y1;
+    if (boat || chock) { boats++; continue; }
+    // And the stanchions and stubs of its rails and girders left standing
+    // where it met her superstructures: anything slight there.
+    const stub = /^GSC022_Siegfried_1945_mid/.test(name) && Math.abs(cx) < WAIST.x + 0.5
+      && cz > WAIST.z0 - 0.25 && cz < WAIST.z1 + 0.3 && cy > WAIST.y0 + 0.05 && cy < 12.5 && triArea(P, model.T, t) < 0.12;
+    if (stub) { deck++; continue; }
+    if (over) { deck++; continue; }
+    T2.push(a, b, c); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]);
+  }
+  if (!boats || !deck) throw new Error('no boat deck across her waist to take off');
+  model.T = T2; model.G = G2; model.L = L2; model.M = M2;
+  // Where the boat deck ran into the after end of her forward superstructure
+  // it leaves a slot open into her: it is plated over, flush with that end,
+  // in the paint of the plating round it.
+  {
+    const SLOT = { x: 5.4, y0: 6.6, y1: 12.15, z: -11.62 };
+    let src = -1, best = Infinity;
+    for (let t = 0; t < T2.length / 3; t++) {
+      if (!/^GSC022_Siegfried_1945_midfront_gsc022_siegfried_1945_deckhouse/.test(j.nodes[L2[t]].name || '')) continue;
+      const v = [T2[t * 3], T2[t * 3 + 1], T2[t * 3 + 2]];
+      const c = [0, 1, 2].map((d) => (P[v[0] * 3 + d] + P[v[1] * 3 + d] + P[v[2] * 3 + d]) / 3);
+      if (Math.abs(c[0]) > SLOT.x || c[1] < 7 || c[1] > 9.5) continue;
+      const ux = P[v[1] * 3] - P[v[0] * 3], uy = P[v[1] * 3 + 1] - P[v[0] * 3 + 1], uz = P[v[1] * 3 + 2] - P[v[0] * 3 + 2];
+      const wx = P[v[2] * 3] - P[v[0] * 3], wy = P[v[2] * 3 + 1] - P[v[0] * 3 + 1], wz = P[v[2] * 3 + 2] - P[v[0] * 3 + 2];
+      const nz = ux * wy - uy * wx, l = Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, nz);
+      if (!(l > 0) || Math.abs(nz) < 0.9 * l) continue;
+      const d = Math.abs(c[2] - SLOT.z);
+      if (d < best) { best = d; src = t; }
+    }
+    if (src < 0 || best > 1.5) throw new Error('no end to her forward superstructure to plate the slot in');
+    const U = model.UV;
+    const uv = [0, 1].map((k) => (U[T2[src * 3] * 2 + k] + U[T2[src * 3 + 1] * 2 + k] + U[T2[src * 3 + 2] * 2 + k]) / 3);
+    const base = P.length / 3;
+    SLOT_V = base;
+    for (const [x, y] of [[-SLOT.x, SLOT.y0], [SLOT.x, SLOT.y0], [SLOT.x, SLOT.y1], [-SLOT.x, SLOT.y1]]) {
+      P.push(x, y, SLOT.z); model.N.push(0, 0, -1); U.push(uv[0], uv[1]);
+    }
+    // Facing aft, out into her waist.
+    for (const q of [[0, 3, 2], [0, 2, 1]]) {
+      T2.push(base + q[0], base + q[1], base + q[2]); G2.push(G2[src]); L2.push(L2[src]); M2.push(M2[src]);
+    }
+  }
+  console.log(`waist: ${boats} faces of her boats and their chocks and ${deck} of the boat deck over her waist taken off`);
 }
 
 // ---- her shell ------------------------------------------------------------------------
@@ -353,6 +431,41 @@ for (let t = 0; t < nTri; t++) {
     }
   }
   rgb[t * 3] = c[0]; rgb[t * 3 + 1] = c[1]; rgb[t * 3 + 2] = c[2];
+}
+// What the boat deck hid, in the grey of the rest of her superstructure: the
+// model painted the end of her forward superstructure under it near black,
+// as in its shadow -- and the plate over the slot is the same end. Their paint is the mean of the upright
+// faces of her superstructure's flanks, abreast her waist.
+{
+  const P = model.P;
+  const mid = (t) => [0, 1, 2].map((d) => (P[model.T[t * 3] * 3 + d] + P[model.T[t * 3 + 1] * 3 + d] + P[model.T[t * 3 + 2] * 3 + d]) / 3);
+  const upright = (t) => {
+    const v = [model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]];
+    const ux = P[v[1] * 3] - P[v[0] * 3], uy = P[v[1] * 3 + 1] - P[v[0] * 3 + 1], uz = P[v[1] * 3 + 2] - P[v[0] * 3 + 2];
+    const wx = P[v[2] * 3] - P[v[0] * 3], wy = P[v[2] * 3 + 1] - P[v[0] * 3 + 1], wz = P[v[2] * 3 + 2] - P[v[0] * 3 + 2];
+    const ny = uz * wx - ux * wz, l = Math.hypot(uy * wz - uz * wy, ny, ux * wy - uy * wx);
+    return l > 0 && Math.abs(ny) < 0.2 * l;
+  };
+  const house = (t) => /^GSC022_Siegfried_1945_midfront/.test(j.nodes[model.L[t]].name || '');
+  const acc = [0, 0, 0];
+  let w = 0;
+  const hidden = [];
+  for (let t = 0; t < nTri; t++) {
+    if (!house(t)) continue;
+    const v = [model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]];
+    const c = mid(t);
+    const plate = v.every((i) => i >= SLOT_V && i < SLOT_V + 4);
+    const end = Math.abs(c[0]) < 5.6 && c[1] > 6.7 && c[1] < 14.6 && Math.abs(c[2] + 11.5) < 0.6 && upright(t);
+    if (plate || end) { hidden.push(t); continue; }
+    if (Math.abs(c[0]) > 6 && c[1] > 8 && c[1] < 14 && c[2] > -11 && c[2] < 10 && upright(t)) {
+      const a = triArea(P, model.T, t);
+      for (let k = 0; k < 3; k++) acc[k] += rgb[t * 3 + k] * a;
+      w += a;
+    }
+  }
+  if (!(w > 0) || hidden.length < 3) throw new Error('nothing of her under the boat deck to paint');
+  for (const t of hidden) for (let k = 0; k < 3; k++) rgb[t * 3 + k] = acc[k] / w;
+  console.log(`waist: ${hidden.length} faces the boat deck hid painted ${acc.map((v) => Math.round(toSrgb(v / w) * 255)).join(',')}`);
 }
 // Her shell, one paint over her waterline and one under it: each the mean of
 // what the atlas painted there.
