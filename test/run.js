@@ -57,7 +57,7 @@ import {
   Pilot, AERO, HEAVY_AERO, alphaFor, flightAttitude, weathercock,
   rollRate, rollTau, pitchTau, instruct,
 } from '../client/js/render/aero.js';
-import { twoFingerGesture } from '../client/js/touch.js';
+import { twoFingerGesture, TouchControls } from '../client/js/touch.js';
 import { startManeuver, flyManeuver, pathOf } from '../shared/pilot.js';
 import { suiseiGeometries, SUISEI, SUISEI_SEGS, SUISEI_PARTS } from '../client/js/render/suiseiModel.js';
 import { Bombs, bombScale } from '../client/js/render/ordnance.js';
@@ -19820,6 +19820,51 @@ check('a raked mounting stops firing, and its crew get it back', () => {
   const later = aaBearing(cls, bb, at.x, at.z, at.y);
   assert.equal(later.barrels, before.barrels,
     'three quarters of a minute on and her mountings are still not back');
+});
+
+check('a finger whose lift was never heard does not leave the camera only zooming', () => {
+  // The look pad keeps the fingers it thinks are down. One it never heard
+  // come off the glass made every drag after it two-fingered: a pinch, so the
+  // camera zoomed and would not turn. A first finger down -- the primary one,
+  // with no other on the glass -- starts the pad afresh.
+  const had = { window: globalThis.window, document: globalThis.document };
+  globalThis.window = { addEventListener() {} };
+  globalThis.document = { addEventListener() {}, hidden: false };
+  try {
+    const on = {};
+    const zone = {
+      addEventListener: (t, f) => { on[t] = f; },
+      setPointerCapture() {}, releasePointerCapture() {},
+    };
+    let look = 0, wheel = 0;
+    const input = { addLook: (dx, dy) => { look += Math.abs(dx) + Math.abs(dy); }, addPan() {},
+      emit: (t) => { if (t === 'wheel') wheel++; } };
+    const tc = Object.create(TouchControls.prototype);
+    tc.input = input;
+    tc.bindLook(zone);
+    const ev = (id, x, y, primary) => ({ pointerId: id, clientX: x, clientY: y, isPrimary: primary, preventDefault() {} });
+    // A finger down and never up: its lift was lost.
+    on.pointerdown(ev(1, 100, 100, true));
+    // Then a fresh finger on the glass, dragged across it.
+    on.pointerdown(ev(2, 300, 300, true));
+    for (let i = 1; i <= 10; i++) on.pointermove(ev(2, 300 + i * 12, 300, true));
+    assert.ok(look > 100, `the drag turned the camera by only ${look} px`);
+    assert.equal(wheel, 0, 'a one-fingered drag zoomed the camera');
+    // A real second finger still pinches.
+    on.pointerdown(ev(3, 500, 300, false));
+    for (let i = 1; i <= 6; i++) on.pointermove(ev(3, 500 + i * 15, 300, false));
+    assert.ok(wheel > 0, 'two fingers spreading no longer zoom');
+    // And taking the pad away under a finger forgets it.
+    tc.root = { hidden: false };
+    tc.hide();
+    look = 0; wheel = 0;
+    on.pointerdown(ev(4, 200, 200, false));
+    for (let i = 1; i <= 6; i++) on.pointermove(ev(4, 200 + i * 12, 200, false));
+    assert.ok(look > 50 && wheel === 0, 'a finger left on the pad when it was hidden still made drags pinch');
+  } finally {
+    globalThis.window = had.window;
+    globalThis.document = had.document;
+  }
 });
 
 check('zooming while you are watching somebody does not let go of her', () => {

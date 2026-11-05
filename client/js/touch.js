@@ -57,8 +57,15 @@ export class TouchControls {
     // the gesture -- see below for why deciding it fresh on every move event
     // is not good enough.
     let twoUp = null;
+    const clear = () => { active.clear(); pinch = 0; twoUp = null; };
+    this.clearLook = clear;
     zone.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      // The first finger down on the glass, with no other on it: whatever the
+      // pad still thinks is down is a finger whose lift it never heard. Left
+      // there, it made every drag after it a two-fingered one -- a pinch that
+      // only zoomed, and a camera that would not turn.
+      if (e.isPrimary) clear();
       try { zone.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
       active.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (active.size === 2) {
@@ -117,7 +124,10 @@ export class TouchControls {
     // the pad convinced two fingers are still down, and every drag after it
     // would be read as a pinch that never moves.
     zone.addEventListener('lostpointercapture', end);
-    window.addEventListener('blur', () => { active.clear(); pinch = 0; twoUp = null; });
+    window.addEventListener('blur', clear);
+    // Nor does a finger on the pad when the app goes into the background, or
+    // when the pad is taken away under it (see hide).
+    document.addEventListener('visibilitychange', () => { if (document.hidden) clear(); });
   }
 
   // -- engine telegraph -----------------------------------------------------
@@ -132,6 +142,7 @@ export class TouchControls {
 
   hide() {
     if (!this.root) return;
+    this.clearLook?.();
     this.root.hidden = true;
     this.visible = false;
   }
