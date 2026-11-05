@@ -345,9 +345,10 @@ const num = (n) => n.toLocaleString('en-US');
 /** Inch guns for the navies that ordered them that way, millimetres for the
  *  ones that did not. The Kriegsmarine and the Imperial Japanese Navy both
  *  ordered in centimetres, so neither of them gets an inch figure: a Yamato's
- *  main battery is a forty-six, not an eighteen-inch. */
+ *  main battery is a forty-six, not an eighteen-inch. The Regia Marina ordered
+ *  in millimetres. */
 function gunLabel(caliber, nation) {
-  if (nation === 'ger' || nation === 'jpn' || nation === 'fra' || nation === 'sov' || caliber < 100) return `${caliber}mm`;
+  if (nation === 'ger' || nation === 'jpn' || nation === 'fra' || nation === 'sov' || nation === 'ita' || caliber < 100) return `${caliber}mm`;
   const inches = caliber / 25.4;
   const shown = Math.abs(inches - Math.round(inches)) < 0.06
     ? Math.round(inches) : inches.toFixed(1);

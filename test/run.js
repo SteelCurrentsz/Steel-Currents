@@ -151,6 +151,10 @@ import {
 } from '../client/js/render/hagen.js';
 import { hagenSurfaceY, MOUNT_SEATS as HAGEN_SEATS, buildHagenHull, hagenMaterials } from '../client/js/render/hagenHull.js';
 import {
+  buildMorosini, shellAt as morosiniShellAt, keelY as morosiniKeel, deckOver as morosiniSheer, zAt as morosiniZAt,
+} from '../client/js/render/morosini.js';
+import { morosiniSurfaceY, MOUNT_SEATS as MOROSINI_SEATS } from '../client/js/render/morosiniHull.js';
+import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
 } from '../client/js/render/kongo.js';
@@ -3040,6 +3044,88 @@ check('the Credits screen credits the model the Hagen is drawn from', () => {
   assert.ok(screen.includes('The Third Reich Navy large cruiser HAGEN'), 'the model is not credited');
   assert.ok(screen.includes('https://skfb.ly/oHuvB') && screen.includes('全斗焕')
     && screen.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
+});
+
+check('the RN Morosini is commissioned before the Richelieu, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('morosini');
+  assert.ok(i >= 0, 'the Morosini is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'richelieu', `after the Morosini comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.morosini;
+  assert.equal(cls.fullName, 'RN Morosini');
+  assert.equal(cls.type, 'BB', 'she is not a battleship');
+  assert.equal(cls.nation, 'ita');
+  // 457 mm main guns, 135 mm and 90 mm secondaries.
+  assert.equal(cls.gun.caliber, 457);
+  assert.equal(cls.secondary.caliber, 135);
+  assert.equal(cls.datasheet.secondary.caliber, 135);
+  assert.ok(cls.aa.guns.some((g) => g.caliber === 90 && g.role === 'dp'), 'she has no 90 mm');
+  assert.ok(cls.datasheet.tertiary.some((g) => g.caliber === 90), 'her datasheet has no 90 mm');
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'X', 'Y']);
+  assert.equal(cls.turrets.reduce((n, t) => n + t.guns, 0), 8);
+  const built = buildMorosini();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every mounting stands where the model stood it, on her.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(MOROSINI_SEATS)) {
+    for (const st of list) {
+      const top = morosiniSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+    }
+  }
+});
+
+check("the Morosini's shell has no holes in it", () => {
+  const built = buildMorosini();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = morosiniSheer(t);
+    for (let y = morosiniKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = morosiniShellAt(t, y);
+      if (w < 0.35) continue;
+      if (morosiniZAt(t) < -70 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, morosiniZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > morosiniKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1200, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Morosini is drawn from, after the Hagen', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('Italian Battleship Francesco Morosini');
+  assert.ok(at >= 0, 'the model is not credited');
+  assert.ok(at > screen.indexOf('The Third Reich Navy large cruiser HAGEN'), 'the Morosini is not credited below the Hagen');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/osPxN') && credit.includes('全斗焕')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
 });
 
 check('the RF Sovetsky Soyuz is commissioned after the KMS Tirpitz, armed as she was designed', () => {

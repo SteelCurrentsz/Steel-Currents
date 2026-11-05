@@ -1757,6 +1757,145 @@ export const SHIP_CLASSES = {
     },
   },
 
+  morosini: {
+    // RN Francesco Morosini, a battleship of the Regia Marina on the lines of
+    // the Caracciolo class -- the four fast battleships laid down in 1914 and
+    // 1915 and never finished, the Morosini among them -- here completed as
+    // the owner asked: eight 457 mm in four twin turrets, A and B forward with
+    // B superfiring, X superfiring over Y aft; sixteen 135 mm in eight twins,
+    // four a side; thirty-two 90 mm in sixteen twins down her upper deck; and
+    // 37 mm Breda twins on her forecastle and her quarterdeck. She wears a
+    // dazzle down her sides and the red and white stripes Italian ships wore
+    // on their forecastles, for their own aircraft to know them by.
+    //
+    // She is drawn from the owner's model of her (see morosini.js) --
+    // "Italian Battleship Francesco Morosini" by 全斗焕, under Creative Commons
+    // Attribution 4.0, credited on the Credits screen -- brought up to the
+    // Caracciolos' 212 m over all, which makes her 30.7 across, floated at
+    // 7.9 m.
+    id: 'morosini',
+    name: 'Morosini',
+    fullName: 'RN Morosini',
+    className: 'Caracciolo',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'ita',
+    blurb: 'Eight 457 mm guns in four twin turrets on a fast Italian hull, in dazzle, her forecastle striped for her own airmen.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 10.5, 22.0], [0, -8, 21.2]], length: 212, beam: 30.7, draft: 7.9, superstructure: 1.4 },
+    hp: 70500,
+    // Twenty-eight knots, out of four shafts: the Caracciolos were to be fast
+    // battleships, and she turns like one of her length.
+    maxSpeed: 28 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.42,
+    turnRate: 0.055,
+    rudderShift: 12.5,
+    speedLossInTurn: 0.18,
+    concealment: 15000,
+    fireDetectPenalty: 6400,
+    radarRange: 11000,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // 300 mm of belt over her citadel and 150 mm of armour deck behind it, and
+    // 60 mm at her ends.
+    armor: { belt: 300, deck: 150, citadel: 300, bow: 60, superstructure: 30 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, X superfiring over Y on
+      // her quarterdeck, both facing astern, each where the model stood it
+      // (see build/prepare-morosini-hull.mjs).
+      { id: 0, name: 'A', x: -0.001, z: 54.681, angle: 0, arc: 2.6, guns: 2, my: 6.9 },
+      { id: 1, name: 'B', x: -0.001, z: 38.606, angle: 0, arc: 2.6, guns: 2, my: 9.58 },
+      { id: 2, name: 'X', x: -0.001, z: -34.114, angle: 3.14, arc: 2.6, guns: 2, my: 9.58 },
+      { id: 3, name: 'Y', x: -0.001, z: -57.572, angle: -3.14, arc: 2.6, guns: 2, my: 6.85 },
+    ],
+    gun: {
+      name: '457 mm/45', role: 'surface',
+      // Five below the horizontal to thirty-five up.
+      elev: { min: -0.087, max: 0.611 },
+      // Pivot to muzzle on the model's turret.
+      reach: 15.87,
+      // A shell of a tonne and a quarter at 800 m/s: the heaviest broadside
+      // of her tier, and the slowest to load.
+      caliber: 457, reload: 30, traverse: 0.07, range: 23000, sigma: 1.35,
+      shells: shells(457, 15200, 7100, 740, 800, 0.25),
+    },
+    torpedoes: null,
+    // Her 135 mm/45 twins, four a side: a pair abreast B, a pair abreast her
+    // after funnel trained out, and two pairs abreast X, trained aft.
+    secondary: {
+      name: '135 mm/45 OTO 1937', role: 'surface',
+      elev: { min: -0.087, max: 0.785 },
+      reach: 6.21,
+      caliber: 135, reload: 6, traverse: 0.17, range: 14000, sigma: 1.35,
+      shells: shells(135, 2500, 2000, 125, 825, 0.09),
+      mounts: [
+        { x: 11.376, z: 25.904, angle: 1.2, arc: 1.8, rest: 0, guns: 2, my: 6.05 },
+        { x: -11.821, z: 25.904, angle: -1.2, arc: 1.8, rest: 0, guns: 2, my: 6.05 },
+        { x: 10.87, z: -0.76, angle: 1.57, arc: 1.8, rest: 0.524, guns: 2, my: 5.98 },
+        { x: -11.315, z: -0.76, angle: -1.57, arc: 1.8, rest: -0.524, guns: 2, my: 5.98 },
+        { x: -10.518, z: -36.412, angle: -1.94, arc: 1.8, rest: -Math.PI, guns: 2, my: 6.05 },
+        { x: 10.073, z: -36.412, angle: 1.94, arc: 1.8, rest: Math.PI, guns: 2, my: 6.05 },
+        { x: -11.499, z: -44.374, angle: -1.94, arc: 1.8, rest: -Math.PI, guns: 2, my: 4.38 },
+        { x: 11.054, z: -44.374, angle: 1.94, arc: 1.8, rest: Math.PI, guns: 2, my: 4.38 },
+      ],
+    },
+    aa: {
+      range: 6000, dps: 115,
+      guns: [
+        // Her 90 mm/50 twins in their turrets, eight a side down her upper
+        // deck between B and X.
+        { name: '90 mm/50 Ansaldo 1939', caliber: 90, role: 'dp', reload: 3.5, range: 6500,
+          elev: { min: -0.05, max: 1.31 },
+          mounts: [
+            { x: -9.126, z: 19.544, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 9.213, z: 19.544, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -9.92, z: 15.13, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.008, z: 15.13, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -10.599, z: 10.522, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.686, z: 10.522, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -10.55, z: 5.905, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.621, z: 5.905, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -10.55, z: -7.282, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.621, z: -7.282, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -10.55, z: -11.936, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.686, z: -11.936, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -9.872, z: -16.544, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 10.008, z: -16.544, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+            { x: -9.077, z: -20.958, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 2, my: 8.01 },
+            { x: 9.213, z: -20.958, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 2, my: 8.01 },
+          ] },
+        // Her 37 mm/54 Breda twins: a pair at the eyes of her forecastle,
+        // three abreast A and B, and one on her quarterdeck.
+        { name: '37 mm/54 Breda 1932', caliber: 37, role: 'aa', reload: 0.4, range: 3500,
+          elev: { min: -0.17, max: 1.4 },
+          mounts: [
+            { x: -5.904, z: 65.79, angle: -1.57, arc: 2.6, rest: Math.PI, guns: 2, my: 5.78 },
+            { x: 5.905, z: 65.79, angle: 1.57, arc: 2.6, rest: Math.PI, guns: 2, my: 5.78 },
+            { x: -8.224, z: 48.736, angle: -1.57, arc: 2.6, rest: 2.374, guns: 2, my: 5.48 },
+            { x: 8.252, z: 48.709, angle: 1.57, arc: 2.6, rest: -2.339, guns: 2, my: 5.48 },
+            { x: 8.711, z: 44.893, angle: 1.57, arc: 2.6, rest: -2.339, guns: 2, my: 5.46 },
+            { x: 7.342, z: -79.817, angle: 1.57, arc: 2.6, rest: -0.052, guns: 2, my: 3.74 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 34000,
+      aircraft: 0,
+      mainRounds: 640,
+      secondary: { caliber: 135, label: '135mm', barrels: 16, rounds: 3200 },
+      tertiary: [
+        { caliber: 90, label: '90mm', barrels: 32, rounds: 9600 },
+        { caliber: 37, label: '37mm', barrels: 12, rounds: 24000 },
+      ],
+    },
+  },
+
+
   richelieu: {
     // Richelieu, the first of the two: eight 380 mm in two quadruple turrets,
     // both of them forward of her tower, so that her whole main battery bore
@@ -8666,7 +8805,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
-  'surcouf', 'sboat', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shinano'];
 
 export function getClass(id) {
