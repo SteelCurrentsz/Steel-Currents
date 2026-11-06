@@ -63,14 +63,38 @@ const BIG = 1;
 // Her eight 15 cm, four a side: a pair abreast her tower stowed ahead, a pair
 // abaft her funnel stowed astern.
 const PANZER_SEC = [
-  { x: -7.904, z: 19.891, angle: -1.571, arc: 1.5, rest: -0.0017, guns: 1, my: 6.92 },
-  { x: 7.911, z: 19.891, angle: 1.571, arc: 1.5, rest: -0.0017, guns: 1, my: 6.92 },
-  { x: -8.865, z: 13.3, angle: -1.571, arc: 1.5, rest: -0.1077, guns: 1, my: 6.92 },
-  { x: 8.875, z: 13.299, angle: 1.571, arc: 1.5, rest: 0.104, guns: 1, my: 6.92 },
-  { x: -8.942, z: -7.122, angle: -1.571, arc: 1.5, rest: -3.0435, guns: 1, my: 6.83 },
-  { x: 8.932, z: -7.122, angle: 1.571, arc: 1.5, rest: 3.0409, guns: 1, my: 6.83 },
-  { x: -7.825, z: -14.122, angle: -1.571, arc: 1.5, rest: 3.141, guns: 1, my: 6.75 },
-  { x: 7.817, z: -14.122, angle: 1.571, arc: 1.5, rest: 3.1399, guns: 1, my: 6.75 },
+  { x: -7.904, z: 19.891, angle: -1.34, arc: 1.4, rest: -0.0017, guns: 1, my: 6.92 },
+  { x: 7.911, z: 19.891, angle: 1.33, arc: 1.4, rest: -0.0017, guns: 1, my: 6.92 },
+  { x: -8.865, z: 13.3, angle: -1.42, arc: 1.29, rest: -0.1077, guns: 1, my: 6.92 },
+  { x: 8.875, z: 13.299, angle: 1.41, arc: 1.29, rest: 0.104, guns: 1, my: 6.92 },
+  { x: -8.942, z: -7.122, angle: -1.84, arc: 1.23, rest: -3.0435, guns: 1, my: 6.83 },
+  { x: 8.932, z: -7.122, angle: 1.84, arc: 1.23, rest: 3.0409, guns: 1, my: 6.83 },
+  { x: -7.825, z: -14.122, angle: -1.83, arc: 1.43, rest: 3.141, guns: 1, my: 6.75 },
+  { x: 7.817, z: -14.122, angle: 1.83, arc: 1.43, rest: 3.1399, guns: 1, my: 6.75 },
+];
+// Where each 15 cm has to be laid up to clear her, and where it cannot fire
+// low: the Spee's and the Scheer's differ, because the Scheer's roof and deck
+// flak stands in the way of some of her bearings. Surveyed off the model.
+const cleared = (list, clear) => list.map((m, i) => ({ ...m, ...clear[i] }));
+const SPEE_SEC_CLEAR = [
+  { lift: [[-2.75, -2.69, 0.175], [-2.7, -2.67, 0.07]], mask: [[-2.75, -2.71, 0.175], [-2.72, -2.69, 0.07], [-0.03, 0.03, -0.017], [0.02, 0.08, 0]] },
+  { lift: [[2.67, 2.7, 0.07], [2.69, 2.75, 0.175]], mask: [[-0.08, -0.02, 0], [-0.03, 0.03, -0.017], [2.69, 2.72, 0.07], [2.71, 2.75, 0.175]] },
+  {},
+  {},
+  {},
+  {},
+  { lift: [[-0.47, -0.44, 0.044], [-0.45, -0.39, 0.175]], mask: [[3.01, 3.05, 0.14], [3.04, 3.07, 0.07], [3.06, 3.09, 0.018], [3.13, -3.09, 0], [-3.1, -3.06, -0.008], [-0.45, -0.42, 0.044], [-0.43, -0.39, 0.175]] },
+  { lift: [[0.39, 0.45, 0.175], [0.44, 0.47, 0.044]], mask: [[0.39, 0.43, 0.175], [0.42, 0.45, 0.044], [3.06, 3.1, -0.008], [3.09, -3.13, 0], [-3.09, -3.06, 0.018], [-3.07, -3.04, 0.07], [-3.05, -3.01, 0.14]] },
+];
+const SCHEER_SEC_CLEAR = [
+  { lift: [[-2.75, -2.69, 0.175], [-2.7, -2.67, 0.07]], mask: [[-2.75, -2.71, 0.175], [-2.72, -2.69, 0.07], [-0.1, 0.01, 0], [0, 0.05, 0.018], [0.04, 0.08, 0.027]] },
+  { lift: [[2.67, 2.7, 0.07], [2.69, 2.75, 0.175]], mask: [[-0.08, -0.04, 0.027], [-0.05, 0, 0.018], [-0.01, 0.1, 0], [2.69, 2.72, 0.07], [2.71, 2.75, 0.175]] },
+  {},
+  {},
+  {},
+  {},
+  { lift: [[3.01, 3.09, 0.105], [3.08, 3.12, 0.088], [3.11, 3.14, 0.018], [3.13, -3.11, 0.009], [-3.12, -3.09, 0.027], [-3.1, -2.99, 0.053], [-3, -2.97, 0.027], [-2.98, -2.95, 0], [-0.47, -0.44, 0.044], [-0.45, -0.39, 0.175]], mask: [[3.01, 3.09, 0.14], [3.08, 3.1, 0.088], [3.09, 3.12, 0.035], [3.11, 3.14, 0.027], [3.13, -3.13, 0.009], [-3.14, -3.11, 0.018], [-3.12, -3.08, 0.027], [-3.09, -3.01, 0.053], [-3.02, -2.99, 0.027], [-3, -2.97, 0], [-0.45, -0.42, 0.044], [-0.43, -0.39, 0.175]] },
+  { lift: [[0.39, 0.45, 0.175], [0.44, 0.47, 0.044], [2.95, 2.98, 0], [2.97, 3, 0.027], [2.99, 3.1, 0.053], [3.09, 3.12, 0.027], [3.11, -3.13, 0.009], [-3.14, -3.11, 0.018], [-3.12, -3.08, 0.088], [-3.09, -3.01, 0.105]], mask: [[0.39, 0.43, 0.175], [0.42, 0.45, 0.044], [2.97, 3, 0], [2.99, 3.02, 0.027], [3.01, 3.09, 0.053], [3.08, 3.12, 0.027], [3.11, 3.14, 0.018], [3.13, -3.13, 0.009], [-3.14, -3.11, 0.027], [-3.12, -3.09, 0.035], [-3.1, -3.08, 0.088], [-3.09, -3.01, 0.14]] },
 ];
 // Her two quadruple banks of tubes on her quarterdeck, housed, stowed with
 // their muzzles astern. Each trains out over its own side, from twenty-two
@@ -1186,8 +1210,9 @@ export const SHIP_CLASSES = {
       // either end to superfire over. Each where the model stands it (see
       // build/prepare-scheer-hull.mjs); `my` is the height of the muzzles
       // over her waterline, off the same model.
-      { id: 0, name: 'Anton', x: 0.064, z: 48.508, angle: 0, arc: 2.44, guns: 3, my: 7.43 },
-      { id: 1, name: 'Bruno', x: 0.033, z: -42.681, angle: Math.PI, arc: 2.44, guns: 3, my: 7.59 },
+      { id: 0, name: 'Anton', x: 0.064, z: 48.508, angle: 0.01, arc: 2.46, guns: 3, my: 7.43,
+        mask: [[-0.12, -0.06, -0.008], [-0.07, 0.05, -0.017], [0.06, 0.14, -0.017]] },
+      { id: 1, name: 'Bruno', x: 0.033, z: -42.681, angle: -3.13, arc: 2.45, guns: 3, my: 7.59 },
     ],
     gun: {
       name: '28 cm SK C/28', role: 'surface',
@@ -1231,7 +1256,7 @@ export const SHIP_CLASSES = {
       // where it is stowed, which is a different thing -- the forward pairs
       // trained ahead and the after pairs astern, along her side. Their arcs
       // are surveyed off the model (build/survey-arcs.mjs).
-      mounts: own(PANZER_SEC),
+      mounts: cleared(PANZER_SEC, SPEE_SEC_CLEAR),
     },
     aa: {
       range: 6000, dps: 46,
@@ -1307,8 +1332,12 @@ export const SHIP_CLASSES = {
     smokeCharges: 0,
     armor: { belt: 80, deck: 40, citadel: 80, bow: 18, superstructure: 15 },
     turrets: [
-      { id: 0, name: 'Anton', x: 0.064, z: 48.508, angle: 0, arc: 2.44, guns: 3, my: 7.43 },
-      { id: 1, name: 'Bruno', x: 0.033, z: -42.681, angle: Math.PI, arc: 2.44, guns: 3, my: 7.59 },
+      { id: 0, name: 'Anton', x: 0.064, z: 48.508, angle: 0.01, arc: 2.46, guns: 3, my: 7.43,
+        lift: [[-2.47, -2.39, 0], [-2.28, -2.19, 0.009], [2.2, 2.3, 0], [2.39, 2.49, -0.008]],
+        mask: [[-2.47, -2.41, 0], [-2.27, -2.2, 0.009], [-0.12, -0.06, -0.008], [-0.07, 0.05, -0.017], [0.06, 0.14, -0.017], [2.22, 2.28, 0], [2.41, 2.47, -0.008]] },
+      { id: 1, name: 'Bruno', x: 0.033, z: -42.681, angle: -3.13, arc: 2.45, guns: 3, my: 7.59,
+        lift: [[0.72, 0.82, -0.017], [2.67, 2.79, -0.017], [2.9, 3, -0.017], [3.09, -3.09, 0.009], [-3.02, -2.92, -0.017], [-2.82, -2.8, -0.017], [-2.81, -2.71, 0], [-0.8, -0.7, -0.017]],
+        mask: [[0.74, 0.8, -0.017], [2.69, 2.77, -0.017], [2.92, 2.98, -0.017], [3.11, -3.11, 0.009], [-3, -2.94, -0.017], [-2.81, -2.78, -0.017], [-2.79, -2.73, 0], [-0.78, -0.72, -0.017]] },
     ],
     gun: {
       name: '28 cm SK C/28', role: 'surface',
@@ -1334,7 +1363,7 @@ export const SHIP_CLASSES = {
       reach: 6.69,
       caliber: 150, reload: 6.4, traverse: 0.32, range: 9800, sigma: 1.1,
       shells: shells(150, 3100, 2400, 152, 875, 0.11),
-      mounts: own(PANZER_SEC),
+      mounts: cleared(PANZER_SEC, SCHEER_SEC_CLEAR),
     },
     aa: {
       range: 6000, dps: 92,
