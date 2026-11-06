@@ -77,9 +77,17 @@ const PANZER_SEC = [
 // degrees off her stern -- where her counter stops its fish, surveyed off the
 // model -- round to sixty off her bow, where the breech end of its housing
 // would be across her centreline and into the other bank.
+// Each bank's tubes sit where the model has them in its housing, so each
+// fires down its own lanes.
+const panzerLaunch = (lanes) => ({
+  eject: 12, stagger: 0.35, lanes, lie: 0.7, muzzle: 4.78,
+  fish: { len: 7.18, r: 0.267, kind: 'g7a' },
+});
 const PANZER_TUBES = [
-  { id: 0, x: 3.721, z: -71.277, angle: 1.902, arc: 0.855, rest: 2.757, tubes: 4, my: 4.1 },
-  { id: 1, x: -3.738, z: -71.279, angle: -1.902, arc: 0.855, rest: -2.757, tubes: 4, my: 4.1 },
+  { id: 0, x: 3.721, z: -71.277, angle: 1.902, arc: 0.855, rest: 2.757, tubes: 4, my: 4.1,
+    launch: panzerLaunch([-1.059, -0.299, 0.459, 1.217]) },
+  { id: 1, x: -3.738, z: -71.279, angle: -1.902, arc: 0.855, rest: -2.757, tubes: 4, my: 4.1,
+    launch: panzerLaunch([-1.258, -0.499, 0.26, 1.018]) },
 ];
 // Her three twin 10.5 cm: one each side abreast her funnel, one on her
 // centreline on her after superstructure forward of Bruno.
@@ -1204,7 +1212,7 @@ export const SHIP_CLASSES = {
       // Out of the tubes and over her quarter, off the model's own banks:
       // four tubes side by side, long enough for a whole G7a.
       launch: {
-        eject: 12, stagger: 0.35, lanes: [-1.14, -0.38, 0.38, 1.14], lie: 0.7, muzzle: 4.5,
+        eject: 12, stagger: 0.35, lanes: [-1.159, -0.399, 0.36, 1.118], lie: 0.7, muzzle: 4.78,
         fish: { len: 7.18, r: 0.267, kind: 'g7a' },
       },
     },
@@ -1317,7 +1325,7 @@ export const SHIP_CLASSES = {
       reload: 84, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
       launch: {
-        eject: 12, stagger: 0.35, lanes: [-1.14, -0.38, 0.38, 1.14], lie: 0.7, muzzle: 4.5,
+        eject: 12, stagger: 0.35, lanes: [-1.159, -0.399, 0.36, 1.118], lie: 0.7, muzzle: 4.78,
         fish: { len: 7.18, r: 0.267, kind: 'g7a' },
       },
     },
