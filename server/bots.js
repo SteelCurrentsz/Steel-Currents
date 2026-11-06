@@ -24,7 +24,7 @@ import { clamp, dist, headingTo, wrapAngle, angleDelta } from '../shared/math.js
 import { getClass } from '../shared/ships.js';
 import { blockedByLand } from '../shared/world.js';
 import {
-  fireGuns, fireTorpedoes, launchStrike, leadPoint, solveBallistic, useRepair,
+  fireGuns, fireTorpedoes, fireMissile, launchStrike, leadPoint, solveBallistic, useRepair,
   useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged, layMine,
   torpedoVisible, assignMount, mountBears, manGun, layGun, lightMounts, aaBattery,
   applyInput, gunsDrowned, directParties,
@@ -357,6 +357,21 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     ship.aimX = saveAimX; ship.aimZ = saveAimZ;
   } else {
     fireAssigned(state, ship, brain, cls, 'torps');
+  }
+
+  // Missiles: a Tomahawk now and then at whatever she is fighting, from out
+  // past gun range, and her Harpoons kept for when it is close. A ship with a
+  // captain on her bridge fires hers when he says so, and not otherwise.
+  if (!conned && cls.missiles && ship.missiles && canSee) {
+    brain.mslTimer = (brain.mslTimer ?? 6) - dt;
+    if (brain.mslTimer <= 0) {
+      const K = cls.missiles.kinds;
+      const kind = d < K.harpoon.range * 0.8 && ship.missiles.left.harpoon > 0 && Math.random() < 0.5
+        ? 'harpoon' : 'tomahawk';
+      if (d < K[kind].range * 0.9 && fireMissile(state, ship, kind, target.id)) {
+        brain.mslTimer = 14 + Math.random() * 16 * (1.2 - brain.skill);
+      }
+    }
   }
 }
 

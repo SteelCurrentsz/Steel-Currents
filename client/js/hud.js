@@ -632,6 +632,163 @@ class HudBase {
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
 
+  // ------------------------------------------------------- missile radar ----
+
+  /**
+   * The missile radar's controls: fire a Tomahawk or a Harpoon, step the
+   * target on, ride a missile in (by id), or lay the next on a ship off the
+   * scope (by id).
+   */
+  bindMissiles({ fire, next, ride, target }) {
+    const box = $('msl-radar');
+    if (!box) return;
+    this.msl = {
+      box, scope: $('msl-scope'), mode: $('msl-mode'), target: $('msl-target'),
+      tq: $('msl-tq'), hq: $('msl-hq'), tc: $('msl-tc'), hc: $('msl-hc'),
+      tlam: $('msl-tlam'), harp: $('msl-harp'), air: $('msl-air'), airKey: '',
+      pick: { ride, target }, view: null, sweep: 0,
+    };
+    this.msl.tlam.onclick = () => fire('t');
+    this.msl.harp.onclick = () => fire('h');
+    $('msl-next').onclick = () => next();
+    this.msl.air.onclick = (e) => {
+      const b = e.target.closest('button[data-i]');
+      if (b) ride(Number(b.dataset.i));
+    };
+    // A tap on the scope: the nearest of her missiles under it is ridden in;
+    // failing that, the nearest enemy under it is the next one's target.
+    this.msl.scope.addEventListener('pointerdown', (e) => {
+      const v = this.msl.view;
+      if (!v) return;
+      const r = this.msl.scope.getBoundingClientRect();
+      const px = ((e.clientX - r.left) / r.width) * 2 - 1, py = ((e.clientY - r.top) / r.height) * 2 - 1;
+      const wx = v.cx + px * v.R, wz = v.cz - py * v.R;
+      const near = (list) => {
+        let best = null, bd = v.R * 0.09;
+        for (const q of list) {
+          const d = Math.hypot(q.x - wx, q.z - wz);
+          if (d < bd) { bd = d; best = q; }
+        }
+        return best;
+      };
+      const m = near(v.mine.filter((q) => !q.a));
+      if (m) { ride(m.i); return; }
+      const t = near(v.foes);
+      if (t) target(t.i);
+    });
+  }
+
+  /** The missile radar, redrawn: null takes it down. */
+  setMissiles(d) {
+    const M = this.msl;
+    if (!M) return;
+    if (!d) { if (!M.box.hidden) M.box.hidden = true; return; }
+    if (M.box.hidden) M.box.hidden = false;
+    const K = d.cls.missiles.kinds;
+    const left = d.left || [K.tomahawk.rounds, K.harpoon.rounds];
+    const cool = d.cool || [0, 0];
+    M.tq.textContent = left[0];
+    M.hq.textContent = left[1];
+    M.tlam.classList.toggle('empty', !left[0]);
+    M.harp.classList.toggle('empty', !left[1]);
+    M.tc.style.width = `${Math.round((1 - Math.min(1, cool[0] / K.tomahawk.interval)) * 100)}%`;
+    M.hc.style.width = `${Math.round((1 - Math.min(1, cool[1] / K.harpoon.interval)) * 100)}%`;
+    const km = (m) => `${(m / 1000).toFixed(1)} km`;
+    M.target.textContent = d.target
+      ? `${SHIP_CLASSES[d.target.c]?.name || 'enemy'} \u00b7 ${km(d.targetRange)}`
+      : 'AUTO \u00b7 NEAREST';
+    M.mode.textContent = d.riding ? (d.riding.k === 't' ? 'RIDING TLAM' : 'RIDING HARPOON') : 'OWN SHIP';
+    // Her missiles in the air, as keys to ride them by.
+    const key = d.mine.map((m) => `${m.i}${m.a ? 'a' : ''}`).join(',') + `|${d.riding ? d.riding.i : 0}`;
+    if (key !== M.airKey) {
+      M.airKey = key;
+      M.air.innerHTML = d.mine.map((m, n) => `<button type="button" data-i="${m.i}" class="${d.riding && d.riding.i === m.i ? 'on' : ''}">`
+        + `${m.k === 't' ? 'T' : 'H'}${n + 1}${m.a ? ' \u2191' : ''}</button>`).join('');
+    }
+    this.drawMissileScope(d);
+  }
+
+  /** The scope: round the missile being ridden, or round her. North up. */
+  drawMissileScope(d) {
+    const M = this.msl;
+    const cv = M.scope;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height, C = W / 2;
+    const me = d.me;
+    if (!me) return;
+    const ships = d.snap ? d.snap.ships : [];
+    const foes = ships.filter((q) => q.a && q.tm !== d.team);
+    const ride = d.riding;
+    const cx = ride ? ride.x : me.x, cz = ride ? ride.z : me.z;
+    let R = 6000;
+    if (!ride) {
+      let far = d.target ? Math.hypot(d.target.x - cx, d.target.z - cz) : 0;
+      for (const m of d.mine) far = Math.max(far, Math.hypot(m.x - cx, m.z - cz));
+      R = Math.min(32000, Math.max(6000, far * 1.15));
+    }
+    M.view = { cx, cz, R, mine: d.mine, foes };
+    const X = (x) => C + ((x - cx) / R) * C;
+    const Y = (z) => C - ((z - cz) / R) * C;
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(C, C, C - 1, 0, Math.PI * 2); ctx.clip();
+    // Its rings and its sweep.
+    ctx.strokeStyle = 'rgba(120, 230, 170, 0.25)';
+    ctx.lineWidth = 1;
+    for (const f of [1 / 3, 2 / 3, 1]) { ctx.beginPath(); ctx.arc(C, C, (C - 2) * f, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(C, 0); ctx.lineTo(C, H); ctx.moveTo(0, C); ctx.lineTo(W, C); ctx.stroke();
+    M.sweep = (M.sweep + 0.09) % (Math.PI * 2);
+    const g = ctx.createConicGradient ? ctx.createConicGradient(M.sweep - Math.PI / 2, C, C) : null;
+    if (g) {
+      g.addColorStop(0, 'rgba(120, 230, 170, 0.28)');
+      g.addColorStop(0.12, 'rgba(120, 230, 170, 0)');
+      g.addColorStop(1, 'rgba(120, 230, 170, 0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+    ctx.fillStyle = 'rgba(120, 230, 170, 0.55)';
+    ctx.font = '600 15px sans-serif';
+    ctx.fillText(`${(R / 1000).toFixed(R < 10000 ? 1 : 0)} km`, 8, H - 10);
+    // The ships: hers green, the enemy's red, her target ringed.
+    const arrow = (x, y, h, len, col, w = 2) => {
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.sin(h) * len, y - Math.cos(h) * len); ctx.stroke();
+    };
+    for (const q of ships) {
+      if (!q.a) continue;
+      const own = q.tm === d.team;
+      const x = X(q.x), y = Y(q.z);
+      ctx.fillStyle = q.i === me.i ? '#8dffb6' : own ? '#4fd08a' : '#ff6a55';
+      ctx.beginPath(); ctx.arc(x, y, q.i === me.i ? 6 : 4.5, 0, Math.PI * 2); ctx.fill();
+      arrow(x, y, q.h, 10, ctx.fillStyle, 1.5);
+      if (d.target && q.i === d.target.i) {
+        ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    // Every missile in the air: hers yellow, laid on their ships; the
+    // enemy's red; the one being ridden bright, with its line to its mark.
+    for (const m of d.all) {
+      if (m.a) continue;
+      const mine = m.o === me.i;
+      const x = X(m.x), y = Y(m.z);
+      const on = ride && m.i === ride.i;
+      if (on || (mine && !ride)) {
+        const t = ships.find((q) => q.i === m.tg);
+        if (t) {
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = on ? 'rgba(255, 214, 120, 0.9)' : 'rgba(255, 214, 120, 0.35)';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(X(t.x), Y(t.z)); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      ctx.fillStyle = mine ? (on ? '#fff3c4' : '#ffd678') : m.tm === d.team ? '#bfe8ff' : '#ff4a3a';
+      ctx.beginPath(); ctx.arc(x, y, on ? 4.5 : 3, 0, Math.PI * 2); ctx.fill();
+      arrow(x, y, m.h, on ? 12 : 8, ctx.fillStyle, on ? 2 : 1.5);
+    }
+    ctx.restore();
+  }
+
   /**
    * The plate in the lower left that says what the camera is riding when it
    * is not a ship -- `{ what, sub, team }`, or null to put it away.
@@ -662,11 +819,13 @@ class HudBase {
     // Riding a round is neither being aboard something nor standing off it,
     // and there is no bridge on a shell to swap to, so the swap goes away.
     const shell = watch.kind === 'shell';
+    const missile = watch.kind === 'missile';
     this.el.watchWhat.textContent = shell
       ? `Riding ${watch.name}'s salvo`
-      : `${pov ? 'Aboard' : 'Watching'} ${watch.name}`;
+      : missile ? `Riding ${watch.name} \u00b7 N retarget \u00b7 J next`
+        : `${pov ? 'Aboard' : 'Watching'} ${watch.name}`;
     const swap = document.getElementById('watch-swap');
-    if (swap) swap.hidden = shell;
+    if (swap) swap.hidden = shell || missile;
   }
 
   buildFor(classId) {

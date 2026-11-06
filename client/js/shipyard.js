@@ -409,8 +409,16 @@ export function armsSheet(cls, group = null) {
   // Light guns are anti-aircraft unless the sheet says they are dual-purpose
   // (`role: 'dp'`), as the Leviathan's 76 mm are: they fire at ships too.
   for (const t of d.tertiary || []) {
+    // A mounting counted as itself rather than its barrels: four Phalanx, not
+    // twenty-four of something.
+    if (t.mounts) {
+      rows.push([`${count(t.mounts)} ${t.label}`, `${num(t.rounds)} rds`]);
+      continue;
+    }
     rows.push([`${count(t.barrels)} ${t.label} ${t.role === 'dp' ? 'DP' : 'AA'}`, `${num(t.rounds)} rds`]);
   }
+  // Her missiles, each kind with its count.
+  for (const m of d.missiles || []) rows.push([m.label, `${num(m.rounds)} missiles`]);
   if (cls.torpedoes) {
     // Twenty-one inch unless she says otherwise. The Surcouf is the one boat
     // that carries two calibres of fish -- six 55 cm and four 40 cm -- and

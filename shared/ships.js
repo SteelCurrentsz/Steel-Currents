@@ -6257,6 +6257,159 @@ export const SHIP_CLASSES = {
     },
   },
 
+  missouri: {
+    // USS Missouri (BB-63) as she was in 1991: the Iowa recommissioned for
+    // the last time in 1986 and sent to the Gulf. Her nine 16-inch guns are
+    // the Iowa's; of her ten 5-inch twins the six forward are left, and her
+    // forty-millimetre and twenty-millimetre are gone. In their place she
+    // carries what no ship of the war had: four Phalanx close-in weapon
+    // systems -- a six-barrelled 20 mm Gatling laid by its own radar, which
+    // follows anything coming at her through the air, aeroplane or missile, and
+    // pours a straight stream of rounds into it -- eight armoured box
+    // launchers holding thirty-two BGM-109 Tomahawks, and four quadruple
+    // canisters of RGM-84 Harpoons. Both missiles are for ships only, and
+    // both find their own way there (see stepMissiles in sim.js).
+    //
+    // She is drawn from the owner's model of her (see missouri.js) -- "USS
+    // Missouri (BB-63) 1991" by 全斗焕, under Creative Commons Attribution
+    // 4.0, credited on the Credits screen -- at her own length, 270.4 m, and
+    // floated where the model paints her boot-topping.
+    id: 'missouri',
+    name: 'Missouri',
+    fullName: 'USS Missouri (BB-63) 1991',
+    className: 'Iowa',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'usa',
+    blurb: 'An Iowa brought back for the missile age: nine sixteen-inch guns, Tomahawks and Harpoons that find their own way, and Phalanx that shoots missiles out of the sky.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 11.3, 32.2], [0, -22, 30]],
+      length: 270.4, beam: 33.9, draft: 9.3, superstructure: 1.35,
+    },
+    hp: 76200,
+    maxSpeed: 31 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.46,
+    turnRate: 0.052,
+    rudderShift: 13.5,
+    speedLossInTurn: 0.17,
+    concealment: 15900,
+    fireDetectPenalty: 6400,
+    // Her SPS-49 air search and SPS-67 surface search: a long way further than
+    // anything a ship of the war carried.
+    radarRange: 19000,
+    repairCooldown: 95,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    armor: { belt: 307, deck: 152, citadel: 307, bow: 38, superstructure: 38 },
+    turrets: [
+      // Each where the model stood it (see build/prepare-missouri-hull.mjs).
+      { id: 0, name: 'A', x: 0, z: 59.25, angle: 0, arc: 2.36, guns: 3, my: 8.32 },
+      { id: 1, name: 'B', x: 0, z: 36.81, angle: 0, arc: 2.27, guns: 3, my: 11.04 },
+      { id: 2, name: 'Y', x: 0, z: -65.31, angle: Math.PI, arc: 2.36, guns: 3, my: 8.7 },
+    ],
+    gun: {
+      name: '16"/50 Mk 7', role: 'surface',
+      reach: 20.2,
+      caliber: 406, reload: 26, traverse: 0.09, range: 21600, sigma: 1.35,
+      shells: shells(406, 13500, 6300, 640, 762, 0.28),
+    },
+    torpedoes: null,
+    // Her six 5-inch/38 twins, three a side: the forward pair on her 01 level
+    // abreast her bridge, two more on her main deck under them, and the after
+    // pair abreast her second funnel, stowed facing aft.
+    secondary: {
+      name: '5"/38 Mk 28', role: 'dp',
+      reach: 5.26,
+      caliber: 127, reload: 3.8, traverse: 0.44, range: 8600, sigma: 1.2,
+      shells: shells(127, 2000, 1750, 80, 792, 0.08),
+      mounts: [
+        { x: 8.669, z: 7.919, angle: Math.PI / 2, arc: 1.6, rest: 0, guns: 2, my: 13.44 },
+        { x: -8.559, z: 7.906, angle: -Math.PI / 2, arc: 1.6, rest: 0, guns: 2, my: 13.44 },
+        { x: 13.228, z: -0.883, angle: Math.PI / 2, arc: 1.5, rest: 0, guns: 2, my: 10.95 },
+        { x: -13.18, z: -0.921, angle: -Math.PI / 2, arc: 1.5, rest: 0, guns: 2, my: 10.95 },
+        { x: -13.348, z: -24.483, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI, guns: 2, my: 10.93 },
+        { x: 13.392, z: -24.511, angle: Math.PI / 2, arc: 1.5, rest: Math.PI, guns: 2, my: 10.93 },
+      ],
+    },
+    aa: {
+      range: 5600, dps: 92,
+      guns: [
+        // Her four Phalanx Mk 15: the forward pair on her bridge wings, the
+        // after pair on the deckhouse abaft her second funnel. Fifty rounds a
+        // second out of six barrels, laid by the radar in the dome over them:
+        // what they shoot at, they hit. See stepCiws.
+        { name: 'Phalanx CIWS', caliber: 20, role: 'aa', reload: 0.02, range: 1800, piece: 'ciws', ciws: true,
+          elev: { min: -0.44, max: 1.4 },
+          mounts: [
+            { x: 5.378, z: 7.558, angle: 1.1, arc: 1.9, rest: Math.PI / 2, guns: 6, my: 21.76 },
+            { x: -5.381, z: 7.558, angle: -1.1, arc: 1.9, rest: -Math.PI / 2, guns: 6, my: 21.76 },
+            { x: 5.378, z: -21.776, angle: 2.0, arc: 1.9, rest: Math.PI / 2, guns: 6, my: 21.52 },
+            { x: -5.381, z: -21.776, angle: -2.0, arc: 1.9, rest: -Math.PI / 2, guns: 6, my: 21.52 },
+          ] },
+      ],
+    },
+    // What she fires that flies itself. Each missile is laid on a ship, by her
+    // captain or on her own, and steers for it all the way in; it can be
+    // switched onto another while it is still in the air. Ships only: neither
+    // will look at an aeroplane.
+    missiles: {
+      kinds: {
+        // A cruise missile of a thousand pounds of explosive, flying at three
+        // hundred feet a few metres a second under the speed of sound, which
+        // rises at the end and comes down on her decks.
+        tomahawk: {
+          name: 'BGM-109 Tomahawk', short: 'TLAM', rounds: 32,
+          speed: 245, range: 32000, cruise: 35, turn: 0.32,
+          damage: 7600, fire: 0.6, hp: 1, interval: 2.2, raise: 2.4,
+          length: 6.25, popUp: 2200,
+        },
+        // An anti-ship missile: smaller and quicker off the rail, skimming the
+        // sea all the way in, and into her side at the waterline.
+        harpoon: {
+          name: 'RGM-84 Harpoon', short: 'HARPOON', rounds: 16,
+          speed: 240, range: 24000, cruise: 6, turn: 0.45,
+          damage: 4600, fire: 0.45, hp: 1, interval: 1.4, raise: 0,
+          length: 4.63, popUp: 0,
+        },
+      },
+      // Her eight box launchers, each about its hinge -- [across, up, along,
+      // the bearing of its length off her bow, its length] -- as the model has
+      // them (BOX_LAUNCHERS in missouriHull.data.js). Four Tomahawks in each.
+      boxes: [
+        [-4.954, 14.327, -14.177, -1.6057, 6.03], [4.954, 14.327, -14.422, 1.5359, 6.03],
+        [-4.956, 14.327, -17.294, -1.6057, 6.03], [4.956, 14.327, -17.512, 1.5359, 6.02],
+        [-5.95, 13.153, -39.71, -0.5585, 6.03], [6.067, 13.153, -39.839, 0.4887, 6.03],
+        [6.072, 13.153, -44.478, 0.4887, 6.03], [-6, 13.153, -44.375, -0.5585, 6.02],
+      ],
+      // The mouths of her Harpoon canisters, [across, up, along], each cocked
+      // thirty-three degrees up and pointed square out over her side.
+      tubes: [
+        [-8.99, 17.6, -26.21], [-8.99, 17.59, -26.88], [-8.99, 17.6, -29.14], [-8.99, 17.6, -29.81],
+        [-8.67, 18.04, -26.26], [-8.67, 18.04, -26.93], [-8.67, 18.04, -29.18], [-8.67, 18.04, -29.85],
+        [8.66, 18.04, -26.2], [8.66, 18.04, -26.87], [8.66, 18.04, -29.12], [8.66, 18.04, -29.79],
+        [8.99, 17.6, -26.25], [8.99, 17.59, -26.92], [8.99, 17.6, -29.17], [8.99, 17.6, -29.84],
+      ],
+      tubeElev: 0.576,
+    },
+    datasheet: {
+      displacement: 45000,
+      aircraft: 0,
+      mainRounds: 1170,
+      secondary: { caliber: 127, label: '5"', barrels: 12, rounds: 5400 },
+      tertiary: [
+        { caliber: 20, label: 'Phalanx CIWS', barrels: 24, mounts: 4, rounds: 6200 },
+      ],
+      missiles: [
+        { label: 'BGM-109 Tomahawk', rounds: 32 },
+        { label: 'RGM-84 Harpoon', rounds: 16 },
+      ],
+    },
+    planes: null,
+  },
+
   kongo: {
     // IJN Kongo, the last capital ship built for Japan abroad: laid down at
     // Barrow in 1911 to a design of Thurston's, the battlecruiser the Lion
@@ -10058,7 +10211,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'leviathan', 'u48',
-  'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shokaku', 'shinano'];
 
 /**

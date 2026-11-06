@@ -166,6 +166,9 @@ import {
 } from '../client/js/render/tillman.js';
 import { tillmanSurfaceY, MOUNT_SEATS as TILLMAN_SEATS } from '../client/js/render/tillmanHull.js';
 import { ADS_REQUIRED, premiumUnlocked } from '../client/js/premium.js';
+import { buildMissouri } from '../client/js/render/missouri.js';
+import { missouriSurfaceY, MOUNT_SEATS as MISSOURI_SEATS } from '../client/js/render/missouriHull.js';
+import { fireMissile, retargetMissile } from '../shared/sim.js';
 import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
@@ -1721,10 +1724,10 @@ check('the Musashi is commissioned after her sister', () => {
   assert.equal(SHIP_ORDER[i + 1], 'musashi', `after the Yamato comes ${SHIP_ORDER[i + 1]}`);
 });
 
-check('the Kongo is commissioned before the Fuso, after the Iowa', () => {
+check('the Kongo is commissioned before the Fuso, after the Missouri', () => {
   const i = SHIP_ORDER.indexOf('kongo');
   assert.ok(i >= 0, 'the Kongo is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'iowa', `before the Kongo comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 1], 'missouri', `before the Kongo comes ${SHIP_ORDER[i - 1]}`);
   assert.equal(SHIP_ORDER[i + 1], 'fuso', `after the Kongo comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.kongo;
   assert.equal(cls.fullName, 'IJN Kongo');
@@ -3824,6 +3827,122 @@ check('USS Tillman Modernized is in the Premium Equipment store and not the yard
         `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
     }
   }
+});
+
+check('USS Missouri (BB-63) 1991 is commissioned after the Iowa, armed as she was in the Gulf', () => {
+  const i = SHIP_ORDER.indexOf('missouri');
+  assert.ok(i >= 0, 'the Missouri is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'iowa', `before the Missouri comes ${SHIP_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.missouri;
+  assert.equal(cls.fullName, 'USS Missouri (BB-63) 1991');
+  assert.equal(cls.nation, 'usa');
+  assert.equal(cls.turrets.length, 3);
+  assert.ok(cls.turrets.every((t) => t.guns === 3), 'a turret of hers is not a triple');
+  assert.equal(cls.gun.caliber, 406);
+  assert.equal(cls.secondary.mounts.length, 6);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 2), 'a 5-inch mount of hers is not a twin');
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.equal(ciws[0].mounts.length, 4, 'she does not carry four Phalanx');
+  assert.ok(!cls.aa.guns.some((g) => g.caliber === 40), 'her Bofors were landed');
+  assert.equal(cls.missiles.kinds.tomahawk.rounds, 32);
+  assert.equal(cls.missiles.kinds.harpoon.rounds, 16);
+  assert.equal(cls.missiles.boxes.length, 8, 'she does not have eight box launchers');
+  assert.equal(cls.missiles.tubes.length, 16, 'she does not have sixteen Harpoon canisters');
+  const built = buildMissouri();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, 6);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.group.userData.launchers.length, 8);
+  // Every mounting stands where the model stood it, on her: a turret on the
+  // ring of its barbette, which is open in the middle.
+  for (const [kind, list] of Object.entries(MISSOURI_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 6; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, missouriSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check('the Credits screen credits the model the Missouri is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('USS Missouri (BB-63) 1991'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/oHyvM') && screen.includes('全斗焕')
+    && screen.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
+});
+
+/** A Missouri and one enemy, `gap` apart, the enemy in sight; what her missiles do to her. */
+function missileTrial(enemy, kind, n, { gap = 12000, both = false, secs = 120 } = {}) {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: enemy, team: 1, index: 0 });
+  a.x = 0; a.z = -gap / 2; a.heading = Math.PI / 2;
+  b.x = 0; b.z = gap / 2; b.heading = Math.PI / 2;
+  const out = { fired: 0, hits: 0, down: {}, launched: 0, ciws: 0, hp0: b.hp, b, a, state };
+  for (let t = 0; t < secs * 30; t++) {
+    b.spottedBy = [true, true];
+    if (out.fired < n) {
+      if (fireMissile(state, a, kind, b.id)) out.fired++;
+      if (both && out.fired < n && fireMissile(state, a, 'harpoon', b.id)) out.fired++;
+    }
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'mslHit') out.hits++;
+      if (e.e === 'mslDown') out.down[e.why] = (out.down[e.why] || 0) + 1;
+      if (e.e === 'mslLaunch') out.launched++;
+      if (e.e === 'ciws') out.ciws++;
+    }
+    if (!b.alive) break;
+  }
+  return out;
+}
+
+check('a Tomahawk raises its box, flies itself onto the ship it is laid on and comes down on her', () => {
+  const r = missileTrial('iowa', 'tomahawk', 4);
+  assert.equal(r.fired, 4);
+  assert.equal(r.launched, 4, 'they never left their boxes');
+  assert.ok(r.a.missiles.boxes.some((b) => b.left < 4), 'no box was used');
+  assert.ok(r.hits >= 3, `only ${r.hits} of four found an Iowa, whose guns were never made to stop them`);
+  assert.ok(r.b.hp < r.hp0, 'she took nothing from them');
+  assert.equal(r.a.missiles.left.tomahawk, 28);
+});
+
+check('a Harpoon skims the sea into her side; both missiles are for ships only', () => {
+  const r = missileTrial('fletcher', 'harpoon', 3);
+  assert.ok(r.hits >= 2, `only ${r.hits} Harpoons of three found a Fletcher`);
+  for (const K of Object.values(SHIP_CLASSES.missouri.missiles.kinds)) assert.ok(K.cruise < 60, 'a missile cruises up among the aeroplanes');
+  // Given nothing to go for -- no enemy in sight -- none goes.
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  assert.equal(fireMissile(state, a, 'tomahawk', 0), null, 'a missile went with no ship to go for');
+});
+
+check('the guns of the war almost never bring a missile down; a Phalanx does', () => {
+  // A whole salvo into a Yamato's flak, and into a Missouri's Phalanx.
+  const flak = missileTrial('yamato', 'tomahawk', 8);
+  assert.ok((flak.down.flak || 0) <= 2, `${flak.down.flak} of eight came down in a Yamato's flak`);
+  const ciws = missileTrial('missouri', 'harpoon', 6);
+  assert.ok(ciws.ciws > 0, 'her Phalanx never fired');
+  assert.ok((ciws.down.ciws || 0) >= 4, `her Phalanx brought down only ${ciws.down.ciws || 0} of six`);
+});
+
+check('a missile in the air can be laid on another ship by the captain who fired it, and by nobody else', () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  const o = addShip(state, { name: 'O', classId: 'iowa', team: 0, index: 1 });
+  const b = addShip(state, { name: 'B', classId: 'iowa', team: 1, index: 0 });
+  const c = addShip(state, { name: 'C', classId: 'fletcher', team: 1, index: 1 });
+  for (const s of [b, c]) s.spottedBy = [true, true];
+  const m = fireMissile(state, a, 'harpoon', b.id);
+  assert.ok(m, 'no missile went');
+  assert.equal(m.target, b.id);
+  assert.ok(!retargetMissile(state, o, m.id, c.id), 'another ship laid her missile');
+  assert.ok(retargetMissile(state, a, m.id, c.id), 'she could not lay her own missile on another ship');
+  assert.equal(m.target, c.id);
+  assert.ok(!retargetMissile(state, a, m.id, o.id), 'she laid her missile on a ship of her own side');
 });
 
 check("the Tillman's shell has no holes in it", () => {

@@ -432,6 +432,9 @@
       <p class="credit">"<a href="https://skfb.ly/oHuvq" target="_blank" rel="noopener">The Third Reich Navy large cruiser ADM. SCHEER</a>"
         by 全斗焕 is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oHyvM" target="_blank" rel="noopener">USS Missouri (BB-63) 1991</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
     </div>
     <footer class="panel-foot">
       <button class="btn ghost" data-action="back">Back</button>
@@ -479,6 +482,22 @@
     </div>
   </div>
 
+  <!-- The missile radar: only on a ship that carries missiles. Her Tomahawks
+       and Harpoons left, the ship the next one goes for, and every one of
+       hers in the air on a scope round the one being ridden -- tap one on
+       the scope or in the list to ride it in. -->
+  <div class="msl-radar" id="msl-radar" hidden>
+    <div class="msl-head"><span>MISSILE RADAR</span><b id="msl-mode">OWN SHIP</b></div>
+    <canvas id="msl-scope" width="300" height="300"></canvas>
+    <div class="msl-target"><span>TGT</span><b id="msl-target">AUTO &middot; NEAREST</b>
+      <button type="button" id="msl-next" aria-label="Next target">&#9654;</button></div>
+    <div class="msl-fire">
+      <button type="button" id="msl-tlam"><span>TOMAHAWK</span><b id="msl-tq">32</b><i id="msl-tc"></i></button>
+      <button type="button" id="msl-harp"><span>HARPOON</span><b id="msl-hq">16</b><i id="msl-hc"></i></button>
+    </div>
+    <div class="msl-air" id="msl-air"></div>
+    <p class="msl-hint">Z Tomahawk &middot; V Harpoon &middot; N target &middot; J ride</p>
+  </div>
   <div class="hud-right" id="hud-right">
     <!-- The one way into the free camera. It used to start the moment anybody
          shift-dragged, which meant the camera wandered off its ship by

@@ -38,7 +38,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * background once the title screen is up, and waited for by the shipyard and
  * before a battle is joined.
  */
-let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
+let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildLeviathan, buildScheer;
 const SCULPTED = {
@@ -58,6 +58,7 @@ const SCULPTED = {
   hagen: () => import('./hagen.js').then((m) => { buildHagen = m.buildHagen; }),
   morosini: () => import('./morosini.js').then((m) => { buildMorosini = m.buildMorosini; }),
   tillman: () => import('./tillman.js').then((m) => { buildTillman = m.buildTillman; }),
+  missouri: () => import('./missouri.js').then((m) => { buildMissouri = m.buildMissouri; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
   baltimore: () => import('./baltimore.js').then((m) => { buildBaltimore = m.buildBaltimore; }),
   massachusetts: () => import('./massachusetts.js')
@@ -1004,6 +1005,21 @@ function buildModel(classId) {
   // catapults and every gun she carries.
   if (cls.id === 'tillman') {
     const built = buildTillman();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Missouri as she was in 1991: the owner's model of her, her guns,
+  // her Phalanx and her box launchers.
+  if (cls.id === 'missouri') {
+    const built = buildMissouri();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

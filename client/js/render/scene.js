@@ -11,6 +11,7 @@ import { Flames } from './flames.js';
 import { WorksView } from './works.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
 import { Rockets } from './rockets.js';
+import { Missiles } from './missiles.js';
 import { Torpedoes } from './torpedo.js';
 import { DepthCharges } from './depthcharge.js';
 import { Mines } from './mines.js';
@@ -672,6 +673,9 @@ function mountToWreck(m, frame = null) {
     force: 4.4,
   };
 }
+
+/** How far a box launcher is raised to fire, in radians: see BOX_ELEV in sim.js. */
+const LAUNCHER_ELEV = 0.6;
 
 export class ShipView {
   constructor(scene, classId, team, isSelf, ocean = null, quality = undefined,
@@ -1808,6 +1812,30 @@ export class ShipView {
    * light battery is laid on when it fires, which the simulation says and the
    * nearest aeroplane does not.
    */
+  /**
+   * Her box launchers, raised and lowered as the wire has them: each box
+   * swung up about the hinge at its inboard end. `ml` is how far up each is,
+   * 0 stowed and 1 raised to fire.
+   */
+  layLaunchers(ml, dt) {
+    const L = this.group.userData.launchers;
+    if (!L || !ml) return;
+    for (let i = 0; i < L.length && i < ml.length; i++) {
+      const b = L[i];
+      // Eased between snapshots, so a box swings up rather than stepping.
+      b.raise += Math.max(-dt * 0.6, Math.min(dt * 0.6, ml[i] - b.raise));
+      b.lift.rotation.x = -b.raise * LAUNCHER_ELEV;
+    }
+  }
+
+  /** Where the outboard end of one of her raised boxes is, in the world. */
+  launcherMouth(i, out = new THREE.Vector3()) {
+    const b = this.group.userData.launchers?.[i];
+    if (!b) return null;
+    out.set(0, b.h * 0.6, b.len);
+    return b.lift.localToWorld(out);
+  }
+
   holdLight(i, bearing, up, secs) {
     const m = this.aaMounts && this.aaMounts[i];
     if (!m || !Number.isFinite(bearing)) return;
@@ -2136,6 +2164,8 @@ export class BattleScene {
     this.shells = new Shells(this.scene, 900);
     // And the rockets, which are not shells: fins, a motor and a trail.
     this.rockets = new Rockets(this.scene, this.effects.trails, 240);
+    // And the guided missiles: a Tomahawk or a Harpoon, its flame and its trail.
+    this.missiles = new Missiles(this.scene, this.effects.trails);
     // The light battery's tracer and the black puffs it leaves behind.
     this.flak = new Flak(this.scene, 900);
     // What the dive bombers let go of, on the way down.
@@ -2409,6 +2439,7 @@ export class BattleScene {
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
     this.torpedoes.update(dt, this.torpsNow || []);
+    this.missiles.update(this.missilesNow || [], dt);
     this.charges.update(dt, this.chargesNow || []);
     this.mines.update(dt, this.minesNow || []);
     this.weather.update(dt, eye);

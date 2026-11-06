@@ -2913,3 +2913,41 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
 .premium-ship .ps-badge {
   font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: #d9b45a;
 }
+
+/* The missile radar, beside the plot in the top corner: what she has left,
+   what the next one goes for, and her missiles in the air on a scope. */
+.msl-radar {
+  position: absolute; top: 0.8vh; z-index: 7;
+  right: calc(0.7vw + min(30vw, 42vh, 400px) + 10px);
+  width: min(210px, 26vw); padding: 6px;
+  background: rgba(6, 16, 28, 0.78); border: 1px solid var(--panel-line);
+  font: 600 10px/1.2 var(--stencil, inherit); letter-spacing: 0.1em; color: var(--steel);
+}
+.msl-radar[hidden] { display: none; }
+.msl-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.msl-head b { color: var(--sand); font-weight: 600; }
+#msl-scope { width: 100%; aspect-ratio: 1; display: block; cursor: pointer;
+  background: radial-gradient(circle, rgba(10, 40, 30, 0.85), rgba(3, 14, 12, 0.9)); border-radius: 50%; }
+.msl-target { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.msl-target b { flex: 1; color: #ff8a73; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.msl-target button, .msl-fire button {
+  background: rgba(6, 16, 28, 0.9); border: 1px solid var(--panel-line); color: var(--steel);
+  font: inherit; cursor: pointer; padding: 4px 7px;
+}
+.msl-target button:hover, .msl-fire button:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.6); }
+.msl-fire { display: flex; gap: 5px; }
+.msl-fire button { flex: 1; position: relative; display: flex; justify-content: space-between; overflow: hidden; }
+.msl-fire button b { color: var(--sand); }
+.msl-fire button i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--sand); width: 0; }
+.msl-fire button.empty { opacity: 0.4; }
+.msl-air { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; max-height: 64px; overflow-y: auto; }
+.msl-air button {
+  font: inherit; font-size: 9px; padding: 2px 5px; cursor: pointer;
+  background: rgba(6, 16, 28, 0.9); border: 1px solid rgba(255, 214, 120, 0.35); color: #ffd678;
+}
+.msl-air button.on { background: #ffd678; color: #0b141d; }
+.msl-hint { margin: 5px 0 0; font-size: 9px; opacity: 0.65; }
+@media (pointer: coarse) { .msl-hint { display: none; } }
+@media (max-width: 700px) {
+  .msl-radar { right: auto; left: 0.7vw; top: auto; bottom: 22vh; width: 150px; }
+}

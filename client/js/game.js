@@ -908,6 +908,22 @@ export class Battle {
     // The shell camera, beside the target plate: ride the rounds this ship is
     // firing.
     this.hud.bindShellCam(() => this.toggleShellCam());
+    this.hud.bindMissiles?.({
+      fire: (k) => this.fireMissile(k),
+      next: () => this.nextMissileTarget(),
+      ride: (id) => this.rideMissile(id),
+      target: (id) => {
+        // A ship tapped on the scope: riding a missile, that one is laid on
+        // her; otherwise the next one is.
+        const m = this.watching?.kind === 'missile'
+          ? (this.missilesNow || []).find((q) => q.i === this.watching.id) : null;
+        if (m) {
+          this.net.send({ t: 'mslt', ship: this.conned(), i: m.i, tg: id });
+          m.tg = id;
+        } else this.mslTarget = id;
+        audio.click();
+      },
+    });
     // And the speed key beside it: how many times faster than life the battle
     // runs. The battle service says what it is running at, and the key shows
     // that rather than what was last asked for.
@@ -1471,6 +1487,159 @@ export class Battle {
    * there is anything left in the stowage and whether the racks have been
    * reloaded are the simulation's to answer. It says no by sending `nodc`.
    */
+  // ------------------------------------------------------------ missiles ----
+
+  /** The ship on whose bridge the missile keys are worked, if she carries any. */
+  missileShip() {
+    const shown = this.shownShip();
+    const cls = getClass(shown?.c || this.cls.id);
+    return cls.missiles ? { shown, cls } : null;
+  }
+
+  /**
+   * The ships her missiles can be laid on: every enemy her side can see,
+   * nearest first. What the N key steps through.
+   */
+  missileTargets() {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const own = this.missileShip();
+    if (!snap || !own || !own.shown) return [];
+    const me = own.shown;
+    const team = me.tm ?? this.team;
+    return snap.ships.filter((q) => q.a && q.tm !== team && !q.d)
+      .map((q) => ({ q, d: Math.hypot(q.x - me.x, q.z - me.z) }))
+      .sort((a, b) => a.d - b.d);
+  }
+
+  /**
+   * The ship her next missile goes for: the one her captain picked with N if
+   * it is still there to be seen, and otherwise none -- which tells the
+   * simulation to lay it on whatever is nearest.
+   */
+  missileTarget() {
+    const list = this.missileTargets();
+    const got = list.find((e) => e.q.i === this.mslTarget);
+    if (got) return got;
+    this.mslTarget = 0;
+    return null;
+  }
+
+  /** Step the target on to the next enemy in sight, then back to automatic. */
+  nextMissileTarget() {
+    if (!this.missileShip()) return;
+    // Riding one of her own missiles in: N lays that one on the next ship.
+    if (this.watching?.kind === 'missile') { this.retargetRidden(); return; }
+    const list = this.missileTargets();
+    if (!list.length) { this.mslTarget = 0; return; }
+    const at = list.findIndex((e) => e.q.i === this.mslTarget);
+    this.mslTarget = at < 0 ? list[0].q.i : at + 1 < list.length ? list[at + 1].q.i : 0;
+    audio.click();
+  }
+
+  /** Let one go: 't' a Tomahawk, 'h' a Harpoon, at her target or the nearest. */
+  fireMissile(k) {
+    const own = this.missileShip();
+    if (!own) return;
+    const tg = this.missileTarget();
+    this.net.send({ t: 'msl', ship: this.conned(), k, tg: tg ? tg.q.i : 0 });
+  }
+
+  /** Her missiles in the air, oldest first: what the radar lists and J rides. */
+  ownMissiles() {
+    const id = this.conned();
+    return (this.missilesNow || []).filter((m) => m.o === id).sort((a, b) => a.i - b.i);
+  }
+
+  /**
+   * Ride one of her missiles in: the given one, or the next in the air after
+   * the one being ridden, or back to her bridge when there are no more.
+   */
+  rideMissile(id = null) {
+    const mine = this.ownMissiles();
+    if (!mine.length) {
+      if (this.watching?.kind === 'missile') this.cameraHome();
+      return;
+    }
+    let m = id ? mine.find((q) => q.i === id) : null;
+    if (!m) {
+      const at = this.watching?.kind === 'missile' ? mine.findIndex((q) => q.i === this.watching.id) : -1;
+      m = at >= 0 && at + 1 < mine.length ? mine[at + 1] : at >= 0 ? null : mine[mine.length - 1];
+    }
+    if (!m) { this.cameraHome(); return; }
+    if (this.shellCam) this.toggleShellCam();
+    const was = this.watching?.kind === 'missile' ? this.mslWas : this.watching;
+    this.mslWas = was && was.kind !== 'missile' ? was : null;
+    this.missileHold = null;
+    this.watching = { kind: 'missile', id: m.i, name: this.missileName(m) };
+    this.watchPov = false;
+    this.hud.setWatching(this.watching);
+    this.hud.setWatchBanner(this.watching, false);
+    audio.click();
+  }
+
+  /** What a missile in the air is called on the banner: what it is and where it is going. */
+  missileName(m) {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const t = snap ? snap.ships.find((q) => q.i === m.tg) : null;
+    return `${m.k === 't' ? 'Tomahawk' : 'Harpoon'}${t ? ` \u2192 ${getClass(t.c).name}` : ''}`;
+  }
+
+  /** Lay the missile being ridden on the next enemy in sight. */
+  retargetRidden() {
+    const m = (this.missilesNow || []).find((q) => q.i === this.watching?.id);
+    if (!m) return;
+    const list = this.missileTargets();
+    if (!list.length) return;
+    const at = list.findIndex((e) => e.q.i === m.tg);
+    const next = list[(at + 1) % list.length].q;
+    this.net.send({ t: 'mslt', ship: this.conned(), i: m.i, tg: next.i });
+    m.tg = next.i;
+    this.watching.name = this.missileName(m);
+    this.hud.setWatching(this.watching);
+    this.hud.setWatchBanner(this.watching, false);
+    audio.click();
+  }
+
+  /**
+   * Keep the ride going: when the missile being ridden has gone in and the
+   * camera has held on the spot long enough, on to the next one of hers in
+   * the air, or home. And the radar in the corner, redrawn.
+   */
+  stepMissiles(dt, snap) {
+    if (this.missileHold && this.missileHold.t > 0) this.missileHold.t -= dt;
+    if (this.watching?.kind === 'missile') {
+      const m = (this.missilesNow || []).find((q) => q.i === this.watching.id);
+      if (m) {
+        const name = this.missileName(m);
+        if (name !== this.watching.name) {
+          this.watching.name = name;
+          this.hud.setWatching(this.watching);
+          this.hud.setWatchBanner(this.watching, false);
+        }
+      } else if (!this.missileHold || this.missileHold.t <= 0) {
+        const mine = this.ownMissiles().filter((q) => !q.a);
+        if (mine.length) this.rideMissile(mine[0].i);
+        else this.cameraHome();
+      }
+    }
+    const own = this.missileShip();
+    this.mslDue = (this.mslDue || 0) - dt;
+    if (!own) { this.hud.setMissiles?.(null); return; }
+    if (this.mslDue > 0) return;
+    this.mslDue = 1 / 15;
+    const me = own.shown;
+    const tg = this.missileTarget();
+    const riding = this.watching?.kind === 'missile'
+      ? (this.missilesNow || []).find((q) => q.i === this.watching.id) : null;
+    this.hud.setMissiles?.({
+      cls: own.cls, me, snap, team: me?.tm ?? this.team,
+      left: me?.mq || null, cool: me?.mc || null,
+      target: tg ? tg.q : null, targetRange: tg ? tg.d : 0,
+      mine: this.ownMissiles(), all: this.missilesNow || [],
+      riding,
+    });
+  }
+
   dropCharges(only = null) {
     const cls = getClass(this.shownShip()?.c || this.cls.id);
     // A boat with mines on her stern and no depth charges lets a mine go on
@@ -2640,7 +2809,9 @@ export class Battle {
           // burst meant for a bomber stream into the sea alongside the ship.
           const hv = pl ? null : (this.bombersNow || []).find((q) =>
             Math.abs(q.x - ev.tx) < 400 && Math.abs(q.z - ev.tz) < 400);
-          const ty = pl ? this.planeHeight(pl) : (hv ? hv.y : 220);
+          // A missile carries its own height on the event: it is ten metres
+          // over the sea, not where an aeroplane would be.
+          const ty = ev.ty != null ? ev.ty : pl ? this.planeHeight(pl) : (hv ? hv.y : 220);
           const view = this.scene.shipViews.get(ev.ship);
           // Out of the guns that are actually pointing at her.
           //
@@ -2686,6 +2857,62 @@ export class Battle {
           if (!fired && view && mounts.length) break;
           audio.aa(ev.cal, ev.n, { x: ev.x, y: gy, z: ev.z });
 
+          break;
+        }
+        // A missile's launcher getting ready: on her own bridge, the word.
+        case 'mslOrder':
+          if (ev.ship === bridge) {
+            audio.click();
+            if (ev.ship === this.shipId) this.hud.missileOrdered?.(ev);
+          }
+          break;
+        case 'mslLaunch': {
+          // Off the rail: the booster lighting, and the cloud it leaves the
+          // box in.
+          const v = this.scene.shipViews.get(ev.ship);
+          const at = ev.k === 'tomahawk' && v ? v.launcherMouth(ev.at) : null;
+          const x = at ? at.x : ev.x, y = at ? at.y : ev.y, z = at ? at.z : ev.z;
+          this.scene.missiles.launch(x, y, z);
+          fx.hit(x, y, z, 'he', 90);
+          audio.explosion(0.32, { x, y, z });
+          break;
+        }
+        case 'mslHit': {
+          // Into her: a fireball on her deck or against her side, and the
+          // plating opened where it went in.
+          const big = ev.k === 'tomahawk' ? 500 : 380;
+          fx.hit(ev.x, ev.y, ev.z, 'he', big);
+          fx.debris(ev.x, ev.y, ev.z, big / 14);
+          const v = this.scene.shipViews.get(ev.victim);
+          if (v) v.punch(ev.x, ev.y, ev.z, holeRadius('bomb', ev.k === 'tomahawk' ? 454 : 220), 0.5);
+          audio.explosion(Math.min(1, 0.55 + big / 1500), { x: ev.x, y: ev.y, z: ev.z });
+          if (ev.owner === this.shipId && ev.i === this.watching?.id) this.missileHold = { x: ev.x, y: ev.y, z: ev.z, t: 2.5 };
+          break;
+        }
+        case 'mslDown':
+          // Shot down, or into the sea: a burst in the air and the pieces of
+          // it falling.
+          if (ev.why === 'ciws' || ev.why === 'flak') {
+            fx.flakBurst(ev.x, ev.y, ev.z, 180);
+            fx.debris(ev.x, ev.y, ev.z, 8);
+            audio.explosion(0.35, { x: ev.x, y: ev.y, z: ev.z });
+          }
+          if (this.watching?.kind === 'missile' && this.watching.id === ev.i) {
+            this.missileHold = { x: ev.x, y: Math.max(4, ev.y), z: ev.z, t: 2.5 };
+          }
+          break;
+        case 'ciws': {
+          // A Phalanx at work: a solid rod of tracer from its barrels to the
+          // missile it is on, laid on it while it fires.
+          const view = this.scene.shipViews.get(ev.ship);
+          if (!view) break;
+          const ox = view.group.position.x, oz = view.group.position.z;
+          view.holdLight(ev.m, Math.atan2(ev.x - ox, ev.z - oz),
+            Math.atan2(ev.y - 20, Math.max(1, Math.hypot(ev.x - ox, ev.z - oz))), 0.4);
+          const ps = view.muzzles('aa', ev.m);
+          const p = ps[0] || { x: ox, y: view.group.position.y + 22, z: oz };
+          this.scene.flak.fire(p.x, p.y, p.z, ev.x, ev.y, ev.z, 20, 14, fx);
+          audio.aa(20, 30, { x: p.x, y: p.y, z: p.z });
           break;
         }
         case 'airburst':
@@ -3667,6 +3894,12 @@ export class Battle {
       // left to her captain is where she goes, when her aircraft go, and
       // getting her fires out.
       case 'KeyQ': this.setCourse(null); break;
+      // Her missiles, where she carries them: a Tomahawk, a Harpoon, the
+      // next ship to lay them on, and riding the next one in the air.
+      case 'KeyZ': this.fireMissile('t'); break;
+      case 'KeyV': this.fireMissile('h'); break;
+      case 'KeyN': this.nextMissileTarget(); break;
+      case 'KeyJ': this.rideMissile(); break;
       case 'Digit4': this.net.send({ t: 'strike', ship: this.conned() }); break;
       case 'KeyP': this.togglePilotView(); break;
       // The gunner's seat of whatever aeroplane is in hand.
@@ -4092,6 +4325,23 @@ export class Battle {
         x: from.x, y: this.scene.ocean.heightAt(from.x, from.z) * 0.5, z: from.z,
         span: fc.hull.length, eye: 14 + fc.hull.superstructure * 12,
       };
+    }
+    if (this.watching.kind === 'missile') {
+      // Riding one of her missiles in: close behind it, the sea going past
+      // underneath and the ship it is going for coming up ahead.
+      const m = (this.missilesNow || []).find((x) => x.i === this.watching.id);
+      if (m && !m.a) {
+        this.missileHold = { x: m.x, y: m.y, z: m.z, t: 2.5 };
+        return { x: m.x, y: m.y, z: m.z, span: 9, eye: 0.8, close: true, chase: true, h: m.h };
+      }
+      if (m && m.a) {
+        // Still in its box: over the ship, waiting for it.
+        const from = snap.ships.find((x) => x.i === m.o);
+        if (from) return { x: m.x, y: m.y, z: m.z, span: 40, eye: 3, h: from.h };
+      }
+      const hold = this.missileHold;
+      if (hold && hold.t > 0) return { x: hold.x, y: Math.max(4, hold.y), z: hold.z, span: 70, eye: 3, close: true };
+      return null;
     }
     if (this.watching.kind === 'torp') {
       // The fish, running at her depth: the camera goes down to her and
@@ -6601,6 +6851,7 @@ export class Battle {
     // After the entities, because the camera rides an interpolated round and
     // syncEntities is what interpolates them.
     this.stepShellCam(dt);
+    this.stepMissiles(dt, this.snapshots[this.snapshots.length - 1]);
     // The key is there whenever there is a ship whose guns you could follow,
     // and lit while the camera is on a round. Offered only from the bridge --
     // there is nothing to ride from inside an aeroplane.
@@ -7003,6 +7254,8 @@ export class Battle {
       // And everything else that trains: her secondary mountings and her
       // tubes off the snapshot, her light battery off the aircraft overhead.
       view.layMounts(s.se, s.sl, s.tt, this.planesNow, dt, s.te);
+      // Her box launchers, up or down.
+      if (s.ml) view.layLaunchers(s.ml, dt);
       // Her searchlights: ours off our own hand, so a lamp answers at once;
       // everybody else's off the wire.
       if (view.lamps) {
@@ -7280,6 +7533,20 @@ export class Battle {
       };
     });
     this.scene.torpsNow = this.torpsNow;
+
+    // The missiles, interpolated along their course the same way, pitch and
+    // all: a Tomahawk pulling up into its dive turns over in a second, and a
+    // missile that stepped through it would read as one that jumped.
+    this.missilesNow = (a.missiles || []).map((m) => {
+      const prev = b ? (b.missiles || []).find((x) => x.i === m.i) : null;
+      if (!prev || m.a || prev.a) return m;
+      return {
+        ...m,
+        x: lerp(m.x, prev.x, t), y: lerp(m.y, prev.y, t), z: lerp(m.z, prev.z, t),
+        h: m.h + angleDelta(m.h, prev.h) * t, p: lerp(m.p, prev.p, t), ag: lerp(m.ag || 0, prev.ag || 0, t),
+      };
+    });
+    this.scene.missilesNow = this.missilesNow;
 
     // And the depth charges, sinking. Interpolated the same way, because a
     // charge that stepped down five times a second would read as a thing
@@ -8479,6 +8746,11 @@ export class Battle {
       }
       this.watchYaw = wrapAngle(this.watchYaw + m.x);
       this.watchPitch = clamp(this.watchPitch + m.y, -0.42, 0.55);
+      // Riding a missile in, the orbit swings round behind it on its own: it
+      // is going somewhere, and what is ahead of it is the whole point.
+      if (watch.chase && Number.isFinite(watch.h)) {
+        this.watchYaw = wrapAngle(this.watchYaw + angleDelta(this.watchYaw, watch.h) * (1 - Math.exp(-2.5 * dt)));
+      }
       if (this.watchPov) {
         // Where a lookout on her would actually be standing, and a little
         // forward of her middle so her own upperworks are not in the way.

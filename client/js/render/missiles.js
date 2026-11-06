@@ -1,0 +1,189 @@
+// Guided missiles in flight: the BGM-109 Tomahawk and the RGM-84 Harpoon.
+//
+// A missile is drawn at its own size, which is small -- a Tomahawk is six and
+// a quarter metres long and half a metre across -- and what makes it visible
+// from anywhere is what it leaves behind it: off the rail, the booster's
+// tongue of flame and a thick white column of smoke climbing away from the
+// ship; after that, a thin grey line laid along its course a few metres over
+// the sea, which hangs there long after it has gone. That line is how anyone
+// watching tells where it came from and where it is going.
+//
+// One small group of meshes a missile, built from lathed profiles and plates,
+// and the trail laid into the shared smoke pool (trails.js). Metres
+// throughout; the missile points down +Z.
+
+import * as THREE from '../../../vendor/three.module.js';
+
+const MAT = {
+  tomahawk: new THREE.MeshLambertMaterial({ color: 0xb9bdc2 }),
+  harpoon: new THREE.MeshLambertMaterial({ color: 0xd9dbdc }),
+  nose: new THREE.MeshLambertMaterial({ color: 0x3a3d40 }),
+  band: new THREE.MeshLambertMaterial({ color: 0xb08a2e }),
+  fin: new THREE.MeshLambertMaterial({ color: 0x8e9297 }),
+  flame: new THREE.MeshBasicMaterial({
+    color: 0xffb35a, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending,
+  }),
+  core: new THREE.MeshBasicMaterial({
+    color: 0xfff1c8, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending,
+  }),
+};
+
+/** Each missile as built, [length, radius, wing span, wing chord, fin span, where its wings are]. */
+export const MISSILE_SHAPES = {
+  t: { name: 'Tomahawk', len: 6.25, r: 0.26, span: 2.67, chord: 0.42, fin: 0.42, wingZ: 0.2, body: MAT.tomahawk },
+  h: { name: 'Harpoon', len: 4.63, r: 0.17, span: 0.91, chord: 0.5, fin: 0.36, wingZ: 0.1, body: MAT.harpoon },
+};
+
+function lathe(profile, seg = 14) {
+  const geo = new THREE.LatheGeometry(profile.map(([z, r]) => new THREE.Vector2(r, z)), seg);
+  geo.rotateX(Math.PI / 2);
+  return geo;
+}
+
+/** A plate standing off the body at `angle` round it: a wing or a fin. */
+function plate(angle, r0, span, chord, z, t = 0.03) {
+  const geo = new THREE.BoxGeometry(t, span, chord);
+  geo.translate(0, r0 + span / 2, z);
+  geo.rotateZ(angle);
+  return geo;
+}
+
+const GEO = new Map();
+function geometryOf(k) {
+  if (GEO.has(k)) return GEO.get(k);
+  const S = MISSILE_SHAPES[k];
+  const L = S.len, R = S.r;
+  const body = lathe([
+    [-L / 2, 0], [-L / 2, R * 0.82], [-L / 2 + 0.12, R], [L / 2 - R * 3.2, R], [L / 2 - R * 1.6, R * 0.82],
+    [L / 2 - R * 0.5, R * 0.42], [L / 2, 0],
+  ]);
+  const nose = lathe([[L / 2 - R * 1.65, 0], [L / 2 - R * 1.65, R * 0.84], [L / 2 - R * 0.5, R * 0.43], [L / 2, 0]]);
+  const band = lathe([[L / 2 - R * 4.2, 0], [L / 2 - R * 4.2, R * 1.02], [L / 2 - R * 3.6, R * 1.02], [L / 2 - R * 3.6, 0]]);
+  // Its wings: a Tomahawk's pair, out flat either side; a Harpoon's four,
+  // cruciform. Its tail fins: four, in an X.
+  const wings = k === 't'
+    ? [plate(Math.PI / 2, R * 0.6, S.span / 2, S.chord, S.wingZ, 0.04), plate(-Math.PI / 2, R * 0.6, S.span / 2, S.chord, S.wingZ, 0.04)]
+    : [0, 1, 2, 3].map((i) => plate(Math.PI / 4 + (i * Math.PI) / 2, R * 0.8, S.span / 2 - R, S.chord, S.wingZ));
+  const fins = [0, 1, 2, 3].map((i) => plate(Math.PI / 4 + (i * Math.PI) / 2, R * 0.7, S.fin, 0.34, -L / 2 + 0.3));
+  // The flame out of its tail: a bright core inside a longer glow, both
+  // pointing aft; scaled each frame with how hard the motor is burning.
+  const flame = new THREE.ConeGeometry(R * 1.05, 1, 10, 1, true);
+  flame.rotateX(-Math.PI / 2);
+  flame.translate(0, 0, -0.5);
+  const core = new THREE.ConeGeometry(R * 0.6, 1, 8, 1, true);
+  core.rotateX(-Math.PI / 2);
+  core.translate(0, 0, -0.5);
+  const out = { body, nose, band, wings, fins, flame, core };
+  GEO.set(k, out);
+  return out;
+}
+
+function buildMissile(k) {
+  const S = MISSILE_SHAPES[k];
+  const G = geometryOf(k);
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(G.body, S.body));
+  g.add(new THREE.Mesh(G.nose, MAT.nose));
+  g.add(new THREE.Mesh(G.band, MAT.band));
+  for (const w of G.wings) g.add(new THREE.Mesh(w, MAT.fin));
+  for (const f of G.fins) g.add(new THREE.Mesh(f, MAT.fin));
+  const flame = new THREE.Mesh(G.flame, MAT.flame);
+  const core = new THREE.Mesh(G.core, MAT.core);
+  flame.position.z = core.position.z = -S.len / 2;
+  flame.renderOrder = core.renderOrder = 3;
+  g.add(flame, core);
+  g.userData = { flame, core, k };
+  return g;
+}
+
+/** How long a missile's booster burns after it leaves its rail, in seconds. */
+export const BOOST = 2.6;
+
+export class Missiles {
+  constructor(scene, trails) {
+    this.scene = scene;
+    this.trails = trails;
+    this.live = new Map();
+    this.spare = { t: [], h: [] };
+  }
+
+  /** Put a missile group into the scene, from the spares if there is one. */
+  take(k) {
+    const g = this.spare[k].pop() || buildMissile(k);
+    g.visible = true;
+    this.scene.add(g);
+    return g;
+  }
+
+  /**
+   * The missiles this frame, interpolated, in world coordinates: { i, x, y,
+   * z, h, p, k, a, ag }. Each one is put where it is and pointed along its
+   * course, its flame lit while its motor burns, and its trail laid from where
+   * it was last frame to where it is now.
+   */
+  update(list, dt) {
+    const seen = new Set();
+    for (const m of list) {
+      seen.add(m.i);
+      let e = this.live.get(m.i);
+      if (!e) {
+        e = { g: this.take(m.k), last: null, k: m.k, lay: 0 };
+        this.live.set(m.i, e);
+      }
+      const g = e.g;
+      // Aboard: in its box or its canister, out of sight.
+      g.visible = !m.a;
+      if (m.a) { e.last = null; continue; }
+      g.position.set(m.x, m.y, m.z);
+      g.rotation.set(-(m.p || 0), m.h || 0, 0, 'YXZ');
+      const S = MISSILE_SHAPES[m.k];
+      const boost = (m.ag ?? 9) < BOOST;
+      const flicker = 0.85 + Math.random() * 0.3;
+      const fl = (boost ? 5.5 : 1.6) * flicker;
+      g.userData.flame.scale.set(boost ? 1.5 : 0.8, boost ? 1.5 : 0.8, fl);
+      g.userData.core.scale.set(1, 1, fl * 0.55);
+      // The trail: a puff every few metres along the way it came, thick and
+      // white off the booster, thin and grey after.
+      const tail = { x: m.x - Math.sin(m.h) * Math.cos(m.p) * S.len * 0.55, y: m.y - Math.sin(m.p) * S.len * 0.55, z: m.z - Math.cos(m.h) * Math.cos(m.p) * S.len * 0.55 };
+      if (e.last && this.trails) {
+        const dx = tail.x - e.last.x, dy = tail.y - e.last.y, dz = tail.z - e.last.z;
+        const run = Math.hypot(dx, dy, dz);
+        const gap = boost ? 2.2 : 4.5;
+        const n = Math.min(boost ? 12 : 6, Math.floor((run + e.lay) / gap));
+        for (let i = 1; i <= n; i++) {
+          const u = i / n;
+          this.trails.puff(e.last.x + dx * u, e.last.y + dy * u, e.last.z + dz * u,
+            (Math.random() - 0.5) * 0.6, (Math.random() - 0.3) * 0.5, (Math.random() - 0.5) * 0.6, boost ? {
+              life: 9 + Math.random() * 4, size: 2.4 + Math.random(), grow: 4.2, burn: 0.06, tone: 0.9,
+            } : {
+              life: 8 + Math.random() * 3, size: 1.6 + Math.random() * 0.5, grow: 2.6, burn: 0.02, tone: 0.8,
+            });
+        }
+        e.lay = n ? 0 : e.lay + run;
+      }
+      e.last = tail;
+    }
+    for (const [i, e] of this.live) {
+      if (seen.has(i)) continue;
+      this.scene.remove(e.g);
+      this.spare[e.k].push(e.g);
+      this.live.delete(i);
+    }
+  }
+
+  /**
+   * The cloud a missile leaves its launcher in: the booster lighting off, the
+   * box or canister full of fire for an instant, and a great deal of white
+   * smoke rolling over the deck.
+   */
+  launch(x, y, z) {
+    if (!this.trails) return;
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 5;
+      this.trails.puff(x + (Math.random() - 0.5) * 2, y + Math.random() * 1.5, z + (Math.random() - 0.5) * 2,
+        Math.cos(a) * s, Math.random() * 2.5, Math.sin(a) * s, {
+          life: 6 + Math.random() * 5, size: 3 + Math.random() * 2.5, grow: 5, burn: i < 6 ? 0.12 : 0, tone: 0.92,
+        });
+    }
+  }
+}

@@ -8,6 +8,7 @@ import {
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack,
+  fireMissile, retargetMissile,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -665,6 +666,19 @@ export class Room {
       }
       case 'fire': { const to = this.conned(ship, msg); if (to) this.onWord(to, 'main', () => fireGuns(this.state, to)); break; }
       case 'torp': { const to = this.conned(ship, msg); if (to) this.onWord(to, 'torp', () => fireTorpedoes(this.state, to)); break; }
+      // A missile: 't' a Tomahawk, 'h' a Harpoon, laid on the ship `tg` --
+      // or on whatever is nearest, if she names none.
+      case 'msl': {
+        const to = this.conned(ship, msg);
+        if (to) fireMissile(this.state, to, msg.k === 'h' ? 'harpoon' : 'tomahawk', Number(msg.tg) || 0);
+        break;
+      }
+      // One of hers already in the air, laid on another ship.
+      case 'mslt': {
+        const to = this.conned(ship, msg);
+        if (to) retargetMissile(this.state, to, Number(msg.i) || 0, Number(msg.tg) || 0);
+        break;
+      }
       // The depth charge gear. `dc` puts a pattern in the water -- one
       // mounting when `i` names one, the whole battery otherwise -- `dcset`
       // winds the pistols, and `dcauto` says whether her own anti-submarine

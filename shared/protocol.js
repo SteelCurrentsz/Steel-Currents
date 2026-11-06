@@ -128,6 +128,9 @@ export function shipSnapshot(ship, full, state = null) {
     s.sl = ship.secMounts.map((m) => r3(m.elev || 0));
   }
   if (ship.torpMounts.length) s.tt = ship.torpMounts.map((m) => r3(m.angle));
+  // How far up each of her box launchers is. Anyone can see a battleship
+  // raising her Tomahawk boxes, and what it means.
+  if (ship.missiles && ship.missiles.boxes.length) s.ml = ship.missiles.boxes.map((b) => r2(b.raise));
   // The mines still on her rails, and how long until the next one is rolled
   // aft. Anyone can count the mines on a boat's stern through a glass.
   if (cls.mines) {
@@ -189,6 +192,12 @@ export function shipSnapshot(ship, full, state = null) {
       s.sc = ship.secMounts.map((m) => gunState(ship, cls, cls.secondary.mounts[m.id], m));
     }
     s.tp = ship.torpMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
+    // Her missiles: how many of each are left, and how long until the next
+    // of each can go -- Tomahawk first, then Harpoon.
+    if (ship.missiles) {
+      s.mq = [ship.missiles.left.tomahawk ?? 0, ship.missiles.left.harpoon ?? 0];
+      s.mc = [r1(ship.missiles.cool.tomahawk ?? 0), r1(ship.missiles.cool.harpoon ?? 0)];
+    }
     // Which mounting her captain has gone down to, and how long every
     // secondary has to go. Both are his own business and nobody else's, so
     // they ride in the block that only goes to her own bridge.
@@ -336,6 +345,17 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       a: tp.aboard || tp.air > 0 ? 1 : undefined,
     });
   }
+  // The missiles in the air, and on their rails. Everybody gets them: a
+  // missile at three hundred feet is on every radar in the sea, and the
+  // ship it is coming for has to be able to see it to do anything about it.
+  const missiles = (state.missiles || []).map((m) => ({
+    i: m.id, x: r1(m.x), y: r1(m.y), z: r1(m.z), h: r3(m.heading), p: r3(m.pitch),
+    k: m.kind === 'tomahawk' ? 't' : 'h', tm: m.team, o: m.owner, tg: m.target,
+    // Still aboard, on its rail: drawn in its box or its canister.
+    a: m.aboard ? 1 : undefined,
+    // How long since it left, for its booster's flame.
+    ag: m.aboard ? 0 : r1(m.age),
+  }));
   // The depth charges going down. Everybody gets them, whoever dropped them:
   // eight charges going into the sea off a destroyer's quarter is eight
   // columns of white water and then a noise that is heard from the far side of
@@ -584,7 +604,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     t: 'snap',
     tick: state.tick,
     time: r1(state.t),
-    ships, contacts, shells, torps, charges, mines, planes, batteries, bombers,
+    ships, contacts, shells, torps, missiles, charges, mines, planes, batteries, bombers,
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }
