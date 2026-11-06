@@ -1026,7 +1026,7 @@ function buildModel(classId) {
       group: built.group, turrets: built.turrets,
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
-      torpMounts: [],
+      torpMounts: built.torpMounts || [],
     };
   }
 

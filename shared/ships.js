@@ -8386,7 +8386,25 @@ export const SHIP_CLASSES = {
       caliber: 203, reload: 10, traverse: 0.2, range: 19000, sigma: 1.45,
       shells: shells(203, 4700, 3000, 250, 855, 0.14),
     },
-    torpedoes: null,
+    // Her two quadruple banks of 21 in tubes, one a side in the bays opened
+    // in her sides abaft her after funnel, stowed fore and aft and trained
+    // out through them to fire on the beam. The model draws the two as each
+    // other's mirror, so each has its own lanes.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 9.952, z: -20.661, angle: 1.57, arc: 0.6, rest: 0, tubes: 4, my: 5.88,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.457, -0.76, -0.058, 0.639], lie: 0.2, muzzle: 3.5, height: 5.88,
+            fish: { len: 6.6, r: 0.267, kind: 'mk1' } } },
+        { id: 1, x: -9.597, z: -20.697, angle: -1.57, arc: 0.6, rest: 0, tubes: 4, my: 5.83,
+          launch: { eject: 12, stagger: 0.35, lanes: [-0.663, 0.058, 0.76, 1.482], lie: 0.2, muzzle: 3.5, height: 5.83,
+            fish: { len: 6.6, r: 0.267, kind: 'mk1' } } },
+      ],
+      name: '21 in Mk IX torpedo', role: 'surface', caliber: 533,
+      reach: 3.5,
+      traverse: 0.2,
+      reload: 90, damage: 13500, speed: 35 * KNOTS, range: 6400,
+      detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+    },
     // Her 6 in twins, dual-purpose: one superfiring over B, one over X, and
     // a pair a side abreast her funnels, the forward pair facing ahead and
     // the after pair astern.

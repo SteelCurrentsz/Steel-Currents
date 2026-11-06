@@ -642,6 +642,9 @@ const KINDS = {
     house: /f709666e_bd9f_438e_9928_d3cd43888262/, gap: 0.3, min: 300, count: 8,
     fit: /a9ea5737e8_0$/, within: piecesNamed(/^bga140_|^\W*04[012]$/), reach: 1,
   }),
+  // Her two quadruple banks of 21 in tubes, one a side in the bays opened in
+  // her side abaft her after funnel, stowed fore and aft.
+  tubes: mountsOf('tubes', { house: /^bgt05[01]_21in_4tube/, byGroup: true, count: 2 }),
   // Her four screws.
   screw: mountsOf('screw', { house: /da6c3aa3_1ab4_4cbd_baa6_c2630fe1a156/, gap: 0.3, count: 4 }),
 };
@@ -1279,6 +1282,72 @@ const MOUNTS = Object.fromEntries(Object.keys(GUNS).map((k) => [k, seats(k)]));
 for (const [k, list] of Object.entries(MOUNTS)) {
   console.log(k, list.map((s) => `(${s.x}, ${s.z}) y ${s.y} rest ${(s.rest * 180 / Math.PI).toFixed(0)} reach ${s.reach} my ${s.my}`).join('\n   '));
 }
+// ---- her tubes ---------------------------------------------------------------------------
+// Her two quadruple banks of 21 in tubes, as the model drew them: each trains
+// whole about the middle of it in its bay, its tubes level and fore and aft
+// when it is stowed, their muzzles forward. Nothing of it elevates; `bores`
+// is each tube's axis in the frame of its mounting -- [x, y, z at the breech,
+// z at the muzzle] -- which is what a torpedo is shot out along. The model
+// draws the two banks as each other's mirror, so each is a piece of its own:
+// `tubes0` the port bank's (+X), `tubes1` the starboard's.
+const TUBES = (() => {
+  const list = KINDS.tubes.map((set) => {
+    const raw = groupMesh(set);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let i = 0; i < raw.P.length; i += 3) {
+      x0 = Math.min(x0, raw.P[i]); x1 = Math.max(x1, raw.P[i]);
+      y0 = Math.min(y0, raw.P[i + 1]); y1 = Math.max(y1, raw.P[i + 1]);
+      z0 = Math.min(z0, raw.P[i + 2]); z1 = Math.max(z1, raw.P[i + 2]);
+    }
+    return { raw, seat: { x: (x0 + x1) / 2, z: (z0 + z1) / 2, y: y0, rest: 0 }, w: x1 - x0, h: y1 - y0, len: z1 - z0 };
+  }).sort((a, b) => b.seat.x - a.seat.x);
+  // Her tubes are the narrow runs of the bank that lie along it: each is
+  // found off its own points, their axes where the bores are.
+  const pieces = list.map((t) => {
+    const local = toMount(t.raw, t.seat);
+    const house = creaseNormals(reduce(local, 2400, 0.003));
+    // The tubes' axes: the four runs of points across the bank, at its
+    // muzzle end, where they stand clear of the mounting.
+    const xs = [];
+    let yTop = -Infinity;
+    for (let i = 0; i < local.P.length; i += 3) {
+      if (local.P[i + 2] > t.len / 2 - 0.4) { xs.push(local.P[i]); yTop = Math.max(yTop, local.P[i + 1]); }
+    }
+    xs.sort((a, b) => a - b);
+    const gaps = [];
+    for (let i = 1; i < xs.length; i++) gaps.push([xs[i] - xs[i - 1], (xs[i] + xs[i - 1]) / 2]);
+    const cuts = gaps.sort((a, b) => b[0] - a[0]).slice(0, 3).map((g) => g[1]).sort((a, b) => a - b);
+    const lane = [0, 0, 0, 0], n = [0, 0, 0, 0], ys = [0, 0, 0, 0];
+    for (let i = 0; i < local.P.length; i += 3) {
+      if (local.P[i + 2] <= t.len / 2 - 0.4) continue;
+      const k = cuts.filter((c) => local.P[i] > c).length;
+      lane[k] += local.P[i]; ys[k] += local.P[i + 1]; n[k]++;
+    }
+    const y = +(ys.reduce((a, v, k) => a + v / n[k], 0) / 4).toFixed(3);
+    const bores = lane.map((v, k) => [+(v / n[k]).toFixed(3), y, +(-t.len / 2).toFixed(3), +(t.len / 2).toFixed(3)]);
+    let roof = 0;
+    for (let i = 1; i < house.P.length; i += 3) roof = Math.max(roof, house.P[i]);
+    const byV = new Uint8Array(house.P.length / 3);
+    for (let k = 0; k < house.T.length / 3; k++) for (let q = 0; q < 3; q++) byV[house.T[k * 3 + q]] = house.C[k];
+    console.log(`tubes: ${house.T.length / 3} triangles, ${t.w.toFixed(2)} m across, ${t.len.toFixed(2)} long, `
+      + `lanes ${bores.map((b) => b[0]).join(' ')} at ${y} m up`);
+    return {
+      house: packPieceCompact(house, (i) => PALETTE[byV[i]]).toString('base64'), guns: null,
+      trunnion: [0, y, 0], muzzles: bores.map(([x, by, , z]) => [x, by, z]), pitch: 0, roof: +roof.toFixed(3), bores,
+    };
+  });
+  return {
+    pieces,
+    seats: list.map(({ seat, len }, i) => ({
+      x: +seat.x.toFixed(3), z: +seat.z.toFixed(3), y: +seat.y.toFixed(3), rest: 0,
+      reach: +(len / 2).toFixed(2), my: +(seat.y + pieces[i].trunnion[1]).toFixed(2),
+    })),
+  };
+})();
+TUBES.pieces.forEach((p, i) => { GUNS[`tubes${i}`] = p; });
+MOUNTS.tubes = TUBES.seats;
+console.log('tubes', MOUNTS.tubes.map((s) => `(${s.x}, ${s.z}) y ${s.y} my ${s.my} reach ${s.reach}`).join(' '));
+
 // ---- her screws -------------------------------------------------------------------------
 // Each as the model drew it, about its own hub: the middle of its blades.
 const SCREWS = KINDS.screw.map((gi) => {
@@ -1371,6 +1440,8 @@ writeFileSync(OUT_DATA,
   + `// Where every one of her mountings stands, which way it faces, and its\n`
   + `// muzzles' reach and height stowed.\n`
   + `export const LEVIATHAN_MOUNTS = ${JSON.stringify(MOUNTS)};\n`
+  + `// Her two banks of tubes are tubes0 and tubes1 of her guns, and stand\n`
+  + `// where her mountings' tubes say.\n`
   + `// Her four screws, each about its hub.\n`
   + `export const SCREWS = ${JSON.stringify(SCREWS)};\n`
   + `// Her lines as the model has them: keel, the deck over her insides, and\n`

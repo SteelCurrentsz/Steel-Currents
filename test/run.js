@@ -3170,8 +3170,14 @@ check('the HMS Leviathan is commissioned after the USS Baltimore, armed as the o
   assert.ok(lights[0].mounts.every((m) => m.guns === 1), 'her 76 mm are not singles');
   // Seven inches of belt.
   assert.equal(cls.armor.belt, 178);
+  // Her two quadruple banks of 21 in tubes, one a side, the model's own.
+  assert.ok(cls.torpedoes, 'she has no torpedoes');
+  assert.equal(cls.torpedoes.caliber, 533);
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => m.tubes), [4, 4]);
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => Math.sign(m.x)).sort(), [-1, 1]);
   const built = buildLeviathan();
   assert.equal(built.turrets.length, 4);
+  assert.equal(built.torpMounts.length, 2);
   assert.equal(built.secMounts.length, cls.secondary.mounts.length);
   assert.equal(built.aaMounts.length, lightMounts(cls).length);
   built.group.updateMatrixWorld(true);
@@ -3191,7 +3197,9 @@ check('the HMS Leviathan is commissioned after the USS Baltimore, armed as the o
   for (const [kind, list] of Object.entries(LEVIATHAN_SEATS)) {
     for (const st of list) {
       const top = leviathanSurfaceY(st.x, st.z);
-      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      // Her tubes stand in bays under her upper deck: what they stand on is
+      // the floor of the bay, under them.
+      const deck = top > st.y + 3 || kind === 'tubes' ? under(st.x, st.y, st.z) : top;
       assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
         `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
     }
@@ -3231,10 +3239,11 @@ check("the Leviathan's shell has no holes in it", () => {
 check('the Credits screen credits the model the Leviathan is drawn from', () => {
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   const screen = html.slice(html.indexOf('id="screen-credits"'));
-  const at = screen.indexOf('"British Super Heavy Cruiser Leviathan"');
+  const at = screen.indexOf('British Super Heavy Cruiser Leviathan</a>');
   assert.ok(at >= 0, 'the model is not credited');
   const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
-  assert.ok(credit.includes('全斗焕') && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
+  assert.ok(credit.includes('https://skfb.ly/pwCxw') && credit.includes('全斗焕')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
     'the credit is not as its licence asks');
 });
 

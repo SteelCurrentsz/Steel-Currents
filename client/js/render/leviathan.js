@@ -15,17 +15,19 @@
 //   * her four 8 in quadruples, the model's gunhouses on their barbettes,
 //     their barrels on a cradle that elevates;
 //   * her six 6 in twins and her eight 76 mm singles;
+//   * her two quadruple banks of 21 in tubes, in the bays in her sides abaft
+//     her after funnel, which train out through them and fire;
 //   * her four screws, the model's, which turn;
 //
 // and, inside her, her armour and her interior, fitted to her own lines.
-// (Her torpedo tubes, her boats and her cranes are the model's and stay
-// where it put them.)
+// (Her boats and her cranes are the model's and stay where it put them.)
 //
 // Local frame, as everywhere else: +Z is the bow, +Y is up, y = 0 is the
 // waterline.
 
 import * as THREE from '../../../vendor/three.module.js';
 import { arm } from './mounts.js';
+import { fitTubes } from './tubes.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
@@ -169,10 +171,41 @@ function mountings(g) {
     }
   }
   if (aa.length !== lights.length) throw new Error('the Leviathan built a light battery her datasheet does not list');
+  const torp = CLS.torpedoes.mounts.map((spec) => torpedoBank(g, spec, CLS.torpedoes.traverse));
   g.userData.secMounts = sec;
   g.userData.aaMounts = aa;
-  g.userData.torpMounts = [];
-  return { sec, aa, torp: [] };
+  g.userData.torpMounts = torp;
+  return { sec, aa, torp };
+}
+
+/**
+ * One of her quadruple banks of 21 in tubes, as the model drew it (see
+ * gunPiece): it trains about its middle in its bay, its four tubes level, and
+ * its muzzles are the ends of its tubes. Her two banks are each other's
+ * mirror, and each is its own piece.
+ */
+function torpedoBank(g, spec, trainRate) {
+  const i = MOUNT_SEATS.tubes.indexOf(seatFor(MOUNT_SEATS.tubes, spec.x, spec.z, 'bank of tubes'));
+  const s = MOUNT_SEATS.tubes[i];
+  const piece = gunPiece(`tubes${i}`);
+  const m = new THREE.Group();
+  m.position.set(s.x, s.y, s.z);
+  m.rotation.y = stowed(spec);
+  m.userData.rest = 0;
+  m.userData.dynamic = true;
+  m.userData.mounting = true;
+  m.userData.name = `${spec.x > 0 ? 'port' : 'starboard'} tubes`;
+  m.userData.trainRate = trainRate;
+  m.add(new THREE.Mesh(piece.house, leviathanMaterials().sheet));
+  // Nothing elevates: the cradle is where the tubes' axes are, so that the
+  // muzzles are read off the line the fish leave along.
+  const cradle = new THREE.Group();
+  cradle.position.set(...piece.trunnion);
+  m.add(cradle);
+  arm(m, cradle, piece.bores.map(([x, y, , zm]) => [x, y - piece.trunnion[1], zm]));
+  m.userData.bores = piece.bores;
+  g.add(m);
+  return m;
 }
 
 // ------------------------------------------------------------ her armour --
@@ -264,6 +297,7 @@ export function buildLeviathan() {
   mountings(g);
   mergeMoving(g);
   g.userData.classId = 'leviathan';
+  g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes);
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
