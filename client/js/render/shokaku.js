@@ -627,6 +627,10 @@ function sculpted(g, kind, x, y, z, rest, trainRate, name) {
   m.userData.trainRate = trainRate;
   if (name) m.userData.name = name;
   m.add(new THREE.Mesh(piece.house, shokakuMaterials().sheet));
+  // The model's 10 cm gunhouse has a hatch or two in its roof, and the
+  // gaps decimating it opened round the edges of its plates: under them is a
+  // deckhead, not the turntable a gunhouse's height further down.
+  if (kind === 'dp') m.add(liner());
   const cradle = new THREE.Group();
   cradle.position.set(...piece.trunnion);
   cradle.rotation.x = -piece.pitch;
@@ -635,6 +639,20 @@ function sculpted(g, kind, x, y, z, rest, trainRate, name) {
   arm(m, cradle, piece.muzzles);
   g.add(m);
   return m;
+}
+
+let linerGeo = null;
+/** A deckhead inside her 10 cm gunhouse, short of its walls and its face. */
+function liner() {
+  if (!linerGeo) {
+    linerGeo = new THREE.BoxGeometry(2.5, 0.04, 2.4);
+    linerGeo.translate(0, 1.8, 0.05);
+    const n = linerGeo.attributes.position.count;
+    const c = new THREE.Color(0x5f6468);
+    linerGeo.setAttribute('color', new THREE.BufferAttribute(
+      new Float32Array(n * 3).map((_, i) => [c.r, c.g, c.b][i % 3]), 3));
+  }
+  return new THREE.Mesh(linerGeo, shokakuMaterials().sheet);
 }
 
 /** The seat the build measured for a mounting of her datasheet, by where it is. */

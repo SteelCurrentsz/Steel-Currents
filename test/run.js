@@ -18450,9 +18450,10 @@ check('every deckhouse on the Graf Spee has sides and a roof', () => {
     return hit ? hit.point.y : -999;
   });
   const seen = shoot();
+  const was = new Map([...mats].map((m) => [m, m.side]));
   for (const m of mats) m.side = THREE.DoubleSide;
   const there = shoot();
-  for (const m of mats) m.side = THREE.FrontSide;
+  for (const m of mats) m.side = was.get(m);
   spots.forEach(([what], i) => {
     assert.ok(seen[i] > -900, `nothing at all over ${what}`);
     assert.ok(there[i] - seen[i] < 0.5,
@@ -18749,9 +18750,13 @@ check('every deckhouse in the fleet has sides and a roof', () => {
       return hit ? hit.point.y : -999;
     });
     const seen = shoot();
+    // And put back what each was: a material drawn double-sided on purpose
+    // (the sheets of a sculpt) and left front-sided shows every later check
+    // the inside of the ship.
+    const was = new Map([...mats].map((m) => [m, m.side]));
     for (const m of mats) m.side = THREE.DoubleSide;
     const there = shoot();
-    for (const m of mats) m.side = THREE.FrontSide;
+    for (const m of mats) m.side = was.get(m);
     spots.forEach(([x, z], i) => {
       assert.ok(seen[i] > -900,
         `nothing at all over the ${id} at x ${x.toFixed(0)}, z ${z.toFixed(0)}`);
@@ -19175,6 +19180,7 @@ check('the Shokaku has every gun her model has, standing where the model stood i
       assert.ok(top > -50, `her ${kind} at ${st.x}, ${st.z} stands off her`);
     }
   }
+  surveyedArcsHold('shokaku');
 });
 
 check("the Shokaku's runway is flat and clear from end to end", () => {

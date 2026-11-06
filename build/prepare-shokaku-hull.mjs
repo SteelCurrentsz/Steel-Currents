@@ -1439,7 +1439,10 @@ const GUNS = {
   aa: gunKind('aa', {
     guns: 2, minLen: 0.5, tris: 900, barrelTris: 200,
     test: (p) => p.px1 - p.px0 < 0.3 && p.py1 - p.py0 > 1.2 && p.pz1 - p.pz0 > 0.7,
-    bore: { face: 0.1, tz: 0.6 },
+    // Their trunnions a third of the way up the barrels, nine-tenths of a
+    // metre over the foot of the mounting, as a Bofors' are: any lower and
+    // the barrels, laid level, go through the bulwark of the gallery.
+    bore: { face: 0.1, tz: 0.95 },
   }),
   lt: gunKind('lt', { guns: 1, minLen: 0.4, tris: 400, barrelTris: 80, inside: 0.2 }),
 };
