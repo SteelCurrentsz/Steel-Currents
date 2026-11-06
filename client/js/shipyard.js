@@ -406,8 +406,10 @@ export function armsSheet(cls, group = null) {
     rows.push([`${count(d.secondary.barrels)} ${d.secondary.label} secondary`,
       `${num(d.secondary.rounds)} rds`]);
   }
+  // Light guns are anti-aircraft unless the sheet says they are dual-purpose
+  // (`role: 'dp'`), as the Leviathan's 76 mm are: they fire at ships too.
   for (const t of d.tertiary || []) {
-    rows.push([`${count(t.barrels)} ${t.label} AA`, `${num(t.rounds)} rds`]);
+    rows.push([`${count(t.barrels)} ${t.label} ${t.role === 'dp' ? 'DP' : 'AA'}`, `${num(t.rounds)} rds`]);
   }
   if (cls.torpedoes) {
     // Twenty-one inch unless she says otherwise. The Surcouf is the one boat

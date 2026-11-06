@@ -8451,7 +8451,7 @@ export const SHIP_CLASSES = {
       mainRounds: 2400,
       secondary: { caliber: 152, label: '6"', barrels: 12, rounds: 4800 },
       tertiary: [
-        { caliber: 76, label: '76mm', barrels: 8, rounds: 8000 },
+        { caliber: 76, label: '76mm', barrels: 8, rounds: 8000, role: 'dp' },
       ],
     },
   },

@@ -3168,6 +3168,10 @@ check('the HMS Leviathan is commissioned after the USS Baltimore, armed as the o
   assert.equal(lights[0].role, 'dp');
   assert.equal(lights[0].reload, 1);
   assert.ok(lights[0].mounts.every((m) => m.guns === 1), 'her 76 mm are not singles');
+  // And her yard sheet calls them dual-purpose, not AA.
+  const sheet = armsSheet(cls);
+  assert.ok(sheet.some((r) => r[0] === 'Eight 76mm DP'), `her sheet reads ${sheet.map((r) => r[0]).join(', ')}`);
+  assert.ok(!sheet.some((r) => /76mm AA/.test(r[0])), 'her sheet still calls her 76 mm AA');
   // Seven inches of belt.
   assert.equal(cls.armor.belt, 178);
   // Her two quadruple banks of 21 in tubes, one a side, the model's own.
