@@ -8324,6 +8324,119 @@ export const SHIP_CLASSES = {
       ],
     },
   },
+  leviathan: {
+    // HMS Leviathan, a British super heavy cruiser: a cruiser hull brought up
+    // to 210 m to carry sixteen 8 in in four quadruple turrets -- A and B
+    // forward, B superfiring; X superfiring over Y aft -- twelve 6 in
+    // dual-purpose in six twins, one superfiring over B, one over X and two a
+    // side abreast her funnels, and eight 76 mm dual-purpose singles, four a
+    // side; seven inches of belt over her machinery and magazines.
+    //
+    // She is drawn from the owner's model of her (see leviathan.js) --
+    // "British Super Heavy Cruiser Leviathan" by 全斗焕, under Creative
+    // Commons Attribution 4.0, credited on the Credits screen -- brought up to
+    // 210 m over all, which makes her 28.4 m across, floated at 7.3 m.
+    id: 'leviathan',
+    name: 'Leviathan',
+    fullName: 'HMS Leviathan',
+    className: 'Leviathan',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'gbr',
+    blurb: 'Sixteen eight-inch guns in four quadruple turrets and a dual-purpose six-inch battery on a cruiser hull built as big as a battleship\'s.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 16.5, 22.5], [0, -7.5, 22.5]], length: 210, beam: 28.4, draft: 7.3, superstructure: 1.3 },
+    hp: 46000,
+    // Thirty-two knots out of four shafts, and she turns like the big ship
+    // she is.
+    maxSpeed: 32 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.6,
+    turnRate: 0.065,
+    rudderShift: 9.5,
+    speedLossInTurn: 0.2,
+    concealment: 13600,
+    fireDetectPenalty: 5400,
+    // Type 277 and 281B search sets, and a Type 274 on her main directors.
+    radarRange: 13500,
+    repairCooldown: 90,
+    repairHeal: 0.12,
+    smokeCharges: 0,
+    // Seven inches of belt over her citadel, three of armour deck behind it,
+    // an inch at her ends.
+    armor: { belt: 178, deck: 76, citadel: 178, bow: 25, superstructure: 20 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, X superfiring over Y on
+      // her quarterdeck, both facing astern, each where the model stood it
+      // (see build/prepare-leviathan-hull.mjs).
+      { id: 0, name: 'A', x: -0.004, z: 62.546, angle: 0, arc: 2.6, guns: 4, my: 9.34 },
+      { id: 1, name: 'B', x: -0.004, z: 49.563, angle: 0, arc: 2.6, guns: 4, my: 11.8 },
+      { id: 2, name: 'X', x: -0.004, z: -46.423, angle: 3.14, arc: 2.6, guns: 4, my: 11.39 },
+      { id: 3, name: 'Y', x: -0.004, z: -59.255, angle: -3.14, arc: 2.6, guns: 4, my: 9.26 },
+    ],
+    gun: {
+      name: '8"/50 Mk VIII', role: 'surface',
+      // Five below the horizontal to forty-five up.
+      elev: { min: -0.087, max: 0.785 },
+      // Pivot to muzzle on the model's turret.
+      reach: 11.25,
+      // A ten-second reload, as the owner asked, out of four turrets of four.
+      caliber: 203, reload: 10, traverse: 0.2, range: 19000, sigma: 1.45,
+      shells: shells(203, 4700, 3000, 250, 855, 0.14),
+    },
+    torpedoes: null,
+    // Her 6 in twins, dual-purpose: one superfiring over B, one over X, and
+    // a pair a side abreast her funnels, the forward pair facing ahead and
+    // the after pair astern.
+    secondary: {
+      name: '6"/50 Mk V DP', role: 'dp',
+      // Ten below the horizontal to seventy-eight up.
+      elev: { min: -0.175, max: 1.36 },
+      reach: 6.44,
+      // A five-second reload, as the owner asked.
+      caliber: 152, reload: 5, traverse: 0.35, range: 14500, sigma: 1.3,
+      shells: shells(152, 2900, 2300, 150, 768, 0.10),
+      mounts: [
+        { x: -0.251, z: 40.341, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 14.22 },
+        { x: 9.188, z: 5.841, angle: 1.4, arc: 1.75, rest: 0, guns: 2, my: 11.71 },
+        { x: -9.188, z: 5.841, angle: -1.4, arc: 1.75, rest: 0, guns: 2, my: 11.71 },
+        { x: 8.018, z: -27.951, angle: 1.74, arc: 1.75, rest: Math.PI, guns: 2, my: 11.6 },
+        { x: -7.677, z: -27.951, angle: -1.74, arc: 1.75, rest: -Math.PI, guns: 2, my: 11.6 },
+        { x: -0.251, z: -36.947, angle: 3.14, arc: 2.6, rest: Math.PI, guns: 2, my: 13.87 },
+      ],
+    },
+    aa: {
+      range: 6500, dps: 70,
+      guns: [
+        // Her 76 mm singles, dual-purpose, four a side: a pair abreast her
+        // bridge, one over the other, and a pair abreast each funnel.
+        { name: '76 mm/62 DP', caliber: 76, role: 'dp', reload: 1, range: 6500,
+          elev: { min: -0.26, max: 1.48 },
+          mounts: [
+            { x: -7.276, z: 29.671, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 1, my: 13.48 },
+            { x: 7.262, z: 29.671, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 1, my: 13.48 },
+            { x: -6.856, z: 23.011, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 1, my: 15.44 },
+            { x: 6.841, z: 23.011, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 1, my: 15.44 },
+            { x: -9.536, z: -5.948, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 1, my: 12.09 },
+            { x: 9.536, z: -5.948, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 1, my: 12.09 },
+            { x: -9.536, z: -13.605, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 1, my: 12.09 },
+            { x: 9.536, z: -13.605, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 1, my: 12.09 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 29000,
+      aircraft: 0,
+      mainRounds: 2400,
+      secondary: { caliber: 152, label: '6"', barrels: 12, rounds: 4800 },
+      tertiary: [
+        { caliber: 76, label: '76mm', barrels: 8, rounds: 8000 },
+      ],
+    },
+  },
 
   shokaku: {
     // The first of the two fleet carriers Japan built once she was free of the
@@ -9584,7 +9697,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shokaku', 'shinano'];
 

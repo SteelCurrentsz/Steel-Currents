@@ -86,6 +86,21 @@ const HULLS = {
     <rect x="63" y="23.5" width="3.5" height="2.5"/>
     <rect x="69" y="23.5" width="3.5" height="2.5"/>
     <rect x="75" y="23.5" width="3.5" height="2.5"/>`,
+  // The Leviathan: a long cruiser hull, a tall bridge forward, two big
+  // funnels with a lattice mast abaft each, and four quadruple turrets, two
+  // at each end, the inner ones superfiring.
+  leviathan: `
+    <path d="M2 29 L98 29 L94 37 L7 37 Z"/>
+    <rect x="9" y="25" width="10" height="4"/>
+    <rect x="18" y="22" width="9" height="4"/>
+    <rect x="30" y="15" width="12" height="14"/>
+    <rect x="34" y="9" width="3" height="7"/>
+    <rect x="43" y="16" width="6" height="13"/>
+    <rect x="57" y="16" width="6" height="13"/>
+    <rect x="50" y="12" width="2" height="17"/>
+    <rect x="64" y="12" width="2" height="17"/>
+    <rect x="72" y="22" width="9" height="4"/>
+    <rect x="81" y="25" width="10" height="4"/>`,
   // The Shokaku: her flight deck overhanging both ends of her, a small island
   // well forward, and her funnels trunked out of her side under her deck and
   // curving down to the water abaft it.

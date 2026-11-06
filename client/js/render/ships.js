@@ -40,7 +40,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku;
+  buildGrafZeppelin, buildShokaku, buildLeviathan;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -72,6 +72,7 @@ const SCULPTED = {
   richelieu: () => import('./richelieu.js').then((m) => { buildRichelieu = m.buildRichelieu; }),
   grafzeppelin: () => import('./grafzeppelin.js').then((m) => { buildGrafZeppelin = m.buildGrafZeppelin; }),
   shokaku: () => import('./shokaku.js').then((m) => { buildShokaku = m.buildShokaku; }),
+  leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
 };
 // The module each class is drawn by, where it is not her own name.
 const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck' };
@@ -1003,6 +1004,21 @@ function buildModel(classId) {
   // catapults and every gun she carries.
   if (cls.id === 'tillman') {
     const built = buildTillman();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Leviathan: the owner's model of her hull, her superstructure and
+  // every gun she carried.
+  if (cls.id === 'leviathan') {
+    const built = buildLeviathan();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
