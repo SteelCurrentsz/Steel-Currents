@@ -40,7 +40,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin;
+  buildGrafZeppelin, buildShokaku;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -71,6 +71,7 @@ const SCULPTED = {
   scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
   richelieu: () => import('./richelieu.js').then((m) => { buildRichelieu = m.buildRichelieu; }),
   grafzeppelin: () => import('./grafzeppelin.js').then((m) => { buildGrafZeppelin = m.buildGrafZeppelin; }),
+  shokaku: () => import('./shokaku.js').then((m) => { buildShokaku = m.buildShokaku; }),
 };
 // The module each class is drawn by, where it is not her own name.
 const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck' };
@@ -87,11 +88,11 @@ function sculptOf(classId) {
   return SCULPTED[k] ? k : null;
 }
 
-/** What has to be fetched before a class can be built. The Shinano carries
- *  the aircraft on her deck and in her hangar. */
+/** What has to be fetched before a class can be built. The Shinano and the
+ *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(classId === 'shinano' ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(classId === 'shinano' || classId === 'shokaku' ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */
@@ -1075,6 +1076,22 @@ function buildModel(classId) {
   // over it, three lifts that run and two hangars under them.
   if (cls.id === 'grafzeppelin') {
     const built = buildGrafZeppelin();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      flightDeckY: built.flightDeckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
+    };
+  }
+
+  // And the Shokaku: the owner's model of her, her runway laid afresh over
+  // it, three lifts that run and two hangars under them.
+  if (cls.id === 'shokaku') {
+    const built = buildShokaku();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
       flightDeckY: built.flightDeckY,

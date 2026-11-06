@@ -86,6 +86,16 @@ const HULLS = {
     <rect x="63" y="23.5" width="3.5" height="2.5"/>
     <rect x="69" y="23.5" width="3.5" height="2.5"/>
     <rect x="75" y="23.5" width="3.5" height="2.5"/>`,
+  // The Shokaku: her flight deck overhanging both ends of her, a small island
+  // well forward, and her funnels trunked out of her side under her deck and
+  // curving down to the water abaft it.
+  shokaku: `
+    <path d="M2 29 L9 30 L95 30 L93 37 L11 37 Z"/>
+    <path d="M5 26 L97 26 L97 29.5 L5 29.5 Z"/>
+    <rect x="30" y="19" width="8" height="7"/>
+    <rect x="32" y="15" width="4" height="4"/>
+    <rect x="33.4" y="7" width="1.4" height="8"/>
+    <path d="M41 30 L49 30 L50 34 L42 34 Z"/>`,
 };
 
 // Badges that say what a hull icon does when it is a button rather than a

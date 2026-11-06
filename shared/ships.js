@@ -8325,6 +8325,185 @@ export const SHIP_CLASSES = {
     },
   },
 
+  shokaku: {
+    // The first of the two fleet carriers Japan built once she was free of the
+    // treaties, and with her sister Zuikaku the best the Imperial Navy ever
+    // had: thirty-two thousand tonnes, thirty-four knots, two hangars, three
+    // lifts and an island well forward on her starboard side, her funnels
+    // trunked out through her side and curving down to the water. She was at
+    // Pearl Harbor, the Coral Sea and Santa Cruz, and was torpedoed by the
+    // submarine Cavalla in the Philippine Sea in June 1944.
+    //
+    // She is drawn from the owner's model of her (see shokaku.js and
+    // build/prepare-shokaku-hull.mjs) -- "IJN CV SHOUKAKU 1960" by 全斗焕,
+    // under Creative Commons Attribution 4.0 -- which arms her as she might
+    // have been refitted: 10 cm twins in her sponsons, 40 mm Bofors twins and
+    // 25 mm singles in her galleries. Her runway is laid afresh over the
+    // outline of the model's own flight deck, with her three lifts in it.
+    id: 'shokaku',
+    name: 'Shokaku',
+    fullName: 'IJN Shokaku',
+    className: 'Shokaku',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'jpn',
+    blurb: 'Seventy-two aircraft at thirty-four knots: the carrier that struck Pearl Harbor, with a strike off her deck before an enemy knows where she is.',
+    // Her 257.5 m overall is the model's length from her stem to her stern.
+    // She floats where the model floats her, with her keel 9.5 m down.
+    hull: { length: 257.5, beam: 26.0, draft: 9.5, superstructure: 0.5, flightDeck: true },
+    hp: 51200,
+    maxSpeed: 34 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.52,
+    turnRate: 0.058,
+    rudderShift: 11.0,
+    speedLossInTurn: 0.17,
+    concealment: 15200,
+    fireDetectPenalty: 5600,
+    radarRange: 11000,
+    repairCooldown: 95,
+    repairHeal: 0.11,
+    smokeCharges: 0,
+    // A cruiser's protection over her vitals: 165 mm of belt abreast her
+    // magazines and 46 abreast her machinery, a hundred millimetres of deck
+    // over them, and nothing over her hangars but the planking of her flight
+    // deck.
+    armor: { belt: 165, deck: 100, citadel: 165, bow: 30, superstructure: 20 },
+    // Her eight 10 cm/65 Type 98 twins, four a side in the sponsons under her
+    // deck edge, two forward and two aft each side. Each fires outboard on
+    // its own side only: her flight deck is in the way of everything across
+    // her.
+    turrets: [
+      { id: 0, name: 'S1', x: -13.63, z: 76.81, angle: -1.571, arc: 1.4, rest: -1.583, guns: 2, my: 12.45 },
+      { id: 1, name: 'S2', x: -14.75, z: 59.74, angle: -1.571, arc: 1.4, rest: -1.576, guns: 2, my: 12.45 },
+      { id: 2, name: 'S3', x: -17.37, z: -38.52, angle: -1.571, arc: 1.4, rest: -1.571, guns: 2, my: 12.45 },
+      { id: 3, name: 'S4', x: -17.37, z: -52.95, angle: -1.571, arc: 1.4, rest: -1.559, guns: 2, my: 12.45 },
+      { id: 4, name: 'P1', x: 13.44, z: 77, angle: 1.571, arc: 1.4, rest: 1.57, guns: 2, my: 13 },
+      { id: 5, name: 'P2', x: 14.96, z: 56.63, angle: 1.571, arc: 1.4, rest: 1.559, guns: 2, my: 13 },
+      { id: 6, name: 'P3', x: 15.83, z: -56.12, angle: 1.571, arc: 1.4, rest: 1.581, guns: 2, my: 13 },
+      { id: 7, name: 'P4', x: 15.83, z: -70.48, angle: 1.571, arc: 1.4, rest: 1.576, guns: 2, my: 13 },
+    ],
+    gun: {
+      name: '10 cm/65 Type 98', role: 'dp',
+      elev: { min: -0.175, max: 1.571 },
+      reach: 5.02,
+      caliber: 100, reload: 3.4, traverse: 0.28, range: 12000, sigma: 1.8,
+      shells: shells(100, 1300, 1150, 45, 1000, 0.06),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 6400, dps: 170,
+      guns: [
+        // Her twenty 40 mm Bofors twins: three on her forecastle under the
+        // forward end of her flight deck and three on her quarterdeck under
+        // the after end, two on her island's galleries, and the rest in the
+        // galleries down both her sides.
+        { name: '40 mm Bofors', caliber: 40, role: 'aa', reload: 0.5, range: 3800,
+          elev: { min: -0.175, max: 1.571 },
+          mounts: [
+            { x: -0.01, z: 122.07, angle: 0, arc: 2, rest: 3.131, guns: 2, my: 12.64 },
+            { x: -3.76, z: 119.43, angle: 0, arc: 2, rest: 3.141, guns: 2, my: 13.48 },
+            { x: 3.75, z: 119.43, angle: 0, arc: 2, rest: -3.14, guns: 2, my: 13.48 },
+            { x: -14.43, z: 70.52, angle: -1.571, arc: 2, rest: 1.572, guns: 2, my: 14.36 },
+            { x: 14.34, z: 70.49, angle: 1.571, arc: 2, rest: -1.571, guns: 2, my: 14.4 },
+            { x: -14.94, z: 65.25, angle: -1.571, arc: 2, rest: 1.574, guns: 2, my: 14.36 },
+            { x: 14.96, z: 62.68, angle: 1.571, arc: 2, rest: 1.571, guns: 2, my: 14.4 },
+            { x: -13.78, z: 54.14, angle: -1.571, arc: 2, rest: 1.572, guns: 2, my: 16.46 },
+            { x: -13.78, z: 24.09, angle: -1.571, arc: 2, rest: -1.573, guns: 2, my: 16.46 },
+            { x: -18.39, z: 22.81, angle: -1.571, arc: 2, rest: -1.573, guns: 2, my: 13.96 },
+            { x: -18.39, z: 15.74, angle: -1.571, arc: 2, rest: -1.58, guns: 2, my: 13.96 },
+            { x: 17.04, z: 3.51, angle: 1.571, arc: 2, rest: 1.565, guns: 2, my: 14.2 },
+            { x: 17.04, z: -3.33, angle: 1.571, arc: 2, rest: 1.562, guns: 2, my: 14.2 },
+            { x: 17.04, z: -10.89, angle: 1.571, arc: 2, rest: 1.571, guns: 2, my: 14.2 },
+            { x: 17.04, z: -18.18, angle: 1.571, arc: 2, rest: 1.569, guns: 2, my: 14.2 },
+            { x: 17.04, z: -33.81, angle: 1.571, arc: 2, rest: 1.558, guns: 2, my: 14.2 },
+            { x: 17.04, z: -40.51, angle: 1.571, arc: 2, rest: 1.571, guns: 2, my: 14.2 },
+            { x: -3.52, z: -124.02, angle: 3.1416, arc: 2, rest: -0.002, guns: 2, my: 10.78 },
+            { x: 3.59, z: -124.02, angle: 3.1416, arc: 2, rest: 3.131, guns: 2, my: 10.78 },
+            { x: 0, z: -126.8, angle: 3.1416, arc: 2, rest: -3.139, guns: 2, my: 8.52 },
+          ] },
+        // And her thirty 25 mm Type 96 singles, in the galleries along her
+        // deck edge forward and on her starboard quarter.
+        { name: '25 mm Type 96', caliber: 25, role: 'aa', reload: 0.16, range: 3000,
+          elev: { min: -0.175, max: 1.484 },
+          mounts: [
+            { x: -11.16, z: 105.88, angle: -1.571, arc: 2, rest: -1.667, guns: 1, my: 15.55 },
+            { x: 11.14, z: 105.68, angle: 1.571, arc: 2, rest: 1.479, guns: 1, my: 15.55 },
+            { x: -11.38, z: 102.96, angle: -1.571, arc: 2, rest: -1.667, guns: 1, my: 15.55 },
+            { x: 11.4, z: 102.75, angle: 1.571, arc: 2, rest: 1.475, guns: 1, my: 15.55 },
+            { x: 11.58, z: 100.54, angle: 1.571, arc: 2, rest: 1.475, guns: 1, my: 15.55 },
+            { x: -11.56, z: 100.37, angle: -1.571, arc: 2, rest: -1.667, guns: 1, my: 15.55 },
+            { x: -12.35, z: 94.8, angle: -1.571, arc: 2, rest: -1.667, guns: 1, my: 14.51 },
+            { x: 11.77, z: 93.8, angle: 1.571, arc: 2, rest: 1.475, guns: 1, my: 14.51 },
+            { x: -12.57, z: 92.32, angle: -1.571, arc: 2, rest: -1.663, guns: 1, my: 14.51 },
+            { x: 12.14, z: 90.86, angle: 1.571, arc: 2, rest: 1.478, guns: 1, my: 14.51 },
+            { x: -12.68, z: 89.78, angle: -1.571, arc: 2, rest: -1.663, guns: 1, my: 14.51 },
+            { x: 12.45, z: 87.94, angle: 1.571, arc: 2, rest: 1.474, guns: 1, my: 14.51 },
+            { x: -12.9, z: 87.01, angle: -1.571, arc: 2, rest: -1.667, guns: 1, my: 14.51 },
+            { x: 12.76, z: 85.01, angle: 1.571, arc: 2, rest: 1.482, guns: 1, my: 14.51 },
+            { x: -13.08, z: 84.27, angle: -1.571, arc: 2, rest: -1.667, guns: 1, my: 14.51 },
+            { x: -13.28, z: 75.12, angle: -1.571, arc: 2, rest: -1.673, guns: 1, my: 9.01 },
+            { x: 13.27, z: 74.04, angle: 1.571, arc: 2, rest: 1.478, guns: 1, my: 9 },
+            { x: -13.45, z: 72.36, angle: -1.571, arc: 2, rest: -1.662, guns: 1, my: 9.01 },
+            { x: 13.52, z: 71.11, angle: 1.571, arc: 2, rest: 1.482, guns: 1, my: 9 },
+            { x: -13.62, z: 69.62, angle: -1.571, arc: 2, rest: -1.656, guns: 1, my: 9.01 },
+            { x: 13.7, z: 68.18, angle: 1.571, arc: 2, rest: 1.475, guns: 1, my: 9 },
+            { x: -13.78, z: 66.87, angle: -1.571, arc: 2, rest: -1.656, guns: 1, my: 9.01 },
+            { x: 13.91, z: 65.26, angle: 1.571, arc: 2, rest: 1.475, guns: 1, my: 9 },
+            { x: -13.93, z: 64.12, angle: -1.571, arc: 2, rest: -1.654, guns: 1, my: 9.01 },
+            { x: 14.07, z: 62.32, angle: 1.571, arc: 2, rest: 1.478, guns: 1, my: 9 },
+            { x: 14.26, z: 59.38, angle: 1.571, arc: 2, rest: 1.477, guns: 1, my: 9 },
+            { x: 15.8, z: -83.39, angle: 1.571, arc: 2, rest: 1.47, guns: 1, my: 11.26 },
+            { x: 15.8, z: -88.15, angle: 1.571, arc: 2, rest: 1.464, guns: 1, my: 11.26 },
+            { x: 15.8, z: -92.68, angle: 1.571, arc: 2, rest: 1.468, guns: 1, my: 11.26 },
+            { x: 15.8, z: -97.37, angle: 1.571, arc: 2, rest: 1.478, guns: 1, my: 11.26 },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 3, perSquadron: 18, cruiseSpeed: 82, strikeRange: 15600,
+      // Where her aircraft put their wheels down coming home, in her own
+      // frame: just up the deck from the round-down, where the model on her
+      // takes the recovery up to the after lift. See landingGuide.
+      touchdown: { z: -103, y: 15.05 },
+      // What she flew: the Zero, the Suisei that replaced the Val, and the
+      // Kate with a fish under her.
+      types: { fighter: 'zero', dive: 'suisei', torpedo: 'b5n' },
+      // Where her deck run leaves each of her three types, off the integrated
+      // launch the model on her deck flies.
+      // A Zero is off and away well ahead of a Kate with a fish under her.
+      runOut: { fighter: 286, dive: 277, torpedo: 248 },
+      runHeight: { fighter: 20.6, dive: 20.1, torpedo: 17.0 },
+      rearm: 40, torpDamage: 9400, torpSpeed: 27 * KNOTS, torpRange: 2800,
+      floodChance: 0.27, hp: 1300, dropSpread: 0.05,
+      // A Suisei's 500 kg semi-armour-piercing bomb.
+      bombDamage: 4400, bombHit: 0.40, bombFire: 0.36, bombPen: 100, bombBore: 0.38,
+      // Seventy-two aircraft in her two hangars, split however her captain
+      // likes: any one type may fill all of them, and none of them has to
+      // be embarked.
+      group: {
+        total: 72,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 72, dive: 72, torpedo: 72 },
+        minStrike: 0,
+        // Eighteen Zeros, twenty-seven Suiseis and twenty-seven Kates: the
+        // group she took to Pearl Harbor, in its proportions.
+        default: { fighters: 18, dive: 27, torpedo: 27 },
+      },
+    },
+    datasheet: {
+      displacement: 32105,
+      aircraft: 0,
+      mainRounds: 4000,
+      secondary: { caliber: 100, label: '10cm', barrels: 16, rounds: 4800 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 40, rounds: 48000 },
+        { caliber: 25, label: '25mm', barrels: 30, rounds: 60000 },
+      ],
+    },
+  },
+
   shinano: {
     // The third Yamato hull, converted on the slip into an armoured carrier
     // and the largest warship ever built to carry aircraft until the nuclear
@@ -9028,7 +9207,7 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
-  'grafzeppelin', 'enterprise', 'shinano'];
+  'grafzeppelin', 'enterprise', 'shokaku', 'shinano'];
 
 /**
  * The hulls in the Premium Equipment store, and not in the yard's list: a
