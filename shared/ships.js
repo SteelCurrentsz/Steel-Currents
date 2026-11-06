@@ -53,6 +53,121 @@ function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
 // Fletcher was alongside an Iowa.
 const BIG = 1;
 
+// The two Panzerschiffe, the Admiral Graf Spee and the Admiral Scheer, are drawn
+// off the one model of the Scheer (see scheer.js) and carry the same main and
+// secondary batteries, tubes, catapult and the flak the Graf Spee had; the
+// Scheer's later flak is hers alone. Each mounting stands where the model has
+// it (build/prepare-scheer-hull.mjs), and `rest` is the bearing the model
+// stows it on. Arcs are surveyed off the model (build/survey-arcs.mjs).
+//
+// Her eight 15 cm, four a side: a pair abreast her tower stowed ahead, a pair
+// abaft her funnel stowed astern.
+const PANZER_SEC = [
+  { x: -7.904, z: 19.891, angle: -1.571, arc: 1.5, rest: -0.0017, guns: 1, my: 6.92 },
+  { x: 7.911, z: 19.891, angle: 1.571, arc: 1.5, rest: -0.0017, guns: 1, my: 6.92 },
+  { x: -8.865, z: 13.3, angle: -1.571, arc: 1.5, rest: -0.1077, guns: 1, my: 6.92 },
+  { x: 8.875, z: 13.299, angle: 1.571, arc: 1.5, rest: 0.104, guns: 1, my: 6.92 },
+  { x: -8.942, z: -7.122, angle: -1.571, arc: 1.5, rest: -3.0435, guns: 1, my: 6.83 },
+  { x: 8.932, z: -7.122, angle: 1.571, arc: 1.5, rest: 3.0409, guns: 1, my: 6.83 },
+  { x: -7.825, z: -14.122, angle: -1.571, arc: 1.5, rest: 3.141, guns: 1, my: 6.75 },
+  { x: 7.817, z: -14.122, angle: 1.571, arc: 1.5, rest: 3.1399, guns: 1, my: 6.75 },
+];
+// Her two quadruple banks of tubes on her quarterdeck, housed, stowed with
+// their muzzles astern. Each trains out over its own side, from twenty-two
+// degrees off her stern -- where her counter stops its fish, surveyed off the
+// model -- round to sixty off her bow, where the breech end of its housing
+// would be across her centreline and into the other bank.
+const PANZER_TUBES = [
+  { id: 0, x: 3.721, z: -71.277, angle: 1.902, arc: 0.855, rest: 2.757, tubes: 4, my: 4.1 },
+  { id: 1, x: -3.738, z: -71.279, angle: -1.902, arc: 0.855, rest: -2.757, tubes: 4, my: 4.1 },
+];
+// Her three twin 10.5 cm: one each side abreast her funnel, one on her
+// centreline on her after superstructure forward of Bruno.
+const PANZER_105 = {
+  name: '10.5 cm SK C/33', caliber: 105, role: 'aa', reload: 4.2, range: 6000, piece: 'heavy',
+  elev: { min: -0.14, max: 1.40 },
+  mounts: [
+    { x: -8.933, z: 8.695, angle: -1.571, arc: 1.6, rest: -0.1305, guns: 2 },
+    { x: 8.933, z: 8.695, angle: 1.571, arc: 1.6, rest: -0.1305, guns: 2 },
+    { x: 0.045, z: -33.036, angle: 3.142, arc: 2.7, rest: -3.1065, guns: 2 },
+  ],
+};
+// The twin 3.7 cm: four of them on her decks -- a pair abreast her tower, a
+// pair on her after superstructure -- which both ships carry.
+const PANZER_37 = {
+  name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.7, range: 3000, piece: 'twin',
+  elev: { min: -0.157, max: 1.48 },
+};
+const PANZER_37_DECK = [
+  { x: -4.457, z: 28.269, angle: -1.571, arc: 2.0, rest: -0.7659, guns: 2 },
+  { x: 4.475, z: 28.251, angle: 1.571, arc: 2.0, rest: 0.8049, guns: 2 },
+  { x: -4.488, z: -21.666, angle: -1.571, arc: 2.0, rest: -1.5689, guns: 2 },
+  { x: 4.488, z: -21.666, angle: 1.571, arc: 2.0, rest: 1.5727, guns: 2 },
+];
+// And the Scheer's four more, a pair on each turret roof, each given where it
+// stands with its turret trained fore and aft.
+const SCHEER_37_ROOF = [
+  { x: -1.907, z: 45.427, angle: -1.571, arc: 3.0, rest: 0.0032, guns: 2, turret: 'Anton' },
+  { x: 2.035, z: 45.276, angle: 1.571, arc: 3.0, rest: 0.0032, guns: 2, turret: 'Anton' },
+  { x: -1.937, z: -39.449, angle: -1.571, arc: 3.0, rest: -3.1384, guns: 2, turret: 'Bruno' },
+  { x: 2.004, z: -39.599, angle: 1.571, arc: 3.0, rest: -3.1384, guns: 2, turret: 'Bruno' },
+];
+// The 2 cm singles both carry: two on her tower top, four on the platforms
+// round her funnel.
+const PANZER_20 = {
+  name: '2 cm Flak 30', caliber: 20, role: 'aa', reload: 0.1, range: 1700, piece: 'single',
+  elev: { min: -0.19, max: 1.57 },
+};
+const PANZER_20_SINGLES = [
+  { x: -2.52, z: 22.315, angle: -1.571, arc: 1.7, rest: -1.7115, guns: 1 },
+  { x: 2.52, z: 22.23, angle: 1.571, arc: 1.7, rest: 1.4301, guns: 1 },
+  { x: -1.482, z: 9.067, angle: -1.571, arc: 1.7, rest: -0.8758, guns: 1 },
+  { x: 1.584, z: 8.965, angle: 1.571, arc: 1.7, rest: 0.695, guns: 1 },
+  { x: -3.946, z: 3.594, angle: -1.571, arc: 1.7, rest: -1.7115, guns: 1 },
+  { x: 3.946, z: 3.509, angle: 1.571, arc: 1.7, rest: 1.4301, guns: 1 },
+];
+// The Scheer's sixteen 2 cm quadruples in their tubs along her upper deck.
+const SCHEER_20_QUADS = [
+  { x: 7.614, z: 40.409, angle: 1.571, arc: 1.7, rest: 0.7778, guns: 4 },
+  { x: -7.515, z: 40.404, angle: -1.571, arc: 1.7, rest: -0.793, guns: 4 },
+  { x: 7.614, z: 36.868, angle: 1.571, arc: 1.7, rest: 0.7778, guns: 4 },
+  { x: -7.515, z: 36.863, angle: -1.571, arc: 1.7, rest: -0.793, guns: 4 },
+  { x: 7.614, z: 33.219, angle: 1.571, arc: 1.7, rest: 0.7778, guns: 4 },
+  { x: -7.515, z: 33.215, angle: -1.571, arc: 1.7, rest: -0.793, guns: 4 },
+  { x: 7.614, z: 29.474, angle: 1.571, arc: 1.7, rest: 0.7778, guns: 4 },
+  { x: -7.515, z: 29.47, angle: -1.571, arc: 1.7, rest: -0.793, guns: 4 },
+  { x: 7.619, z: -21.453, angle: 1.571, arc: 1.7, rest: 2.3486, guns: 4 },
+  { x: -7.51, z: -21.458, angle: -1.571, arc: 1.7, rest: -2.3638, guns: 4 },
+  { x: 7.619, z: -24.994, angle: 1.571, arc: 1.7, rest: 2.3486, guns: 4 },
+  { x: -7.51, z: -24.999, angle: -1.571, arc: 1.7, rest: -2.3638, guns: 4 },
+  { x: 7.619, z: -28.643, angle: 1.571, arc: 1.7, rest: 2.3486, guns: 4 },
+  { x: -7.51, z: -28.647, angle: -1.571, arc: 1.7, rest: -2.3638, guns: 4 },
+  { x: 7.619, z: -32.387, angle: 1.571, arc: 1.7, rest: 2.3486, guns: 4 },
+  { x: -7.51, z: -32.392, angle: -1.571, arc: 1.7, rest: -2.3638, guns: 4 },
+];
+// The Scheer's two 4 cm singles on her quarterdeck, stowed astern.
+const SCHEER_40 = [
+  { x: -2.926, z: -57.407, angle: -1.571, arc: 1.7, rest: 3.0981, guns: 1 },
+  { x: 2.841, z: -57.407, angle: 1.571, arc: 1.7, rest: 3.0981, guns: 1 },
+];
+// Two Arados off the catapult abaft the funnel, which trains out to port and
+// throws them off over her port side (scheer.js). Where the shot leaves her
+// is measured off the shot.
+const PANZER_PLANES = {
+  squadrons: 1, perSquadron: 2, cruiseSpeed: 54, strikeRange: 9200,
+  rearm: 120, hp: 600, dropSpread: 0.07,
+  torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+  bombDamage: 700, bombHit: 0.26, bombFire: 0.12, bombPen: 22, bombBore: 0.18,
+  type: 'arado',
+  catapult: true, deckRun: 9.4, deckCycle: 36,
+  runHeight: 31,
+  runOut: 125.5, runBearing: 1.528, runSide: 1, runHeading: 1.443, launchSpeed: 32,
+  flight: { fighters: 0, dive: 2, torpedo: 0 },
+};
+
+// Each ship her own copy of a list of mountings.
+const own = (list) => list.map((m) => ({ ...m }));
+
 // The Surcouf's trainable triples on her casing: a 55 cm tube on the centre of
 // the mount and a 40 cm either side (surcouf.js), each fish blown out over her
 // side. A 55 cm 1924V and a 40 cm 1926, each drawn to fit its own tube.
@@ -1027,10 +1142,17 @@ export const SHIP_CLASSES = {
     typeName: 'Panzerschiff',
     nation: 'ger',
     blurb: 'Eleven-inch guns on a cruiser hull: she outranges anything that can catch her and outruns anything that can hurt her.',
+    // She is drawn off the owner's model of her sister the Admiral Scheer (see
+    // scheer.js) -- "The Third Reich Navy large cruiser ADM. SCHEER" by
+    // 全斗焕, under Creative Commons Attribution 4.0, credited on the Credits
+    // screen. The two were built to the same lines, and she carries every gun
+    // the model does that she carried herself, and none of the flak the
+    // Scheer was given after the Graf Spee was gone: no twins on her turret
+    // roofs, no quadruples along her decks, no 4 cm on her quarterdeck.
     hull: {
-      // Where her funnels come out, [across, along, up] in metres off her
+      // Where her funnel comes out, [across, along, up] in metres off her
       // model: what she makes smoke from. See funnelsOf in game.js.
-      funnels: [[0, 4.5, 19.4]], length: 186, beam: 21.6, draft: 7.4, superstructure: 1.35 },
+      funnels: [[0, 4.5, 19.4]], length: 186, beam: 21.6, draft: 7.35, superstructure: 1.35 },
     hp: 31600,
     maxSpeed: 28.5 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -1053,27 +1175,16 @@ export const SHIP_CLASSES = {
     turrets: [
       // Two triples, one forward and one aft, both at upper deck level: there
       // is no superfiring turret on her, because there is no second turret at
-      // either end to superfire over.
-      //
-      // Stations read off the profile in her plan rather than off a scale bar:
-      // Anton's roof runs from forty-five metres forward of amidships to
-      // fifty-one, her sloped face from fifty-two to fifty-five, and her rear
-      // plate stands at forty-three with a notch of open deck between it and
-      // the bridge block. That puts her roller path at forty-eight and a half,
-      // four metres abaft where a reading off the scale bar had put it, and it
-      // is what closed the strip of bare deck that used to show between her
-      // and the bridge. Bruno's roof runs from forty to forty-five abaft.
-      //
-      // Each trains a hundred and forty degrees either side of her centreline
-      // and no further, the arc build/survey-spee-arcs.mjs finds clear of her
-      // own tower and after superstructure at the height of the barrels. `my`
-      // is the height of the muzzles over her waterline, off the same model.
-      { id: 0, name: 'Anton', x: 0, z: 48.5, angle: 0, arc: 2.44, guns: 3, my: 8.63 },
-      { id: 1, name: 'Bruno', x: 0, z: -42.0, angle: Math.PI, arc: 2.44, guns: 3, my: 8.17 },
+      // either end to superfire over. Each where the model stands it (see
+      // build/prepare-scheer-hull.mjs); `my` is the height of the muzzles
+      // over her waterline, off the same model.
+      { id: 0, name: 'Anton', x: 0.064, z: 48.508, angle: 0, arc: 2.44, guns: 3, my: 7.43 },
+      { id: 1, name: 'Bruno', x: 0.033, z: -42.681, angle: Math.PI, arc: 2.44, guns: 3, my: 7.59 },
     ],
     gun: {
-      name: '28 cm SK C/34', role: 'surface',
-      reach: 14.6,
+      name: '28 cm SK C/28', role: 'surface',
+      // Pivot to muzzle on the model's turret.
+      reach: 15.12,
       // Slow, because eleven-inch bag charges are slow, and the whole of her
       // tactics follow from it: she has to hit at a range where the answer
       // cannot reach her, because she cannot afford a gunnery duel.
@@ -1081,136 +1192,57 @@ export const SHIP_CLASSES = {
       shells: shells(283, 8200, 5100, 372, 910, 0.16),
     },
     torpedoes: {
-      // Two quadruple banks on the quarterdeck, abaft the after turret. An
+      // Two quadruple banks on the quarterdeck, abaft the after turret, each in
+      // its splinter-proof housing with the muzzles out of its after end. An
       // afterthought on a commerce raider and a real threat at close quarters.
-      mounts: [
-        // On the lower quarterdeck abaft the break, a deck below the one the
-        // after turret stands on, stowed fore and aft where the sculpt has them.
-        //
-        // Each bank fires from twenty-two degrees abaft her bow round to
-        // twenty-two off her stern on its own side: forward, the break of her
-        // quarterdeck stops the tubes; aft, her own stern stops the fish,
-        // which would run into her counter laid any further round. Surveyed
-        // off her model by build/survey-spee-arcs.mjs, and stowed at the
-        // after end of it.
-        { id: 0, x: -3.65, z: -72.5, angle: -Math.PI / 2, rest: -2.76, arc: 1.19, tubes: 4, my: 4.21 },
-        { id: 1, x: 3.65, z: -72.5, angle: Math.PI / 2, rest: 2.76, arc: 1.19, tubes: 4, my: 4.18 },
-      ],
+      mounts: own(PANZER_TUBES),
       name: 'G7a torpedo', role: 'surface', caliber: 533,
-      reach: 4.6,
+      reach: 4.78,
       traverse: 0.24,
       reload: 84, damage: 13700, speed: 32 * KNOTS, range: 6000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
-      // Out of the tubes and over her quarter, off the model's own banks
-      // (spee.js): four tubes side by side, long enough for a whole G7a.
+      // Out of the tubes and over her quarter, off the model's own banks:
+      // four tubes side by side, long enough for a whole G7a.
       launch: {
-        eject: 12, stagger: 0.35, lanes: [-1.28, -0.43, 0.43, 1.28], lie: 0.7, muzzle: 4.5,
+        eject: 12, stagger: 0.35, lanes: [-1.14, -0.38, 0.38, 1.14], lie: 0.7, muzzle: 4.5,
         fish: { len: 7.18, r: 0.267, kind: 'g7a' },
       },
     },
-    // Eight single 15 cm in open shielded mounts, four a side along her upper
-    // deck. They are surface guns and nothing else: the mounting will not
-    // elevate to an aeroplane, which is exactly why she carries a separate
-    // heavy anti-aircraft battery and the Hipper does not.
+    // Eight single 15 cm in shields, four a side along her upper deck. They
+    // are surface guns and nothing else: the mounting will not elevate to an
+    // aeroplane, which is exactly why she carries a separate heavy
+    // anti-aircraft battery and the Hipper does not.
     secondary: {
       name: '15 cm SK C/28', role: 'surface',
-      reach: 7.95,
+      reach: 6.69,
       caliber: 150, reload: 6.4, traverse: 0.32, range: 9800, sigma: 1.1,
       shells: shells(150, 3100, 2400, 152, 875, 0.11),
-      // Four a side on the main deck at the deck edge, outboard of the
-      // superstructure: a pair abreast the tower and a pair abreast the boats
-      // abaft the funnel, where the reference sculpt of her carries them.
-      //
-      // `angle` is the middle of what a mounting can be laid through, which
-      // for a gun in the waist is the beam. `rest` is where it sits when it
-      // has nothing to shoot at, which is a different thing: a wing mounting
-      // is stowed trained fore and aft along her side, not out over it -- the
-      // forward pair ahead and the after pair astern, as far round as her own
-      // structure and the next mounting along let each of them go.
-      //
-      // Those arcs are not guessed: build/survey-spee-arcs.mjs lays each gun
-      // round a degree at a time on the model she is drawn with and stops it
-      // two degrees short of the first bearing its barrel would meet her own
-      // steel. What stops each one is the next shield along her side, or the
-      // sponson of the waist 10.5 cm between the two pairs: the foremost gun
-      // each side trains from right ahead to eighteen degrees off her stern,
-      // the aftermost from right astern to sixteen off her bow, and the two
-      // between them cover the beam. Each pair port and starboard is given the
-      // tighter of its two arcs, mirrored.
-      mounts: [
-        { x: -8.65, z: 18.75, angle: -1.42, rest: -0.02, arc: 1.4, guns: 1, my: 6.32 },
-        { x: 8.65, z: 18.75, angle: 1.42, rest: 0.02, arc: 1.4, guns: 1, my: 6.33 },
-        { x: -8.65, z: 11.75, angle: -1.3, rest: -0.26, arc: 1.04, guns: 1, my: 6.29 },
-        { x: 8.65, z: 11.75, angle: 1.3, rest: 0.26, arc: 1.04, guns: 1, my: 6.3 },
-        { x: -8.65, z: -8.6, angle: -1.54, rest: -2.84, arc: 1.3, guns: 1, my: 6.29 },
-        { x: 8.65, z: -8.6, angle: 1.54, rest: 2.84, arc: 1.3, guns: 1, my: 6.29 },
-        { x: -8.85, z: -15.55, angle: -1.73, rest: Math.PI, arc: 1.45, guns: 1, my: 6.29 },
-        { x: 8.85, z: -15.55, angle: 1.73, rest: Math.PI, arc: 1.45, guns: 1, my: 6.31 },
-      ],
+      // A pair abreast her tower and a pair abaft her funnel each side, where
+      // the model stands them. `angle` is the middle of what a mounting can be
+      // laid through, which for a gun in the waist is the beam; `rest` is
+      // where it is stowed, which is a different thing -- the forward pairs
+      // trained ahead and the after pairs astern, along her side. Their arcs
+      // are surveyed off the model (build/survey-arcs.mjs).
+      mounts: own(PANZER_SEC),
     },
     aa: {
       range: 6000, dps: 46,
       guns: [
-        // Three twin 10.5 cm: one each side abreast the funnel, on the sponsons
-        // off the superstructure deck, and one on the after superstructure
-        // forward of Bruno. These are her long-range flak, because her
-        // fifteens will not point up.
-        //
-        // Every flak arc on her is surveyed the way her fifteens' are, with the
-        // gun laid five degrees up -- a torpedo bomber low on the water, the
-        // lowest it will ever be laid -- so wherever in its arc it follows an
-        // aeroplane it is never laid through her own funnel or tower. The one
-        // on her centreline stands over Bruno and fires over his roof, laid
-        // fifteen up. `elev` is each gun's own stops.
-        { name: '10.5 cm SK C/33', caliber: 105, role: 'aa', reload: 4.2, range: 6000,
-          elev: { min: -0.14, max: 1.40 },
-          mounts: [
-            { x: -8.85, z: 6.6, angle: -1.63, arc: 1.63, guns: 2 },
-            { x: 8.85, z: 6.6, angle: 1.63, arc: 1.63, guns: 2 },
-            // Stowed on the beam: trained astern, her barrels are into
-            // Bruno's rangefinder.
-            { x: 0, z: -33.3, angle: Math.PI, arc: 2.74, rest: Math.PI / 2, guns: 2 },
-          ] },
-        // Two on the funnel platform, where her profile stands them, and two
-        // on the after superstructure.
-        { name: '3.7 cm SK C/30', caliber: 37, role: 'aa', reload: 0.7, range: 3000,
-          elev: { min: -0.157, max: 1.48 },
-          mounts: [
-            { x: -4.0, z: 4.0, angle: -1.72, arc: 1.74, guns: 2 },
-            { x: 4.0, z: 4.0, angle: 1.72, arc: 1.74, guns: 2 },
-            { x: -5.4, z: -22, angle: -2.03, arc: 1.4, guns: 2 },
-            { x: 5.4, z: -22, angle: 2.03, arc: 1.4, guns: 2 },
-          ] },
-        // Ten single 2 cm, spread from the forecastle to the quarterdeck.
-        { name: '2 cm Flak 30', caliber: 20, role: 'aa', reload: 0.1, range: 1700,
-          elev: { min: -0.19, max: 1.57 },
-          mounts: [
-            { x: -5.4, z: 40, angle: -1.46, arc: 1.49, guns: 1 },
-            { x: 5.4, z: 40, angle: 1.46, arc: 1.49, guns: 1 },
-            { x: -7.2, z: 27, angle: -1.33, arc: 1.4, guns: 1 },
-            { x: 7.2, z: 27, angle: 1.33, arc: 1.4, guns: 1 },
-            { x: -6.2, z: -6, angle: -1.18, arc: 0.64, guns: 1 },
-            { x: 6.2, z: -6, angle: 1.18, arc: 0.64, guns: 1 },
-            { x: -5.8, z: -32, angle: -1.72, arc: 1.49, guns: 1 },
-            { x: 5.8, z: -32, angle: 1.72, arc: 1.49, guns: 1 },
-            { x: -4.0, z: -55, angle: -2.8, arc: 2.68, guns: 1 },
-            { x: 4.0, z: -55, angle: 2.8, arc: 2.68, guns: 1 },
-          ] },
+        // Three twin 10.5 cm: one each side abreast the funnel, and one on the
+        // after superstructure forward of Bruno. These are her long-range
+        // flak, because her fifteens will not point up.
+        { ...PANZER_105, mounts: own(PANZER_105.mounts) },
+        // Four twin 3.7 cm: a pair abreast her tower and a pair on her after
+        // superstructure.
+        { ...PANZER_37, mounts: own(PANZER_37_DECK) },
+        // Six single 2 cm: two on her tower top and four on the platforms
+        // round her funnel.
+        { ...PANZER_20, mounts: own(PANZER_20_SINGLES) },
       ],
     },
-    // Two Arados off a single catapult abaft the funnel. A commerce raider
-    // lives by seeing further than she is seen, so they go out to look.
-    planes: {
-      squadrons: 1, perSquadron: 2, cruiseSpeed: 54, strikeRange: 9200,
-      rearm: 120, hp: 600, dropSpread: 0.07,
-      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
-      bombDamage: 700, bombHit: 0.26, bombFire: 0.12, bombPen: 22, bombBore: 0.18,
-      type: 'arado',
-      catapult: true, deckRun: 9.4, deckCycle: 36,
-      runHeight: 30,
-      runOut: 126, runBearing: 1.523, runSide: 1, runHeading: 1.421, launchSpeed: 32,
-      flight: { fighters: 0, dive: 2, torpedo: 0 },
-    },
+    // Two Arados off the catapult abaft her funnel. A commerce raider lives by
+    // seeing further than she is seen, so they go out to look.
+    planes: { ...PANZER_PLANES, flight: { ...PANZER_PLANES.flight } },
     datasheet: {
       displacement: 16020,
       aircraft: 2,
@@ -1220,7 +1252,119 @@ export const SHIP_CLASSES = {
       tertiary: [
         { caliber: 105, label: '105mm', barrels: 6, rounds: 12000 },
         { caliber: 37, label: '37mm', barrels: 8, rounds: 16000 },
-        { caliber: 20, label: '20mm', barrels: 10, rounds: 12000 },
+        { caliber: 20, label: '20mm', barrels: 6, rounds: 12000 },
+      ],
+    },
+  },
+
+  // Her sister, and the one that lived. The Admiral Scheer was the
+  // Panzerschiff that did what the type was built for -- the Jervis Bay's
+  // convoy in November 1940, five months and forty-six thousand miles in the
+  // Atlantic and the Indian Ocean, seventeen ships -- and she came home from
+  // it to be reclassed a heavy cruiser, and given flak through the rest of
+  // the war: twin 3.7 cm on her turret roofs, sixteen 2 cm quadruples in tubs
+  // along her upper deck, a pair of 4 cm singles on her quarterdeck. The
+  // same two triple eleven-inch, the same eight fifteens, the same eighty
+  // millimetres of belt.
+  scheer: {
+    id: 'scheer',
+    name: 'Admiral Scheer',
+    fullName: 'KMS Admiral Scheer',
+    className: 'Deutschland',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'ger',
+    blurb: 'The Panzerschiff that came home: eleven-inch guns on a cruiser hull, and the flak of a ship that had to fight her way back.',
+    // Drawn off the owner's model of her (see scheer.js) -- "The Third Reich
+    // Navy large cruiser ADM. SCHEER" by 全斗焕, under Creative Commons
+    // Attribution 4.0, credited on the Credits screen -- brought up to her
+    // 186 m over all, which makes her 21.6 m across her hull, floated at
+    // 7.35 m.
+    hull: {
+      funnels: [[0, 4.5, 19.4]], length: 186, beam: 21.6, draft: 7.35, superstructure: 1.35 },
+    hp: 31600,
+    // A little slower than her sister for the weight of her flak.
+    maxSpeed: 28.3 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.7,
+    turnRate: 0.075,
+    rudderShift: 7.6,
+    speedLossInTurn: 0.21,
+    concealment: 12800,
+    fireDetectPenalty: 5200,
+    // FuMO 27 on her tower by the end.
+    radarRange: 14500,
+    repairCooldown: 84,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    armor: { belt: 80, deck: 40, citadel: 80, bow: 18, superstructure: 15 },
+    turrets: [
+      { id: 0, name: 'Anton', x: 0.064, z: 48.508, angle: 0, arc: 2.44, guns: 3, my: 7.43 },
+      { id: 1, name: 'Bruno', x: 0.033, z: -42.681, angle: Math.PI, arc: 2.44, guns: 3, my: 7.59 },
+    ],
+    gun: {
+      name: '28 cm SK C/28', role: 'surface',
+      reach: 15.12,
+      caliber: 283, reload: 16.5, traverse: 0.18, range: 19800, sigma: 1.72,
+      shells: shells(283, 8200, 5100, 372, 910, 0.16),
+    },
+    torpedoes: {
+      // Her two quadruple banks in their housings on her quarterdeck.
+      mounts: own(PANZER_TUBES),
+      name: 'G7a torpedo', role: 'surface', caliber: 533,
+      reach: 4.78,
+      traverse: 0.24,
+      reload: 84, damage: 13700, speed: 32 * KNOTS, range: 6000,
+      detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+      launch: {
+        eject: 12, stagger: 0.35, lanes: [-1.14, -0.38, 0.38, 1.14], lie: 0.7, muzzle: 4.5,
+        fish: { len: 7.18, r: 0.267, kind: 'g7a' },
+      },
+    },
+    secondary: {
+      name: '15 cm SK C/28', role: 'surface',
+      reach: 6.69,
+      caliber: 150, reload: 6.4, traverse: 0.32, range: 9800, sigma: 1.1,
+      shells: shells(150, 3100, 2400, 152, 875, 0.11),
+      mounts: own(PANZER_SEC),
+    },
+    aa: {
+      range: 6000, dps: 92,
+      guns: [
+        // Her three twin 10.5 cm, where her sister's were.
+        { ...PANZER_105, mounts: own(PANZER_105.mounts) },
+        // Eight twin 3.7 cm: her sister's four, abreast her tower and on her
+        // after superstructure, and a pair on the roof of each turret, which
+        // ride round with it (`turret`; see scheer.js).
+        { ...PANZER_37, mounts: own([...PANZER_37_DECK, ...SCHEER_37_ROOF]) },
+        // Two 4 cm Flak 28 singles, on her quarterdeck abaft Bruno.
+        { name: '4 cm Flak 28', caliber: 40, role: 'aa', reload: 0.5, range: 3500, piece: 'bofors',
+          elev: { min: -0.17, max: 1.57 },
+          mounts: own(SCHEER_40) },
+        // Sixteen 2 cm Flakvierling 38 in their tubs, eight a side along her
+        // upper deck: four abreast her forecastle, four abreast her after
+        // superstructure.
+        { name: '2 cm Flakvierling 38', caliber: 20, role: 'aa', reload: 0.1, range: 2000, piece: 'quad',
+          elev: { min: -0.17, max: 1.57 },
+          mounts: own(SCHEER_20_QUADS) },
+        // And her sister's six 2 cm singles, up on her tower and her funnel
+        // platform.
+        { ...PANZER_20, mounts: own(PANZER_20_SINGLES) },
+      ],
+    },
+    // Her two Arado 196s, off the catapult abaft her funnel.
+    planes: { ...PANZER_PLANES, flight: { ...PANZER_PLANES.flight } },
+    datasheet: {
+      displacement: 15180,
+      aircraft: 2,
+      mainRounds: 720,
+      torpedoesCarried: 8,
+      secondary: { caliber: 150, label: '150mm', barrels: 8, rounds: 6400 },
+      tertiary: [
+        { caliber: 105, label: '105mm', barrels: 6, rounds: 12000 },
+        { caliber: 40, label: '40mm', barrels: 2, rounds: 4000 },
+        { caliber: 37, label: '37mm', barrels: 16, rounds: 32000 },
+        { caliber: 20, label: '20mm', barrels: 70, rounds: 84000 },
       ],
     },
   },
@@ -9715,7 +9859,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'takao', 'baltimore', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shokaku', 'shinano'];
 

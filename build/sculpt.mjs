@@ -1,8 +1,8 @@
 // What every reference sculpt goes through on its way into the game.
 //
-// The Graf Spee and the Takao are each drawn from a sculpt the owner supplied
+// The Admiral Scheer and the Takao are each drawn from a sculpt the owner supplied
 // rather than lofted from lines: one welded mesh, decimated to the budget the
-// fleet renders at. build/prepare-spee-hull.mjs and build/prepare-takao-hull.mjs
+// fleet renders at. build/prepare-scheer-hull.mjs and build/prepare-takao-hull.mjs
 // each say what is particular to their ship -- where her guns were cast into
 // her, how she is painted, what is cut out of her -- and hand the rest to the
 // stages here, in the order they run:

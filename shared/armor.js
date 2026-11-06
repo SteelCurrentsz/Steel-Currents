@@ -129,7 +129,7 @@ export function walkLayers(layers, pen, cosOf, fuseArm = 0) {
  * shake a battleship's.
  */
 const TURRET_ROOF = {
-  fletcher: 3, matsu: 3, yukikaze: 3, cleveland: 76, hipper: 70, spee: 105, u48: 0, surcouf: 25, sboat: 0,
+  fletcher: 3, matsu: 3, yukikaze: 3, cleveland: 76, hipper: 70, spee: 105, scheer: 105, u48: 0, surcouf: 25, sboat: 0,
   tillman: 280, morosini: 200, richelieu: 170, scharnhorst: 150, hagen: 130, bismarck: 130, tirpitz: 130, soyuz: 230, hood: 127, kgv: 152, rodney: 184,
   massachusetts: 184, iowa: 184, kongo: 152, fuso: 152, musashi: 270, yamato: 270,
   takao: 25, baltimore: 76, leviathan: 102, shinano: 6, shokaku: 6, enterprise: 3, grafzeppelin: 20,

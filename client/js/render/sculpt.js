@@ -4,7 +4,7 @@
 // slices -- positions, normals, painted vertex colours and a crude UV each --
 // and her surface into a height map. This is the other end of that: the blob
 // back into one BufferGeometry a slice, the height map into what a fitting is
-// seated on, and the one material every slice is drawn with. See speeHull.js
+// seated on, and the one material every slice is drawn with. See scheerHull.js
 // and takaoHull.js.
 import * as THREE from '../../../vendor/three.module.js';
 

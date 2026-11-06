@@ -101,6 +101,20 @@ const HULLS = {
     <rect x="64" y="12" width="2" height="17"/>
     <rect x="72" y="22" width="9" height="4"/>
     <rect x="81" y="25" width="10" height="4"/>`,
+  // A Panzerschiff, the Graf Spee or the Admiral Scheer: a long low cruiser
+  // hull, a triple turret at each end on her upper deck, the tall tower
+  // forward of her single raked funnel, and a light mainmast aft.
+  scheer: `
+    <path d="M2 29 L98 29 L94 36 L7 36 Z"/>
+    <rect x="10" y="24" width="11" height="5"/>
+    <rect x="24" y="25" width="8" height="4"/>
+    <rect x="31" y="11" width="7" height="18"/>
+    <rect x="29" y="9" width="11" height="3"/>
+    <rect x="44" y="17" width="7" height="12"/>
+    <rect x="52" y="23" width="14" height="6"/>
+    <rect x="62" y="12" width="2" height="11"/>
+    <rect x="68" y="24" width="8" height="5"/>
+    <rect x="79" y="24" width="11" height="5"/>`,
   // The Shokaku: her flight deck overhanging both ends of her, a small island
   // well forward, and her funnels trunked out of her side under her deck and
   // curving down to the water abaft it.
@@ -137,7 +151,7 @@ const BADGES = {
 /** SVG for one hull, sized to fill its box. `flip` faces her the other way,
  *  and `badge` marks the icon as an add or a remove control. */
 export function silhouette(classId, { flip = false, cls = '', badge = null } = {}) {
-  const body = HULLS[classId] || HULLS.fletcher;
+  const body = HULLS[classId === 'spee' ? 'scheer' : classId] || HULLS.fletcher;
   const mark = badge ? BADGES[badge] || '' : '';
   // Room either side for the arrow, and above for the cross. Equal margins, so
   // the box's centre line is the hull's centre line and the mirror below maps

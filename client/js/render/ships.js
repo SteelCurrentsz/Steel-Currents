@@ -40,7 +40,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildLeviathan;
+  buildGrafZeppelin, buildShokaku, buildLeviathan, buildScheer;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -49,7 +49,8 @@ const SCULPTED = {
   // fetched behind the title screen.
   planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n(), loadBf109(), loadJu87(),
     loadHellcat(), loadDauntless(), loadAvenger()]),
-  spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
+  // The Admiral Scheer and her sister the Graf Spee, both off the model of the Scheer.
+  scheer: () => import('./scheer.js').then((m) => { buildSpee = m.buildSpee; buildScheer = m.buildScheer; }),
   takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
   hood: () => import('./hood.js').then((m) => { buildHood = m.buildHood; }),
   kgv: () => import('./kgv.js').then((m) => { buildKgv = m.buildKgv; }),
@@ -75,7 +76,7 @@ const SCULPTED = {
   leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
 };
 // The module each class is drawn by, where it is not her own name.
-const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck' };
+const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck', spee: 'scheer' };
 const fetched = new Map();
 const ready = new Set();
 // When each fetch last failed. With no signal every ask fails at once, and
@@ -693,11 +694,10 @@ function buildModel(classId) {
     };
   }
 
-  // And the Graf Spee: a Panzerschiff is a cruiser hull with two triple
-  // eleven-inch turrets on it and an armoured tower foremast between them, and
-  // there is no length and beam that gets you that.
-  if (cls.id === 'spee') {
-    const built = buildSpee();
+  // And the two Panzerschiffe, the Graf Spee and the Admiral Scheer: the
+  // owner's model of the Scheer, each armed off her own datasheet.
+  if (cls.id === 'spee' || cls.id === 'scheer') {
+    const built = cls.id === 'spee' ? buildSpee() : buildScheer();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
