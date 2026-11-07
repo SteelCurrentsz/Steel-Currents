@@ -200,6 +200,25 @@ export function arsenal(cls) {
       hull: cls,
     });
   }
+  // Her anti-submarine rocket launchers. Her own fire control lays and fires
+  // them (see stepRbu); the row reads where they bear like any battery's.
+  if (cls.rbu) {
+    const R = cls.rbu;
+    rows.push({
+      name: R.name,
+      caliber: R.caliber,
+      barrels: R.mounts.length * R.tubes,
+      mounts: R.mounts.length,
+      reload: R.reload,
+      range: R.range,
+      // Ships, boats under the sea and the torpedoes running at her.
+      role: 'sub',
+      pen: null,
+      band: 'ASW rockets',
+      note: 'Fired by her own fire control: torpedoes, submarines, ships',
+      specs: R.mounts.map((m) => ({ ...m, guns: R.tubes })),
+    });
+  }
   // Her missiles: a row to each kind, its launchers and what she carries. A
   // missile is not laid on a bearing -- it turns onto its target once it is
   // off the rail -- so its row reads how many are left aboard instead.
@@ -2489,6 +2508,12 @@ class HudBase {
       if (!el) continue;
       let on = 0;
       for (const m of w.specs) {
+        // A tube fixed on her deck bears on whatever its homing fish can be
+        // fired at (see fireTorpedoes), and is clear of her as it is mounted.
+        if (m.fixed) {
+          if (Math.abs(angleDelta(m.angle, local)) <= (m.fire ?? 0.35)) on += m.guns || 1;
+          continue;
+        }
         if (Math.abs(angleDelta(m.angle, local)) > m.arc) continue;
         // A bank of tubes trained down her own forecastle bears on nothing.
         if (w.hull && !torpedoClear(w.hull, m, local)) continue;
