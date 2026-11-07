@@ -21,6 +21,7 @@ import {
 } from './render/planes.js';
 import { cutFromHoles, breakCut, piecesOf, Pieces } from './render/breakup.js';
 import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
+import { b29Ready, b29Geometries, b29Materials } from './render/b29Model.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
@@ -60,7 +61,7 @@ const INTERP_DELAY = 0.15;
  */
 const LATE_EVENTS = new Set([
   'planeDown', 'planesLost', 'bomberDown', 'bomberOut', 'wreckHit', 'wreckIn', 'midAir',
-  'planeCrash', 'ram', 'trap',
+  'planeCrash', 'ram', 'trap', 'nuke',
 ]);
 // What the batsman saw, for a captain watching one of his own go round.
 const WAVE_OFF = {
@@ -489,6 +490,8 @@ function buildAirArsenal(kind) {
 const TURRET_NAME = {
   nose: 'Nose', chin: 'Chin', dorsal: 'Mid-upper', ball: 'Ball',
   tail: 'Tail', gondola: 'Ventral', beam: 'Beam', waist: 'Waist', rear: 'Rear',
+  // A Superfortress's four remote barbettes, two over her and two under.
+  upper: 'Forward upper', lower: 'Forward lower', aftupper: 'Aft upper', aftlower: 'Aft lower',
 };
 
 /** Which mountings look astern when they are trained on their centreline. */
@@ -2915,6 +2918,33 @@ export class Battle {
           audio.aa(20, 30, { x: p.x, y: p.y, z: p.z });
           break;
         }
+        case 'nukeAway': {
+          // The one weapon of a Silverplate formation, gone from her bay.
+          const ours = ev.tm === this.team;
+          this.hud.alert(ours ? 'Atomic bomb away' : 'Enemy B-29 — atomic bomb away');
+          break;
+        }
+        case 'nuke': {
+          // The bomb. Seen from everywhere on the map and heard everywhere,
+          // late, the further off the later; see nuke.js for what it looks
+          // like and the simulation's stepNukes for what it does.
+          this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land);
+          this.whiteOut();
+          const eye = this.scene.camera.position;
+          const far = Math.hypot(eye.x - ev.x, eye.z - ev.z);
+          this.shake = Math.max(this.shake, 2.2 * Math.max(0.35, 1 - far / 12000));
+          if (!ev.land) fx.splash(ev.x, ev.z, 4000, { kind: 'bomb' });
+          audio.nuke({ x: ev.x, y: Math.max(10, ev.y), z: ev.z });
+          this.hud.alert('Atomic detonation');
+          break;
+        }
+        case 'nukeHit':
+          // The shock has reached one of ours.
+          if (ev.ship === this.shipId) {
+            this.shake = Math.max(this.shake, 1.8);
+            this.hud.alert(ev.b >= 1 ? 'Caught in the blast' : 'Blast wave — heavy damage');
+          }
+          break;
         case 'airburst':
           // A heavy round's time fuse running out in the sky.
           fx.flakBurst(ev.x, ev.y, ev.z, ev.cal);
@@ -6059,6 +6089,65 @@ export class Battle {
     }
   }
 
+  /**
+   * How far a heavy's bay doors are open and whether the weapon is still in
+   * her bay, for the batch that draws her (see Heavies.add). Eased: a B-29's
+   * snap-action doors were open in well under a second and took longer to
+   * close. Only a formation drawn opening its bay has anything to say.
+   */
+  heavyTrim(bm, dt) {
+    if (bm.b !== 'silverplate') return null;
+    const map = this.bayOf || (this.bayOf = new Map());
+    let t = map.get(bm.i);
+    if (!t) { t = { bay: bm.d ? 1 : 0, at: this.time }; map.set(bm.i, t); }
+    // The player flying her opens them on the key, not on the answer.
+    const mine = this.flight && this.flight.heavy && this.flight.id === bm.i && this.flight.asked > 0;
+    const want = bm.d || mine ? 1 : 0;
+    t.bay = want > t.bay ? Math.min(1, t.bay + dt / 0.6) : Math.max(0, t.bay - dt / 1.6);
+    t.at = this.time;
+    if (map.size > 32) for (const [k, q] of map) if (this.time - q.at > 5) map.delete(k);
+    const e = t.bay * t.bay * (3 - 2 * t.bay);
+    return { bay: e, bomb: (bm.ld || 0) > 0 };
+  }
+
+  /**
+   * The flash of an atomic burst over the whole screen: a white-out that
+   * comes on at once and goes in a couple of seconds, wherever the camera is
+   * pointing, because the sky itself is lit.
+   */
+  whiteOut() {
+    if (typeof document === 'undefined') return;
+    let d = this.flashDiv;
+    if (!d) {
+      d = document.createElement('div');
+      d.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:50;'
+        + 'background:radial-gradient(circle at 50% 45%, #fffef6 0%, #fff6dc 55%, #ffe6b8 100%);opacity:0;';
+      document.body.appendChild(d);
+      this.flashDiv = d;
+    }
+    d.style.transition = 'none';
+    d.style.opacity = '0.96';
+    // The next frame, so the browser has drawn it lit before it fades.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      d.style.transition = 'opacity 2.6s cubic-bezier(0.2, 0.7, 0.3, 1)';
+      d.style.opacity = '0';
+    }));
+  }
+
+  /**
+   * The atomic bomb's own shape, handed to the bomb batch the first time one
+   * is in the air: the weapon off the B-29's model. Null until her model is
+   * in, when it falls as a generic body of its size.
+   */
+  atomicShape() {
+    if (this.atomicShaped) return 'atomic';
+    if (!b29Ready()) return null;
+    const g = b29Geometries();
+    this.scene.bombs.shape('atomic', g.bomb, b29Materials().bomb);
+    this.atomicShaped = true;
+    return 'atomic';
+  }
+
   /** Keep where each machine of a flight was just drawn; see `releaseOf`. */
   noteDrawn(id, kind, vx, vy, vz) {
     const f = this.scene.flights;
@@ -7523,7 +7612,11 @@ export class Battle {
       // A heavy's bomb is a bomb, drawn as one and at her own size beside
       // the formation that let her go -- not as a gun's round of the same
       // weight, glowing like tracer and five times as long.
-      if (sh.bm) {
+      if (sh.nk) {
+        // The atomic bomb, as the bomb it is: the shape that hung in her bay,
+        // nosing over from level as it falls.
+        bombsNow.push({ x, y, z, dx, dy, dz, len: 3.25, r: 0.76, shape: this.atomicShape() });
+      } else if (sh.bm) {
         const lb = Math.max(250, (sh.c - 180) / 0.10);
         bombsNow.push({ x, y, z, dx, dy, dz, len: Math.min(3.2, 1.1 + lb * 0.0006), r: Math.min(0.5, 0.12 + lb * 0.00008) });
       } else if (sh.rk) nr = rockets.set(nr, sh.i, x, y, z, dx, dy, dz);
@@ -7872,11 +7965,12 @@ export class Battle {
       // as a flight's: a heavy reported lost is not drawn on in her place.
       const mask = this.drawnMask(bm.i, bm.sl, bm.n, drawnAt);
       if (!mask) continue;
+      const trim = this.heavyTrim(bm, dt);
       if (mine) {
         this.scene.heavies.add(
           bm.b || 'lancaster', mine.x, mine.y, mine.z,
           mine.heading, mine.bank, mine.attitude,
-          Math.max(1, this.flight.count || bm.n || 1), holes, hspan, mask,
+          Math.max(1, this.flight.count || bm.n || 1), holes, hspan, mask, trim,
         );
         heavies.push({
           ...bm, x: mine.x, y: mine.y, z: mine.z, h: mine.heading, bank: mine.bank,
@@ -7897,7 +7991,7 @@ export class Battle {
       }
       this.scene.heavies.add(
         bm.b || 'lancaster', x, y, z, h, bank, 0.05,
-        Math.max(1, bm.n || 1), holes, hspan, mask,
+        Math.max(1, bm.n || 1), holes, hspan, mask, trim,
       );
       heavies.push({ ...bm, x, y, z, h, bank });
       this.heavyAir(bm, x, y, z, h, bank, 0.05, gs, mask);

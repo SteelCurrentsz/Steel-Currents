@@ -332,6 +332,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       bm: sh.bomber || sh.plane || undefined,
       // A rocket rather than a shell: drawn with fins and a motor burning.
       rk: sh.rocket ? 1 : undefined,
+      // An atomic bomb: drawn as itself, and followed down by anyone watching.
+      nk: sh.atomic ? 1 : undefined,
     });
   }
   const torps = [];
@@ -549,7 +551,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       n: b.count, sl: gaps(b), tn: r3(b.turn || 0), s: r1(b.speed),
       // Open on the run and shut everywhere else, which is the one thing about
       // her that anybody watching can actually see.
-      d: b.phase === 'run' ? 1 : 0,
+      d: b.phase === 'run' || b.doors ? 1 : 0,
       hp: Math.round(b.hp), mx: b.maxHp,
       // Which of her are streaming fuel from a holed tank, and from where.
       lp: leakReport(b),

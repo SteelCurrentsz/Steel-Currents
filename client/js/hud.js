@@ -63,6 +63,7 @@ const M_TO_YARDS = 1.09361;
 const TURRET_LABEL = {
   nose: 'Nose', chin: 'Chin', dorsal: 'Mid-upper', ball: 'Ball',
   tail: 'Tail', gondola: 'Ventral', rear: 'Rear',
+  upper: 'Fwd upper', lower: 'Fwd lower', aftupper: 'Aft upper', aftlower: 'Aft lower',
 };
 
 /** The top of the throttle ladder: a tenth over full power, which is emergency power. */

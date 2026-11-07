@@ -16394,7 +16394,10 @@ check('nothing on a bomber is hanging in the air on its own', () => {
       bb.expandByScalar(GAP / 2);
       boxes.push(bb);
     });
-    assert.ok(boxes.length > 120, `${kind} is drawn with only ${boxes.length} pieces`);
+    // Built of a hundred and more parts off the toolkit -- or, for the B-29,
+    // the owner's model in the handful of pieces of her that move.
+    const least = g.userData.plane?.userData.sculpt ? 8 : 120;
+    assert.ok(boxes.length > least, `${kind} is drawn with only ${boxes.length} pieces`);
     const up = boxes.map((_, i) => i);
     const find = (i) => { while (up[i] !== i) { up[i] = up[up[i]]; i = up[i]; } return i; };
     for (let i = 0; i < boxes.length; i++) {
@@ -16514,6 +16517,9 @@ check('the inside of her is modelled, and drawn only when her skin is off', () =
   for (const kind of HEAVY_KINDS) {
     const g = heavyBomber(kind);
     const p = g.userData.plane;
+    // The B-29 is the owner's model, which is her outside and nothing else:
+    // there is no structure in it to show, and her cutaway leaves her as she is.
+    if (p.userData.sculpt) continue;
     const IN = p.userData.insideGroup;
     assert.ok(IN, `${kind} has nothing inside her`);
     let pieces = 0;
@@ -27605,6 +27611,225 @@ check('a battery laid on a point puts its rounds down on the point, on the sea o
   const mean = fell.reduce((m, f) => ({ x: m.x + f.x / fell.length, z: m.z + f.z / fell.length }), { x: 0, z: 0 });
   const miss = Math.hypot(mean.x - px, mean.z - pz);
   assert.ok(miss < 250, `the fall of shot was ${miss.toFixed(0)} m off the point`);
+});
+
+
+// ---------------------------------------------------------------------------
+// The B-29 Silverplate and her one weapon
+// ---------------------------------------------------------------------------
+const { nukeBlast } = await import('../shared/sim.js');
+const { NUKE, nukeFront } = await import('../shared/nuke.js');
+const { getClass } = await import('../shared/ships.js');
+const { b29Ready } = await import('../client/js/render/b29Model.js');
+
+check('the B-29 Silverplate comes on after the B-17 and carries one 9,700 lb atomic bomb', () => {
+  const at = BOMBER_ORDER.indexOf('silverplate');
+  assert.ok(at > 0, 'the Silverplate is not in the bomber yard');
+  assert.equal(BOMBER_ORDER[at - 1], 'fortress', 'she does not come on straight after the B-17');
+  const b = BOMBERS.silverplate;
+  assert.equal(b.payload, 9700, `she carries ${b.payload} lb`);
+  assert.ok(b.atomic, 'her bomb is not an atomic bomb');
+  assert.ok(/9,700 lb/.test(b.load), `her load reads "${b.load}"`);
+  // Five gun positions, each where her model has it, and a turret spec for
+  // each so a gunner can go to it.
+  assert.equal(b.posts.length, 5, `she has ${b.posts.length} gun positions`);
+  assert.equal(b.postAt.length, b.posts.length, 'a gun position with nowhere on her to be');
+  for (const name of b.posts) {
+    assert.ok(HEAVY.silverplate.turrets.some((t) => t.name === name), `no turret on her for her ${name} position`);
+  }
+  assert.ok(HEAVY_AERO.silverplate, 'she has no flight model');
+  assert.ok(Math.abs(HEAVY_AERO.silverplate.span - b.span) < 0.02, 'she flies on a different span from the one on her sheet');
+});
+
+/** A Silverplate formation sent at a ship lying still, and what it does. */
+function atomicRun(classId = 'iowa', seed = 3301) {
+  const world = generateWorld(seed, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const ship = addShip(st, { name: 'Target', classId, team: 0, index: 0 });
+  ship.x = 0; ship.z = 0; ship.speed = 0; ship.heading = 0;
+  // Something of her own side in the formation's way, well out of the blast.
+  const far = addShip(st, { name: 'Picket', classId: 'fletcher', team: 0, index: 1 });
+  far.x = 9000; far.z = -9000;
+  const bm = addBomber(st, { bomberId: 'silverplate', team: 1, x: 0, z: 9000, heading: Math.PI });
+  return { st, ship, far, bm };
+}
+
+check('a Silverplate opens her doors, lets go of her one bomb and it goes off on the target', () => pinned(() => {
+  const { st, ship, far, bm } = atomicRun();
+  assert.equal(bm.loads, 1, 'a Silverplate formation went up with more than one weapon');
+  let bomb = null;
+  let doorsFirst = false;
+  let burst = null;
+  let away = 0;
+  let gone = null;
+  for (let i = 0; i < 30 * 240 && !burst; i++) {
+    const was = st.shells.find((q) => q.atomic);
+    if (!bomb && bm.doors) doorsFirst = true;
+    for (const e of step(st, DT)) {
+      if (e.e === 'nuke') burst = e;
+      if (e.e === 'nukeAway') away++;
+    }
+    const now = st.shells.find((q) => q.atomic);
+    if (now && !bomb) {
+      bomb = now;
+      assert.ok(doorsFirst, 'the bomb went out of a shut bay');
+    }
+    // Once it is falling it is never taken out of the air by anything but
+    // its own burst: nothing shoots an atomic bomb down.
+    if (was && !now && !burst) gone = i;
+  }
+  assert.ok(bomb, 'she never let it go');
+  assert.equal(away, 1, `${away} atomic bombs left her bay`);
+  assert.equal(gone, null, 'the bomb vanished in the air before it went off');
+  assert.ok(burst, 'it never went off');
+  assert.equal(st.shells.filter((q) => q.atomic).length, 0, 'a second bomb is still falling');
+  assert.equal(bm.loads, 0, 'she still has a weapon aboard after letting it go');
+  assert.ok(Math.hypot(burst.x - ship.x, burst.z - ship.z) < 500,
+    `it went off ${Math.round(Math.hypot(burst.x - ship.x, burst.z - ship.z))} m from the ship it was aimed at`);
+  // Let the shock run out.
+  for (let i = 0; i < 30 * 12; i++) step(st, DT);
+  assert.ok(!ship.alive || ship.hp <= 0, `the ship under it is still afloat with ${Math.round(ship.hp)} of her`);
+  assert.ok(far.alive && far.hp > 0.95 * getClass('fletcher').hp, 'a ship thirteen kilometres off was hurt by it');
+  // And the formation got away: the turn after release took her far enough.
+  assert.ok(bm.alive, 'the B-29 that dropped it was destroyed by its own bomb');
+}));
+
+check('flak, fighters and a Phalanx cannot touch an atomic bomb on its way down', () => pinned(() => {
+  const world = generateWorld(77, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const mo = addShip(st, { name: 'Missouri', classId: 'missouri', team: 0, index: 0 });
+  mo.x = 0; mo.z = 0;
+  // Dropped straight onto her from a formation already over her.
+  st.shells.push({
+    id: 999001, owner: 0, bomber: 0, team: 1, x: 0, y: 1000, z: 0, vx: 0, vy: 0, vz: 0, g: 9.81,
+    caliber: 1520, atomic: 1, bomb: { bombDamage: 1, bombPen: 1, bombBore: 1, bombFire: 0 }, life: 0, type: 'he',
+  });
+  let at = null;
+  for (let i = 0; i < 30 * 30 && !at; i++) {
+    for (const e of step(st, DT)) if (e.e === 'nuke') at = { e, t: st.t };
+    if (!at) assert.ok(st.shells.some((q) => q.id === 999001), 'the bomb was taken out of the air');
+  }
+  assert.ok(at, 'it never arrived');
+  assert.ok(at.t > 12 && at.t < 16, `a bomb from a thousand metres took ${at.t.toFixed(1)} s to fall`);
+}));
+
+check('the shock goes out where nukeFront has it, and wrecks by distance', () => {
+  const world = generateWorld(91, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const at = [500, 1800, 3400, 7000];
+  const ships = at.map((d, i) => {
+    // One side, so nothing but the bomb is shooting at them.
+    const s = addShip(st, { name: `S${i}`, classId: 'baltimore', team: 0, index: i });
+    s.x = d; s.z = 0; s.speed = 0; s.heading = 0;
+    return s;
+  });
+  const hp0 = ships.map((s) => s.hp);
+  nukeBlast(st, 0, 0, 0, null);
+  const hitAt = new Map();
+  for (let i = 0; i < 30 * 20; i++) {
+    for (const e of step(st, DT)) if (e.e === 'nukeHit' && !hitAt.has(e.ship)) hitAt.set(e.ship, st.t);
+  }
+  // Struck when the front gets there, not before: on both sides alike.
+  for (const [k, s] of ships.entries()) {
+    const d = at[k] - getClass('baltimore').hull.beam / 2;
+    void s;
+    if (d >= NUKE.reach) {
+      assert.ok(!hitAt.has(s.id), `a ship ${at[k]} m off was struck`);
+      continue;
+    }
+    const due = -NUKE.tau * Math.log(1 - d / NUKE.reach);
+    assert.ok(hitAt.has(s.id), `the ship ${at[k]} m off was never struck`);
+    assert.ok(Math.abs(hitAt.get(s.id) - due) < 0.4,
+      `the ship ${at[k]} m off was struck at ${hitAt.get(s.id).toFixed(2)} s, the front got there at ${due.toFixed(2)} s`);
+    assert.ok(nukeFront(due) > d - 1, 'nukeFront and the strike disagree');
+  }
+  assert.ok(!ships[0].alive || ships[0].hp <= 0, 'a ship five hundred metres off survived it');
+  const lost = ships.map((s, k) => 1 - Math.max(0, s.hp) / hp0[k]);
+  assert.ok(lost[1] > lost[2] && lost[2] > 0, `the harm does not fall away with distance: ${lost.map((x) => x.toFixed(2))}`);
+  assert.ok(lost[3] < 0.01, `a ship seven kilometres off lost ${(lost[3] * 100).toFixed(1)}% of her`);
+  // And the wave rolled the ones it reached.
+  assert.ok(Math.abs(ships[2].rockRate) > 0 || Math.abs(ships[2].rock) > 0, 'the wave never rolled her');
+  assert.equal(st.nukes.length, 0, 'the burst is still being stepped long after it is done');
+});
+
+check("a Silverplate's gunners fight her five positions at the fighters on her", () => pinned(() => {
+  const world = generateWorld(4104, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0,
+    airGroup: { fighter: 8, dive: 0, torpedo: 0 } });
+  cv.x = 0; cv.z = 0;
+  const bm = addBomber(st, { bomberId: 'silverplate', team: 1, x: 0, z: 6000 });
+  assert.deepEqual(bm.posts.map((g) => g.name), BOMBERS.silverplate.posts);
+  launchStrike(st, cv);
+  const fired = new Set();
+  let shots = 0;
+  for (let i = 0; i < 20000 && bm.alive; i++) {
+    bm.spottedBy = [true, true];
+    for (const e of step(st, DT)) if (e.e === 'heavyGun' && e.i === bm.id) { fired.add(e.k); shots++; }
+  }
+  assert.ok(shots > 0, "her gunners never fired at the fighters on her");
+  assert.ok(fired.size >= 3, `only ${fired.size} of her five positions ever fired`);
+  // And a man at one of her turrets fights it: the tail, laid astern.
+  const st2 = createState(world, { mode: 'deathmatch' });
+  const own = addShip(st2, { name: 'Own', classId: 'iowa', team: 1, index: 0 });
+  const bm2 = addBomber(st2, { bomberId: 'silverplate', team: 1, x: 0, z: 0, heading: 0 });
+  assert.ok(gunTurret(st2, own, bm2.id, Math.PI, 0.5, 0.3, 'tail'), 'her tail gunner could not fire');
+  // The positions bear where her barbettes do: over her for the uppers,
+  // under her for the lowers.
+  const posts = BOMBERS.silverplate.posts;
+  for (const [k, p] of BOMBERS.silverplate.postAt.entries()) {
+    if (/upper/.test(posts[k])) assert.ok(p[0] > 1, `her ${posts[k]} is not on her back`);
+    if (/lower/.test(posts[k])) assert.ok(p[0] < 0, `her ${posts[k]} is not under her`);
+  }
+}));
+
+check('the wire carries the atomic bomb and the open bay', () => {
+  const { st, bm } = atomicRun('iowa', 812);
+  let saw = { nk: false, d: false };
+  for (let i = 0; i < 30 * 240 && !saw.nk; i++) {
+    step(st, DT);
+    const snap = buildSnapshot(st, 1, -1, 0, true);
+    const me = (snap.bombers || []).find((q) => q.i === bm.id);
+    if (me && me.d) saw.d = true;
+    if ((snap.shells || []).some((q) => q.nk)) saw.nk = true;
+  }
+  assert.ok(saw.d, 'her doors were never reported open');
+  assert.ok(saw.nk, 'the bomb never went out on the wire as an atomic bomb');
+  const room = readFileSync(new URL('../server/room.js', import.meta.url), 'utf8');
+  assert.ok(/ev\.e === 'nuke'/.test(room), 'an atomic burst is not sent to everyone');
+});
+
+check("the owner's B-29 is built with turning airscrews, swinging doors and the bomb in her bay", () => {
+  assert.ok(b29Ready(), 'her model is not in');
+  const g = heavyBomber('silverplate');
+  assert.ok(!g.userData.stub, 'she is still the stand-in');
+  assert.equal(g.userData.props.length, 4, `she has ${g.userData.props.length} airscrews`);
+  const doors = g.userData.parts.filter((q) => q.name === 'bayPort' || q.name === 'bayStbd');
+  assert.equal(doors.length, 2, 'her bay has not got two doors');
+  assert.equal(g.userData.rack.length, 1, 'there is not one weapon in her bay');
+  assert.ok(g.userData.liftTrims, 'the battle will not open her doors');
+  // Opening a door swings its lower edge down and out, not up into her.
+  for (const d of doors) {
+    const box0 = new THREE.Box3().setFromObject(d.node);
+    d.node.rotation.z = d.open;
+    d.node.updateMatrixWorld(true);
+    const box1 = new THREE.Box3().setFromObject(d.node);
+    assert.ok(box1.min.y < box0.min.y - 0.4, `her ${d.name} door does not swing down`);
+    d.node.rotation.z = 0;
+  }
+  // The weapon is about the size of the one she carried: five feet across and
+  // ten or eleven long.
+  const bb = new THREE.Box3().setFromObject(g.userData.rack[0]);
+  const size = bb.getSize(new THREE.Vector3());
+  assert.ok(size.z > 3 && size.z < 3.8 && size.x > 1.3 && size.x < 1.7, `the bomb is ${size.toArray().map((v) => v.toFixed(2))}`);
+  // And she is her real size.
+  const all = new THREE.Box3().setFromObject(g);
+  const dim = all.getSize(new THREE.Vector3());
+  assert.ok(Math.abs(dim.x - 43.05) < 0.6, `she is ${dim.x.toFixed(2)} m across`);
+  assert.ok(Math.abs(dim.z - 30.18) < 0.8, `she is ${dim.z.toFixed(2)} m long`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

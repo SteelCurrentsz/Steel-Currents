@@ -413,7 +413,9 @@ export class Room {
       if (ev.e === 'sink' || ev.e === 'over' || ev.e === 'detonate'
         // What has been done to the town is the town's state, not a flash
         // somebody may or may not have seen: every client keeps its copy.
-        || ev.e === 'ruin') global.push(ev);
+        || ev.e === 'ruin'
+        // And an atomic bomb, which is seen from everywhere on the map.
+        || ev.e === 'nuke') global.push(ev);
       else {
         for (let team = 0; team < 2; team++) {
           if (this.eventVisible(ev, team)) perTeam[team].push(ev);

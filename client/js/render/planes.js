@@ -97,6 +97,11 @@ export function weld(group, about = null) {
     for (let n = o; n && n !== group.parent; n = n.parent) if (n.visible === false) return false;
     return true;
   };
+  // A model painted at every point (the owner's B-29) keeps its paint: the
+  // colours go through with the points. Everything else has none and is
+  // welded without them, as it always was.
+  let painted = false;
+  group.traverse((o) => { if (o.isMesh && o.geometry?.attributes.color && shown(o)) painted = true; });
   group.traverse((o) => {
     if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return;
     if (!shown(o)) return;
@@ -104,13 +109,20 @@ export function weld(group, about = null) {
     const mat = list[0];
     let b = buckets.get(mat);
     if (!b) {
-      b = { pos: [], nor: [], idx: [], slot: mats.length };
+      b = { pos: [], nor: [], col: [], idx: [], slot: mats.length };
       mats.push(mat);
       buckets.set(mat, b);
     }
     const geo = o.geometry;
     const pos = geo.attributes.position;
     const nor = geo.attributes.normal;
+    if (painted) {
+      const col = geo.attributes.color;
+      for (let i = 0; i < pos.count; i++) {
+        if (col) b.col.push(col.getX(i), col.getY(i), col.getZ(i));
+        else b.col.push(1, 1, 1);
+      }
+    }
     m.copy(o.matrixWorld);
     // A moving part is welded about its own hinge rather than about the
     // aeroplane's datum, so the batch that draws it can turn it.
@@ -132,6 +144,7 @@ export function weld(group, about = null) {
 
   const pos = [];
   const nor = [];
+  const col = [];
   const idx = [];
   const groups = [];
   for (const b of buckets.values()) {
@@ -139,12 +152,14 @@ export function weld(group, about = null) {
     const off = pos.length / 3;
     for (let i = 0; i < b.pos.length; i++) pos.push(b.pos[i]);
     for (let i = 0; i < b.nor.length; i++) nor.push(b.nor[i]);
+    for (let i = 0; i < b.col.length; i++) col.push(b.col[i]);
     for (const i of b.idx) idx.push(i + off);
     groups.push([start, idx.length - start, b.slot]);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  if (painted) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   for (const [start, count, slot] of groups) geo.addGroup(start, count, slot);
   return { geo, mats };

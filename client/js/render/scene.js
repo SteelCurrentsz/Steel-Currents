@@ -19,6 +19,7 @@ import { Flights } from './planes.js';
 import { Contrails, GunFlashes } from './airfx.js';
 import { SmokeScreens } from './smokescreen.js';
 import { Heavies } from './heavies.js';
+import { Nukes } from './nuke.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
@@ -2228,6 +2229,9 @@ export class BattleScene {
     // And the heavy squadrons, which are nobody's carrier aircraft: their own
     // batch, their own models and their own spacing. See heavies.js.
     this.heavies = new Heavies(this.scene, 27);
+    // And an atomic bomb going off, which is nothing like anything else here.
+    // See nuke.js.
+    this.nukes = new Nukes(this.scene);
 
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the
@@ -2472,6 +2476,7 @@ export class BattleScene {
     this.wreck.update(dt);
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
+    this.nukes.update(dt, this.camera);
     this.torpedoes.update(dt, this.torpsNow || []);
     this.missiles.update(this.missilesNow || [], dt);
     this.charges.update(dt, this.chargesNow || []);

@@ -11,6 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt } from './formation.js';
+import { NUKE, nukeFront, nukeBite } from './nuke.js';
 import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
@@ -33,6 +34,7 @@ import {
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
   wallAt, hurtBuilding, hurtWall, wallHp, solidGround, solidAt, solidHit, buildingAt, worksTarget,
+  cityPlans,
 } from './works.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
@@ -74,6 +76,8 @@ export function createState(world, opts = {}) {
     planes: [],
     // The heavy squadrons, which belong to nobody's deck.
     bombers: [],
+    // Atomic bursts, and how far out each one's shock has got. See stepNukes.
+    nukes: [],
     // The smoke a ship has laid, lying on the sea along her track. See
     // laySmoke and smokeBetween.
     smokes: [],
@@ -6119,6 +6123,15 @@ function stepShells(state, dt) {
       continue;
     }
 
+    // An atomic bomb goes off on whatever it reaches first -- a deck, a gun
+    // position, a roof, the ground or the sea -- and none of the rest of
+    // this applies to it. See nukeBlast.
+    if (sh.atomic) {
+      if (atomicArrives(state, sh, px, py, pz)) continue;
+      if (sh.life <= 200) out.push(sh);
+      continue;
+    }
+
     let consumed = false;
     // Ship intersection: sample the segment so fast shells cannot tunnel.
     for (const target of state.ships) {
@@ -6277,6 +6290,165 @@ function stepShells(state, dt) {
     out.push(sh);
   }
   state.shells = out;
+}
+
+/**
+ * Whether an atomic bomb has reached anything along this tick's fall, and if
+ * it has, the burst. Returns true when it has gone off.
+ */
+function atomicArrives(state, sh, px, py, pz) {
+  const steps = 6;
+  for (let i = 1; i <= steps; i++) {
+    const f = i / steps;
+    const cx = lerp(px, sh.x, f), cz = lerp(pz, sh.z, f), cy = lerp(py, sh.y, f);
+    for (const target of state.ships) {
+      if (!target.alive) continue;
+      const cls = getClass(target.classId);
+      const deck = 9 + cls.hull.superstructure * 14;
+      if (cy > deck) continue;
+      if (!pointInBox(cx, cz, target.x, target.z, target.heading, cls.hull.length * 0.5, cls.hull.beam * 0.5 + 2)) continue;
+      nukeBlast(state, cx, cy, cz, sh);
+      return true;
+    }
+    for (const bat of state.batteries) {
+      if (!bat.alive) continue;
+      const reach = BATTERIES[bat.batteryId].span * 0.6 + 6;
+      if (cy > bat.y + 14 || dist2(cx, cz, bat.x, bat.z) > reach * reach) continue;
+      nukeBlast(state, cx, cy, cz, sh);
+      return true;
+    }
+    const g = Math.max(0, groundHeight(state.world, cx, cz));
+    if (cy <= g) {
+      nukeBlast(state, cx, g, cz, sh);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The bomb going off.
+ *
+ * What happens in the first instant happens here: the flash, which every
+ * client sees wherever it is looking, and the ground it is on. Everything
+ * else -- ships, aeroplanes, guns, the town, the wave -- happens as the shock
+ * reaches it, in stepNukes, so that what is wrecked is wrecked at the moment
+ * the ring of white water racing out across the sea gets to it.
+ *
+ * It is no respecter of sides. Whatever is near it when it goes is near it.
+ */
+export function nukeBlast(state, x, y, z, sh = null) {
+  const id = eid();
+  const team = sh ? sh.team : -1;
+  const n = { id, x, y, z, t0: state.t, r: 0, team, from: sh ? sh.bomber || 0 : 0 };
+  (state.nukes || (state.nukes = [])).push(n);
+  const ashore = groundHeight(state.world, x, z) > 0.5;
+  state.events.push({ e: 'nuke', i: id, x: r(x), y: r(y), z: r(z), tm: team, land: ashore ? 1 : 0, tk: state.tick });
+  // The hole it leaves in the ground, if it went off on the ground.
+  if (ashore) landStrike(state, x, z, 1.52, 'bomb', 1);
+  stepNukes(state, 0);
+  return n;
+}
+
+/**
+ * The shock of every atomic burst, going out, and what it finds.
+ *
+ * Each tick the front has moved on from where it was to where nukeFront says
+ * it is now, and everything between those two rings is struck: the share of
+ * its life nukeBite says the blast is worth at that distance, the fires it
+ * starts, and the wave it throws -- every hull it reaches is rolled and set
+ * bodily away from the burst. Aeroplanes are measured in three dimensions,
+ * because a bomber at four thousand feet is a long way further from a burst
+ * on the sea than a ship at the same range.
+ */
+function stepNukes(state, dt) {
+  const list = state.nukes;
+  if (!list || !list.length) return;
+  void dt;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const n = list[i];
+    const age = state.t - n.t0;
+    const r0 = n.r;
+    const r1 = nukeFront(age);
+    const crossed = (d) => d <= r1 && (d > r0 || (r0 === 0 && d >= 0));
+    for (const s of state.ships) {
+      if (!s.alive) continue;
+      const cls = getClass(s.classId);
+      const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
+      if (!crossed(d)) continue;
+      // A boat deep under is spared a little of it by the water over her;
+      // not much, because a shock in water is worse than one in air.
+      const deep = (s.depth || 0) > 8 ? 0.7 : 1;
+      const bite = nukeBite(d) * deep;
+      if (bite <= 0) continue;
+      damageShip(state, s, null, cls.hp * bite, 'nuke');
+      if (s.alive) {
+        // Everything on her upper deck that will burn is alight.
+        startFire(state, s, 'works', Math.min(1, bite * 1.6));
+        if (bite > 0.35) {
+          for (const k of ['fore', 'aft']) if (s.sections[k]) startFire(state, s, k, Math.min(1, bite));
+        }
+      }
+      // And the wave. Square on to her or not, it rolls her and carries her.
+      const dx = s.x - n.x, dz = s.z - n.z;
+      const dd = Math.hypot(dx, dz) || 1;
+      const lx = worldToLocal(n.x - s.x, n.z - s.z, s.heading).x;
+      const j = Math.pow(Math.max(0, 1 - d / (NUKE.reach * 1.4)), 1.5)
+        * clamp(DD_BULK / Math.max(1, cls.hull.length * cls.hull.beam * cls.hull.draft), 0.25, 3);
+      s.rockRate = clamp((s.rockRate || 0) - Math.sign(lx || 1) * ROLL_KICK * 6 * j, -MAX_ROCK_RATE, MAX_ROCK_RATE);
+      s.driftX = (s.driftX || 0) + (dx / dd) * PUSH_KICK * 8 * j;
+      s.driftZ = (s.driftZ || 0) + (dz / dd) * PUSH_KICK * 8 * j;
+      const v = Math.hypot(s.driftX, s.driftZ);
+      if (v > MAX_DRIFT) { s.driftX *= MAX_DRIFT / v; s.driftZ *= MAX_DRIFT / v; }
+      state.events.push({ e: 'nukeHit', ship: s.id, i: n.id, b: Math.round(bite * 100) / 100 });
+    }
+    // In the air.
+    const air = (q) => Math.hypot(q.x - n.x, (q.y ?? 220) - n.y, q.z - n.z);
+    for (const q of state.planes) {
+      if (q.dead) continue;
+      const d = air(q);
+      if (!crossed(d) || d > NUKE.air) continue;
+      if (d < NUKE.air * 0.45) killFlight(state, q, 'blast');
+      else {
+        hurtFlight(state, q, 900 * Math.pow(1 - d / NUKE.air, 1.5), 'blast');
+        if (q.hp <= 0 && !q.dead) killFlight(state, q, 'blast');
+      }
+    }
+    for (const bm of state.bombers) {
+      if (!bm.alive) continue;
+      const d = air(bm);
+      if (!crossed(d) || d > NUKE.air) continue;
+      if (d < NUKE.air * 0.45) heavyGone(state, bm, 'blast');
+      else hurtBomber(state, bm, 2400 * Math.pow(1 - d / NUKE.air, 2), 'blast');
+    }
+    for (const bat of state.batteries) {
+      if (!bat.alive) continue;
+      const d = Math.hypot(bat.x - n.x, bat.z - n.z);
+      if (!crossed(d)) continue;
+      const bite = nukeBite(d);
+      if (bite > 0) hurtBattery(state, bat, batteryHp(BATTERIES[bat.batteryId]) * bite * 1.2);
+    }
+    // What is in the water near it does not survive the shock in the water.
+    for (const tp of state.torps) {
+      if (!tp.dead && Math.hypot(tp.x - n.x, tp.z - n.z) < Math.min(r1, NUKE.heavy)) tp.dead = true;
+    }
+    for (const m of state.missiles || []) {
+      if (m.hp > 0 && air(m) < Math.min(r1, NUKE.heavy)) m.hp = 0;
+    }
+    // The town: every building the front has crossed.
+    if (state.world?.works) {
+      for (const plan of cityPlans(state.world)) {
+        for (const b of plan.byId.values()) {
+          const d = Math.hypot(b.x - n.x, b.z - n.z);
+          if (!crossed(d)) continue;
+          const bite = nukeBite(d);
+          if (bite > 0) hurtBuilding(state.world, b, b.hp * bite * 1.6, state.events, worksDice(state), { x: n.x, z: n.z, he: true });
+        }
+      }
+    }
+    n.r = r1;
+    if (age > NUKE.tau * 6) list.splice(i, 1);
+  }
 }
 
 /** Which part of the hull a shell struck, and the armour it must beat. */
@@ -12646,8 +12818,12 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     hp: n * HEAVY_HP,
     maxHp: n * HEAVY_HP,
     // How many times she can lay a stick. Two runs and she is out of bombs and
-    // goes home, which is what an aeroplane with a finite bomb bay does.
-    loads: 2,
+    // goes home, which is what an aeroplane with a finite bomb bay does. A
+    // Silverplate formation has the one weapon between the three of them.
+    loads: b.atomic ? 1 : 2,
+    // Her bay doors, open: on the run, and for an atomic run for the last of
+    // the approach before it as well (see stepBombers).
+    doors: false, doorsUntil: 0,
     stick: 0,
     stickT: 0,
     // The aeroplanes themselves, each with her own engine, tanks, wings, tail,
@@ -12686,6 +12862,19 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
 /** What her bombs do, off her own datasheet rather than off a carrier's. */
 function heavyLoad(bm) {
   const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
+  // One bomb, and not a stick: what it does is nukeBlast's business, not the
+  // shell pipeline's, so the figures here are only what a bomb of its weight
+  // and its five feet across would be if it were an ordinary one -- which is
+  // what it is, in the wreck of a Superfortress that went in with it still
+  // aboard. The weapon was not armed until it was on its way down.
+  if (b.atomic) {
+    return {
+      n: 1, atomic: true,
+      bombDamage: 700 + b.payload * 3.4 * 0.25,
+      bombPen: 60, bombBore: 1.2, bombFire: 0.6,
+      caliber: 1520,
+    };
+  }
   // Pounds of bombs, spread over the stick she lays. A Lancaster's fourteen
   // thousand goes down as a cookie and a dozen incendiary containers; what
   // matters here is that each body that arrives is worth what a bomb of that
@@ -12766,9 +12955,24 @@ function dropBomb(state, bm, L) {
   // bomb does on the way down, so they go into how it leaves rather than
   // where. Spread over the fall they are the same miss at the bottom.
   const fall = Math.sqrt(2 * Math.max(50, bm.y) / 9.81);
+  // The weapon goes from the bay of the machine carrying it: the formation's
+  // leader, or whichever of the three is leading it now.
+  let ox = 0, oy = 0, oz = 0;
+  if (L.atomic) {
+    const carrier = (bm.machines || []).find((a) => a.alive && !a.left);
+    if (carrier) {
+      const at = vicAt(machineSlot(bm, carrier), bm.heading || 0);
+      ox = at.x; oy = at.y; oz = at.z;
+    }
+    state.events.push({ e: 'nukeAway', i: bm.id, tm: bm.team, x: r(bm.x + ox), y: r(bm.y + oy), z: r(bm.z + oz) });
+  }
   fireShell(state, {
     id: eid(), owner: 0, bomber: bm.id, team: bm.team,
-    x: bm.x, y: bm.y, z: bm.z,
+    x: bm.x + ox, y: bm.y + oy - 1, z: bm.z + oz,
+    // An atomic bomb. Nothing in the game can shoot one down: it is not an
+    // aeroplane, the flak has nothing to say to it, and a Phalanx looks for
+    // missiles. It falls until it hits something, and then it goes off.
+    atomic: L.atomic ? 1 : undefined,
     vx: sn * bm.speed + (e.x + sx) / fall, vy: 0, vz: cs * bm.speed + (e.z + sz) / fall,
     g: 9.81,
     caliber: L.caliber,
@@ -12998,7 +13202,7 @@ function loseHeavy(state, bm, a, why) {
       vy: limp ? -4 - state.rng() * 3 : -6 - state.rng() * 8,
       mass: HEAVY_RAM,
       // Her share of a stick she never got to lay.
-      load: bm.loads > 0 && !(bm.stick > 0 && bm.stick < L.n) ? L.bombDamage * 2.5 : 0,
+      load: bm.loads > 0 && !(bm.stick > 0 && bm.stick < L.n) ? L.bombDamage * (L.atomic ? 1 : 2.5) : 0,
     });
     ev.f = f.id;
     ev.vx = r(f.vx); ev.vy = r(f.vy); ev.vz = r(f.vz);
@@ -13071,7 +13275,11 @@ export function dropStick(state, ship, id) {
   const L = heavyLoad(bm);
   bm.phase = 'run';
   bm.stick = L.n;
-  bm.stickT = 0;
+  // The doors first. A stick goes out of a bay that is already open on the
+  // run; the one weapon of an atomic run waits for them, which on a B-29's
+  // snap-action doors is a second.
+  bm.stickT = L.atomic && !(state.t < (bm.doorsUntil || 0)) ? 1.0 : 0;
+  bm.doorsUntil = state.t + 4;
   bm.err = aimError(state, bm);
   return true;
 }
@@ -13249,14 +13457,15 @@ function heavySeen(state, bm) {
  * Whether a gun position bears on something, given where it is off her nose
  * (`fore`, the cosine off her heading) and how far above or below her it is
  * (`up`, the sine of its elevation). A nose or a chin gun looks ahead, a tail
- * gun astern, a dorsal turret over her and a ball or a gondola under her.
+ * gun astern, a dorsal turret over her and a ball or a gondola under her --
+ * and a Superfortress's barbettes the same, two over her and two under.
  */
 function postBears(name, fore, up) {
   switch (name) {
     case 'nose': case 'chin': return fore > -0.15 && (name !== 'chin' || up < 0.5);
     case 'tail': return fore < 0.15;
-    case 'dorsal': return up > -0.2;
-    case 'ball': case 'gondola': return up < 0.2;
+    case 'dorsal': case 'upper': case 'aftupper': return up > -0.2;
+    case 'ball': case 'gondola': case 'lower': case 'aftlower': return up < 0.2;
     default: return true;
   }
 }
@@ -13332,11 +13541,13 @@ function stepBombers(state, dt) {
           if (bm.stick === 0) {
             bm.loads -= 1;
             bm.phase = 'inbound';
+            bm.doorsUntil = state.t + 2.5;
             state.events.push({ e: 'sticksAway', i: bm.id, tm: bm.team });
           }
         }
         bm.stickT -= dt;
       }
+      bm.doors = bm.phase === 'run' || state.t < (bm.doorsUntil || 0);
       heavyFlak(state, bm, dt);
       heavyDamage(state, bm, dt);
       stepHeavyRam(state, bm);
@@ -13401,7 +13612,14 @@ function stepBombers(state, dt) {
         // the course she has, then come round and make a proper run of it.
         want = bm.heading;
         if (toAim > throwFwd + HEAVY_OPEN_OUT) bm.overshot = false;
-      } else if (toAim <= throwFwd + 140 && bm.loads > 0) {
+      } else if (L.atomic && bm.loads > 0 && toAim <= throwFwd + bm.speed * 7
+        && Math.abs(angleDelta(bm.heading, want)) < 0.3) {
+        // On the last of the approach to an atomic release the doors are
+        // open: the weapon goes the instant the sight says so, and it is not
+        // going out through a shut bay.
+        bm.doorsUntil = state.t + 1;
+      }
+      if (bm.phase === 'inbound' && !bm.overshot && toAim <= throwFwd + 140 && bm.loads > 0) {
         // Only lined up on it. A run begun with the target off to one side
         // is a stick laid in the sea beside it -- which is what used to
         // happen to a squadron that had been put on a new target close in.
@@ -13424,6 +13642,15 @@ function stepBombers(state, dt) {
           bm.phase = 'away';
           bm.aimX = 0; bm.aimZ = 0; bm.targetId = 0;
           bm.hold = 26;
+          bm.doorsUntil = state.t + 2.5;
+          // An atomic weapon away: the turn the 509th practised for a year,
+          // a hundred and fifty-five degrees and down, to have as much air as
+          // possible between her and it when it goes off forty-odd seconds
+          // later. Held for longer, and she does not come back.
+          if (L.atomic) {
+            bm.awayTo = wrapAngle(bm.heading + (state.rng() < 0.5 ? 1 : -1) * 2.7);
+            bm.hold = 60;
+          }
           state.events.push({ e: 'sticksAway', i: bm.id, tm: bm.team });
         }
       }
@@ -13477,6 +13704,8 @@ function stepBombers(state, dt) {
     bm.z += Math.cos(bm.heading) * bm.speed * dt;
     // And a heavy is in the same gale as everything else.
     buffet(state, bm, dt);
+
+    bm.doors = bm.phase === 'run' || state.t < (bm.doorsUntil || 0);
 
     heavyFlak(state, bm, dt);
     heavyDamage(state, bm, dt);
@@ -15473,6 +15702,7 @@ export function step(state, dt = DT) {
   stepPlanes(state, dt);
   stepRearGunners(state, dt);
   stepBombers(state, dt);
+  stepNukes(state, dt);
   stepAirSpacing(state);
   stepMidAir(state);
   stepFallers(state, dt);

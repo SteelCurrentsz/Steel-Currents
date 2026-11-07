@@ -17,7 +17,7 @@
 
 /** The order the bomber yard steps through them. The Lancaster leads. */
 export const BOMBER_ORDER = [
-  'lancaster', 'fortress', 'heinkel', 'junkers', 'betty',
+  'lancaster', 'fortress', 'silverplate', 'heinkel', 'junkers', 'betty',
 ];
 
 /** How many squadrons one side may have on call. */
@@ -50,6 +50,8 @@ export const BOMBER_MAX = 15;
  * @property {string} calibre   what those barrels are
  * @property {string} arcs      how far each mounting trains, in degrees
  * @property {string} blurb     one line, for the roster
+ * @property {boolean} [atomic] she carries one atomic bomb rather than a stick:
+ *                              see the simulation's `nukeBlast`
  */
 
 /** @type {Record<string, Bomber>} */
@@ -114,6 +116,43 @@ export const BOMBERS = {
     calibre: '.50 in Browning M2',
     arcs: 'Chin 174°, dorsal 360°, ball 360°, tail 90°',
     blurb: 'Thirteen fifties, and she flew in daylight.',
+  },
+
+  // The Superfortress as the 509th Composite Group flew her: a Silverplate
+  // airframe, built for one weapon and nothing else. The forward bay was
+  // rebuilt round a single British-pattern hook and the bomb on it, the
+  // reversible-pitch airscrews and fuel-injected engines were fitted so she
+  // could get up and away, and she went to the target as one of three -- the
+  // strike aircraft with the bomb, and two more with the instruments and the
+  // cameras. What she drops cannot be shot down, and it is not a stick.
+  silverplate: {
+    name: 'B-29 Silverplate',
+    fullName: 'Boeing B-29-45-MO Superfortress (Silverplate)',
+    role: 'Atomic strike bomber',
+    nation: 'usaaf',
+    crew: 12,
+    span: 43.05, length: 30.18,
+    weight: 60.6, empty: 32.4,
+    speed: 357, cruise: 220,
+    ceiling: 31850, reach: 3250,
+    armour: 0,
+    engines: '4 × R-3350-41 Duplex-Cyclone, 2,200 hp',
+    payload: 9700,
+    load: '1 × atomic bomb, 9,700 lb',
+    turrets: 5,
+    stations: 'Fwd upper, fwd lower, aft upper, aft lower, tail',
+    // Every gun position aboard, in the order the model builds them -- the
+    // simulation fights each one, and each can be shot out. The four barbettes
+    // are the General Electric remote system, laid from the sighting blisters;
+    // the tail is the one position with a man in it.
+    posts: ['upper', 'lower', 'aftupper', 'aftlower', 'tail'],
+    // Where each one is on her, [up, forward] in metres off her middle.
+    postAt: [[1.55, 6.30], [-1.58, 5.60], [1.55, -7.40], [-0.31, -13.00], [1.04, -19.20]],
+    guns: 12,
+    calibre: '.50 in Browning M2',
+    arcs: 'Upper 360°, lower 360°, tail 60°',
+    blurb: 'One aeroplane, one bomb, and nothing under it left standing.',
+    atomic: true,
   },
 
   // The Luftwaffe's medium, and the one that could be hung with torpedoes --

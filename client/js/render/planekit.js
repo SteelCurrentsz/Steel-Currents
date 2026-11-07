@@ -36,6 +36,7 @@ import { ju87Model } from './ju87Model.js';
 import { hellcatModel } from './hellcatModel.js';
 import { dauntlessModel } from './dauntlessModel.js';
 import { avengerModel } from './avengerModel.js';
+import { b29Model, b29Ready } from './b29Model.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -5200,6 +5201,59 @@ const HEAVY = {
     mastH: 0.90,
   },
 
+  // The Superfortress: a long round tube with a glazed bullet of a nose and no
+  // step in it at all, a wing of enormous span and narrow chord, four big
+  // radials, and a fin that is a Fortress's grown up. She is drawn off the
+  // owner's model (b29Model.js) once that is in; this is her stand-in until it
+  // is, and the figures every other screen reads -- her turrets, where each
+  // one is and what it bears on, her bay -- are hers, off that model.
+  silverplate: {
+    id: 'silverplate', paint: 'usaaf', mark: 'star', markR: 0.80, markZ: -10.2,
+    cl: 0.00, e: 1.00, flat: 0.00,
+    body: {
+      z0: -19.60, z1: 10.70, w: 2.90, h: 2.90, n: 22,
+      full0: 0.30, full1: 0.86, tailW: 0.30, tailH: 0.42,
+      noseW: 0.62, noseH: 0.62, noseP: 2.4, tailUp: 0.70,
+    },
+    span: 43.05, wingY: -0.30, wingZ: 0.40, rootC: 5.60, tipC: 1.80,
+    sweep: 2.40, dihedral: 0.070, thick: 0.150,
+    engine: { kind: 'radial', r: 0.80, prop: 5.05, blades: 4, back: 4.4 },
+    nacelles: [
+      { x: 4.31, fwd: 3.80, dy: 0.28, leg: true },
+      { x: 9.49, fwd: 3.40, dy: 0.64, back: 3.2 },
+    ],
+    fins: 1, finH: 5.30, finC: 5.80, fillet: 4.20,
+    tpY: 0.30, tpZ: -16.80, tpSpan: 15.20, tpC: 3.40,
+    glazeNose: 8.80,
+    // Her five gun positions, where the model has them. The four barbettes of
+    // the General Electric central fire control -- two over her and two under,
+    // each trained from a sighting blister by a man who could hand it to the
+    // next -- and the tail, which had its own gunner and a narrow cone.
+    turrets: [
+      { name: 'upper', z: 6.30, y: 1.55, r: 0.60, guns: 4, cal: 0.050, len: 1.25,
+        spread: 0.18, arc: 180, up: 85, down: 2 },
+      { name: 'lower', z: 5.60, y: -1.58, r: 0.55, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.24, arc: 180, up: 2, down: 85 },
+      { name: 'aftupper', z: -7.40, y: 1.55, r: 0.58, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.24, arc: 180, up: 85, down: 2 },
+      { name: 'aftlower', z: -13.00, y: -0.31, r: 0.55, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.24, back: true, arc: 180, up: 2, down: 85 },
+      { name: 'tail', z: -19.20, y: 1.04, r: 0.50, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.22, back: true, arc: 30, up: 30, down: 30 },
+    ],
+    inside: {
+      floor: -0.90, z0: -18.0, z1: 9.60, ribs: 1.30, catwalk: 0.34,
+      deckZ: 7.60, pilotX: -0.48, pedX: 0.48, engineer: 0.00,
+      aimerZ: 9.60, aimerY: -0.80,
+      navZ: 6.20, navX: -0.52, radioZ: 5.20, radioX: 0.52,
+      spars: [1.60, -2.20], trackZ: -9.00,
+      bulkheads: [5.60, -3.60, -15.0],
+    },
+    // The forward bay, rebuilt for the one weapon and nothing else.
+    bay: { z: 2.69, len: 3.94, wide: 2.24, deep: 1.70, n: 1, bombLen: 3.25, bombR: 0.76 },
+    mastH: 1.10,
+  },
+
   // The one with no step in front of the pilots: the whole nose is glass, and
   // the gondola under it is where the ventral gunner lay.
   heinkel: {
@@ -5325,7 +5379,7 @@ const HEAVY = {
 };
 
 /** The kinds this file can build, in the order the bomber yard steps them. */
-const HEAVY_KINDS = ['lancaster', 'fortress', 'heinkel', 'junkers', 'betty'];
+const HEAVY_KINDS = ['lancaster', 'fortress', 'silverplate', 'heinkel', 'junkers', 'betty'];
 
 /**
  * One heavy bomber, by name, in her own group with the origin under her.
@@ -5333,8 +5387,13 @@ const HEAVY_KINDS = ['lancaster', 'fortress', 'heinkel', 'junkers', 'betty'];
  * She comes in flight trim, which is the only trim there is for one of these.
  */
 function heavyBomber(kind) {
+  // The Superfortress is the owner's model rather than one of these lofts,
+  // once it is in. Until it is she is the loft, and says so (`stub`), so
+  // anything that keeps a model of her can ask again.
+  if (kind === 'silverplate' && b29Ready()) return b29Bomber();
   const g = new THREE.Group();
   const s = HEAVY[kind] || HEAVY.lancaster;
+  if (kind === 'silverplate') g.userData.stub = true;
   const p = heavy(g, 0, 0, 0, 0, s);
   // Her skin, the same flush-riveted alloy under paint every other machine in
   // this file wears. Done here rather than by the caller because a bomber is
@@ -5384,6 +5443,31 @@ function heavyBomber(kind) {
   g.userData.rack = p.userData.rack;
   g.userData.parts = p.userData.parts || [];
   g.userData.turrets = p.userData.turrets || [];
+  return g;
+}
+
+/**
+ * The Superfortress off the owner's model, wrapped the way every heavy here
+ * is: her airscrews, her bay doors and her weapon where the bomber yard and
+ * the battle look for them, and a cutaway that leaves her as she is -- the
+ * model has no inside to show.
+ */
+function b29Bomber() {
+  const g = new THREE.Group();
+  const p = b29Model(HEAVY.silverplate.turrets);
+  g.add(p);
+  g.userData.plane = p;
+  g.userData.props = p.userData.props;
+  g.userData.rack = p.userData.rack;
+  g.userData.parts = p.userData.parts;
+  g.userData.turrets = p.userData.turrets;
+  g.userData.bomb = p.userData.bomb;
+  g.userData.skin = [];
+  g.userData.cutaway = () => {};
+  g.userData.kind = 'silverplate';
+  // Her doors open and her weapon goes, in battle as well as in the yard:
+  // see Heavies.batch.
+  g.userData.liftTrims = true;
   return g;
 }
 

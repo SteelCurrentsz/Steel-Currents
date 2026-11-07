@@ -690,10 +690,17 @@ export class Bombs {
       } else if (n < this.max) this.place(this.mesh, n++, b.x, b.y, b.z, this.quat, b.len, b.r, false);
     }
     for (const c of this.carried) {
-      if (n >= this.max) break;
       this.dir.set(c.dx, c.dy, c.dz);
       if (this.dir.lengthSq() > 1e-6) this.quat.setFromUnitVectors(this.fwd, this.dir.normalize());
       else this.quat.identity();
+      // A type's own weapon, where it has one: the atomic bomb is drawn as
+      // the bomb that hung in the bay, not as a generic body five feet across.
+      const sh = c.shape ? this.shapes.get(c.shape) : null;
+      if (sh) {
+        if (sh.n < this.max) this.place(sh.mesh, sh.n++, c.x, c.y, c.z, this.quat, c.len, c.r, true);
+        continue;
+      }
+      if (n >= this.max) break;
       this.place(this.mesh, n++, c.x, c.y, c.z, this.quat, c.len, c.r, false);
     }
     this.park(n);

@@ -254,6 +254,14 @@ export const HEAVY_AERO = {
     thrust: 50000, vMax: 128, name: 'B-17G',
     helix: 0.038, gLimit: 2.7,
   },
+  // Twice a Fortress's weight on a wing that is not twice the size: the
+  // Superfortress was built to cruise high and fast and she is a handful
+  // slow. The Duplex-Cyclones give her the power to carry it.
+  silverplate: {
+    mass: 54000, wing: 161.3, span: 43.05, clMax: 1.55, cd0: 0.0240,
+    thrust: 78000, vMax: 160, name: 'B-29 Silverplate',
+    helix: 0.034, gLimit: 2.5,
+  },
   heinkel: {
     mass: 14000, wing: 87.6, span: 22.60, clMax: 1.52, cd0: 0.0285,
     thrust: 26000, vMax: 120, name: 'He 111H-6',

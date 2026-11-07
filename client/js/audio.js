@@ -456,6 +456,19 @@ export class Audio {
     this.play('magazine', at, { level: 1.1, ref: 2600 });
   }
 
+  /**
+   * An atomic bomb: the loudest thing there is, heard from anywhere in the
+   * action -- a crack, and then a roar that goes on and on as the rest of the
+   * blast arrives and the cloud climbs.
+   */
+  nuke(at = null) {
+    this.play('magazine', at, { level: 1.3, ref: 9000, rate: 0.62 });
+    this.play('boomLarge', at, { level: 1.2, ref: 9000, rate: 0.45, after: 0.12 });
+    this.play('magazine', at, { level: 1.0, ref: 9000, rate: 0.38, after: 0.9 });
+    this.play('groan', at, { level: 0.8, ref: 9000, rate: 0.5, after: 1.6 });
+    this.play('splashLarge', at, { level: 0.9, ref: 9000, rate: 0.5, after: 2.4 });
+  }
+
   /** A rocket going off its rail. */
   rocket(at = null) {
     this.play('rocket', at, { level: 0.75, ref: 260, rate: 0.94 + Math.random() * 0.12 });
