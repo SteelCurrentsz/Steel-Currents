@@ -291,7 +291,7 @@ export function addShip(state, {
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
     // Her RBU-1200 launchers, if she has them: where each is trained, its
     // reload, and the ripple it is firing, if any. See stepRbu.
-    rbuMounts: cls.rbu ? cls.rbu.mounts.map((m) => ({ id: m.id, angle: m.rest ?? m.angle, cooldown: 0, ripple: null })) : [],
+    rbuMounts: cls.rbu ? cls.rbu.mounts.map((m) => ({ id: m.id, angle: m.rest ?? m.angle, elev: 0, cooldown: 0, ripple: null })) : [],
     // The depth charge gear. `dcLeft` is how many charges are still in the
     // stowage, `dcMounts` is a reload clock per rack and per thrower, `dcSet`
     // is what the pistols are wound to, and `dcAuto` is whether her own
@@ -7916,6 +7916,14 @@ function rbuTarget(state, ship, cls, spec) {
   // enough to her to hit her, inside the minute or so it has left to run.
   const half = cls.hull.length * 0.5 + 25;
   let best = null, bd = Infinity;
+  // A threat under the water this launcher cannot throw at yet -- out of its
+  // arc, inside its minimum range, or past its reach. While there is one she
+  // keeps the launcher for it: laid as near onto it as it will go, and loaded,
+  // not spent on a ship on the surface with an eighteen-second reload to follow.
+  let held = null, hd = Infinity;
+  const hold = (kind, id, aim, d) => {
+    if (d < hd) { held = { kind, id, x: aim.x, z: aim.z, hold: true }; hd = d; }
+  };
   for (const tp of state.torps) {
     if (tp.dead || tp.aboard || tp.air > 0 || tp.team === ship.team) continue;
     const d = dist(ship.x, ship.z, tp.x, tp.z);
@@ -7932,7 +7940,7 @@ function rbuTarget(state, ship, cls, spec) {
     if (tc * tp.speed > tp.range - tp.travelled + half) continue;
     if (Math.hypot(rx + vx * tc, rz + vz * tc) > half) continue;
     const aim = led(tp.x, tp.z, tp.heading, tp.speed);
-    if (!reach(aim.x, aim.z)) continue;
+    if (!reach(aim.x, aim.z)) { hold('torp', tp.id, aim, d); continue; }
     best = { kind: 'torp', id: tp.id, x: aim.x, z: aim.z, set: 4 };
     bd = d;
   }
@@ -7944,12 +7952,13 @@ function rbuTarget(state, ship, cls, spec) {
       const d = dist(ship.x, ship.z, boat.x, boat.z);
       if (d > R.sonar || d >= bd) continue;
       const aim = led(boat.x, boat.z, boat.heading, boat.speed);
-      if (!reach(aim.x, aim.z)) continue;
+      if (!reach(aim.x, aim.z)) { hold('sub', boat.id, aim, d); continue; }
       best = { kind: 'sub', id: boat.id, x: aim.x, z: aim.z, set: Math.max(6, boat.depth + getClass(boat.classId).hull.draft * 0.5) };
       bd = d;
     }
     if (best) return best;
   }
+  if (held) return held;
   // A ship she can see, close aboard: thrown at her like a mortar.
   for (const foe of state.ships) {
     if (!foe.alive || foe.team === ship.team || (getClass(foe.classId).dive && submerged(foe))) continue;
@@ -7994,10 +8003,22 @@ function stepRbu(state, ship, dt) {
     if (m.look <= 0) { m.want = rbuTarget(state, ship, cls, spec); m.look = 0.5; }
     const want = m.want;
     const rest = spec.rest ?? spec.angle;
-    if (!want) { m.angle = trainWithin(m.angle, rest, R.traverse * dt, spec); return; }
+    if (!want) {
+      m.angle = trainWithin(m.angle, rest, R.traverse * dt, spec);
+      m.elev = Math.max(0, (m.elev || 0) - 0.5 * dt);
+      return;
+    }
     const at = mountWorldPos(ship, spec);
     const local = wrapAngle(headingTo(at.x, at.z, want.x, want.z) - ship.heading);
     m.angle = trainWithin(m.angle, local, R.traverse * dt, spec);
+    // Its tubes come up to the throw the range wants, as it trains: the
+    // clients draw both off the wire (see protocol), so the launcher is seen
+    // to come round and lay on what it is going to fire at.
+    const el = rbuFlight(R, clamp(dist(at.x, at.z, want.x, want.z), R.minRange, R.range)).elev;
+    const e0 = m.elev || 0;
+    m.elev = e0 + clamp(el - e0, -0.5 * dt, 0.5 * dt);
+    // Laid on a threat it cannot reach yet: trained and waiting, not fired.
+    if (want.hold) return;
     if (m.cooldown > 0 || Math.abs(angleDelta(m.angle, local)) > 0.06) return;
     m.ripple = { left: R.tubes, next: 0, aim: want };
     m.want = null;

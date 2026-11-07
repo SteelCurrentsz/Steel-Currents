@@ -7276,7 +7276,7 @@ export class Battle {
       }
       // And everything else that trains: her secondary mountings and her
       // tubes off the snapshot, her light battery off the aircraft overhead.
-      view.layMounts(s.se, s.sl, s.tt, this.planesNow, dt, s.te);
+      view.layMounts(s.se, s.sl, s.tt, this.planesNow, dt, s.te, s.rt, s.rl);
       // Her box launchers, up or down.
       if (s.ml) view.layLaunchers(s.ml, dt);
       // Her searchlights: ours off our own hand, so a lamp answers at once;

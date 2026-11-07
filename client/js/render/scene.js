@@ -1676,7 +1676,7 @@ export class ShipView {
    * past its loading angle unless it has something to shoot at. That is the
    * difference you watch, so the rates are the guns' own.
    */
-  layMounts(sec, secElev, torp, planes, dt, turretElev) {
+  layMounts(sec, secElev, torp, planes, dt, turretElev, rbu, rbuElev) {
     // The main battery's elevation. Her bearings are set from the wire in the
     // caller -- they always were -- and this is the other half of the same lay.
     if (turretElev) {
@@ -1708,21 +1708,27 @@ export class ShipView {
     }
     if (this.rbuMounts.length) {
       const now = performance.now() / 1000;
-      for (const m of this.rbuMounts) {
-        if (m.userData.laid === false) continue;
+      this.rbuMounts.forEach((m, i) => {
+        if (m.userData.laid === false) return;
         const hold = m.userData.hold;
         const sector = m.userData.sector;
         let want = sector ? sector.stow : (m.userData.rest || 0);
         let up = 0;
-        if (hold && hold.until > now) { want = hold.b - this.group.rotation.y; up = hold.up; }
+        // Trained where the simulation has it -- coming round onto a torpedo
+        // or a boat before it fires -- or, off an older snapshot that does not
+        // say, held on the bearing it last fired on.
+        if (rbu && Number.isFinite(rbu[i])) { want = rbu[i]; up = rbuElev ? rbuElev[i] || 0 : 0; }
+        else if (hold && hold.until > now) { want = hold.b - this.group.rotation.y; up = hold.up; }
         if (sector) {
           let o = want - sector.angle;
           while (o > Math.PI) o -= Math.PI * 2;
           while (o < -Math.PI) o += Math.PI * 2;
           want = sector.angle + Math.max(-sector.arc, Math.min(sector.arc, o));
         }
-        layMount(m, want, up, (m.userData.trainRate || 0.7) * dt, 0.7 * dt);
-      }
+        // A shade quicker than the launcher itself, so the drawing keeps up
+        // with the snapshots rather than lagging them round.
+        layMount(m, want, up, (m.userData.trainRate || 0.7) * 1.4 * dt, 0.7 * dt);
+      });
     }
     if (!this.aaMounts.length) return;
     // A light gun on a turret's roof goes round with the turret: it is put

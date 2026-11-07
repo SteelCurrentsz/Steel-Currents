@@ -3636,6 +3636,47 @@ check("the Guangzhou's RBU-1200s go after a submerged boat her sonar holds", () 
   assert.ok(!u.alive || u.hp < hp0, 'her RBUs did the boat no harm');
 });
 
+check("the Guangzhou's RBU-1200s train round onto a boat, and the wire says where", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 0, index: 0 });
+  const u = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+  // Broad on her starboard bow: the forward launchers, stowed facing ahead,
+  // have to come round to it.
+  g.x = 0; g.z = 0; g.heading = 0; g.speed = 0;
+  u.x = 600; u.z = 500; u.heading = 0; u.depth = 30;
+  const rest = g.rbuMounts.map((m) => m.angle);
+  let fired = null;
+  for (let t = 0; t < 30 * 30 && fired === null; t++) {
+    u.depth = 30; u.speed = 0;
+    for (const e of step(state, 1 / 30)) if (e.e === 'rbu' && fired === null) fired = e;
+  }
+  assert.ok(fired, 'her RBUs never fired at the boat');
+  const m = g.rbuMounts[fired.m];
+  assert.ok(Math.abs(m.angle - rest[fired.m]) > 0.4, 'the launcher fired without training off its stowed bearing');
+  assert.ok(m.elev > 0.05, 'the launcher fired with its tubes down');
+  const s = shipSnapshot(g, false, state);
+  assert.equal(s.rt.length, 4);
+  assert.equal(s.rl.length, 4);
+  assert.ok(Math.abs(s.rt[fired.m] - m.angle) < 0.01, 'the wire does not say where the launcher is trained');
+});
+
+check("the Guangzhou's RBU-1200s go for a torpedo before a ship close aboard", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 1, index: 0 });
+  // The Fletcher well inside the RBUs' reach, and her fish running at her.
+  a.x = 0; a.z = 0; g.x = 0; g.z = 900; g.heading = Math.PI / 2; g.speed = 0;
+  const first = [];
+  for (let t = 0; t < 120 * 30; t++) {
+    a.aimX = g.x; a.aimZ = g.z; a.heading = Math.PI / 2; a.speed = 0;
+    if (t === 0) fireTorpedoes(state, a);
+    for (const e of step(state, 1 / 30)) if (e.e === 'rbu') first.push(e.t);
+    if (first.length || !g.alive) break;
+  }
+  assert.ok(first.length, 'her RBUs never fired');
+  assert.equal(first[0], 'torp', `her RBUs fired first at a ${first[0]}, not the torpedoes running at her`);
+});
+
 check("the Guangzhou's homing torpedoes turn onto a ship they were not aimed straight at", () => {
   const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
   const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 0, index: 0 });

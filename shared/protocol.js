@@ -128,6 +128,12 @@ export function shipSnapshot(ship, full, state = null) {
     s.sl = ship.secMounts.map((m) => r3(m.elev || 0));
   }
   if (ship.torpMounts.length) s.tt = ship.torpMounts.map((m) => r3(m.angle));
+  // Where her RBU-1200s are trained, and how far up their tubes are: the
+  // launchers come round onto a torpedo or a boat before they fire on it.
+  if (ship.rbuMounts && ship.rbuMounts.length) {
+    s.rt = ship.rbuMounts.map((m) => r3(m.angle));
+    s.rl = ship.rbuMounts.map((m) => r3(m.elev || 0));
+  }
   // How far up each of her box launchers is. Anyone can see a battleship
   // raising her Tomahawk boxes, and what it means.
   if (ship.missiles && ship.missiles.boxes.length) s.ml = ship.missiles.boxes.map((b) => r2(b.raise));
