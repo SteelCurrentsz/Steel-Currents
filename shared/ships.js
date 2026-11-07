@@ -8819,6 +8819,136 @@ export const SHIP_CLASSES = {
       ],
     },
   },
+  ticonderoga: {
+    // USS Ticonderoga, an American anti-aircraft light cruiser of the missile
+    // age, armed as the owner asked: six single 8-inch Mk 71 lightweight guns,
+    // three forward and three aft, each three superfiring one over the next;
+    // six 76 mm dual-purpose singles, three a side, the gun the Leviathan
+    // carries; one Phalanx close-in weapon system on her centreline before her
+    // bridge, which stops missiles as well as aeroplanes (see stepCiws); and a
+    // quadruple torpedo launcher a side, abreast her after superstructure.
+    //
+    // She is drawn from the owner's model of her (see ticonderoga.js) -- "US
+    // CLAA Ticonderoga" by 全斗焕, under Creative Commons Attribution 4.0,
+    // credited on the Credits screen -- at the scale of the same modeller's
+    // Missouri, which makes her 181 m over all and 22.5 m across, floated
+    // where the model paints her boot-topping.
+    id: 'ticonderoga',
+    name: 'Ticonderoga',
+    fullName: 'USS Ticonderoga',
+    className: 'Ticonderoga',
+    type: 'CL',
+    typeName: 'Light Cruiser',
+    nation: 'usa',
+    blurb: 'Six quick-firing eight-inch guns on a light cruiser\'s hull, a dual-purpose 76 mm battery, torpedoes a side, and a Phalanx that shoots missiles out of the sky.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 3.8, 22.6], [0, -9.8, 20.3]],
+      length: 181, beam: 22.5, draft: 7.2, superstructure: 1.25,
+    },
+    hp: 31000,
+    // Thirty-three knots out of two shafts, and the handiness of a light
+    // cruiser.
+    maxSpeed: 33 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.8,
+    turnRate: 0.084,
+    rudderShift: 6.8,
+    speedLossInTurn: 0.19,
+    concealment: 11200,
+    fireDetectPenalty: 4400,
+    // Air and surface search sets of the missile age: further than anything a
+    // ship of the war carried.
+    radarRange: 17000,
+    repairCooldown: 80,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // Five inches of belt over her machinery and magazines, two of deck.
+    armor: { belt: 127, deck: 51, citadel: 127, bow: 25, superstructure: 16 },
+    turrets: [
+      // Each where the model stood it (see build/prepare-ticonderoga-hull.mjs):
+      // A, B superfiring over it and C over B forward; X, Y and Z aft, X the
+      // highest, all three facing astern.
+      { id: 0, name: 'A', x: 0, z: 59.164, angle: 0, arc: 2.4, guns: 1, my: 8.5 },
+      { id: 1, name: 'B', x: 0, z: 45.734, angle: 0, arc: 2.4, guns: 1, my: 10.9 },
+      { id: 2, name: 'C', x: 0, z: 35.732, angle: 0, arc: 2.4, guns: 1, my: 13.24 },
+      { id: 3, name: 'X', x: 0, z: -34.93, angle: Math.PI, arc: 2.4, guns: 1, my: 11.2 },
+      { id: 4, name: 'Y', x: 0, z: -44.976, angle: Math.PI, arc: 2.4, guns: 1, my: 8.89 },
+      { id: 5, name: 'Z', x: 0, z: -56.375, angle: Math.PI, arc: 2.4, guns: 1, my: 6.38 },
+    ],
+    gun: {
+      name: '8"/55 Mk 71', role: 'surface',
+      // Five below the horizontal to sixty-five up.
+      elev: { min: -0.087, max: 1.13 },
+      // Pivot to muzzle on the model's gun.
+      reach: 9.17,
+      // A lightweight automatic eight-inch gun: one barrel a mounting, fed
+      // from its own loader, and quicker than any eight-inch turret of the war.
+      caliber: 203, reload: 5, traverse: 0.35, range: 17500, sigma: 1.4,
+      shells: shells(203, 4500, 3100, 230, 823, 0.14),
+    },
+    // Her two quadruple launchers, one a side abreast her after superstructure,
+    // stowed fore and aft and trained out over her side to fire on the beam.
+    // The model draws the two as each other's mirror, so each has its own
+    // lanes.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 6.487, z: -14.45, angle: 1.57, arc: 0.6, rest: 0, tubes: 4, my: 5.03,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.328, -0.332, 0.664, 1.328], lie: 0.2, muzzle: 4.02, height: 5.03,
+            fish: { len: 6.6, r: 0.267, kind: 'mk1' } } },
+        { id: 1, x: -6.487, z: -14.45, angle: -1.57, arc: 0.6, rest: 0, tubes: 4, my: 5.04,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.335, -0.336, 0.664, 1.321], lie: 0.2, muzzle: 4.02, height: 5.04,
+            fish: { len: 6.6, r: 0.267, kind: 'mk1' } } },
+      ],
+      name: '21 in Mk 15 torpedo', role: 'surface', caliber: 533,
+      reach: 4.02,
+      traverse: 0.2,
+      reload: 90, damage: 13000, speed: 45 * KNOTS, range: 5500,
+      detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+    },
+    // Her six 76 mm singles, dual-purpose, the gun the Leviathan carries:
+    // three a side, the forward pair abreast her bridge, the second abreast her
+    // fore funnel, the after pair abaft her after superstructure facing astern.
+    secondary: {
+      name: '76 mm/62 DP', role: 'dp',
+      elev: { min: -0.26, max: 1.48 },
+      reach: 4.85,
+      caliber: 76, reload: 1, traverse: 0.6, range: 6500, sigma: 1.2,
+      shells: shells(76, 760, 660, 30, 925, 0.05),
+      mounts: [
+        { x: 4.722, z: 28.597, angle: 0.9, arc: 1.6, rest: 0, guns: 1, my: 10.69 },
+        { x: -4.722, z: 28.597, angle: -0.9, arc: 1.6, rest: 0, guns: 1, my: 10.69 },
+        { x: 5.722, z: 14.257, angle: 0.9, arc: 1.6, rest: 0, guns: 1, my: 10.25 },
+        { x: -5.722, z: 14.257, angle: -0.9, arc: 1.6, rest: 0, guns: 1, my: 10.25 },
+        { x: 4.85, z: -23.689, angle: 2.2, arc: 1.6, rest: Math.PI, guns: 1, my: 9.83 },
+        { x: -4.851, z: -23.689, angle: -2.2, arc: 1.6, rest: -Math.PI, guns: 1, my: 9.83 },
+      ],
+    },
+    aa: {
+      range: 5000, dps: 60,
+      guns: [
+        // Her one Phalanx Mk 15, on her centreline before her bridge. Fifty
+        // rounds a second out of six barrels, laid by the radar in the dome
+        // over them: what it shoots at, it hits. See stepCiws.
+        { name: 'Phalanx CIWS', caliber: 20, role: 'aa', reload: 0.02, range: 1800, piece: 'ciws', ciws: true,
+          elev: { min: -0.44, max: 1.4 },
+          mounts: [
+            { x: 0, z: 29.243, angle: 0, arc: 2.4, rest: 0, guns: 6, my: 13.83 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 13500,
+      aircraft: 0,
+      mainRounds: 1800,
+      secondary: { caliber: 76, label: '76mm', barrels: 6, rounds: 6000 },
+      tertiary: [
+        { caliber: 20, label: 'Phalanx CIWS', barrels: 6, mounts: 1, rounds: 1550 },
+      ],
+    },
+  },
   leviathan: {
     // HMS Leviathan, a British super heavy cruiser: a cruiser hull brought up
     // to 210 m to carry sixteen 8 in in four quadruple turrets -- A and B
@@ -10210,7 +10340,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shokaku', 'shinano'];
 

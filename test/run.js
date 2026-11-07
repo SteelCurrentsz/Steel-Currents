@@ -161,6 +161,10 @@ import {
 } from '../client/js/render/leviathan.js';
 import { leviathanSurfaceY, MOUNT_SEATS as LEVIATHAN_SEATS } from '../client/js/render/leviathanHull.js';
 import {
+  buildTiconderoga, shellAt as ticonderogaShellAt, keelY as ticonderogaKeel, deckOver as ticonderogaSheer, zAt as ticonderogaZAt,
+} from '../client/js/render/ticonderoga.js';
+import { ticonderogaSurfaceY, MOUNT_SEATS as TICONDEROGA_SEATS } from '../client/js/render/ticonderogaHull.js';
+import {
   buildTillman, shellAt as tillmanShellAt, keelY as tillmanKeel, deckOver as tillmanSheer, zAt as tillmanZAt,
   LOA as LOA_TILLMAN,
 } from '../client/js/render/tillman.js';
@@ -3070,10 +3074,10 @@ check('the Credits screen credits the model the Morosini is drawn from, after th
     && credit.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
 });
 
-check('the HMS Leviathan is commissioned after the USS Baltimore, armed as the owner asked', () => {
+check('the HMS Leviathan is commissioned after the USS Ticonderoga, armed as the owner asked', () => {
   const i = SHIP_ORDER.indexOf('leviathan');
   assert.ok(i >= 0, 'the Leviathan is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'baltimore', `before the Leviathan comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 1], 'ticonderoga', `before the Leviathan comes ${SHIP_ORDER[i - 1]}`);
   const cls = SHIP_CLASSES.leviathan;
   assert.equal(cls.fullName, 'HMS Leviathan');
   assert.equal(cls.type, 'CA', 'she is not a heavy cruiser');
@@ -3390,6 +3394,113 @@ check('the Credits screen credits the model the Admiral Scheer and the Graf Spee
   const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
   assert.ok(credit.includes('https://skfb.ly/oHuvq'), 'the credit does not link the model');
   assert.ok(credit.includes('全斗焕') && credit.includes('http://creativecommons.org/licenses/by/4.0/')
+    && credit.includes('Creative Commons Attribution'), 'the credit is not as its licence asks');
+});
+
+check('the USS Ticonderoga is commissioned after the USS Baltimore and before the HMS Leviathan, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('ticonderoga');
+  assert.ok(i >= 0, 'the Ticonderoga is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'baltimore', `before the Ticonderoga comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'leviathan', `after the Ticonderoga comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.ticonderoga;
+  assert.equal(cls.fullName, 'USS Ticonderoga');
+  assert.equal(cls.type, 'CL', 'she is not a light cruiser');
+  assert.equal(cls.nation, 'usa');
+  // Single-barrelled Mk 71 203 mm guns.
+  assert.equal(cls.gun.caliber, 203);
+  assert.match(cls.gun.name, /Mk 71/);
+  assert.equal(cls.turrets.length, 6);
+  assert.ok(cls.turrets.every((t) => t.guns === 1), 'a Mk 71 of hers has more than one barrel');
+  // Her secondary: 76 mm singles, the Leviathan's gun.
+  const lev = SHIP_CLASSES.leviathan.aa.guns.find((g) => g.caliber === 76);
+  assert.equal(cls.secondary.caliber, 76);
+  assert.equal(cls.secondary.role, lev.role);
+  assert.equal(cls.secondary.reload, lev.reload);
+  assert.equal(cls.secondary.range, lev.range);
+  assert.deepEqual(cls.secondary.elev, lev.elev);
+  assert.equal(cls.secondary.name, lev.name);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 1), 'her 76 mm are not singles');
+  // One Phalanx.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.equal(ciws[0].mounts.length, 1, 'she does not carry one Phalanx');
+  // A quadruple torpedo launcher a side.
+  assert.equal(cls.torpedoes.mounts.length, 2);
+  assert.ok(cls.torpedoes.mounts.every((m) => m.tubes === 4), 'a launcher of hers is not a quadruple');
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => Math.sign(m.x)).sort(), [-1, 1], 'her launchers are not one a side');
+  const built = buildTiconderoga();
+  assert.equal(built.turrets.length, 6);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  // Every mounting stands where the model stood it, on her.
+  for (const [kind, list] of Object.entries(TICONDEROGA_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, ticonderogaSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check("the Ticonderoga's shell has no holes in it", () => {
+  const built = buildTiconderoga();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  // A few centimetres off the cuts her build makes across her underwater
+  // body every two metres.
+  for (let t = -0.95 + 0.0009; t <= 0.95; t += 0.01) {
+    const top = ticonderogaSheer(t);
+    for (let y = ticonderogaKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = ticonderogaShellAt(t, y);
+      if (w < 0.35) continue;
+      if (ticonderogaZAt(t) < -66 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, ticonderogaZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > ticonderogaKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check("the Ticonderoga's Phalanx fires on what comes at her", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: 'ticonderoga', team: 1, index: 0 });
+  a.x = 0; a.z = -6000; a.heading = Math.PI / 2;
+  b.x = 0; b.z = 6000; b.heading = Math.PI / 2;
+  let fired = 0, ciws = 0, down = 0;
+  for (let t = 0; t < 120 * 30; t++) {
+    b.spottedBy = [true, true];
+    if (fired < 4 && fireMissile(state, a, 'harpoon', b.id)) fired++;
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'ciws') ciws++;
+      if (e.e === 'mslDown' && e.why === 'ciws') down++;
+    }
+    if (!b.alive) break;
+  }
+  assert.equal(fired, 4);
+  assert.ok(ciws > 0, 'her Phalanx never fired');
+  assert.ok(down >= 1, 'her Phalanx brought down none of four Harpoons');
+});
+
+check('the Credits screen credits the model the Ticonderoga is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('"<a href="https://skfb.ly/oHFAG" target="_blank" rel="noopener">US CLAA Ticonderoga</a>"');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(at, screen.indexOf('</p>', at));
+  assert.ok(credit.includes('by 全斗焕 is licensed under') && credit.includes('http://creativecommons.org/licenses/by/4.0/')
     && credit.includes('Creative Commons Attribution'), 'the credit is not as its licence asks');
 });
 
