@@ -139,6 +139,8 @@ export function shipSnapshot(ship, full, state = null) {
   if (ship.missiles && ship.missiles.boxes.length) s.ml = ship.missiles.boxes.map((b) => r2(b.raise));
   // The mines still on her rails, and how long until the next one is rolled
   // aft. Anyone can count the mines on a boat's stern through a glass.
+  // The B-25s still on a carrier's flight deck: anyone can count them.
+  if (cls.planes && cls.planes.deckload) s.dl = ship.deckload ?? 0;
   if (cls.mines) {
     s.mnl = ship.mnLeft;
     s.mnc = Math.max(0, Math.round((ship.mnCool || 0) * 10) / 10);

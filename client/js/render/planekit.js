@@ -36,6 +36,8 @@ import { ju87Model } from './ju87Model.js';
 import { hellcatModel } from './hellcatModel.js';
 import { dauntlessModel } from './dauntlessModel.js';
 import { avengerModel } from './avengerModel.js';
+import { devastatorModel } from './devastatorModel.js';
+import { b25Model } from './b25Model.js';
 import { b29Model, b29Ready } from './b29Model.js';
 
 // ---------------------------------------------------------------------------
@@ -4044,6 +4046,39 @@ function tbf(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   return p;
 }
 
+/**
+ * A TBD-1 Devastator, off the owner's sculpt: the Navy's first monoplane
+ * torpedo bomber, the Mark 13 slung under her belly, the gunner's thirty at
+ * the back of her long greenhouse, legs that swing aft and leave the wheels
+ * half out of her wing, and outer panels that fold straight up. Called the way
+ * `tbf` is: `spin` is taken and ignored.
+ */
+function tbd(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
+  const p = devastatorModel({ lod: !!opts.lod, folded });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  p.userData.wings = null;
+  return p;
+}
+
+/**
+ * A B-25 Mitchell, off the owner's Hornet: the Army's medium bomber, too big
+ * to land on a carrier and flown off one anyway. She does not fold, and
+ * `folded` and `spin` are taken and ignored; `opts.gear === false` has her
+ * legs up.
+ */
+function mitchell(g, x, y, z, ry, folded = false, opts = {}) {
+  const p = b25Model();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  p.userData.gear(opts.gear === false ? 1 : 0);
+  p.userData.wings = null;
+  return p;
+}
+
 // ------------------------------------------------------ the heavy squadrons --
 //
 // The bombers: the aircraft nobody flies off a deck.
@@ -5474,7 +5509,7 @@ function b29Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

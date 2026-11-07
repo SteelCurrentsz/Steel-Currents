@@ -151,9 +151,10 @@ const BADGES = {
 /** SVG for one hull, sized to fill its box. `flip` faces her the other way,
  *  and `badge` marks the icon as an add or a remove control. */
 export function silhouette(classId, { flip = false, cls = '', badge = null } = {}) {
-  // A ship drawn off her sister's lines: the Spee off the Scheer, and the
-  // Missouri off the Iowa, which she is with missiles on her.
-  const body = HULLS[{ spee: 'scheer', missouri: 'iowa' }[classId] || classId] || HULLS.fletcher;
+  // A ship drawn off her sister's lines: the Spee off the Scheer, the
+  // Missouri off the Iowa, which she is with missiles on her, and the Hornet
+  // off the Enterprise, the Yorktown she was built to the drawings of.
+  const body = HULLS[{ spee: 'scheer', missouri: 'iowa', hornet: 'enterprise' }[classId] || classId] || HULLS.fletcher;
   const mark = badge ? BADGES[badge] || '' : '';
   // Room either side for the arrow, and above for the cross. Equal margins, so
   // the box's centre line is the hull's centre line and the mirror below maps

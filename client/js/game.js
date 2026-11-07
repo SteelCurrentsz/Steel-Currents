@@ -259,6 +259,8 @@ const FLIGHT_NAME = {
   wildcat: 'her fighters',
   dauntless: 'her dive bombers',
   avenger: 'her torpedo bombers',
+  devastator: 'her Devastators',
+  mitchell: 'her B-25s',
   arado: 'her Arados',
   kingfisher: 'her Kingfishers',
   besson: 'her Besson',
@@ -277,6 +279,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
+  devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   walrus: 'Supermarine Walrus', kor1: 'Beriev KOR-1', ro43: 'IMAM Ro.43',
   zero: 'A6M Zero',
@@ -287,6 +290,7 @@ const PLANE_NAME = {
 /** What she has been sent to do, as the plate in the corner says it. */
 const ROLE_NAME = {
   fighter: 'Fighter', dive: 'Dive bomber', torpedo: 'Torpedo bomber', scout: 'Scout',
+  level: 'Bomber',
 };
 
 /** What each machine's forward guns are, so the tracer is the right tracer. */
@@ -295,6 +299,8 @@ const GUN_CALIBRE = {
   wildcat: 12.7,      // four fifties in the wings
   dauntless: 12.7,    // two in the cowling
   avenger: 12.7,      // one in each wing
+  devastator: 7.62,   // one thirty in the cowling
+  mitchell: 12.7,     // the fifty in her nose
   arado: 20,          // two MG FF in the wings and an MG 17 over the engine
   kingfisher: 7.62,   // the one thirty she had
   // The Besson has nothing forward at all. Her one gun is the observer's
@@ -328,7 +334,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
 };
@@ -3478,7 +3484,7 @@ export class Battle {
           // Which of her three types is going, and how long the deck has to get
           // her off: the first of a strike comes up from the hangar with the
           // whole evolution to go through, and the ones after her are quicker.
-          v.group.userData.launch?.(this.time, ev.r, ev.d);
+          v.group.userData.launch?.(this.time, ev.r, ev.d, ev.k, ev.n);
           break;
         }
         case 'trap': {
@@ -7334,6 +7340,8 @@ export class Battle {
       }
       // The mines still on her rails: one fewer on the stern for each that
       // has gone over it.
+      // The B-25s still on her flight deck: one fewer for each that has gone.
+      if (s.dl != null) view.group.userData.deckload?.(s.dl);
       if (cls.mines && view.mineRack && s.mnl != null) {
         const gone = cls.mines.carried - s.mnl;
         view.mineRack.forEach((m, k) => { m.visible = k >= gone; });

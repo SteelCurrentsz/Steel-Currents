@@ -226,6 +226,11 @@ import {
   HANGAR_U as SK_HANGAR_U, HANGAR_L as SK_HANGAR_L, hangarSpots as shokakuHangarSpots, MOUNT_SEATS as SHOKAKU_SEATS,
   shokakuSurfaceY,
 } from '../client/js/render/shokaku.js';
+import {
+  buildHornet, stepLifts as hornetLifts, FD_FWD as HN_FD_FWD, FD_AFT as HN_FD_AFT, LIFTS as HN_LIFTS,
+  HANGAR as HN_HANGAR, hangarSpots as hornetHangarSpots, MOUNT_SEATS as HORNET_SEATS, hornetSurfaceY,
+  DECKLOAD as HN_DECKLOAD, B25_COUNT,
+} from '../client/js/render/hornet.js';
 import { Audio as AudioClass, audio as theAudio } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
 import { VOICE_LINES } from '../client/js/render/voices.data.js';
@@ -5814,7 +5819,7 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
   // and the aeroplane fell out of a clear sky.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     // A ship stripped to her hull while she is rebuilt has no battery to lay.
     if (BARE_HULL.has(id)) continue;
     const b = buildShip(id);
@@ -6008,7 +6013,7 @@ check('a shell leaves the muzzle it was fired from', () => {
   const O = new THREE.Vector3();
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const cls = SHIP_CLASSES[id];
     const b = buildShip(id);
     b.group.updateMatrixWorld(true);
@@ -6056,7 +6061,7 @@ check('her screws turn, and each shaft the way it is handed', () => {
   // battleship making thirty-three knots.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const cls = SHIP_CLASSES[id];
     const view = new ShipView({ add() {}, remove() {} }, id, 0, false);
     assert.ok(view.screws.length >= 2,
@@ -14828,7 +14833,7 @@ check('every ship has an inside, and it is inside her', () => {
   // is a boiler hanging in the air alongside an undamaged ship.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
     const inside = built.group.children.filter((c) => c.isMesh
@@ -15133,7 +15138,7 @@ check('the deck hands her over where and how she left it', () => {
   // flies is where the deck left her -- on both carriers, for all three of
   // the types each of them flies.
   for (const [id, build] of [['enterprise', buildEnterprise], ['shinano', buildShinano],
-    ['grafzeppelin', buildGrafZeppelin], ['shokaku', buildShokaku]]) {
+    ['grafzeppelin', buildGrafZeppelin], ['shokaku', buildShokaku], ['hornet', buildHornet]]) {
     const d = build().group.userData.deck;
     const P = SHIP_CLASSES[id].planes;
     for (const role of ['fighter', 'dive', 'torpedo']) {
@@ -17243,7 +17248,7 @@ check('every ship is built out of pieces that can be found again', () => {
   // used to be it -- so a funnel is still a funnel afterwards.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     const f = new Fittings(built.group);
     assert.ok(f.pieces.length > 400,
@@ -18116,7 +18121,7 @@ check('the arsenal says what the gun will go through, and shows where it is', ()
   // what it will penetrate, and which lumps of the ship in front of him it is.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const rows = arsenal(SHIP_CLASSES[id]);
     assert.ok(rows.length, `${id} carries nothing at all`);
     for (const w of rows) {
@@ -19055,7 +19060,7 @@ check('you cannot see straight through a gunhouse', () => {
   // inside of the far one.
   for (const id of ['spee', 'scheer', 'hipper', 'cleveland', 'fletcher', 'u48', 'iowa', 'yamato',
     'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const rc = new THREE.Raycaster();
@@ -19482,7 +19487,7 @@ check('every deckhouse in the fleet has sides and a roof', () => {
   // turned on -- have to agree.
   for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'spee',
     'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const targets = [];
@@ -20058,6 +20063,191 @@ check("the Shokaku's two hangars have her air group struck below in them, none t
     }
   }
 });
+
+check('the Hornet is commissioned before the Enterprise, with ninety-seven Hellcats, Dauntlesses and Devastators', () => {
+  const i = SHIP_ORDER.indexOf('hornet');
+  assert.ok(i > 0, 'she is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'enterprise', `after the Hornet comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.hornet;
+  assert.equal(cls.fullName, 'USS Hornet CV-8');
+  assert.equal(cls.type, 'CV');
+  assert.equal(cls.nation, 'usa');
+  // The Enterprise's fighter and dive bomber, and the Devastator her Torpedo
+  // Eight flew.
+  assert.deepEqual(cls.planes.types, { fighter: 'hellcat', dive: 'dauntless', torpedo: 'devastator' });
+  assert.equal(cls.planes.types.fighter, SHIP_CLASSES.enterprise.planes.types.fighter);
+  assert.equal(cls.planes.types.dive, SHIP_CLASSES.enterprise.planes.types.dive);
+  assert.equal(cls.planes.group.total, 97);
+  const g = defaultAirGroup(cls);
+  assert.equal(g.fighters + g.dive + g.torpedo, 97, 'her default group is not ninety-seven');
+  assert.ok(g.fighters > 0 && g.dive > 0 && g.torpedo > 0, 'her default group leaves a type out');
+  // And on top of those, sixteen B-25s on her deck.
+  assert.equal(cls.planes.deckload.count, 16);
+  assert.equal(cls.planes.deckload.type, 'mitchell');
+  for (const k of ['hellcat', 'dauntless', 'devastator', 'mitchell']) assert.ok(AERO[k], `there is no ${k} to fly`);
+  assert.notEqual(silhouette('hornet'), silhouette('fletcher'), 'she is drawn as a destroyer in the yard');
+  // Her model is credited as its licence asks.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(html.includes('"U.S. Navy Aircraft Carrier USS Hornet(CV-8)"\n        by 全斗焕 is licensed under'),
+    'her model is not on the Credits screen');
+});
+
+check('the Hornet has every gun her model has, standing where the model stood it', () => {
+  const cls = SHIP_CLASSES.hornet;
+  const built = buildHornet();
+  built.group.updateMatrixWorld(true);
+  assert.equal(built.turrets.length, 8, `she has ${built.turrets.length} 5"/38s`);
+  const p = new THREE.Vector3();
+  built.turrets.forEach((m, i) => {
+    const s = cls.turrets[i];
+    m.getWorldPosition(p);
+    assert.ok(Math.abs(p.x - s.x) < 0.6 && Math.abs(p.z - s.z) < 0.6, `${s.name} stands at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+    assert.ok(p.y < built.flightDeckY, `${s.name} stands on her flight deck`);
+    assert.equal(Math.sign(s.angle), Math.sign(s.x), `${s.name} is laid across her`);
+  });
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  const n40 = cls.aa.guns.filter((g) => g.caliber === 40).reduce((n, g) => n + g.mounts.length, 0);
+  assert.equal(n40, 14);
+  assert.equal(cls.aa.guns.find((g) => g.caliber === 20).mounts.length, 50);
+  for (const [kind, list] of Object.entries(HORNET_SEATS)) {
+    for (const st of list) assert.ok(hornetSurfaceY(st.x, st.z) > -50, `her ${kind} at ${st.x}, ${st.z} stands off her`);
+  }
+});
+
+check("the Hornet's runway is flat from end to end, with her B-25s ranged on it aft", () => {
+  const built = buildHornet();
+  const FD = built.flightDeckY;
+  for (const l of built.lifts) l.group.position.y = FD;
+  built.group.updateMatrixWorld(true);
+  built.group.userData.deckPlane.visible = false;
+  // Sixteen of them, every one on her deck and on her flight deck's height.
+  const b25s = built.group.userData.b25s;
+  assert.equal(b25s.length, 16);
+  for (const h of b25s) h.visible = false;
+  const rc = new THREE.Raycaster();
+  const meshes = [];
+  const shown = (o) => { for (let n = o; n; n = n.parent) if (n.visible === false) return false; return true; };
+  built.group.traverse((o) => { if (o.isMesh && shown(o)) meshes.push(o); });
+  let shots = 0;
+  for (let z = HN_FD_AFT + 12; z <= HN_FD_FWD - 6; z += 1.5) {
+    for (let x = -7.5; x <= 7.5; x += 1.25) {
+      const l = HN_LIFTS.find((c) => Math.abs(z - c.z) < c.hd + 0.3);
+      if (l && (Math.abs(Math.abs(x) - l.hw) < 0.4 || Math.abs(Math.abs(z - l.z) - l.hd) < 0.4
+        || Math.abs(Math.abs(z - l.z) - (l.hd - l.ch)) < 0.6)) continue;
+      // From just over a B-25's fin: her island's platforms overhang the
+      // edge of her deck nine metres up, and her aircraft go under them.
+      rc.set(new THREE.Vector3(x, FD + 6, z), new THREE.Vector3(0, -1, 0));
+      rc.far = 16;
+      const hits = rc.intersectObjects(meshes, false);
+      assert.ok(hits.length, `nothing under her runway at ${x}, ${z}`);
+      const y = hits[0].point.y;
+      assert.ok(y > FD - 0.05 && y < FD + 0.25, `her runway is at ${y.toFixed(2)} m at ${x}, ${z}, not ${FD}`);
+      shots++;
+    }
+  }
+  assert.ok(shots > 1000, `only ${shots} shots at her runway`);
+  // The B-25s: on her deck, aft of her island, the first with a hundred and
+  // forty metres of deck ahead of her, none of them standing in another.
+  assert.equal(HN_DECKLOAD.length, B25_COUNT);
+  assert.ok(HN_FD_FWD - HN_DECKLOAD[0].z > 130, `the first B-25 has ${(HN_FD_FWD - HN_DECKLOAD[0].z).toFixed(0)} m of deck`);
+  for (const d of HN_DECKLOAD) {
+    assert.ok(d.z > HN_FD_AFT + 4 && d.z < 0, `a B-25 is ranged at ${d.z}`);
+    assert.ok(hornetSurfaceY(d.x, d.z) > FD - 1.2, `a B-25 at ${d.x}, ${d.z} is not on her deck`);
+  }
+  for (let i = 0; i < HN_DECKLOAD.length; i++) {
+    for (let j = i + 1; j < HN_DECKLOAD.length; j++) {
+      const a = HN_DECKLOAD[i], b = HN_DECKLOAD[j];
+      assert.ok(Math.abs(a.x - b.x) > 2.5 || Math.abs(a.z - b.z) > 9, `B-25s ${i} and ${j} are ranged one in the other`);
+    }
+  }
+});
+
+check("the Hornet's B-25s go off her deck in turn, and her lifts stay flush until the last has gone", () => {
+  const built = buildHornet();
+  const FD = built.flightDeckY;
+  const deck = built.group.userData.deck;
+  const b25s = built.group.userData.b25s;
+  built.group.userData.deckload(16);
+  assert.ok(b25s.every((h) => h.visible), 'a B-25 is missing from her deck');
+  // While they are on her deck nothing moves under them.
+  for (let t = 0; t < 90; t += 0.5) {
+    built.group.userData.step(t);
+    for (const l of built.lifts) assert.ok(l.group.position.y > FD - 0.05, `a lift went down under her B-25s at ${t} s`);
+  }
+  // The first goes: she is lifted off where she was ranged and flown off by
+  // the deck, and is not still drawn standing there.
+  built.group.userData.launch(100, 'level', 24.5, 'mitchell', 0);
+  assert.equal(deck.plane.role, 'mitchell', 'the deck sent something else');
+  assert.ok(!b25s[0].visible, 'the first B-25 is still parked while she runs');
+  let off = false, maxZ = -Infinity;
+  for (let t = 100; t < 130; t += 0.25) {
+    built.group.userData.step(t);
+    if (!deck.airborne) maxZ = Math.max(maxZ, deck.plane.group.position.z);
+    if (deck.airborne) off = true;
+  }
+  assert.ok(off, 'the B-25 never left her deck');
+  assert.ok(maxZ > HN_FD_FWD, `she went no further than ${maxZ.toFixed(0)} m up her deck`);
+  // Off the wire: fifteen left, and they are the fifteen at the back.
+  built.group.userData.deckload(15);
+  assert.ok(!b25s[0].visible && b25s.slice(1).every((h) => h.visible), 'the wrong B-25s are on her deck');
+  built.group.userData.deckload(0);
+  assert.ok(b25s.every((h) => !h.visible), 'B-25s are still on her deck with none left');
+  // And with none left her lifts work again.
+  built.group.userData.stow();
+  let moved = false;
+  for (let t = 200; t < 300; t += 0.5) {
+    built.group.userData.step(t);
+    if (built.lifts.some((l) => l.group.position.y < FD - 1)) moved = true;
+  }
+  assert.ok(moved, 'her lifts never moved once her deck was clear');
+});
+
+check('the Hornet flies all sixteen B-25s off before anything comes up a lift, and they do not come back', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Hornet', classId: 'hornet', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  ship.x = 0; ship.z = 0; ship.heading = 0;
+  foe.x = 0; foe.z = 9000;
+  assert.equal(ship.deckload, 16, 'she sailed without her B-25s');
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  const launches = [];
+  const off = [];
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(ship.launching.flights.length, 16, 'the strike is not her sixteen B-25s');
+  assert.ok(ship.launching.flights.every((f) => f.type === 'mitchell' && f.role === 'level'), 'something else was ranged');
+  let gone = 0, trapped = 0, ownBefore = 0;
+  for (let i = 0; i < 30 * 520; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    foe.hp = SHIP_CLASSES.fletcher.hp; foe.alive = true;
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'launch' && e.ship === ship.id) launches.push(e);
+      if (e.e === 'flownOff') gone++;
+      if (e.e === 'trap' && e.ship === ship.id && e.k === 'mitchell') trapped++;
+    }
+    for (const p of state.planes) {
+      if (p.owner !== ship.id) continue;
+      if (p.type === 'mitchell' && !off.includes(p.id)) off.push(p.id);
+      if (p.type !== 'mitchell' && ship.deckload > 0) ownBefore++;
+    }
+    // Ask for another strike all the way through: none of hers may go while
+    // any of the B-25s is still on the deck.
+    if (i % 90 === 0) launchStrike(state, ship);
+  }
+  assert.equal(off.length, 16, `${off.length} B-25s got off her deck`);
+  assert.equal(ship.deckload, 0, `${ship.deckload} are still on her deck`);
+  assert.equal(ownBefore, 0, 'one of her own aircraft flew while B-25s were still on her deck');
+  // Each launch event of the deckload says which of them it is, from the front.
+  const dl = launches.filter((e) => e.k === 'mitchell');
+  assert.ok(dl.length >= 16, `only ${dl.length} B-25 launches`);
+  assert.deepEqual(dl.slice(0, 16).map((e) => e.n), [...Array(16).keys()], 'they did not go from the front');
+  // And once they are gone, her own air group flies.
+  assert.ok(state.planes.some((p) => p.owner === ship.id && p.type !== 'mitchell'), 'her own aircraft never flew after them');
+  assert.equal(trapped, 0, 'a B-25 landed on her');
+  assert.ok(gone > 0, 'no B-25 flew on out of the battle');
+  const sq = ship.squadrons.find((s) => s.deckload);
+  assert.ok(sq && (sq.state === 'spent' || sq.state === 'flying'), `the deckload squadron is ${sq && sq.state}`);
+});
+
 
 check('the Credits screen credits the model the Shokaku is drawn from', () => {
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
@@ -23127,7 +23317,7 @@ check('from outside her you never see her insides', () => {
   // be the ship and not the inside of the ship.
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const L = SHIP_CLASSES[id].hull.length;
@@ -26129,7 +26319,7 @@ function onDeckFrame(cv, x, z) {
   return { along: dx * fx + dz * fz, across: dx * fz - dz * fx };
 }
 
-for (const classId of ['enterprise', 'shinano', 'grafzeppelin', 'shokaku']) {
+for (const classId of ['enterprise', 'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
   check(`an aeroplane home to the ${classId} lines up astern and lands on her deck`, () => {
     // She used to fly to within three hundred metres of the ship from
     // wherever she was and vanish. She comes up the wake now: round onto the

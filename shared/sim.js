@@ -335,8 +335,13 @@ export function addShip(state, {
     // tracer on screen is the tracer the simulation is firing.
     aaFire: 0,
     squadrons: cls.planes
-      ? Array.from({ length: cls.planes.squadrons }, (_, i) => ({ id: i, state: 'deck', cooldown: 0 }))
+      ? [...Array.from({ length: cls.planes.squadrons }, (_, i) => ({ id: i, state: 'deck', cooldown: 0 })),
+        // A deckload ranged on her flight deck is a squadron of its own, and
+        // the first off: see launchStrike.
+        ...(cls.planes.deckload ? [{ id: cls.planes.squadrons, state: 'deck', cooldown: 0, deckload: true }] : [])]
       : [],
+    // How many of her deckload are still on her flight deck.
+    deckload: cls.planes && cls.planes.deckload ? cls.planes.deckload.count : 0,
     airGroup: cls.planes ? normaliseAirGroup(cls, airGroup) : null,
     // How long her deck is still busy with the last launch. One aeroplane goes
     // at a time: the lift has to fetch her, she has to taxi aft and run up, and
@@ -9248,7 +9253,12 @@ export function launchStrike(state, ship) {
   if (ship.trapBusy > 0 || landingCommitted(state, ship)) return false;
   // Nothing takes off over a hole. See flightDeckOut.
   if (flightDeckOut(ship)) return false;
-  const sq = ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0);
+  // A deckload on her flight deck goes before anything of hers can come up a
+  // lift: it is standing on the lifts, and on the deck any of hers would need
+  // to run down. Until the last of it is off, a launch is the next of it.
+  const load = ship.deckload > 0 ? ship.squadrons.find((s) => s.deckload) : null;
+  if (load && load.state !== 'deck') return false;
+  const sq = load || ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0 && !s.deckload);
   if (!sq) return false;
   // As far as she is told to send them: there is no limit on how far out a
   // captain may order his aircraft.
@@ -9307,7 +9317,13 @@ export function launchStrike(state, ship) {
   // fighter first had the escort circling over the ship for the whole of the
   // launch while the bombers were still coming up the lift one by one; ranged
   // in turn, the strike forms up as a strike from its first three aeroplanes.
-  const queue = launchOrder(fighters, bomb, torp);
+  const DL = cls.planes.deckload;
+  const queue = sq.deckload
+    ? Array.from({ length: ship.deckload }, () => ({
+      role: 'level', count: 1, torp: 0, bomb: DL.bombs, type: DL.type, deckload: 1,
+    }))
+    : launchOrder(fighters, bomb, torp);
+  if (sq.deckload) fighters = 0;
   ship.launching = {
     sqId: sq.id, left: cls.planes.deckRun ?? DECK_RUN,
     tx: ship.aimX, tz: ship.aimZ,
@@ -9328,8 +9344,19 @@ export function launchStrike(state, ship) {
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: ship.launching.flights[0] ? ship.launching.flights[0].role : undefined,
     d: ship.launching.left,
+    ...deckloadTag(ship, cls, ship.launching.flights[0]),
   });
   return true;
+}
+
+/**
+ * What a launch event says about one of a deckload, so the deck drawn on
+ * the ship flies off the right one: what she is, and which of the deckload
+ * she is -- they go from the front.
+ */
+function deckloadTag(ship, cls, f) {
+  if (!f || !f.deckload) return {};
+  return { k: f.type, n: cls.planes.deckload.count - ship.deckload };
 }
 
 /**
@@ -9463,6 +9490,12 @@ export function launchOffset(cls, side = 1, role = null) {
   return { out, bearing, heading };
 }
 
+/** A number a ship's data may give once, or once for each of a deckload in turn. */
+function byIndex(v, i) {
+  if (Array.isArray(v)) return v[Math.max(0, Math.min(v.length - 1, i))];
+  return v;
+}
+
 /** A number a ship's data may give once for all her aircraft, or per role. */
 function byRole(v, role) {
   if (v && typeof v === 'object') return v[role] ?? v.torpedo ?? Object.values(v)[0];
@@ -9540,6 +9573,8 @@ function stepLaunch(state, ship, dt) {
     const low = wrapAngle(ship.heading + Math.sign(
       (ship.heel || 0) + (ship.lean || 0) + (ship.rock || 0) || 1) * Math.PI / 2);
     const out = fate === 'side' ? (cls.planes?.deckBeam ?? cls.hull.beam * 1.3) * 0.5 : 0;
+    // One of a deckload lost off the deck is one fewer on it.
+    if (f.deckload) ship.deckload = Math.max(0, ship.deckload - 1);
     ship.launching = null;
     ship.deckBusy = Math.max(ship.deckBusy, 10);
     sq.state = 'deck';
@@ -9559,9 +9594,15 @@ function stepLaunch(state, ship, dt) {
     // whatever she has been laid on.
     // Where this ship's launch actually leaves her: off the bow down a flight
     // deck, off the beam off a catapult.
-    const off = launchOffset(cls, L.side || 1, f.role);
+    const DL = f.deckload ? cls.planes.deckload : null;
+    // One of a deckload is handed over where her own run off the deck leaves
+    // her, which is further out the further forward she started.
+    const which = DL ? DL.count - ship.deckload : 0;
+    const off = DL ? { out: byIndex(DL.runOut, which), bearing: 0, heading: 0 }
+      : launchOffset(cls, L.side || 1, f.role);
     const away = wrapAngle(ship.heading + off.bearing);
     const nose = wrapAngle(ship.heading + off.heading);
+    const hp0 = DL ? DL.hp : planeHp(cls, f, L);
     const p = {
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
       // What she is, as against what she is for. A cruiser flies float planes
@@ -9572,8 +9613,8 @@ function stepLaunch(state, ship, dt) {
       // `types` maps fighter, dive and torpedo to what she actually embarks,
       // so a Japanese carrier's fighters are Zeros and an American carrier's
       // are Wildcats without the renderer having to know whose deck it is.
-      type: (cls.planes.types && cls.planes.types[f.role]) || cls.planes.type || null,
-      speed: cls.planes.cruiseSpeed,
+      type: f.type || (cls.planes.types && cls.planes.types[f.role]) || cls.planes.type || null,
+      speed: DL ? DL.cruiseSpeed : cls.planes.cruiseSpeed,
       x: ship.x + Math.sin(away) * off.out,
       z: ship.z + Math.cos(away) * off.out,
       heading: nose,
@@ -9585,22 +9626,22 @@ function stepLaunch(state, ship, dt) {
       // Where the launch actually leaves her, off the ground: the end of the
       // integrated deck run or catapult shot, not a number chosen to look
       // right. She climbs away from there under her own power.
-      y: byRole(cls.planes.runHeight, f.role) ?? 41,
+      y: DL ? byIndex(DL.runHeight, which) : byRole(cls.planes.runHeight, f.role) ?? 41,
       vy: 4,
       // Not at cruise: at what she left the deck at, a few knots over the
       // stall with her flaps still down, and she works up to cruise from
       // there. Born at cruise she was drawn leaping forward at the hand-over,
       // twice as fast as the aeroplane that had just gone off the bow.
       launchV: cls.planes.launchSpeed ?? LAUNCH_SPEED,
-      hp: planeHp(cls, f, L),
+      hp: hp0,
       // The aeroplanes themselves. A flight is not a hit-point bar with a
       // number of aircraft written on it: it is that many machines, each with
       // her own engine, tanks, wings, tail and crew, and each of them able to
       // be hit, set on fire, crippled or shot down on her own. See
       // airframe.js.
-      perHp: planeHp(cls, f, L) / Math.max(1, f.count),
+      perHp: hp0 / Math.max(1, f.count),
       machines: Array.from({ length: f.count },
-        () => freshAirframe(planeHp(cls, f, L) / Math.max(1, f.count),
+        () => freshAirframe(hp0 / Math.max(1, f.count),
           carrierBomber(cls, f) ? BOMBER_TOUGH : 1)),
       // She goes for the enemy the moment her wheels are up. A deckload
       // goes off one aeroplane at a time, twenty-odd seconds apart, and
@@ -9613,6 +9654,9 @@ function stepLaunch(state, ship, dt) {
       flown: false, flownAt: 0, dead: false,
       targetId: 0, targetAir: 0, targetHeavy: 0, targetBat: 0, turn: 0, bank: 0, roll: 0,
     };
+    // One of a deckload: she bombs on the level, and she does not come back
+    // -- nothing that size lands on a carrier. See `away`.
+    if (DL) { p.deckload = 1; p.away = 1; ship.deckload = Math.max(0, ship.deckload - 1); }
     if (!L.lead) L.lead = p.id;
     p.lead = p.id;
     state.planes.push(p);
@@ -9663,6 +9707,7 @@ function rangeNext(state, ship, cls, L) {
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: L.flights[0] ? L.flights[0].role : undefined,
     d: L.left,
+    ...deckloadTag(ship, cls, L.flights[0]),
   });
 }
 
@@ -9950,7 +9995,7 @@ const CRUISE_ALT = 760;
  */
 const FORM_ALT = 260;
 /** A torpedo bomber runs in on the water; a dive bomber comes over the top. */
-const RUN_IN_ALT = { torpedo: 42, dive: 1150, fighter: 300, scout: 260 };
+const RUN_IN_ALT = { torpedo: 42, dive: 1150, fighter: 300, scout: 260, level: 150 };
 /**
  * A dive bombing attack, which is a shape rather than a height.
  *
@@ -10033,8 +10078,8 @@ const DIVE_BRAKE_LEAD = 5;
 // is a long way out: two hundred and fifty metres of climb at a loaded
 // bomber's rate of climb is most of a minute, and she has to be at the top of
 // it before she is over her target rather than still going up underneath her.
-const RUN_IN_FROM = { torpedo: 5200, dive: 12000, fighter: 3000, scout: 3200 };
-const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800 };
+const RUN_IN_FROM = { torpedo: 5200, dive: 12000, fighter: 3000, scout: 3200, level: 6000 };
+const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800, level: 1600 };
 
 /**
  * Where a dive bomber is in her attack, and what it asks of her vertical.
@@ -10269,7 +10314,8 @@ function wantedHeight(state, p, carrier, inCompany) {
   // while she is trying to close.
   if (p.phase === 'formup') return FORM_ALT;
   if (p.phase === 'return') {
-    if (!carrier) return CRUISE_ALT;
+    // One of a deckload is not coming back to her: see `away`.
+    if (!carrier || p.away) return CRUISE_ALT;
     const d = dist(p.x, p.z, carrier.x, carrier.z);
     // Down the glide over the last two miles. It is a long let-down because
     // she is coming down from cruising height with a bomber's rate of descent,
@@ -11150,6 +11196,10 @@ function dyingFlight(p) {
  * -- so once she is off she is off, and when her work is done she does the
  * only other thing there is to do with her.
  */
+/** How far one of a deckload flies on out of the battle before she is gone from it. */
+const AWAY_OUT = 60000;
+const AWAY_GONE = 9000;
+
 export function oneWay(P) {
   return !!(P && (P.catapult || P.launcher === 'derrick'));
 }
@@ -11797,6 +11847,23 @@ function stepPlanes(state, dt) {
     // A float plane has nowhere to go home to (see oneWay). When her work is
     // done -- her bombs gone, her patrol flown, nothing left to find -- she
     // turns for the nearest enemy hull and goes into it.
+    // One of a deckload has no deck to come home to: a B-25 does not land on
+    // a carrier. Her bombs gone, she flies on the way she was going, out of
+    // the battle -- to China, if she has the fuel -- and is gone from it.
+    if (p.away && p.phase === 'return' && !p.flown) {
+      if (p.awayX === undefined) {
+        p.awayX = p.x + Math.sin(p.heading) * AWAY_OUT;
+        p.awayZ = p.z + Math.cos(p.heading) * AWAY_OUT;
+      }
+      p.tx = p.awayX; p.tz = p.awayZ;
+      if (dist(p.x, p.z, p.awayX, p.awayZ) > AWAY_OUT - AWAY_GONE) {
+        // Still over the battle.
+      } else {
+        p.dead = true;
+        state.events.push({ e: 'flownOff', i: p.id, team: p.team, x: r(p.x), z: r(p.z) });
+        continue;
+      }
+    }
     if (!p.flown && p.phase === 'return' && oneWay(P)) {
       const mark = nearestEnemyMark(state, p, Infinity);
       if (mark) goIn(state, p, mark);
@@ -11971,7 +12038,7 @@ function stepPlanes(state, dt) {
     } else if (!p.flown) {
       let goalX = p.tx, goalZ = p.tz;
       if (guide) { goalX = guide.x; goalZ = guide.z; }
-      else if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
+      else if (p.phase === 'return' && carrier && !p.away) { goalX = carrier.x; goalZ = carrier.z; }
       // In company: she flies her station on the leader rather than at the
       // target, and only breaks off when the strike is close enough to attack.
       else if (station) { goalX = station.x; goalZ = station.z; }
@@ -12343,7 +12410,9 @@ function stepPlanes(state, dt) {
       // A dive bomber lets go at the bottom of her dive, not wherever she
       // happens to be when the ship comes within a quarter of a mile: down
       // the line to her release height, or close over the top of her.
-      const RELEASE = p.torp > 0 ? 900 : p.role === 'dive' ? DIVE_AT + 30 : 260;
+      // On the level she lets go well short: the bombs carry forward the whole
+      // of their fall.
+      const RELEASE = p.torp > 0 ? 900 : p.role === 'dive' ? DIVE_AT + 30 : p.role === 'level' ? 480 : 260;
       const low = p.role === 'dive' && p.dv === 'dive' && best
         && (p.y ?? 0) < (best.y || 0) + dropHeight(p, best) + 20 && bestD < DIVE_AT + 260;
       // And not before she is in her dive. One with the height for one that
@@ -12356,7 +12425,8 @@ function stepPlanes(state, dt) {
       const go = p.role === 'dive' && p.dv === 'dive' ? (low || bestD < 70) : (bestD < RELEASE || low);
       if (best && !holding && go) {
         const fish = p.torp ?? 0;
-        deliverOrdnance(state, p, best, P);
+        // One of a deckload drops her own bombs, not her carrier's.
+        deliverOrdnance(state, p, best, p.deckload && P.deckload ? { ...P, ...P.deckload } : P);
         if (fish > 0 && p.fishAt) {
           state.events.push({ e: 'airDrop', x: p.fishAt.x, z: p.fishAt.z, r: p.role, i: p.id, fish,
             ft: Math.round(p.fishAt.t * 100) / 100 });
@@ -12404,7 +12474,7 @@ function stepPlanes(state, dt) {
       } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || aloft(p) > outboundFor(p)) {
         p.phase = 'return';
       }
-    } else if (p.phase === 'return' && carrier && !oneWay(P)
+    } else if (p.phase === 'return' && carrier && !oneWay(P) && !p.away
       && dist(p.x, p.z, carrier.x, carrier.z) < MARSHAL_R + 600) {
       // Home, and into the circuit: see landingGuide. Her squadron is struck
       // below and rearmed by the sweep below once she is down.
@@ -12436,7 +12506,7 @@ function stepPlanes(state, dt) {
       // She came home with what she needed to get there, and a reserve for
       // going round: past that she goes in the water near her ship.
       if (aloft(p) > 300 + LANDING_RESERVE) { killFlight(state, p, 'fuel'); continue; }
-    } else if (p.phase === 'ram' ? aloft(p) > 600 : (!carrier || aloft(p) > 300)) {
+    } else if (p.phase === 'ram' ? aloft(p) > 600 : p.away ? aloft(p) > 900 : (!carrier || aloft(p) > 300)) {
       // Out of fuel, or her ship is gone from under her. One going in has
       // nowhere to come back to and no reserve to keep for it, so she gets
       // the whole of her tanks, and her own ship sunk is nothing to her.
@@ -12730,6 +12800,9 @@ function sweepSquadrons(state) {
       // A float plane does not come back (see oneWay): her place on the
       // catapult is empty for the rest of the action.
       if (oneWay(cls.planes)) { sq.state = 'spent'; continue; }
+      // Nor does a deckload, once the last of it is off her deck. Any of it
+      // still on it is still there to go.
+      if (sq.deckload) { sq.state = ship.deckload > 0 ? 'deck' : 'spent'; continue; }
       sq.state = 'deck';
       sq.cooldown = cls.planes.rearm;
     }

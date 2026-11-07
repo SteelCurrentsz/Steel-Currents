@@ -860,7 +860,7 @@ function renderAirGroup() {
   const types = SHIP_CLASSES[id]?.planes?.types || {};
   const NAMES = {
     zero: 'Zero', suisei: 'Suisei', b5n: 'B5N',
-    hellcat: 'Hellcat', wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger',
+    hellcat: 'Hellcat', wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger', devastator: 'Devastator',
     bf109: 'Bf-109', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
   };
   const ROLES = { fighters: ['fighter', 'Hellcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],

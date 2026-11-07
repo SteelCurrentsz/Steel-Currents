@@ -81,6 +81,25 @@ export const AERO = {
     // brakeDrag.
     brake: 0.090,
   },
+  // The Devastator: the Navy's first all-metal monoplane on a carrier when
+  // she came in in 1937, and by 1942 hopelessly slow -- a hundred and ten
+  // knots with a Mark 13 under her on the run in. Torpedo Eight flew fifteen
+  // of them off the Hornet at Midway and one man came back.
+  devastator: {
+    mass: 4620, wing: 39.2, span: 15.24, clMax: 1.50, cd0: 0.0330,
+    thrust: 11800, vMax: 92, name: 'TBD-1',
+    helix: 0.048, gLimit: 4.0,
+  },
+  // The B-25B as Doolittle's raiders flew her off the Hornet: thirteen tonnes
+  // with extra tanks in her bomb bay and her crawlway, two Wright Cyclones of
+  // seventeen hundred horsepower, and flaps full down for a run of a hundred
+  // and fifty metres into forty knots of wind. Nobody had ever flown a medium
+  // bomber off a carrier, and nobody tried to land one on.
+  mitchell: {
+    mass: 13200, wing: 56.7, span: 20.6, clMax: 1.75, cd0: 0.0300,
+    thrust: 41000, vMax: 125, name: 'B-25B',
+    helix: 0.040, gLimit: 3.67,
+  },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',

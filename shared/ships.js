@@ -10318,6 +10318,209 @@ export const SHIP_CLASSES = {
     },
   },
 
+  hornet: {
+    // The last of the Yorktowns: ordered in 1938 once the treaties had lapsed,
+    // built to her sisters' drawings because there was no time to draw a
+    // better ship, and in commission for barely a year. In April 1942 she took
+    // sixteen Army B-25s to within six hundred miles of Japan and flew them off
+    // her deck -- the Doolittle raid -- with her own air group struck below
+    // because there was nowhere else to put it. At Midway her Torpedo Eight
+    // went in alone in their Devastators and one man came back. She was sunk
+    // at Santa Cruz that October.
+    //
+    // She is drawn from the owner's model of her (see hornet.js and
+    // build/prepare-hornet-hull.mjs) -- "U.S. Navy Aircraft Carrier USS
+    // Hornet(CV-8)" by 全斗焕, under Creative Commons Attribution 4.0 -- which
+    // arms her as a Yorktown was by 1944: 5"/38 singles in four sponsons,
+    // 40 mm Bofors twins and quads and Oerlikons in her galleries. Her runway is
+    // laid afresh over the outline of the model's own flight deck, with her
+    // three lifts in it.
+    id: 'hornet',
+    name: 'Hornet',
+    fullName: 'USS Hornet CV-8',
+    className: 'Yorktown',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'usa',
+    blurb: 'Ninety-seven aircraft below and sixteen B-25s on deck: the bombers go first, and nothing comes up a lift until the last of them is off.',
+    // Her 251.4 m overall is the model's length from her stem to her stern.
+    // She floats where the model floats her, with her keel 8.7 m down.
+    hull: { length: 251.4, beam: 25.4, draft: 8.7, superstructure: 0.55, flightDeck: true },
+    hp: 48600,
+    maxSpeed: 32.5 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.54,
+    turnRate: 0.062,
+    rudderShift: 10.5,
+    speedLossInTurn: 0.18,
+    concealment: 14400,
+    fireDetectPenalty: 5200,
+    radarRange: 15000,
+    repairCooldown: 90,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // A Yorktown's: four inches of belt and a protective deck, plated to a
+    // treaty displacement she no longer had to keep to.
+    armor: { belt: 102, deck: 60, citadel: 102, bow: 19, superstructure: 16 },
+    // Her eight 5"/38 singles, two to a sponson at the corners of her flight
+    // deck, where the model has them. None of them can fire across the ship --
+    // the deck is in the way -- so each is laid abeam.
+    turrets: [
+      { id: 0, name: 'S1', x: -13.07, z: 87.11, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.3 },
+      { id: 1, name: 'P1', x: 12.97, z: 87.11, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.3 },
+      { id: 2, name: 'S2', x: -13.08, z: 78.53, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.3 },
+      { id: 3, name: 'P2', x: 12.97, z: 78.53, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.3 },
+      { id: 4, name: 'S3', x: -13.29, z: -95.4, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.46 },
+      { id: 5, name: 'P3', x: 13.12, z: -95.4, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.44 },
+      { id: 6, name: 'P4', x: 12.86, z: -103.6, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.45 },
+      { id: 7, name: 'S4', x: -13.29, z: -103.46, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.46 },
+    ],
+    gun: {
+      name: '5"/38 Mk 12', role: 'dp',
+      reach: 4.96,
+      caliber: 127, reload: 4.2, traverse: 0.44, range: 10600, sigma: 2.2,
+      shells: shells(127, 2000, 1750, 80, 792, 0.08),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 5800, dps: 160,
+      guns: [
+        // Six quadruple Bofors: three on her island, fore and aft of her
+        // bridge and abaft her funnel, one in the starboard gallery aft and
+        // two low on her port quarter.
+        { name: '40mm Bofors quad', caliber: 40, role: 'aa', reload: 0.24, range: 3600, model: 'aa2',
+          mounts: [
+            { x: -13.46, z: 45.46, angle: -1.57, arc: 2.6, guns: 4 },
+            { x: -13.94, z: 39.94, angle: -1.57, arc: 2.6, guns: 4 },
+            { x: -13.46, z: -22.75, angle: -1.57, arc: 2.6, guns: 4 },
+            { x: -14.73, z: -45.45, angle: -1.57, arc: 1.92, guns: 4 },
+            { x: 15.91, z: -56.73, angle: 1.57, arc: 1.92, guns: 4 },
+            { x: 15.91, z: -66.31, angle: 1.57, arc: 1.92, guns: 4 },
+          ] },
+        // Eight twins: one right forward on her bow, four in the bow galleries,
+        // one on her island and two aft.
+        { name: '40mm Bofors twin', caliber: 40, role: 'aa', reload: 0.24, range: 3600, model: 'aa',
+          mounts: [
+            { x: 0.9, z: 122.7, angle: 0.00, arc: 2.6, guns: 2 },
+            { x: -12.92, z: 114.56, angle: -1.57, arc: 1.92, guns: 2 },
+            { x: 12.95, z: 114.56, angle: 1.57, arc: 1.92, guns: 2 },
+            { x: -14.12, z: 101.43, angle: -1.57, arc: 1.92, guns: 2 },
+            { x: 14.15, z: 101.43, angle: 1.57, arc: 1.92, guns: 2 },
+            { x: -14.4, z: -13.81, angle: -1.57, arc: 2.6, guns: 2 },
+            { x: 14.86, z: -110.93, angle: 1.57, arc: 1.92, guns: 2 },
+            { x: -14.84, z: -117.05, angle: -1.57, arc: 1.92, guns: 2 },
+          ] },
+        // Fifty Oerlikons down both her catwalks, on her island and on her
+        // stern, wherever the model put one.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800, model: 'lt',
+          mounts: [
+            { x: -13.74, z: 67.54, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: 15.26, z: 67.08, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -14.04, z: 64.36, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: 15.38, z: 63.5, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -14.24, z: 61.16, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: 15.62, z: 59.81, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -14.44, z: 57.94, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: 15.8, z: 56.12, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 16.53, z: 45.33, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 16.73, z: 42.14, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 17, z: 39.03, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 16.98, z: 35.9, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 17.22, z: 32.72, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 17.45, z: 29.19, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -15.32, z: 23.02, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: -15.32, z: 20.16, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: -15.32, z: 16.64, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: -15.32, z: 13.34, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: -15.32, z: 10.21, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: 17.45, z: 7.51, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -15.32, z: 7.19, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: 17.45, z: 4.43, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -15.32, z: 4.12, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: 17.45, z: 1.36, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -15.32, z: 1.14, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: 17.45, z: -1.68, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -15.32, z: -1.98, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: 17.45, z: -4.68, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -15.32, z: -5.04, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: 17.45, z: -7.8, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -15.32, z: -8.21, angle: -1.57, arc: 2.6, guns: 1 },
+            { x: 17.16, z: -22.32, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 16.94, z: -25.42, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 16.68, z: -28.57, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 16.6, z: -31.84, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 15.6, z: -43.59, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: 15.39, z: -46.78, angle: 1.57, arc: 1.92, guns: 1 },
+            { x: -13.79, z: -50.39, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -13.48, z: -54.02, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -13.48, z: -57.72, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -13.48, z: -61.34, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -13.48, z: -63.93, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -13.37, z: -67.88, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -13.65, z: -70.78, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -13.65, z: -72.92, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -13.65, z: -77.76, angle: -1.57, arc: 1.92, guns: 1 },
+            { x: -7.18, z: -124.73, angle: 3.14, arc: 2.4, guns: 1 },
+            { x: -10.15, z: -124.73, angle: 3.14, arc: 2.4, guns: 1 },
+            { x: 6.73, z: -124.73, angle: 3.14, arc: 2.4, guns: 1 },
+            { x: 9.91, z: -124.73, angle: 3.14, arc: 2.4, guns: 1 },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 4, perSquadron: 25, cruiseSpeed: 78, strikeRange: 14000,
+      // Where her aircraft put their wheels down coming home, in her own
+      // frame: just up the deck from the round-down. See landingGuide.
+      touchdown: { z: -103, y: 15.6 },
+      // What she embarks in each role: Hellcats, with the Dauntlesses they
+      // escorted and the Devastators of her Torpedo Eight.
+      types: { fighter: 'hellcat', dive: 'dauntless', torpedo: 'devastator' },
+      // Where and how high her deck run leaves each of her three types,
+      // measured off the integrated launch the model on her deck flies.
+      runOut: { fighter: 284, dive: 265, torpedo: 242 },
+      runHeight: { fighter: 21.1, dive: 18.9, torpedo: 15.7 },
+      rearm: 42, torpDamage: 8600, torpSpeed: 26 * KNOTS, torpRange: 2600,
+      floodChance: 0.25, hp: 1400, dropSpread: 0.05,
+      bombDamage: 4200, bombHit: 0.42, bombFire: 0.34, bombPen: 92, bombBore: 0.36,
+      // The air group she sails with: ninety-seven aircraft in her hangar, in
+      // any mix a captain likes.
+      group: {
+        total: 97,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 97, dive: 97, torpedo: 97 },
+        minStrike: 0,
+        default: { fighters: 32, dive: 45, torpedo: 20 },
+      },
+      // And on top of them, the Doolittle raiders: sixteen Army B-25s ranged
+      // on her flight deck aft, which never go below -- they will not fit on a
+      // lift -- and never come back, because a Mitchell cannot land on a
+      // carrier. They go first: until the last of them is off, her deck is
+      // theirs and nothing of her own comes up a lift. See launchStrike.
+      deckload: {
+        type: 'mitchell', count: 16, role: 'dive',
+        // Each a four-bomb load of five-hundred-pounders, let go on the level.
+        bombs: 4, bombDamage: 2600, bombHit: 0.3, bombFire: 0.4, bombPen: 40,
+        hp: 2400, cruiseSpeed: 92,
+        // Where her run leaves each of them in turn, and how high, measured
+        // off the integrated launch the deck on her flies: the first starts
+        // furthest forward and is furthest out when the next is ranged.
+        runOut: [314.6, 308.3, 302.1, 295.8, 289.6, 283.3, 277.1, 270.8, 270.8, 271.2, 271.6, 272.1, 272.2, 272.8, 273.4, 274.1],
+        runHeight: [15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 16.2, 16.6, 17, 17.4, 17.6, 17.9, 18.1, 18.2],
+      },
+    },
+    datasheet: {
+      displacement: 20000,
+      aircraft: 0,
+      mainRounds: 3200,
+      secondary: { caliber: 127, label: '5"', barrels: 8, rounds: 2400 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 40, rounds: 48000 },
+        { caliber: 20, label: '20mm', barrels: 50, rounds: 120000 },
+      ],
+    },
+  },
+
   enterprise: {
     // Five-inch singles in galleries down both sides of the flight deck, which
     // is why the two mountings here fire outboard and nowhere else: the deck is
@@ -10519,7 +10722,7 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'yamato', 'musashi',
-  'grafzeppelin', 'enterprise', 'shokaku', 'shinano'];
+  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano'];
 
 /**
  * The hulls in the Premium Equipment store, and not in the yard's list: a
