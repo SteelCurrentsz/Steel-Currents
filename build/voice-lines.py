@@ -55,6 +55,7 @@ VOICES = {
     'jpn': ('ja-JP-KeitaNeural', '+12%', '+12Hz'),
     'sov': ('ru-RU-DmitryNeural', '+14%', '+12Hz'),
     'ita': ('it-IT-DiegoNeural', '+14%', '+12Hz'),
+    'chn': ('zh-CN-YunjianNeural', '+12%', '+10Hz'),
 }
 
 # main: the main battery; sec: the secondaries; torp/torps: one fish or a
@@ -245,6 +246,35 @@ LINES = {
         'd8': 'otto',
         'd9': 'nove',
     },
+    # The PLA Navy's: its own orders, in Mandarin, and the figures as a
+    # signalman reads them over a circuit -- yao for one, dong for nought,
+    # guai for seven, so no two can be mistaken.
+    'chn': {
+        'main': '主炮，开火！',
+        'sec': '副炮，开火！',
+        'torp': '鱼雷发射！',
+        'torps': '鱼雷齐射！',
+        'aa': '对空目标，开火！',
+        'aas': '对空目标群，开火！',
+        'dc': '投放深水炸弹！',
+        'abandon': '全体弃舰！',
+        'lastShell': '战斗到最后一发炮弹！',
+        'spotted': '发现敌舰，方位',
+        'torpPort': '左舷中雷！',
+        'torpStbd': '右舷中雷！',
+        'breach': '水线以下破损！舰体进水！',
+        'seal': '关闭所有水密门！隔离舱段！',
+        'd0': '洞',
+        'd1': '幺',
+        'd2': '两',
+        'd3': '三',
+        'd4': '四',
+        'd5': '五',
+        'd6': '六',
+        'd7': '拐',
+        'd8': '八',
+        'd9': '勾',
+    },
 }
 
 TAKES = os.path.join(ROOT, 'assets/voices')
@@ -303,6 +333,7 @@ ESPEAK = {
     'jpn': ('ja+m3', 170, 55),
     'sov': ('ru+m3', 175, 50),
     'ita': ('it+m3', 180, 55),
+    'chn': ('cmn+m3', 170, 55),
 }
 
 
