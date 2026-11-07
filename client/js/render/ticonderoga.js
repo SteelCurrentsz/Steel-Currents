@@ -5,7 +5,7 @@
 // three forward and three aft, each three superfiring one over the next; six
 // 76 mm dual-purpose singles, three a side, the gun the Leviathan carries; one
 // Phalanx close-in weapon system on her centreline before her bridge; and a
-// quadruple torpedo launcher a side abaft her forward funnel.
+// quintuple torpedo launcher a side abreast her after superstructure.
 //
 // Her hull and superstructure are the model -- "US CLAA Ticonderoga" by 全斗焕
 // (https://skfb.ly/oHFAG), under Creative Commons Attribution 4.0 -- (see
@@ -18,7 +18,7 @@
 //   * her six Mk 71 singles, the model's gunhouses on their rings, their
 //     barrels on a cradle that elevates;
 //   * her six 76 mm singles and her Phalanx;
-//   * her two quadruple torpedo launchers, which train out over her side and
+//   * her two quintuple torpedo launchers, which train out over her side and
 //     fire;
 //   * her two screws, the model's, which turn;
 //
@@ -216,8 +216,8 @@ function mountings(g) {
 }
 
 /**
- * One of her quadruple torpedo launchers, as the model drew it (see
- * gunPiece): it trains about its middle, its four tubes level, and its
+ * One of her quintuple torpedo launchers, as the model drew it (see
+ * gunPiece): it trains about its middle, its five tubes level, and its
  * muzzles are the ends of its tubes. Her two launchers are each other's
  * mirror, and each is its own piece.
  */

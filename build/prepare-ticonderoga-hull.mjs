@@ -2,7 +2,7 @@
 // into what client/js/render/ticonderogaHull.js ships: her hull, her
 // superstructure, her funnels, her masts and every fitting on her as one
 // painted mesh, and every mounting of hers that trains -- her six single
-// Mk 71 203 mm guns, her six 76 mm singles and her two quadruple torpedo
+// Mk 71 203 mm guns, her six 76 mm singles and her two quintuple torpedo
 // launchers -- cut free of her, each as the model drew it; where her one
 // Phalanx stands; and her two screws.
 //
@@ -643,7 +643,7 @@ const KINDS = {
   // Her one Phalanx, on her centreline before her bridge, drawn in five
   // pieces and some hundred and fifty thousand faces.
   ciws: mountsOf('ciws', { house: [1043, 1045, 1046, 1048, 1050], gap: 0.5, min: 1000, reach: 2, count: 1 }),
-  // Her two quadruple torpedo launchers, one a side abaft her forward
+  // Her two quintuple torpedo launchers, one a side abaft her forward
   // funnel (HP_AGT_1 and HP_AGT_2).
   tubes: mountsOf('tubes', { house: [301, 304], byPiece: true, count: 2 }),
   // Her two screws.
@@ -1392,7 +1392,7 @@ const SCREWS = KINDS.screw.map((gi) => {
 console.log('screws:', SCREWS.map((s) => `(${s.x}, ${s.y}, ${s.z}) r ${s.r}`).join(' '));
 
 // ---- her tubes ---------------------------------------------------------------------------
-// Her two quadruple banks of 21 in tubes, as the model drew them: each trains
+// Her two quintuple banks of 21 in tubes, as the model drew them: each trains
 // whole about the middle of it in its bay, its tubes level and fore and aft
 // when it is stowed, their muzzles forward. Nothing of it elevates; `bores`
 // is each tube's axis in the frame of its mounting -- [x, y, z at the breech,
@@ -1415,25 +1415,22 @@ const TUBES = (() => {
   const pieces = list.map((t) => {
     const local = toMount(t.raw, t.seat);
     const house = creaseNormals(reduce(local, 2400, 0.003));
-    // The tubes' axes: the four runs of points across the bank, at its
-    // muzzle end, where they stand clear of the mounting.
-    const xs = [];
-    let yTop = -Infinity;
-    for (let i = 0; i < local.P.length; i += 3) {
-      if (local.P[i + 2] > t.len / 2 - 0.4) { xs.push(local.P[i]); yTop = Math.max(yTop, local.P[i + 1]); }
-    }
-    xs.sort((a, b) => a - b);
-    const gaps = [];
-    for (let i = 1; i < xs.length; i++) gaps.push([xs[i] - xs[i - 1], (xs[i] + xs[i - 1]) / 2]);
-    const cuts = gaps.sort((a, b) => b[0] - a[0]).slice(0, 3).map((g) => g[1]).sort((a, b) => a - b);
-    const lane = [0, 0, 0, 0], n = [0, 0, 0, 0], ys = [0, 0, 0, 0];
+    // The tubes' axes. Hers is a quintuple: five 21 in tubes side by side,
+    // touching, so there is no gap between them to split the bank at. At its
+    // muzzle end, where they stand clear of the mounting, the five fill its
+    // breadth evenly; each axis is the middle of its fifth, at the middle of
+    // the mouths' height.
+    const TUBES = 5;
+    let mx0 = Infinity, mx1 = -Infinity, my0 = Infinity, my1 = -Infinity;
     for (let i = 0; i < local.P.length; i += 3) {
       if (local.P[i + 2] <= t.len / 2 - 0.4) continue;
-      const k = cuts.filter((c) => local.P[i] > c).length;
-      lane[k] += local.P[i]; ys[k] += local.P[i + 1]; n[k]++;
+      mx0 = Math.min(mx0, local.P[i]); mx1 = Math.max(mx1, local.P[i]);
+      my0 = Math.min(my0, local.P[i + 1]); my1 = Math.max(my1, local.P[i + 1]);
     }
-    const y = +(ys.reduce((a, v, k) => a + v / n[k], 0) / 4).toFixed(3);
-    const bores = lane.map((v, k) => [+(v / n[k]).toFixed(3), y, +(-t.len / 2).toFixed(3), +(t.len / 2).toFixed(3)]);
+    const y = +((my0 + my1) / 2).toFixed(3);
+    const pitch = (mx1 - mx0) / TUBES;
+    const lane = [...Array(TUBES)].map((_, k) => mx0 + pitch * (k + 0.5));
+    const bores = lane.map((v) => [+v.toFixed(3), y, +(-t.len / 2).toFixed(3), +(t.len / 2).toFixed(3)]);
     let roof = 0;
     for (let i = 1; i < house.P.length; i += 3) roof = Math.max(roof, house.P[i]);
     const byV = new Uint8Array(house.P.length / 3);

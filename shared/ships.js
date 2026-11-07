@@ -8826,7 +8826,8 @@ export const SHIP_CLASSES = {
     // six 76 mm dual-purpose singles, three a side, the gun the Leviathan
     // carries; one Phalanx close-in weapon system on her centreline before her
     // bridge, which stops missiles as well as aeroplanes (see stepCiws); and a
-    // quadruple torpedo launcher a side, abreast her after superstructure.
+    // quintuple torpedo launcher a side, as the model draws them, abreast her
+    // after superstructure.
     //
     // She is drawn from the owner's model of her (see ticonderoga.js) -- "US
     // CLAA Ticonderoga" by 全斗焕, under Creative Commons Attribution 4.0,
@@ -8888,17 +8889,17 @@ export const SHIP_CLASSES = {
       caliber: 203, reload: 5, traverse: 0.35, range: 17500, sigma: 1.4,
       shells: shells(203, 4500, 3100, 230, 823, 0.14),
     },
-    // Her two quadruple launchers, one a side abreast her after superstructure,
+    // Her two quintuple launchers, one a side abreast her after superstructure,
     // stowed fore and aft and trained out over her side to fire on the beam.
     // The model draws the two as each other's mirror, so each has its own
     // lanes.
     torpedoes: {
       mounts: [
-        { id: 0, x: 6.487, z: -14.45, angle: 1.88, arc: 2.24, mask: [[-0.38, 0.24], [2.83, 2.89], [2.9, -2.15]], rest: 0, tubes: 4, my: 5.03,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.328, -0.332, 0.664, 1.328], lie: 0.2, muzzle: 4.02, height: 5.03,
+        { id: 0, x: 6.487, z: -14.45, angle: 1.88, arc: 2.24, mask: [[-0.38, 0.24], [2.83, 2.89], [2.9, -2.15]], rest: 0, tubes: 5, my: 5.05,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.242, -0.621, 0, 0.621, 1.242], lie: 0.2, muzzle: 4.02, height: 5.05,
             fish: { len: 6.6, r: 0.267, kind: 'mk1' } } },
-        { id: 1, x: -6.487, z: -14.45, angle: -1.88, arc: 2.24, mask: [[2.15, -2.9], [-2.89, -2.83], [-0.24, 0.38]], rest: 0, tubes: 4, my: 5.04,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.335, -0.336, 0.664, 1.321], lie: 0.2, muzzle: 4.02, height: 5.04,
+        { id: 1, x: -6.487, z: -14.45, angle: -1.88, arc: 2.24, mask: [[2.15, -2.9], [-2.89, -2.83], [-0.24, 0.38]], rest: 0, tubes: 5, my: 5.05,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.242, -0.621, 0, 0.621, 1.242], lie: 0.2, muzzle: 4.02, height: 5.05,
             fish: { len: 6.6, r: 0.267, kind: 'mk1' } } },
       ],
       name: '21 in Mk 15 torpedo', role: 'surface', caliber: 533,

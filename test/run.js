@@ -3424,9 +3424,10 @@ check('the USS Ticonderoga is commissioned after the USS Baltimore and before th
   const ciws = cls.aa.guns.filter((g) => g.ciws);
   assert.equal(ciws.length, 1);
   assert.equal(ciws[0].mounts.length, 1, 'she does not carry one Phalanx');
-  // A quadruple torpedo launcher a side.
+  // A torpedo launcher a side: quintuples, as her model draws them, each
+  // tube with its own lane.
   assert.equal(cls.torpedoes.mounts.length, 2);
-  assert.ok(cls.torpedoes.mounts.every((m) => m.tubes === 4), 'a launcher of hers is not a quadruple');
+  assert.ok(cls.torpedoes.mounts.every((m) => m.tubes === 5 && m.launch.lanes.length === 5), 'a launcher of hers is not a quintuple');
   assert.deepEqual(cls.torpedoes.mounts.map((m) => Math.sign(m.x)).sort(), [-1, 1], 'her launchers are not one a side');
   const built = buildTiconderoga();
   assert.equal(built.turrets.length, 6);
