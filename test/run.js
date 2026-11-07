@@ -165,6 +165,10 @@ import {
 } from '../client/js/render/ticonderoga.js';
 import { ticonderogaSurfaceY, MOUNT_SEATS as TICONDEROGA_SEATS } from '../client/js/render/ticonderogaHull.js';
 import {
+  buildGuangzhou, shellAt as guangzhouShellAt, keelY as guangzhouKeel, deckOver as guangzhouSheer, zAt as guangzhouZAt,
+} from '../client/js/render/guangzhou.js';
+import { guangzhouSurfaceY, MOUNT_SEATS as GUANGZHOU_SEATS } from '../client/js/render/guangzhouHull.js';
+import {
   buildTillman, shellAt as tillmanShellAt, keelY as tillmanKeel, deckOver as tillmanSheer, zAt as tillmanZAt,
   LOA as LOA_TILLMAN,
 } from '../client/js/render/tillman.js';
@@ -2154,11 +2158,11 @@ check("the Matsu trains her tubes out and throws her fish over her side, where t
   });
 });
 
-check('the Yukikaze is commissioned after the Matsu, before the Cleveland', () => {
+check('the Yukikaze is commissioned after the Matsu, before the Guangzhou', () => {
   const i = SHIP_ORDER.indexOf('yukikaze');
   assert.ok(i >= 0, 'the Yukikaze is not in the yard');
   assert.equal(SHIP_ORDER[i - 1], 'matsu', `before the Yukikaze comes ${SHIP_ORDER[i - 1]}`);
-  assert.equal(SHIP_ORDER[i + 1], 'cleveland', `after the Yukikaze comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'guangzhou', `after the Yukikaze comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.yukikaze;
   assert.equal(cls.fullName, 'IJN Yukikaze');
   assert.equal(cls.type, 'DD');
@@ -3493,6 +3497,169 @@ check("the Ticonderoga's Phalanx fires on what comes at her", () => {
   assert.equal(fired, 4);
   assert.ok(ciws > 0, 'her Phalanx never fired');
   assert.ok(down >= 1, 'her Phalanx brought down none of four Harpoons');
+});
+
+check('the CNS Guangzhou is commissioned after the IJN Yukikaze and before the USS Cleveland, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('guangzhou');
+  assert.ok(i >= 0, 'the Guangzhou is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'yukikaze', `before the Guangzhou comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'cleveland', `after the Guangzhou comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.guangzhou;
+  assert.equal(cls.fullName, 'CNS Guangzhou');
+  assert.equal(cls.type, 'DD', 'she is not a destroyer');
+  assert.equal(cls.nation, 'chn');
+  // Twin AK-130s, 130 mm, for surface fire only.
+  assert.equal(cls.gun.caliber, 130);
+  assert.match(cls.gun.name, /AK-130/);
+  assert.equal(cls.gun.role, 'surface');
+  assert.ok(cls.turrets.every((t) => t.guns === 2), 'an AK-130 of hers is not a twin');
+  // Two PJ-26 76 mm dual-purpose singles.
+  assert.equal(cls.secondary.caliber, 76);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.equal(cls.secondary.mounts.length, 2);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 1), 'her 76 mm are not singles');
+  // Four AK-630s, which stop missiles as a Phalanx does.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.match(ciws[0].name, /AK-630/);
+  assert.equal(ciws[0].mounts.length, 4, 'she does not carry four AK-630s');
+  // Four RBU-1200s, two forward and two aft, 250 mm.
+  assert.equal(cls.rbu.caliber, 250);
+  assert.equal(cls.rbu.mounts.length, 4);
+  assert.equal(cls.rbu.mounts.filter((m) => m.z > 0).length, 2, 'she does not carry two RBUs forward');
+  assert.equal(cls.rbu.mounts.filter((m) => m.z < 0).length, 2, 'she does not carry two RBUs aft');
+  // Six homing torpedoes, three a side.
+  assert.equal(cls.torpedoes.mounts.length, 6);
+  assert.ok(cls.torpedoes.homing, 'her torpedoes do not home');
+  assert.equal(cls.torpedoes.mounts.filter((m) => m.x > 0).length, 3);
+  assert.equal(cls.torpedoes.mounts.filter((m) => m.x < 0).length, 3);
+  const built = buildGuangzhou();
+  assert.equal(built.turrets.length, 2);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 6);
+  assert.equal(built.rbuMounts.length, 4);
+  // Every mounting stands where the model stood it, on her.
+  for (const [kind, list] of Object.entries(GUANGZHOU_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, guangzhouSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check("the Guangzhou's shell has no holes in it", () => {
+  const built = buildGuangzhou();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95 + 0.0009; t <= 0.95; t += 0.01) {
+    const top = guangzhouSheer(t);
+    for (let y = guangzhouKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
+      const w = guangzhouShellAt(t, y);
+      if (w < 0.35) continue;
+      if (guangzhouZAt(t) < -60 && y < -2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, guangzhouZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > guangzhouKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 500, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check("the Guangzhou's AK-630s fire on missiles coming at her", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: 'guangzhou', team: 1, index: 0 });
+  a.x = 0; a.z = -6000; a.heading = Math.PI / 2;
+  b.x = 0; b.z = 6000; b.heading = Math.PI / 2;
+  let fired = 0, ciws = 0, down = 0;
+  for (let t = 0; t < 120 * 30; t++) {
+    b.spottedBy = [true, true];
+    if (fired < 4 && fireMissile(state, a, 'harpoon', b.id)) fired++;
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'ciws') ciws++;
+      if (e.e === 'mslDown' && e.why === 'ciws') down++;
+    }
+    if (!b.alive) break;
+  }
+  assert.equal(fired, 4);
+  assert.ok(ciws > 0, 'her AK-630s never fired');
+  assert.ok(down >= 1, 'her AK-630s brought down none of four Harpoons');
+});
+
+check("the Guangzhou's RBU-1200s break up torpedoes running at her", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 1, index: 0 });
+  a.x = 0; a.z = 0; g.x = 0; g.z = 2000; g.heading = Math.PI / 2;
+  let rbu = 0, kills = 0, launched = 0;
+  for (let t = 0; t < 180 * 30; t++) {
+    a.aimX = g.x; a.aimZ = g.z; a.heading = Math.PI / 2;
+    if (t % 30 === 0) launched += fireTorpedoes(state, a);
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'rbu' && e.t === 'torp') rbu++;
+      if (e.e === 'torpKill') kills++;
+    }
+    if (!g.alive) break;
+  }
+  assert.ok(launched > 0, 'the Fletcher put no fish in the water');
+  assert.ok(rbu > 0, 'her RBUs never fired at a torpedo');
+  assert.ok(kills > 0, 'her RBUs broke up no torpedo');
+});
+
+check("the Guangzhou's RBU-1200s go after a submerged boat her sonar holds", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 0, index: 0 });
+  const u = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+  g.x = 0; g.z = 0; g.heading = 0; g.speed = 0;
+  u.x = 0; u.z = 800; u.heading = Math.PI / 2;
+  u.depth = 30;
+  const hp0 = u.hp;
+  let rbu = 0;
+  for (let t = 0; t < 60 * 30; t++) {
+    u.depth = 30; u.speed = 0;
+    for (const e of step(state, 1 / 30)) if (e.e === 'rbu' && e.t === 'sub') rbu++;
+    if (!u.alive) break;
+  }
+  assert.ok(rbu > 0, 'her RBUs never fired at the boat');
+  assert.ok(!u.alive || u.hp < hp0, 'her RBUs did the boat no harm');
+});
+
+check("the Guangzhou's homing torpedoes turn onto a ship they were not aimed straight at", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 0, index: 0 });
+  const c = addShip(state, { name: 'C', classId: 'cleveland', team: 1, index: 0 });
+  g.x = 0; g.z = 0; g.heading = 0; c.x = 1500; c.z = 4000; c.heading = Math.PI / 2;
+  let hits = 0, launched = 0;
+  for (let t = 0; t < 200 * 30; t++) {
+    g.aimX = c.x; g.aimZ = c.z;
+    if (t % 30 === 0) launched += fireTorpedoes(state, g);
+    for (const e of step(state, 1 / 30)) if (e.e === 'torpHit' && e.victim === c.id) hits++;
+    if (!c.alive) break;
+  }
+  assert.ok(launched > 0, 'her tubes fired nothing');
+  assert.ok(hits > 0, 'none of her homing torpedoes found the Cleveland');
+});
+
+check('the Credits screen credits the model the Guangzhou is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('"<a href="https://skfb.ly/oFMxF" target="_blank" rel="noopener">Chinese PLANavy Guangzhou Ship（中国人民解放军海军广州舰）</a>"');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(at, screen.indexOf('</p>', at));
+  assert.ok(credit.includes('by 全斗焕 is licensed under') && credit.includes('http://creativecommons.org/licenses/by/4.0/')
+    && credit.includes('Creative Commons Attribution'), 'the credit is not as its licence asks');
 });
 
 check('the Credits screen credits the model the Ticonderoga is drawn from', () => {

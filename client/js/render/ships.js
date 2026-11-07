@@ -40,7 +40,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildLeviathan, buildScheer, buildTiconderoga;
+  buildGrafZeppelin, buildShokaku, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -76,6 +76,7 @@ const SCULPTED = {
   shokaku: () => import('./shokaku.js').then((m) => { buildShokaku = m.buildShokaku; }),
   leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
   ticonderoga: () => import('./ticonderoga.js').then((m) => { buildTiconderoga = m.buildTiconderoga; }),
+  guangzhou: () => import('./guangzhou.js').then((m) => { buildGuangzhou = m.buildGuangzhou; }),
 };
 // The module each class is drawn by, where it is not her own name.
 const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck', spee: 'scheer' };
@@ -1029,6 +1030,21 @@ function buildModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: [],
+    };
+  }
+
+  // And the Guangzhou: the owner's model of her hull, her superstructure, her
+  // guns, her rocket launchers and her torpedo tubes.
+  if (cls.id === 'guangzhou') {
+    const built = buildGuangzhou();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [], rbuMounts: built.rbuMounts || [],
     };
   }
 

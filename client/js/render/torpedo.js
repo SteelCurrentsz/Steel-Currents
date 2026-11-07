@@ -76,6 +76,14 @@ export const TORPEDO_KINDS = {
     blades: [3, 3], stud: true,
     paint: { head: 0x3f4536, flask: 0x969a90, after: 0x898d84, tail: 0x74786f, joint: 0x2c2e29, screw: 0xae8a54 },
   },
+  // The Guangzhou's Yu-6: a 533 mm homing torpedo of the missile age, its
+  // seeker in a blunt rounded head, a smooth dark-green body and a pump-jet
+  // shroud round its tail in place of open screws.
+  yu6: {
+    len: 6.6, r: 0.267, nose: 'round', head: 0.2, flask: 0.4, cone: 3.6, fin: 0.96, ring: true,
+    blades: [7, 7], stud: true,
+    paint: { head: 0x3c4a3a, flask: 0x495746, after: 0x445241, tail: 0x3a4637, joint: 0x9a8a48, screw: 0x7c7e78, ring: 0x3a4637 },
+  },
   // The Avenger's Mk 13: short and fat, and a ring round its tail that held
   // it straight through the water once its wooden drop gear had gone.
   mk13: {

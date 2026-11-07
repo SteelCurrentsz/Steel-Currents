@@ -348,7 +348,7 @@ const num = (n) => n.toLocaleString('en-US');
  *  main battery is a forty-six, not an eighteen-inch. The Regia Marina ordered
  *  in millimetres. */
 function gunLabel(caliber, nation) {
-  if (nation === 'ger' || nation === 'jpn' || nation === 'fra' || nation === 'sov' || nation === 'ita' || caliber < 100) return `${caliber}mm`;
+  if (nation === 'ger' || nation === 'jpn' || nation === 'fra' || nation === 'sov' || nation === 'ita' || nation === 'chn' || caliber < 100) return `${caliber}mm`;
   const inches = caliber / 25.4;
   const shown = Math.abs(inches - Math.round(inches)) < 0.06
     ? Math.round(inches) : inches.toFixed(1);

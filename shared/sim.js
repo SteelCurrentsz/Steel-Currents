@@ -289,6 +289,9 @@ export function addShip(state, {
       id: t.id, angle: t.angle, elev: Math.max(0, layFloor(t.lift, t.angle)), cooldown: 0, disabled: 0, hurt: 0,
     })),
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
+    // Her RBU-1200 launchers, if she has them: where each is trained, its
+    // reload, and the ripple it is firing, if any. See stepRbu.
+    rbuMounts: cls.rbu ? cls.rbu.mounts.map((m) => ({ id: m.id, angle: m.rest ?? m.angle, cooldown: 0, ripple: null })) : [],
     // The depth charge gear. `dcLeft` is how many charges are still in the
     // stowage, `dcMounts` is a reload clock per rack and per thrower, `dcSet`
     // is what the pistols are wound to, and `dcAuto` is whether her own
@@ -6223,6 +6226,7 @@ function stepShells(state, dt) {
         });
         if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber);
         if (!ashore && sh.mortar) mortarMiss(state, sh);
+        if (!ashore && sh.asw) rbuSplash(state, sh);
         // Short of a sea wall, at its foot: the burst is against its face.
         if (!ashore && state.world.works?.walls?.length && wallAt(state.world, sh.x, sh.z, 8)) {
           landStrike(state, sh.x, sh.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell',
@@ -7133,6 +7137,8 @@ function stepTorpMounts(state, ship, dt) {
   const manWorld = headingTo(ship.x, ship.z, ship.manX, ship.manZ);
   const manLocal = wrapAngle(manWorld - ship.heading);
   for (const m of ship.torpMounts) {
+    // A tube fixed on her deck stays where it is mounted.
+    if (T.mounts[m.id].fixed) { m.angle = T.mounts[m.id].rest ?? T.mounts[m.id].angle; continue; }
     const manned = isManned(ship, 'torp', m.id);
     const given = manned ? null : assignedAim(state, ship, 'torp', m.id, T.range, null, T.speed);
     // Given a ship out of reach: the bank stands where it is.
@@ -7168,19 +7174,27 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
       : given ? headingTo(ship.x, ship.z, given.x, given.z)
         : headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
     const local = wrapAngle(world - ship.heading);
-    if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
-    // Her own hull is not something to fire a torpedo through. The bank trains
-    // to the nearest bearing it can shoot on, so it will be sitting on the
-    // edge of the blind sector with the target beyond it -- and firing there
-    // is five fish thirty degrees off the target for the sake of pressing the
-    // button. The order is refused until the ship has come round.
-    if (!torpedoClear(cls, spec, local)) continue;
-    if (!torpedoClear(cls, spec, m.angle)) continue;
-    if (layFloor(spec.mask, local) > 0 || layFloor(spec.mask, m.angle) > 0) continue;
-    // And she has to have come round. Fired before the bank has trained, the
-    // fish go where the tubes were pointing, which is over her own bow.
-    if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local, cls))) > 0.05) continue;
-    if (!manned && !orderGiven(state, ship, 'torp', { many: spec.tubes > 1 })) continue;
+    if (spec.fixed) {
+      // A tube that does not train fires down its own line, which is clear of
+      // her: its fish is a homing one and turns onto the target itself, so it
+      // is fired at anything near enough the bearing it points on.
+      if (Math.abs(angleDelta(spec.angle, local)) > (spec.fire ?? 0.35)) continue;
+      if (!manned && !orderGiven(state, ship, 'torp', { many: false })) continue;
+    } else {
+      if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
+      // Her own hull is not something to fire a torpedo through. The bank trains
+      // to the nearest bearing it can shoot on, so it will be sitting on the
+      // edge of the blind sector with the target beyond it -- and firing there
+      // is five fish thirty degrees off the target for the sake of pressing the
+      // button. The order is refused until the ship has come round.
+      if (!torpedoClear(cls, spec, local)) continue;
+      if (!torpedoClear(cls, spec, m.angle)) continue;
+      if (layFloor(spec.mask, local) > 0 || layFloor(spec.mask, m.angle) > 0) continue;
+      // And she has to have come round. Fired before the bank has trained, the
+      // fish go where the tubes were pointing, which is over her own bow.
+      if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local, cls))) > 0.05) continue;
+      if (!manned && !orderGiven(state, ship, 'torp', { many: spec.tubes > 1 })) continue;
+    }
     const pos = localToWorld(spec.x, spec.z, ship.heading);
     // Down the line of the tubes, which is where a torpedo goes.
     const base = wrapAngle(ship.heading + m.angle);
@@ -7195,6 +7209,11 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
         flood: T.floodChance,
         kind: torpedoKind(cls),
       };
+      // A homing fish carries its seeker with it (see stepTorpedoes); one out
+      // of a fixed tube has its gyro set to come round onto the bearing it was
+      // fired at once it is in the water.
+      if (T.homing) tp.homing = { ...T.homing };
+      if (spec.fixed) tp.gyro = wrapAngle(world);
       // A bank can carry its own launch -- the Surcouf's bow tubes and her
       // trainable triples are nothing alike -- or take the class's.
       const L = spec.launch || T.launch;
@@ -7270,9 +7289,53 @@ export function torpedoKind(cls, aerial = false) {
  */
 export const TORP_ARM_TIME = 5;
 
+/**
+ * A homing torpedo's seeker at work.
+ *
+ * Run out on the bearing it was fired on, a homing fish listens once it is
+ * clear of the ship that fired it (`after`, in metres run): for the nearest
+ * enemy ahead of it -- inside `cone` either side of its own course and `seek`
+ * metres -- on the surface or under it. Once it has one it turns onto him, no
+ * harder than its rudders can put it round (`turn`, radians a second), and
+ * leads him by the time it will take to get there. Lose him -- out of its
+ * cone, out of its hearing, sunk -- and it runs straight on, listening.
+ */
+function steerHoming(state, tp, dt) {
+  const H = tp.homing;
+  // Its gyro first: out of a fixed tube it comes round onto the course it
+  // was set, and runs it until the seeker has something.
+  const gyro = () => {
+    if (tp.gyro === undefined) return;
+    tp.heading = wrapAngle(tp.heading + clamp(angleDelta(tp.heading, tp.gyro), -H.turn * 2 * dt, H.turn * 2 * dt));
+  };
+  if (tp.travelled < (H.after || 0)) { gyro(); return; }
+  let best = null, bd = Infinity;
+  for (const s of state.ships) {
+    if (!s.alive || s.team === tp.team || !mayHurt(state, tp.team, s)) continue;
+    const d = dist(tp.x, tp.z, s.x, s.z);
+    if (d > H.seek || d >= bd) continue;
+    // The one it was locked on to it holds a little longer, out to the edge
+    // of its cone and a little past it, rather than flicking between two.
+    const cone = s.id === tp.lock ? H.cone * 1.3 : H.cone;
+    if (Math.abs(angleDelta(tp.heading, headingTo(tp.x, tp.z, s.x, s.z))) > cone) continue;
+    best = s; bd = d;
+  }
+  tp.lock = best ? best.id : 0;
+  if (!best) { gyro(); return; }
+  // Once it has heard one it is his, and the gyro's course is forgotten.
+  tp.gyro = undefined;
+  const lead = bd / Math.max(1, tp.speed);
+  const ax = best.x + Math.sin(best.heading || 0) * (best.speed || 0) * lead;
+  const az = best.z + Math.cos(best.heading || 0) * (best.speed || 0) * lead;
+  const off = angleDelta(tp.heading, headingTo(tp.x, tp.z, ax, az));
+  tp.heading = wrapAngle(tp.heading + clamp(off, -H.turn * dt, H.turn * dt));
+}
+
 function stepTorpedoes(state, dt) {
   const out = [];
   for (const tp of state.torps) {
+    // Broken up by a bomb going off beside it (see rbuBurst).
+    if (tp.dead) continue;
     // How long since it was launched. A fish put in the water by hand comes
     // in with only how far it has run, which is how long it has been running.
     tp.age = (tp.age ?? (tp.travelled || 0) / Math.max(1, tp.speed)) + dt;
@@ -7308,6 +7371,7 @@ function stepTorpedoes(state, dt) {
       out.push(tp);
       continue;
     }
+    if (tp.homing) steerHoming(state, tp, dt);
     const nx = tp.x + Math.sin(tp.heading) * tp.speed * dt;
     const nz = tp.z + Math.cos(tp.heading) * tp.speed * dt;
     tp.travelled += tp.speed * dt;
@@ -7802,6 +7866,233 @@ function stepCiws(state, ship, dt) {
       c.fire = 0.12;
       state.events.push({ e: 'ciws', ship: ship.id, m: mi - light0, x: r(best.x), y: r(best.y), z: r(best.z), i: best.id });
     }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Anti-submarine rocket launchers
+// ---------------------------------------------------------------------------
+//
+// A ship of the missile age does not run over a boat to drop charges on her:
+// she throws them, from a launcher that trains and elevates like a gun, a
+// ripple of rocket-propelled bombs out to a kilometre and more ahead of her.
+// An RBU-1200 is five 250 mm tubes and nothing else -- no guidance, no
+// seeker, only a bomb that goes where it was thrown and goes off when it
+// meets something: a ship's side if it comes down on one, a boat's hull on
+// the way down, or the depth it was set for. And because what it throws is a
+// pattern of heavy charges going off in the water, it is the one thing aboard
+// that can stop a torpedo: laid across the track of one coming at her, the
+// shock of a bomb going off beside it breaks it up.
+//
+// Her own fire control works them, the way it works her depth charges: a fish
+// running at her first, because it is the thing that will kill her; a boat
+// her sonar holds next; and a ship close aboard last.
+
+/**
+ * What one of her launchers should throw at, if anything: the nearest
+ * torpedo of the enemy's coming at her, a submerged boat her sonar has, or a
+ * ship she can see, inside the launcher's reach and on a bearing it can be
+ * trained to. Where it should be thrown -- the target led by the bombs' time
+ * in the air -- comes with it, and how deep to set the bombs for.
+ */
+function rbuTarget(state, ship, cls, spec) {
+  const R = cls.rbu;
+  const at = mountWorldPos(ship, spec);
+  const reach = (x, z) => {
+    const d = dist(at.x, at.z, x, z);
+    return d >= R.minRange && d <= R.range && mountBears(ship, spec, headingTo(at.x, at.z, x, z));
+  };
+  // Where a body going `v` on `h` will be when the bombs get there.
+  const led = (x, z, h, v) => {
+    let px = x, pz = z;
+    for (let k = 0; k < 3; k++) {
+      const t = rbuFlight(R, dist(at.x, at.z, px, pz)).tof;
+      px = x + Math.sin(h) * v * t;
+      pz = z + Math.cos(h) * v * t;
+    }
+    return { x: px, z: pz };
+  };
+  // A torpedo of the enemy's running at her: one whose track passes close
+  // enough to her to hit her, inside the minute or so it has left to run.
+  const half = cls.hull.length * 0.5 + 25;
+  let best = null, bd = Infinity;
+  for (const tp of state.torps) {
+    if (tp.dead || tp.aboard || tp.air > 0 || tp.team === ship.team) continue;
+    const d = dist(ship.x, ship.z, tp.x, tp.z);
+    if (d > R.sonar || d >= bd) continue;
+    // Its closest approach to her, as she is going and as it is.
+    const rx = tp.x - ship.x, rz = tp.z - ship.z;
+    const vx = Math.sin(tp.heading) * tp.speed - Math.sin(ship.heading) * ship.speed;
+    const vz = Math.cos(tp.heading) * tp.speed - Math.cos(ship.heading) * ship.speed;
+    const vv = vx * vx + vz * vz;
+    const tc = vv > 1e-6 ? -(rx * vx + rz * vz) / vv : 0;
+    if (tc < 0 || tc > 90) continue;
+    // And one that will have run its fuel out before it gets to her is no
+    // threat to her.
+    if (tc * tp.speed > tp.range - tp.travelled + half) continue;
+    if (Math.hypot(rx + vx * tc, rz + vz * tc) > half) continue;
+    const aim = led(tp.x, tp.z, tp.heading, tp.speed);
+    if (!reach(aim.x, aim.z)) continue;
+    best = { kind: 'torp', id: tp.id, x: aim.x, z: aim.z, set: 4 };
+    bd = d;
+  }
+  if (best) return best;
+  // A boat under the water, on her sonar: deaf at speed, as every hull set is.
+  if (!(R.sonarSpeed && Math.abs(ship.speed) > R.sonarSpeed)) {
+    for (const boat of state.ships) {
+      if (!boat.alive || boat.team === ship.team || !getClass(boat.classId).dive || !submerged(boat)) continue;
+      const d = dist(ship.x, ship.z, boat.x, boat.z);
+      if (d > R.sonar || d >= bd) continue;
+      const aim = led(boat.x, boat.z, boat.heading, boat.speed);
+      if (!reach(aim.x, aim.z)) continue;
+      best = { kind: 'sub', id: boat.id, x: aim.x, z: aim.z, set: Math.max(6, boat.depth + getClass(boat.classId).hull.draft * 0.5) };
+      bd = d;
+    }
+    if (best) return best;
+  }
+  // A ship she can see, close aboard: thrown at her like a mortar.
+  for (const foe of state.ships) {
+    if (!foe.alive || foe.team === ship.team || (getClass(foe.classId).dive && submerged(foe))) continue;
+    if (foe.spottedBy && !foe.spottedBy[ship.team]) continue;
+    const d = dist(ship.x, ship.z, foe.x, foe.z);
+    if (d >= bd) continue;
+    const aim = led(foe.x, foe.z, foe.heading, foe.speed);
+    if (!reach(aim.x, aim.z)) continue;
+    best = { kind: 'ship', id: foe.id, x: aim.x, z: aim.z, set: 8 };
+    bd = d;
+  }
+  return best;
+}
+
+/** How a bomb out of an RBU gets `d` metres: its elevation, and its time in the air. */
+export function rbuFlight(R, d) {
+  const v = R.speed;
+  const s2 = clamp((d * G) / (v * v), 0, 1);
+  // The low throw: the quicker of the two, which is what matters against a
+  // torpedo running at forty knots.
+  const elev = Math.asin(s2) / 2;
+  return { elev, tof: (2 * v * Math.sin(elev)) / G };
+}
+
+/**
+ * Her RBU-1200s at work: each trains onto what its fire control gives it and,
+ * once it is laid and loaded, throws its five bombs in a ripple, one a
+ * quarter of a second, across the point it was laid on.
+ */
+function stepRbu(state, ship, dt) {
+  const cls = shipClass(ship);
+  const R = cls.rbu;
+  if (!R || !ship.rbuMounts || !ship.rbuMounts.length) return;
+  if (gunsDrowned(ship)) return;
+  ship.rbuMounts.forEach((m, i) => {
+    const spec = R.mounts[m.id];
+    if (m.cooldown > 0) m.cooldown -= dt;
+    if (m.ripple) { stepRbuRipple(state, ship, cls, spec, m, i, dt); return; }
+    m.look = (m.look || 0) - dt;
+    if (m.look > 0 && !m.want) return;
+    // Looked for twice a second: a fire control solution, not a reflex.
+    if (m.look <= 0) { m.want = rbuTarget(state, ship, cls, spec); m.look = 0.5; }
+    const want = m.want;
+    const rest = spec.rest ?? spec.angle;
+    if (!want) { m.angle = trainWithin(m.angle, rest, R.traverse * dt, spec); return; }
+    const at = mountWorldPos(ship, spec);
+    const local = wrapAngle(headingTo(at.x, at.z, want.x, want.z) - ship.heading);
+    m.angle = trainWithin(m.angle, local, R.traverse * dt, spec);
+    if (m.cooldown > 0 || Math.abs(angleDelta(m.angle, local)) > 0.06) return;
+    m.ripple = { left: R.tubes, next: 0, aim: want };
+    m.want = null;
+    m.look = 0;
+    m.cooldown = R.reload;
+  });
+}
+
+/** One tick of a ripple: the next bomb out of its tube when its turn comes. */
+function stepRbuRipple(state, ship, cls, spec, m, i, dt) {
+  const R = cls.rbu;
+  const r = m.ripple;
+  r.next -= dt;
+  while (r.left > 0 && r.next <= 0) {
+    fireRbuBomb(state, ship, cls, spec, m, i, r.aim, R.tubes - r.left);
+    r.left--;
+    r.next += R.ripple;
+  }
+  if (r.left <= 0) m.ripple = null;
+}
+
+/**
+ * Where the bombs should go now: what the launcher was laid on, led again off
+ * where it is this instant, since a torpedo has run a hundred metres while the
+ * launcher came round onto it.
+ */
+function rbuReaim(state, ship, R, spec, aim) {
+  const body = aim.kind === 'torp' ? state.torps.find((tp) => tp.id === aim.id && !tp.dead)
+    : state.ships.find((s) => s.id === aim.id && s.alive);
+  if (!body) return aim;
+  const at = mountWorldPos(ship, spec);
+  let px = body.x, pz = body.z;
+  for (let k = 0; k < 3; k++) {
+    const t = rbuFlight(R, dist(at.x, at.z, px, pz)).tof;
+    px = body.x + Math.sin(body.heading || 0) * (body.speed || 0) * t;
+    pz = body.z + Math.cos(body.heading || 0) * (body.speed || 0) * t;
+  }
+  return { ...aim, x: px, z: pz };
+}
+
+/** One bomb out of one tube, thrown across the point the launcher is laid on. */
+function fireRbuBomb(state, ship, cls, spec, m, i, aim0, k) {
+  const R = cls.rbu;
+  const aim = rbuReaim(state, ship, R, spec, aim0);
+  const at = mountWorldPos(ship, spec);
+  const y0 = spec.my ?? 6;
+  // The five bombs fall in a ring round the aim point, as the five tubes are
+  // splayed to put them there, a little off where each was meant to go.
+  const a = (k / R.tubes) * TAU + state.rng() * 0.6;
+  const rad = k === 0 ? 0 : R.spread * (0.75 + state.rng() * 0.5);
+  const tx = aim.x + Math.sin(a) * rad + gauss(state.rng) * 4;
+  const tz = aim.z + Math.cos(a) * rad + gauss(state.rng) * 4;
+  const d = clamp(dist(at.x, at.z, tx, tz), R.minRange * 0.8, R.range * 1.05);
+  const b = headingTo(at.x, at.z, tx, tz);
+  const f = rbuFlight(R, d);
+  // Thrown from her deck, and going her way as well as its own.
+  const vh = R.speed * Math.cos(f.elev);
+  fireShell(state, {
+    id: eid(), owner: ship.id, team: ship.team, rocket: true,
+    x: at.x + Math.sin(b) * 1.2, z: at.z + Math.cos(b) * 1.2, y: y0,
+    vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: R.speed * Math.sin(f.elev),
+    g: G, spec: R.shells.he, caliber: R.caliber, classId: cls.id, life: 0,
+    asw: {
+      set: aim.set, sink: R.sink, arming: R.arming, damage: R.damage,
+      lethal: R.lethal, hurt: R.hurt, kill: R.kill,
+    },
+  });
+  if (k === 0) {
+    state.events.push({
+      e: 'rbu', ship: ship.id, m: i, b: r(b), el: r(f.elev * 1000) / 1000,
+      x: r(at.x), y: r(y0), z: r(at.z), t: aim.kind,
+    });
+  }
+  ship.lastFiredAt = state.t;
+}
+
+/**
+ * An RBU's bomb into the sea: any torpedo of the enemy's running close by is
+ * broken up by it, and it goes on down, to go off at the depth it was set for
+ * as a depth charge does (see stepCharges and burstCharge).
+ */
+function rbuSplash(state, sh) {
+  const A = sh.asw;
+  for (const tp of state.torps) {
+    if (tp.dead || tp.aboard || tp.air > 0 || tp.team === sh.team) continue;
+    if (dist(tp.x, tp.z, sh.x, sh.z) > A.kill) continue;
+    tp.dead = true;
+    state.events.push({ e: 'torpKill', x: r(tp.x), z: r(tp.z), i: tp.id, ship: sh.owner });
+  }
+  state.charges.push({
+    id: eid(), owner: sh.owner, team: sh.team,
+    x: sh.x, z: sh.z, y: 0,
+    set: A.set, sink: A.sink, arming: A.arming,
+    damage: A.damage, lethal: A.lethal, hurt: A.hurt,
+    age: 0,
   });
 }
 
@@ -15144,6 +15435,7 @@ export function step(state, dt = DT) {
     stepFlak(state, ship, dt);
     stepLaunchers(state, ship, dt);
     stepCiws(state, ship, dt);
+    stepRbu(state, ship, dt);
     stepDrowning(state, ship, dt);
     stepDepthAttack(state, ship, dt);
     if (ship.mnCool > 0) ship.mnCool = Math.max(0, ship.mnCool - dt);

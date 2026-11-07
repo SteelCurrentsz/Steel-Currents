@@ -703,6 +703,9 @@ export class ShipView {
       }
     }
     this.torpMounts = built.torpMounts || [];
+    // Her anti-submarine rocket launchers, if she has any: laid where the
+    // simulation last fired each (see holdRbu), stowed otherwise.
+    this.rbuMounts = built.rbuMounts || [];
     // The outer doors of a submarine's tubes, if she has any. Nothing else in
     // the game has them.
     this.tubeCaps = built.tubeCaps || null;
@@ -1703,6 +1706,24 @@ export class ShipView {
         layMount(this.torpMounts[i], torp[i], 0, 0.7 * dt, 0.7 * dt);
       }
     }
+    if (this.rbuMounts.length) {
+      const now = performance.now() / 1000;
+      for (const m of this.rbuMounts) {
+        if (m.userData.laid === false) continue;
+        const hold = m.userData.hold;
+        const sector = m.userData.sector;
+        let want = sector ? sector.stow : (m.userData.rest || 0);
+        let up = 0;
+        if (hold && hold.until > now) { want = hold.b - this.group.rotation.y; up = hold.up; }
+        if (sector) {
+          let o = want - sector.angle;
+          while (o > Math.PI) o -= Math.PI * 2;
+          while (o < -Math.PI) o += Math.PI * 2;
+          want = sector.angle + Math.max(-sector.arc, Math.min(sector.arc, o));
+        }
+        layMount(m, want, up, (m.userData.trainRate || 0.7) * dt, 0.7 * dt);
+      }
+    }
     if (!this.aaMounts.length) return;
     // A light gun on a turret's roof goes round with the turret: it is put
     // where its spot on the roof has trained to, and is laid in her frame
@@ -1834,6 +1855,13 @@ export class ShipView {
     if (!b) return null;
     out.set(0, b.h * 0.6, b.len);
     return b.lift.localToWorld(out);
+  }
+
+  /** Hold one of her rocket launchers on a world bearing and an elevation for `secs`. */
+  holdRbu(i, bearing, up, secs) {
+    const m = this.rbuMounts && this.rbuMounts[i];
+    if (!m || !Number.isFinite(bearing)) return;
+    m.userData.hold = { b: bearing, up: up || 0, until: performance.now() / 1000 + secs };
   }
 
   holdLight(i, bearing, up, secs) {

@@ -3048,6 +3048,29 @@ export class Battle {
           // A bank whose fish are drawn leaving it throws them out now.
           this.scene.shipViews.get(ev.ship)?.group.userData.fireTubes?.(ev.mount, this.time);
           break;
+        case 'rbu': {
+          // A ripple off one of her RBU-1200s: the launcher laid on its
+          // bearing and elevation, and the flash and smoke off its tubes. The
+          // bombs themselves are drawn as rockets, off the wire.
+          const view = this.scene.shipViews.get(ev.ship);
+          const at = { x: ev.x, y: ev.y, z: ev.z };
+          if (view) {
+            view.holdRbu(ev.m, ev.b, ev.el, 3);
+            const p = view.rbuMounts?.[ev.m]?.getWorldPosition(new THREE.Vector3());
+            if (p) { at.x = p.x; at.y = p.y + 1; at.z = p.z; }
+          }
+          fx.muzzle(at.x, at.y, at.z, ev.b, 120);
+          this.scene.rockets.origin(at.x, at.y, at.z);
+          audio.rocket(at);
+          break;
+        }
+        case 'torpKill':
+          // A torpedo broken up by a bomb going off beside it: a column of
+          // white water, and no fish under it any more.
+          fx.splash(ev.x, ev.z, 260, { kind: 'bomb' });
+          audio.explosion(0.3, { x: ev.x, y: 0, z: ev.z });
+          if (ev.ship === this.shipId) this.hud.ribbon('TORPEDO DESTROYED');
+          break;
         case 'torpBeach':
           // A fish run up onto the shore: a little white water where it left
           // the sea, and no burst -- it does not go off on the sand.

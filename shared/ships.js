@@ -1051,6 +1051,182 @@ export const SHIP_CLASSES = {
     },
   },
 
+  guangzhou: {
+    // CNS Guangzhou, a destroyer of the People's Liberation Army Navy, armed
+    // as the owner asked: a twin AK-130 130 mm gun on her forecastle and
+    // another on her quarterdeck, for surface fire only; two PJ-26 76 mm
+    // dual-purpose singles superfiring over them; four AK-630 six-barrelled
+    // close-in guns, two a side amidships, which stop missiles as well as
+    // aeroplanes (see stepCiws); four RBU-1200 rocket launchers, two either
+    // side of her forward gun and two either side of her after one, whose
+    // bombs go off on whatever they come down on -- a ship, a submarine, or a
+    // torpedo running at her (see stepRbu); and six tubes of homing torpedoes,
+    // three a side, fixed at the angle they are mounted at, whose fish find
+    // their own way onto a ship once they are running (see stepTorpedoes).
+    //
+    // She is drawn from the owner's model of her (see guangzhou.js) --
+    // "Chinese PLANavy Guangzhou Ship（中国人民解放军海军广州舰）" by 全斗焕, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen --
+    // brought up to her length of 154 m, which makes her 16.4 m across,
+    // floated where the model paints her bottom.
+    id: 'guangzhou',
+    name: 'Guangzhou',
+    fullName: 'CNS Guangzhou',
+    className: 'Guangzhou',
+    type: 'DD',
+    typeName: 'Destroyer',
+    nation: 'chn',
+    blurb: 'Two twin 130 mm guns, homing torpedoes that hunt down what they are fired at, rocket launchers that blow incoming torpedoes out of the water, and four AK-630s that shoot missiles out of the sky.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 10.6, 17.2], [0, -12.6, 16.2]],
+      length: 154, beam: 16.4, draft: 5.0, superstructure: 1.1,
+    },
+    hp: 19500,
+    // Twenty-nine knots out of two shafts, and the handiness of a destroyer,
+    // if not of one a third her size.
+    maxSpeed: 29 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 1.05,
+    turnRate: 0.11,
+    rudderShift: 5.2,
+    speedLossInTurn: 0.2,
+    concealment: 7600,
+    fireDetectPenalty: 3600,
+    // Air and surface search sets of the missile age: further than anything a
+    // ship of the war carried.
+    radarRange: 16000,
+    repairCooldown: 60,
+    repairHeal: 0.11,
+    smokeCharges: 2,
+    // A destroyer's plating, and splinter protection over her magazines.
+    armor: { belt: 20, deck: 16, citadel: 20, bow: 13, superstructure: 10 },
+    turrets: [
+      // Each where the model stood it (see build/prepare-guangzhou-hull.mjs):
+      // A on her forecastle, Y on her quarterdeck facing astern.
+      { id: 0, name: 'A', x: -0.134, z: 47.568, angle: 0, arc: 2.6, guns: 2, my: 10.68 },
+      { id: 1, name: 'Y', x: -0.134, z: -48.032, angle: Math.PI, arc: 2.6, guns: 2, my: 8.29 },
+    ],
+    gun: {
+      name: '130 mm/70 AK-130', role: 'surface',
+      // Five below the horizontal to eighty up, though she lays it on ships
+      // only.
+      elev: { min: -0.087, max: 1.4 },
+      // Pivot to muzzle on the model's gun.
+      reach: 9.11,
+      // Fed automatically from the magazine under it, both barrels together:
+      // faster than any gun of the war of its size.
+      caliber: 130, reload: 2.6, traverse: 0.6, range: 16500, sigma: 1.5,
+      shells: shells(130, 2100, 1850, 95, 850, 0.09),
+    },
+    // Her six homing torpedoes, three tubes a side abreast her funnels, each
+    // fixed on her deck pointing forward and out over her side: they do not
+    // train, and the fish needs no aiming either -- run out on the tube's
+    // bearing, it turns onto the nearest enemy its seeker hears ahead of it
+    // and runs him down (see stepTorpedoes).
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 6.214, z: 11.308, angle: 0.309, arc: 0, rest: 0.309, fixed: true, fire: 1.4, tubes: 1, my: 5.22,
+          launch: { eject: 14, stagger: 0, lanes: [0], lie: 0, muzzle: 5.15, height: 5.22,
+            fish: { len: 6.6, r: 0.267, kind: 'yu6' } } },
+        { id: 1, x: -6.327, z: 11.3, angle: -0.309, arc: 0, rest: -0.309, fixed: true, fire: 1.4, tubes: 1, my: 6.07,
+          launch: { eject: 14, stagger: 0, lanes: [0], lie: 0, muzzle: 5.15, height: 6.07,
+            fish: { len: 6.6, r: 0.267, kind: 'yu6' } } },
+        { id: 2, x: 6.214, z: 7.502, angle: 0.309, arc: 0, rest: 0.309, fixed: true, fire: 1.4, tubes: 1, my: 5.22,
+          launch: { eject: 14, stagger: 0, lanes: [0], lie: 0, muzzle: 5.15, height: 5.22,
+            fish: { len: 6.6, r: 0.267, kind: 'yu6' } } },
+        { id: 3, x: -6.327, z: 7.515, angle: -0.309, arc: 0, rest: -0.309, fixed: true, fire: 1.4, tubes: 1, my: 6.07,
+          launch: { eject: 14, stagger: 0, lanes: [0], lie: 0, muzzle: 5.15, height: 6.07,
+            fish: { len: 6.6, r: 0.267, kind: 'yu6' } } },
+        { id: 4, x: 6.214, z: 3.717, angle: 0.309, arc: 0, rest: 0.309, fixed: true, fire: 1.4, tubes: 1, my: 5.22,
+          launch: { eject: 14, stagger: 0, lanes: [0], lie: 0, muzzle: 5.15, height: 5.22,
+            fish: { len: 6.6, r: 0.267, kind: 'yu6' } } },
+        { id: 5, x: -6.327, z: 3.71, angle: -0.309, arc: 0, rest: -0.309, fixed: true, fire: 1.4, tubes: 1, my: 6.07,
+          launch: { eject: 14, stagger: 0, lanes: [0], lie: 0, muzzle: 5.15, height: 6.07,
+            fish: { len: 6.6, r: 0.267, kind: 'yu6' } } },
+      ],
+      name: 'Yu-6 533 mm homing torpedo', role: 'surface', caliber: 533, kind: 'yu6',
+      reach: 5.15,
+      traverse: 0,
+      reload: 75, damage: 12000, speed: 45 * KNOTS, range: 8000,
+      detection: 1100, arming: 300, spread: 0, floodChance: 0.35,
+      // Her seeker: how far ahead it hears a ship, how wide, how hard the fish
+      // can turn onto one, and how far it runs out before it starts listening.
+      homing: { seek: 1600, cone: 0.7, turn: 0.14, after: 250 },
+    },
+    // Her two PJ-26 76 mm singles, dual-purpose, the gun the Leviathan
+    // carries: one superfiring over each of her AK-130s.
+    secondary: {
+      name: '76 mm/62 DP', role: 'dp',
+      elev: { min: -0.26, max: 1.48 },
+      reach: 5.44,
+      caliber: 76, reload: 1, traverse: 0.6, range: 6500, sigma: 1.2,
+      shells: shells(76, 760, 660, 30, 925, 0.05),
+      mounts: [
+        { x: 0.108, z: 34.47, angle: 0, arc: 2.5, rest: 0, guns: 1, my: 11.42 },
+        { x: 0.108, z: -34.566, angle: Math.PI, arc: 2.5, rest: Math.PI, guns: 1, my: 8.47 },
+      ],
+    },
+    aa: {
+      range: 4500, dps: 54,
+      guns: [
+        // Her four AK-630s, two a side abreast her funnels: six 30 mm barrels
+        // turning in one casing, five thousand rounds a minute, laid by their
+        // own radar. Like a Phalanx, what they shoot at, they hit -- missiles
+        // included. See stepCiws.
+        { name: 'AK-630 CIWS', caliber: 30, role: 'aa', reload: 0.012, range: 2000, piece: 'ciws', ciws: true,
+          elev: { min: -0.21, max: 1.54 },
+          mounts: [
+            { x: 4.175, z: 7.817, angle: 1.57, arc: 1.75, rest: 1.57, guns: 6, my: 8.47 },
+            { x: -4.304, z: 7.817, angle: -1.57, arc: 1.75, rest: -1.57, guns: 6, my: 8.47 },
+            { x: 4.713, z: -6.024, angle: 1.57, arc: 1.75, rest: 1.57, guns: 6, my: 8.47 },
+            { x: -4.927, z: -6.024, angle: -1.57, arc: 1.75, rest: -1.57, guns: 6, my: 8.47 },
+          ] },
+      ],
+    },
+    // Her four RBU-1200 launchers: five 250 mm tubes each, throwing a ripple
+    // of rocket-propelled bombs out to twelve hundred metres. Her own fire
+    // control works them (see stepRbu): onto a torpedo running at her first,
+    // then onto a submarine her sonar holds, then onto a ship close aboard. A
+    // bomb that comes down on a ship goes off against her; one that comes down
+    // in the sea blows any torpedo within reach of it out of the water, and
+    // sinks, to go off at the depth of the boat it was thrown at or against
+    // her hull on the way down.
+    rbu: {
+      name: 'RBU-1200', caliber: 250, tubes: 5,
+      reload: 18, traverse: 0.7, range: 1200, minRange: 250,
+      // How fast its bombs leave the tubes, and how far apart a ripple falls.
+      speed: 115, spread: 22, ripple: 0.25,
+      // Against a ship: the bomb's warhead going off on her.
+      shells: shells(250, 2400, 2400, 18, 115, 0.12),
+      // In the water: how quickly it sinks, and what its warhead does there.
+      sink: 7, damage: 7500, lethal: 9, hurt: 22, arming: 4,
+      // How close to a torpedo it must go off to break it up.
+      kill: 32,
+      // Her hull sonar, which hears a boat under her and a fish coming at her.
+      sonar: 2600, sonarSpeed: 24 * KNOTS,
+      mounts: [
+        { id: 0, x: 4.754, z: 45.747, angle: 0, arc: 2.6, rest: 0, my: 7.59 },
+        { id: 1, x: -4.861, z: 45.921, angle: 0, arc: 2.6, rest: 0, my: 7.58 },
+        { id: 2, x: 4.754, z: -64.019, angle: Math.PI, arc: 2.6, rest: Math.PI, my: 5.33 },
+        { id: 3, x: -4.861, z: -63.845, angle: Math.PI, arc: 2.6, rest: Math.PI, my: 5.32 },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 6500,
+      aircraft: 0,
+      mainRounds: 1000,
+      torpedoesCarried: 6,
+      secondary: { caliber: 76, label: '76mm', barrels: 2, rounds: 2400 },
+      tertiary: [
+        { caliber: 30, label: 'AK-630 CIWS', barrels: 24, mounts: 4, rounds: 8000 },
+        { caliber: 250, label: 'RBU-1200', barrels: 20, mounts: 4, rounds: 120 },
+      ],
+    },
+  },
+
   cleveland: {
     // Four triple 6" turrets, superfiring fore and aft. Wide arcs, but the
     // superstructure takes a bite out of each of them.
@@ -10341,7 +10517,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'enterprise', 'shokaku', 'shinano'];
 
