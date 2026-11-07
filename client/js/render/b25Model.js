@@ -21,10 +21,20 @@ let PIECES = null;
 export let B25 = null;
 let loading = null;
 
+/**
+ * What she is drawn at, of the model's own size. The model is a B-25J, a
+ * metre and a half longer than the B-25Bs Doolittle flew; and at nine-tenths
+ * she is a B-25B's length, and sixteen of her range on the Hornet's deck aft
+ * of her island without one of them standing in another.
+ */
+export const B25_SCALE = 0.9;
+
+const scaled = (v) => (Array.isArray(v) ? v.map(scaled) : typeof v === 'number' ? v * B25_SCALE : v);
+
 export function loadB25() {
   loading ||= import('./b25Model.data.js').then((m) => {
     PIECES = m.B25_PIECES;
-    B25 = m.B25_META;
+    B25 = Object.fromEntries(Object.entries(m.B25_META).map(([k, v]) => [k, scaled(v)]));
   }, (e) => { loading = null; throw e; });
   return loading;
 }
@@ -37,7 +47,7 @@ let GEOS = null;
 export function b25Geometries() {
   if (GEOS) return GEOS;
   GEOS = {};
-  for (const [k, v] of Object.entries(PIECES)) GEOS[k] = decodePiece(v);
+  for (const [k, v] of Object.entries(PIECES)) GEOS[k] = decodePiece(v).scale(B25_SCALE, B25_SCALE, B25_SCALE);
   return GEOS;
 }
 
@@ -58,6 +68,11 @@ export function b25Materials() {
       color: 0x6f8794, specular: 0xe6eef2, shininess: 120,
       transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide,
     }),
+    // Her glass when she flies: welded into one with her and drawn at a
+    // distance, where glass reads as dark and shining, not as see-through.
+    glassSolid: new THREE.MeshPhongMaterial({
+      color: 0x34444e, specular: 0xd8e2e8, shininess: 110, side: THREE.DoubleSide,
+    }),
   };
   // Painted in their own colours: dressPlane leaves them alone.
   for (const m of Object.values(MATS)) m.userData.painted = true;
@@ -65,22 +80,23 @@ export function b25Materials() {
 }
 
 /** How far her legs come up into her, about where they stand. */
-const GEAR_UP = 0.9;
+const GEAR_UP = 0.9 * B25_SCALE;
 
 /**
  * A whole B-25, nose +z, wheels on y = 0, her length centred on her origin.
  *
+ * `opts.solidGlass` glazes her solid, for a model welded into one.
  * `userData.prop` is her port airscrew's hub and `userData.props` both of
  * them, each turning about its own z; `userData.gear(u)` puts her legs down
  * (0) or up (1); `userData.parts` the same, in the form a flight model takes
  * moving parts in (see planes.js flightModels).
  */
-export function b25Model() {
+export function b25Model(opts = {}) {
   const g = b25Geometries();
   const M = b25Materials();
   const p = new THREE.Group();
   p.add(new THREE.Mesh(g.body, M.skin));
-  const glass = new THREE.Mesh(g.glass, M.glass);
+  const glass = new THREE.Mesh(g.glass, opts.solidGlass ? M.glassSolid : M.glass);
   glass.renderOrder = 2;
   p.add(glass);
   p.userData.parts = [];

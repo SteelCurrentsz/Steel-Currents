@@ -229,7 +229,7 @@ import {
 import {
   buildHornet, stepLifts as hornetLifts, FD_FWD as HN_FD_FWD, FD_AFT as HN_FD_AFT, LIFTS as HN_LIFTS,
   HANGAR as HN_HANGAR, hangarSpots as hornetHangarSpots, MOUNT_SEATS as HORNET_SEATS, hornetSurfaceY,
-  DECKLOAD as HN_DECKLOAD, B25_COUNT,
+  DECKLOAD as HN_DECKLOAD, B25_COUNT, B25_TAXI as HN_B25_TAXI, b25Spot as hnB25Spot, B25_LANE as HN_B25_LANE,
 } from '../client/js/render/hornet.js';
 import { Audio as AudioClass, audio as theAudio } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
@@ -20088,8 +20088,13 @@ check('the Hornet is commissioned before the Enterprise, with ninety-seven Hellc
   assert.notEqual(silhouette('hornet'), silhouette('fletcher'), 'she is drawn as a destroyer in the yard');
   // Her model is credited as its licence asks.
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
-  assert.ok(html.includes('"U.S. Navy Aircraft Carrier USS Hornet(CV-8)"\n        by 全斗焕 is licensed under'),
-    'her model is not on the Credits screen');
+  const at = html.indexOf('U.S. Navy Aircraft Carrier USS Hornet(CV-8)');
+  assert.ok(at >= 0, 'her model is not on the Credits screen');
+  const credit = html.slice(html.lastIndexOf('<p class="credit">', at), html.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/o6M9r'), 'the credit does not link the model');
+  assert.ok(credit.includes('全斗焕'), 'the credit does not name its author');
+  assert.ok(credit.includes('http://creativecommons.org/licenses/by/4.0/') && credit.includes('Creative Commons Attribution'),
+    'the credit is not as its licence asks');
 });
 
 check('the Hornet has every gun her model has, standing where the model stood it', () => {
@@ -20147,20 +20152,79 @@ check("the Hornet's runway is flat from end to end, with her B-25s ranged on it 
   }
   assert.ok(shots > 1000, `only ${shots} shots at her runway`);
   // The B-25s: on her deck, aft of her island, the first with a hundred and
-  // forty metres of deck ahead of her, none of them standing in another.
+  // thirty metres of deck ahead of her, none of them standing in another.
   assert.equal(HN_DECKLOAD.length, B25_COUNT);
-  assert.ok(HN_FD_FWD - HN_DECKLOAD[0].z > 130, `the first B-25 has ${(HN_FD_FWD - HN_DECKLOAD[0].z).toFixed(0)} m of deck`);
+  assert.ok(HN_FD_FWD - hnB25Spot(0) >= 130, `the first B-25 has ${(HN_FD_FWD - hnB25Spot(0)).toFixed(0)} m of deck`);
   for (const d of HN_DECKLOAD) {
     assert.ok(d.z > HN_FD_AFT + 4 && d.z < 0, `a B-25 is ranged at ${d.z}`);
     assert.ok(hornetSurfaceY(d.x, d.z) > FD - 1.2, `a B-25 at ${d.x}, ${d.z} is not on her deck`);
   }
-  for (let i = 0; i < HN_DECKLOAD.length; i++) {
-    for (let j = i + 1; j < HN_DECKLOAD.length; j++) {
-      const a = HN_DECKLOAD[i], b = HN_DECKLOAD[j];
-      assert.ok(Math.abs(a.x - b.x) > 2.5 || Math.abs(a.z - b.z) > 9, `B-25s ${i} and ${j} are ranged one in the other`);
+  // None of them in another, off her own skin: what each covers of the deck
+  // in quarter-metre squares, and how high, and no square two of them share
+  // at heights that meet.
+  const C = 0.25;
+  const local = b25Footprint(b25s[0]);
+  const at = (h, d) => {
+    const m = new Map();
+    const cs = Math.cos(d.yaw), sn = Math.sin(d.yaw);
+    for (const [lx, lz, lo, hi] of local) {
+      const k = Math.round((d.x + lx * cs + lz * sn) / C) * 8192 + Math.round((d.z - lx * sn + lz * cs) / C);
+      const e = m.get(k);
+      if (!e) m.set(k, [lo, hi]); else { e[0] = Math.min(e[0], lo); e[1] = Math.max(e[1], hi); }
+    }
+    return m;
+  };
+  const meet = (A, B) => { for (const [k, e] of B) { const f = A.get(k); if (f && e[0] < f[1] && f[0] < e[1]) return true; } return false; };
+  const parked = HN_DECKLOAD.map((d, i) => at(b25s[i], d));
+  for (let i = 0; i < parked.length; i++) {
+    for (let j = i + 1; j < parked.length; j++) assert.ok(!meet(parked[i], parked[j]), `B-25s ${i} and ${j} are ranged one in the other`);
+  }
+  // Nor in the way of one that goes before her, on her taxi onto the line.
+  for (let i = 0; i < HN_DECKLOAD.length - 1; i++) {
+    const from = HN_DECKLOAD[i], spot = hnB25Spot(i);
+    const z1 = i === 0 ? from.z : from.z + HN_B25_TAXI.ahead;
+    const ease = (k) => k * k * (3 - 2 * k);
+    for (let u = 0; u <= 1.0001; u += 0.05) {
+      // As hornet.js stepDeck has her: ahead and squaring up, then across.
+      const w = Math.max(0, (u - 0.5) * 2);
+      const pose = u < 0.5
+        ? { x: from.x, z: from.z + (z1 - from.z) * ease(u * 2), yaw: from.yaw * (1 - ease(u * 2)) }
+        : { x: from.x + (HN_B25_LANE - from.x) * ease(w), z: z1 + (spot - z1) * ease(w), yaw: Math.sin(w * Math.PI) * Math.sign(HN_B25_LANE - from.x) * 0.22 };
+      const S = at(null, pose);
+      for (let j = i + 1; j < parked.length; j++) assert.ok(!meet(parked[j], S), `B-25 ${i} taxis through ${j}`);
     }
   }
 });
+
+/** What a B-25 covers of the deck, in her own frame: quarter-metre squares and how high she is in each. */
+function b25Footprint(holder) {
+  const p = holder.children[0];
+  p.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(p.matrixWorld).invert();
+  const C = 0.25, cells = new Map();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), v = new THREE.Vector3();
+  const m = new THREE.Matrix4();
+  p.traverse((o) => {
+    if (!o.isMesh) return;
+    m.multiplyMatrices(inv, o.matrixWorld);
+    const pos = o.geometry.attributes.position, idx = o.geometry.index;
+    const n = idx ? idx.count : pos.count;
+    for (let t = 0; t < n; t += 3) {
+      const ii = [0, 1, 2].map((k) => (idx ? idx.getX(t + k) : t + k));
+      a.fromBufferAttribute(pos, ii[0]).applyMatrix4(m);
+      b.fromBufferAttribute(pos, ii[1]).applyMatrix4(m);
+      c.fromBufferAttribute(pos, ii[2]).applyMatrix4(m);
+      const s = Math.max(1, Math.ceil(Math.max(a.distanceTo(b), b.distanceTo(c), a.distanceTo(c)) / 0.15));
+      for (let i = 0; i <= s; i++) for (let j = 0; j <= s - i; j++) {
+        v.copy(a).multiplyScalar(1 - (i + j) / s).addScaledVector(b, i / s).addScaledVector(c, j / s);
+        const k = Math.round(v.x / C) * 8192 + Math.round(v.z / C);
+        const e = cells.get(k);
+        if (!e) cells.set(k, [v.y, v.y]); else { e[0] = Math.min(e[0], v.y); e[1] = Math.max(e[1], v.y); }
+      }
+    }
+  });
+  return [...cells].map(([k, e]) => { const I = Math.round(k / 8192); return [I * C, (k - I * 8192) * C, e[0], e[1]]; });
+}
 
 check("the Hornet's B-25s go off her deck in turn, and her lifts stay flush until the last has gone", () => {
   const built = buildHornet();
@@ -20176,6 +20240,16 @@ check("the Hornet's B-25s go off her deck in turn, and her lifts stay flush unti
   }
   // The first goes: she is lifted off where she was ranged and flown off by
   // the deck, and is not still drawn standing there.
+  // Where the deck hands each of them to the simulation is where the
+  // simulation takes her up.
+  const DL = SHIP_CLASSES.hornet.planes.deckload;
+  for (let i = 0; i < 16; i++) {
+    built.group.userData.launch(0, 'level', 24.5, 'mitchell', i);
+    const e = deck.endPose;
+    assert.ok(Math.abs(DL.runOut[i] - e.z) < 6 && Math.abs(DL.runHeight[i] - e.y) < 1.5,
+      `B-25 ${i} is off the deck at ${e.z.toFixed(1)}, ${e.y.toFixed(1)} and the simulation has her at ${DL.runOut[i]}, ${DL.runHeight[i]}`);
+  }
+  built.group.userData.deckload(16);
   built.group.userData.launch(100, 'level', 24.5, 'mitchell', 0);
   assert.equal(deck.plane.role, 'mitchell', 'the deck sent something else');
   assert.ok(!b25s[0].visible, 'the first B-25 is still parked while she runs');
@@ -26299,6 +26373,12 @@ function homeFlight(seed, classId = 'enterprise') {
   const foe = addShip(st, { name: 'F', classId: 'fletcher', team: 1, index: 0 });
   foe.x = 9000; foe.z = 9000;
   cv.aimX = cv.x + 2500; cv.aimZ = cv.z + 2500;
+  // A deckload goes first and never comes back (the Hornet's B-25s): it is
+  // her own air group that comes home, so the deck is cleared of it here.
+  if (cv.deckload) {
+    cv.deckload = 0;
+    for (const q of cv.squadrons) if (q.deckload) q.state = 'spent';
+  }
   assert.ok(launchStrike(st, cv), 'she would not launch');
   for (let i = 0; i < 30 * 60 && !st.planes.length; i++) step(st, DT);
   const p = st.planes[0];

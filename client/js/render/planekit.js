@@ -4070,7 +4070,7 @@ function tbd(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
  * legs up.
  */
 function mitchell(g, x, y, z, ry, folded = false, opts = {}) {
-  const p = b25Model();
+  const p = b25Model({ solidGlass: opts.solidGlass });
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);

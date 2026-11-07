@@ -1045,7 +1045,7 @@ export function flightModels() {
   // And the B-25 the Hornet carried to Japan on her deck, off the owner's
   // model of her. Built and welded like the kit's machines, but in her own
   // paint, which goes through the weld with her points.
-  make('mitchell', (g) => mitchell(g, 0, 0, 0, 0, false, { gear: false }));
+  make('mitchell', (g) => mitchell(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Devastator the Hornet's torpedo squadron flew at Midway.
   out.devastator = devastatorFlightModel();
   MUZZLES.devastator = DEVASTATOR.guns.slice().sort((a, b) => a[0] - b[0]);

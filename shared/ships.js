@@ -10365,15 +10365,17 @@ export const SHIP_CLASSES = {
     // Her eight 5"/38 singles, two to a sponson at the corners of her flight
     // deck, where the model has them. None of them can fire across the ship --
     // the deck is in the way -- so each is laid abeam.
+    // Open single mounts behind a shield, in galleries at the deck edge: no
+    // gunhouse and no roof, the crews standing round them.
     turrets: [
-      { id: 0, name: 'S1', x: -13.07, z: 87.11, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.3 },
-      { id: 1, name: 'P1', x: 12.97, z: 87.11, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.3 },
-      { id: 2, name: 'S2', x: -13.08, z: 78.53, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.3 },
-      { id: 3, name: 'P2', x: 12.97, z: 78.53, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.3 },
-      { id: 4, name: 'S3', x: -13.29, z: -95.4, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.46 },
-      { id: 5, name: 'P3', x: 13.12, z: -95.4, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.44 },
-      { id: 6, name: 'P4', x: 12.86, z: -103.6, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.45 },
-      { id: 7, name: 'S4', x: -13.29, z: -103.46, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.46 },
+      { id: 0, name: 'S1', x: -13.07, z: 87.11, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.3, open: true },
+      { id: 1, name: 'P1', x: 12.97, z: 87.11, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.3, open: true },
+      { id: 2, name: 'S2', x: -13.08, z: 78.53, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.3, open: true },
+      { id: 3, name: 'P2', x: 12.97, z: 78.53, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.3, open: true },
+      { id: 4, name: 'S3', x: -13.29, z: -95.4, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.46, open: true },
+      { id: 5, name: 'P3', x: 13.12, z: -95.4, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.44, open: true },
+      { id: 6, name: 'P4', x: 12.86, z: -103.6, angle: Math.PI / 2, arc: 1.2, guns: 1, my: 14.45, open: true },
+      { id: 7, name: 'S4', x: -13.29, z: -103.46, angle: -Math.PI / 2, arc: 1.2, guns: 1, my: 14.46, open: true },
     ],
     gun: {
       name: '5"/38 Mk 12', role: 'dp',
@@ -10503,10 +10505,10 @@ export const SHIP_CLASSES = {
         bombs: 4, bombDamage: 2600, bombHit: 0.3, bombFire: 0.4, bombPen: 40,
         hp: 2400, cruiseSpeed: 92,
         // Where her run leaves each of them in turn, and how high, measured
-        // off the integrated launch the deck on her flies: the first starts
-        // furthest forward and is furthest out when the next is ranged.
-        runOut: [314.6, 308.3, 302.1, 295.8, 289.6, 283.3, 277.1, 270.8, 270.8, 271.2, 271.6, 272.1, 272.2, 272.8, 273.4, 274.1],
-        runHeight: [15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 16.2, 16.6, 17, 17.4, 17.6, 17.9, 18.1, 18.2],
+        // off the integrated launch the deck on her flies, from where each
+        // starts her run (see hornet.js DECKLOAD).
+        runOut: [326.1, 327.1, 318.6, 311.1, 307.8, 299.6, 291.8, 286.1, 279.1, 271.1, 270.5, 271.1, 271.7, 271.9, 272.5, 273],
+        runHeight: [15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 16.1, 16.7, 17.1, 17.4, 17.8, 18],
       },
     },
     datasheet: {
