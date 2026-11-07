@@ -1330,7 +1330,11 @@ function gunKind(kind, { guns, minLen, tris, barrelTris, inside = 0.6, test = nu
 const DEBUG = {};
 const GUNS = {
   main: gunKind('main', { guns: 1, minLen: 2, tris: 3000, barrelTris: 500 }),
-  dp: gunKind('dp', { guns: 1, minLen: 0.8, tris: 1500, barrelTris: 200 }),
+  // Its trunnions well forward in its dome, where the barrel comes out of it:
+  // the model stows it at 38 degrees, and the bore drawn back from there at
+  // the usual depth inside the face puts them half a metre off her deck, low
+  // enough for a barrel laid level to run into her bulwark.
+  dp: gunKind('dp', { guns: 1, minLen: 0.8, tris: 1500, barrelTris: 200, inside: -0.3 }),
   // Her Phalanx is lifted out of her and only where it stands is kept: the
   // model draws it in some hundred and fifty thousand faces, most of them
   // bolts, and no decimation of it keeps its six barrels. ticonderoga.js puts
