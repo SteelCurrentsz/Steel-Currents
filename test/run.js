@@ -12786,8 +12786,20 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // from all of them by a fraction of a degree. The pair of 2 cm on her
     // forecastle take him inside their own reach, and her bridge's twins
     // take him once he is up off the water.
-    const blindAhead = cls.id === 'rodney' || cls.id === 'scharnhorst';
-    if (blindAhead) {
+    //
+    // And the Ticonderoga: her three Mk 71s step up her forecastle to her
+    // bridge, and her forward 76 mm and her Phalanx stand abreast and abaft
+    // the highest of them, so the wave tops dead ahead are under all three
+    // gunhouses from where they stand (measured off her model). She takes a
+    // low aeroplane over her bow from a kilometre in, and one up off the water
+    // further out, with half her battery.
+    const blindAhead = cls.id === 'rodney' || cls.id === 'scharnhorst' || cls.id === 'ticonderoga';
+    if (cls.id === 'ticonderoga') {
+      assert.ok(aaBearing(cls, ship, 0, 1000, LOW).barrels > 0,
+        'the Ticonderoga cannot shoot at an aeroplane low over her bow even close in');
+      assert.ok(aaBearing(cls, ship, 0, R, 400).barrels >= aaBarrels(cls) / 2,
+        'the Ticonderoga cannot shoot at an aeroplane high over her bow');
+    } else if (blindAhead) {
       assert.ok(aaBearing(cls, ship, 0, 1500, LOW).barrels > 0,
         `${cls.id} cannot shoot at an aeroplane low over her bow even close in`);
       assert.ok(aaBearing(cls, ship, 0, R, 400).barrels >= 8,
