@@ -2945,6 +2945,13 @@ export class Battle {
             this.hud.alert(ev.b >= 1 ? 'Caught in the blast' : 'Blast wave — heavy damage');
           }
           break;
+        case 'nukeWave':
+          // The third thing it does: the sea it shoved aside, coming back.
+          if (ev.ship === this.shipId) {
+            this.shake = Math.max(this.shake, Math.min(1.6, 0.3 + ev.h / 16));
+            this.hud.alert(`Wave from the burst — ${Math.round(ev.h)} m sea`);
+          }
+          break;
         case 'airburst':
           // A heavy round's time fuse running out in the sky.
           fx.flakBurst(ev.x, ev.y, ev.z, ev.cal);

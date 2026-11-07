@@ -27618,7 +27618,7 @@ check('a battery laid on a point puts its rounds down on the point, on the sea o
 // The B-29 Silverplate and her one weapon
 // ---------------------------------------------------------------------------
 const { nukeBlast } = await import('../shared/sim.js');
-const { NUKE, nukeFront } = await import('../shared/nuke.js');
+const { NUKE, nukeFront, waveHeight } = await import('../shared/nuke.js');
 const { getClass } = await import('../shared/ships.js');
 const { b29Ready } = await import('../client/js/render/b29Model.js');
 
@@ -27750,8 +27750,42 @@ check('the shock goes out where nukeFront has it, and wrecks by distance', () =>
   const lost = ships.map((s, k) => 1 - Math.max(0, s.hp) / hp0[k]);
   assert.ok(lost[1] > lost[2] && lost[2] > 0, `the harm does not fall away with distance: ${lost.map((x) => x.toFixed(2))}`);
   assert.ok(lost[3] < 0.01, `a ship seven kilometres off lost ${(lost[3] * 100).toFixed(1)}% of her`);
-  // And the wave rolled the ones it reached.
-  assert.ok(Math.abs(ships[2].rockRate) > 0 || Math.abs(ships[2].rock) > 0, 'the wave never rolled her');
+});
+
+check('after the flash and the shock comes the wave: slower, big close in, and no tsunami', () => {
+  const world = generateWorld(92, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  // A destroyer outside the blast, where only the water reaches her.
+  const dd = addShip(st, { name: 'Tin can', classId: 'fletcher', team: 0, index: 0 });
+  dd.x = 4800; dd.z = 0; dd.speed = 0; dd.heading = 0;
+  const hp0 = dd.hp;
+  nukeBlast(st, 0, 0, 0, null);
+  let shock = null, wave = null, rolled = 0;
+  for (let i = 0; i < 30 * 160 && !wave; i++) {
+    for (const e of step(st, DT)) {
+      if (e.ship !== dd.id) continue;
+      if (e.e === 'nukeHit' && shock === null) shock = st.t;
+      if (e.e === 'nukeWave') wave = { t: st.t, h: e.h };
+    }
+    rolled = Math.max(rolled, Math.abs(dd.rock || 0));
+  }
+  assert.equal(shock, null, 'the shock reached a ship outside its reach');
+  assert.ok(wave, 'the wave never reached her');
+  const d = 4800 - getClass('fletcher').hull.beam / 2;
+  const due = -NUKE.waveTau * Math.log(1 - d / NUKE.waveReach);
+  assert.ok(Math.abs(wave.t - due) < 0.5, `the wave got to her at ${wave.t.toFixed(1)} s, it was due at ${due.toFixed(1)} s`);
+  // Slower than the shock by a long way: the shock is across that distance
+  // in a few seconds, the sea takes the better part of two minutes.
+  assert.ok(wave.t > 20 * NUKE.tau, 'the wave came at the speed of the shock');
+  // A heavy sea, not a wall a hundred metres high, and lower the further out.
+  assert.ok(wave.h >= 3 && wave.h <= 15, `a ${wave.h} m sea at nearly five kilometres`);
+  assert.ok(waveHeight(500) > waveHeight(3000) && waveHeight(3000) > waveHeight(6000));
+  assert.ok(waveHeight(0) < 30, `the wave stands ${waveHeight(0).toFixed(0)} m at the burst`);
+  for (let i = 0; i < 30 * 6; i++) { step(st, DT); rolled = Math.max(rolled, Math.abs(dd.rock || 0)); }
+  assert.ok(rolled > 0.02, `it rolled her ${rolled.toFixed(3)} rad`);
+  assert.ok(dd.alive && dd.hp > hp0 * 0.9, 'a five-metre sea sank a destroyer');
+  for (let i = 0; i < 30 * 40; i++) step(st, DT);
   assert.equal(st.nukes.length, 0, 'the burst is still being stepped long after it is done');
 });
 

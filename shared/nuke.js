@@ -33,7 +33,14 @@ export const NUKE = {
   /** The front's time constant, seconds: see nukeFront. */
   tau: 3.2,
   /** How long the whole thing is worth drawing, seconds. */
-  life: 90,
+  life: 150,
+  /** The surface wave: how far out it ever gets, metres. */
+  waveReach: 6500,
+  /** Its time constant, seconds: see nukeWave. */
+  waveTau: 110,
+  /** How tall it stands where it is thrown up, and how fast that falls away. */
+  waveHigh: 22,
+  waveFall: 2500,
 };
 
 /**
@@ -43,12 +50,37 @@ export const NUKE = {
  * spherical shock loses its strength as the square of the distance and its
  * speed with it -- and the curve that does that, close enough to the measured
  * one for anyone watching, is an exponential approach to its furthest reach.
- * Two and a half kilometres in the first three seconds; the last of it,
- * sixty seconds of ring creeping out to the edge, is the wave.
+ * Two and a half kilometres in the first three seconds, and done in fifteen.
+ * The water comes after it, a great deal slower: see nukeWave.
  */
 export function nukeFront(age) {
   if (!(age > 0)) return 0;
   return NUKE.reach * (1 - Math.exp(-age / NUKE.tau));
+}
+
+/**
+ * The three things a burst on the sea does, in the order they happen:
+ *
+ *   1. the flash and the fireball, in the first thousandths of a second;
+ *   2. the shock, racing out through the air and the water at many times
+ *      the speed of sound -- the pressure that wrecks ships -- with the spray
+ *      dome thrown up off the sea over the burst;
+ *   3. the wave: the water the burst shoved aside, coming back as a ring of
+ *      heavy surface waves. Big close in, and nothing like a tsunami: a
+ *      tsunami is a sea floor moving, and this is a cavity in the water
+ *      collapsing, so the wave is steep, short and loses its height fast.
+ *
+ * nukeFront is the second; this is the third. It leaves at about sixty
+ * metres a second and slows, and it is still there, low, at six kilometres.
+ */
+export function nukeWave(age) {
+  if (!(age > 0)) return 0;
+  return NUKE.waveReach * (1 - Math.exp(-age / NUKE.waveTau));
+}
+
+/** How tall the wave stands when it has run out `r` metres, crest to trough. */
+export function waveHeight(r) {
+  return NUKE.waveHigh * Math.exp(-Math.max(0, r) / NUKE.waveFall) + 1.5;
 }
 
 /**

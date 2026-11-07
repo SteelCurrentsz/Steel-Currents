@@ -11,7 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt } from './formation.js';
-import { NUKE, nukeFront, nukeBite } from './nuke.js';
+import { NUKE, nukeFront, nukeBite, nukeWave, waveHeight } from './nuke.js';
 import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
@@ -6340,7 +6340,8 @@ function atomicArrives(state, sh, px, py, pz) {
 export function nukeBlast(state, x, y, z, sh = null) {
   const id = eid();
   const team = sh ? sh.team : -1;
-  const n = { id, x, y, z, t0: state.t, r: 0, team, from: sh ? sh.bomber || 0 : 0 };
+  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0,
+    sea: groundHeight(state.world, x, z) <= 0.5 };
   (state.nukes || (state.nukes = [])).push(n);
   const ashore = groundHeight(state.world, x, z) > 0.5;
   state.events.push({ e: 'nuke', i: id, x: r(x), y: r(y), z: r(z), tm: team, land: ashore ? 1 : 0, tk: state.tick });
@@ -6389,17 +6390,9 @@ function stepNukes(state, dt) {
           for (const k of ['fore', 'aft']) if (s.sections[k]) startFire(state, s, k, Math.min(1, bite));
         }
       }
-      // And the wave. Square on to her or not, it rolls her and carries her.
-      const dx = s.x - n.x, dz = s.z - n.z;
-      const dd = Math.hypot(dx, dz) || 1;
-      const lx = worldToLocal(n.x - s.x, n.z - s.z, s.heading).x;
-      const j = Math.pow(Math.max(0, 1 - d / (NUKE.reach * 1.4)), 1.5)
-        * clamp(DD_BULK / Math.max(1, cls.hull.length * cls.hull.beam * cls.hull.draft), 0.25, 3);
-      s.rockRate = clamp((s.rockRate || 0) - Math.sign(lx || 1) * ROLL_KICK * 6 * j, -MAX_ROCK_RATE, MAX_ROCK_RATE);
-      s.driftX = (s.driftX || 0) + (dx / dd) * PUSH_KICK * 8 * j;
-      s.driftZ = (s.driftZ || 0) + (dz / dd) * PUSH_KICK * 8 * j;
-      const v = Math.hypot(s.driftX, s.driftZ);
-      if (v > MAX_DRIFT) { s.driftX *= MAX_DRIFT / v; s.driftZ *= MAX_DRIFT / v; }
+      // The shock is a blow, not a wave: it jolts her and that is all. The
+      // water comes later (see the wave, below).
+      nukeShove(s, cls, n, 0.25 * Math.max(0, 1 - d / NUKE.reach));
       state.events.push({ e: 'nukeHit', ship: s.id, i: n.id, b: Math.round(bite * 100) / 100 });
     }
     // In the air.
@@ -6446,9 +6439,47 @@ function stepNukes(state, dt) {
         }
       }
     }
+    // The third thing: the wave, the sea that was shoved aside coming back
+    // as a ring of heavy water, slower than the shock by a long way. It does
+    // not wreck a ship the way the shock does -- it rolls her, carries her
+    // bodily away from the burst, and puts green water over a low deck.
+    const w0 = n.w, w1 = n.sea ? nukeWave(age) : 0;
+    if (w1 > w0) {
+      for (const s of state.ships) {
+        if (!s.alive || (s.depth || 0) > 8) continue;
+        const cls = getClass(s.classId);
+        const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
+        if (d <= w0 || d > w1) continue;
+        const h = waveHeight(d);
+        nukeShove(s, cls, n, h / NUKE.waveHigh);
+        // Over her deck edge: a sea aboard, and what it does to what is there.
+        const over = h - freeboardOf(cls);
+        if (over > 0) damageShip(state, s, null, cls.hp * Math.min(0.12, over * 0.008), 'flood');
+        state.events.push({ e: 'nukeWave', ship: s.id, i: n.id, h: Math.round(h) });
+      }
+      n.w = w1;
+    }
     n.r = r1;
-    if (age > NUKE.tau * 6) list.splice(i, 1);
+    if (age > NUKE.tau * 6 && (!n.sea || age > NUKE.life)) list.splice(i, 1);
   }
+}
+
+/**
+ * A blow off a burst at `n`, as hard as `k` (1 is the wave at its tallest):
+ * she is rolled away from it and set bodily away from it, the more the
+ * smaller she is.
+ */
+function nukeShove(s, cls, n, k) {
+  if (!(k > 0)) return;
+  const dx = s.x - n.x, dz = s.z - n.z;
+  const dd = Math.hypot(dx, dz) || 1;
+  const lx = worldToLocal(n.x - s.x, n.z - s.z, s.heading).x;
+  const j = k * clamp(DD_BULK / Math.max(1, cls.hull.length * cls.hull.beam * cls.hull.draft), 0.25, 3);
+  s.rockRate = clamp((s.rockRate || 0) - Math.sign(lx || 1) * ROLL_KICK * 40 * j, -MAX_ROCK_RATE, MAX_ROCK_RATE);
+  s.driftX = (s.driftX || 0) + (dx / dd) * PUSH_KICK * 10 * j;
+  s.driftZ = (s.driftZ || 0) + (dz / dd) * PUSH_KICK * 10 * j;
+  const v = Math.hypot(s.driftX, s.driftZ);
+  if (v > MAX_DRIFT) { s.driftX *= MAX_DRIFT / v; s.driftZ *= MAX_DRIFT / v; }
 }
 
 /** Which part of the hull a shell struck, and the armour it must beat. */

@@ -1,23 +1,31 @@
 // An atomic burst, as it is seen.
 //
-// In the order it happens. A flash that whites out the sky and lights every
-// ship on the sea from one side; a fireball four hundred metres across,
-// white at its heart and going through yellow and orange to a dull, boiling
-// red as it cools; the shock racing out across the water as a ring of white,
-// with the condensation cloud blown up behind it into a dome and gone again
-// in a couple of seconds; the wall of water thrown up off the sea running out
-// after it, a wave you can see from the other end of the battle; and then the
-// stem and the cap of the mushroom, climbing for the rest of the action,
-// lit red from underneath at first and going grey and brown as it climbs.
+// In three stages, the order it happens in (see shared/nuke.js):
 //
-// The ring is where the simulation's shock front is -- both read nukeFront --
-// so a ship is seen to be struck the moment the white water reaches her.
+//   1. The flash and the fireball, in the first instant: a flash that whites
+//      out the sky and lights every ship on the sea from one side, and a
+//      fireball four hundred metres across, white at its heart and going
+//      through yellow and orange to a dull, boiling red as it cools.
+//   2. The shock, in seconds: a ring of white racing out across the water
+//      at many times the speed of sound, the spray dome heaved up off the
+//      sea over the burst and slumping back into the base surge, and the
+//      condensation cloud blown up behind the shock and gone again.
+//   3. The wave: the water the burst shoved aside, coming back as a ring of
+//      heavy surface water a great deal slower than the shock -- steep and
+//      tall close in, low further out, and nothing like a tsunami.
+//
+// And over all of it the stem and the cap of the mushroom, climbing for the
+// rest of the action, lit red from underneath and going grey as it climbs.
+//
+// The ring is where the simulation's shock front is and the wave is where
+// its wave is -- both read the same functions -- so a ship is seen to be
+// struck the moment the white water reaches her, and rolled when the sea does.
 //
 // Everything here is drawn in one place, the burst point, and goes when it is
 // done: a battle may see one of these, and the scene pays nothing for it until
 // then.
 import * as THREE from '../../../vendor/three.module.js';
-import { NUKE, nukeFront } from '../../../shared/nuke.js';
+import { NUKE, nukeFront, nukeWave, waveHeight } from '../../../shared/nuke.js';
 
 /** A soft round puff, for the cloud: made once, on a canvas. */
 let PUFF = null;
@@ -157,16 +165,33 @@ export class Nukes {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 1.2;
     g.add(ring);
-    // The wave: a wall of water standing up off the sea, running out behind
-    // the shock. A cone frustum, white at its crest.
+    // The wave: a wall of water standing up off the sea, its face leaning
+    // out the way it is going, and the foam of its crest breaking behind it.
     const wave = new THREE.Mesh(
-      new THREE.CylinderGeometry(1, 1.04, 1, 160, 1, true),
+      new THREE.CylinderGeometry(0.994, 1, 1, 180, 1, true),
       new THREE.MeshLambertMaterial({
-        color: 0xdfe9ee, emissive: 0x2a3640, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false,
+        color: 0x5f8aa0, emissive: 0x1d2c36, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
       }),
     );
     wave.visible = !land;
     g.add(wave);
+    const foam = new THREE.Mesh(
+      new THREE.RingGeometry(0.95, 1, 180, 1),
+      new THREE.MeshBasicMaterial({ color: 0xeef4f7, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    foam.rotation.x = -Math.PI / 2;
+    foam.visible = !land;
+    g.add(foam);
+    // The spray dome: the sea over the burst heaved up into a white dome in
+    // the first seconds, and slumping back into the base surge.
+    const spray = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 48, 20, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshLambertMaterial({
+        color: 0xf3f6f8, emissive: 0x3c444a, transparent: true, opacity: 0, depthWrite: false,
+      }),
+    );
+    spray.visible = false;
+    g.add(spray);
     // The condensation cloud: a dome of white blown up off the sea behind the
     // shock, and gone in a couple of seconds.
     const dome = new THREE.Mesh(
@@ -179,7 +204,7 @@ export class Nukes {
     // The cloud: the column, the cap, the skirt round the foot of it.
     const puffs = puffBatch(900);
     g.add(puffs.mesh);
-    this.live.push({ g, ball, glow, lamp, ring, wave, dome, puffs, y: Math.max(0, y), t: 0, land });
+    this.live.push({ g, ball, glow, lamp, ring, wave, foam, spray, dome, puffs, y: Math.max(0, y), t: 0, land });
     this.flash = 1;
   }
 
@@ -222,17 +247,35 @@ export class Nukes {
       n.ring.scale.setScalar(Math.max(1, front));
       n.ring.material.opacity = 0.95 * Math.max(0, 1 - t / 18);
       n.ring.visible = n.ring.material.opacity > 0.01;
-      // The wave, a little behind it and slowing: tall near in, and lower the
-      // further out it has run.
+      // Stage 2's water: the spray dome, heaved up off the sea in a couple
+      // of seconds and slumping back into the surge over the next dozen.
       if (!n.land) {
-        const wr = Math.max(1, front * 0.92);
-        const wh = 140 * Math.exp(-wr / 1600) + 12;
-        n.wave.scale.set(wr, wh, wr);
-        n.wave.position.y = wh / 2 - 4;
-        n.wave.material.opacity = 0.85 * Math.max(0, 1 - t / 40);
-        n.wave.visible = n.wave.material.opacity > 0.01;
+        const up = 1 - Math.exp(-t / 0.9);
+        const slump = Math.max(0, t - 4);
+        const sr = Math.max(1, 720 * up + slump * 25);
+        const sh = Math.max(1, 1050 * up * Math.exp(-slump / 6));
+        n.spray.scale.set(sr, sh, sr);
+        n.spray.material.opacity = Math.min(0.92, t * 2) * Math.max(0, 1 - Math.max(0, t - 6) / 10);
+        n.spray.visible = n.spray.material.opacity > 0.01;
       }
-      // The condensation dome, out at the speed of the shock and gone.
+      // Stage 3: the wave, where the simulation has it, slower than the shock
+      // by a long way: tall close in, and lower the further it has run. Drawn
+      // a little taller than it is, or at the range a battle is watched from
+      // a twenty-metre sea is a line.
+      if (!n.land) {
+        const wr = Math.max(1, nukeWave(t));
+        const wh = waveHeight(wr) * 1.6;
+        n.wave.scale.set(wr, wh, wr);
+        n.wave.position.y = wh / 2 - 2;
+        const fade = Math.max(0, 1 - t / NUKE.life) * Math.min(1, t * 2);
+        n.wave.material.opacity = 0.9 * fade;
+        n.wave.visible = n.wave.material.opacity > 0.01;
+        n.foam.scale.setScalar(wr);
+        n.foam.position.y = 1.4;
+        n.foam.material.opacity = 0.8 * fade;
+        n.foam.visible = n.wave.visible;
+      }
+      // The condensation cloud, out behind the shock and gone.
       const dr = Math.max(1, front * 0.75);
       n.dome.scale.set(dr, dr * 0.55, dr);
       n.dome.material.opacity = t < 0.4 ? 0 : 0.55 * Math.max(0, Math.sin(Math.min(Math.PI, (t - 0.4) / 3.2 * Math.PI)));
