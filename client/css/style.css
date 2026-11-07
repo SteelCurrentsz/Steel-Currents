@@ -1090,25 +1090,28 @@ input[type="range"] { accent-color: var(--red); }
  *
  * Bottom left: the conn keys own the bottom middle and the plot owns the top
  * right, and this is the one control that is not part of fighting the ship, so
- * it sits in the one corner nothing else wants. It appears when the last ship
- * of a side has gone and it does nothing at all until it is pressed -- the
- * battle used to take the player home on a timer three seconds after the
- * result, which is the one thing about an ending that cannot be waited out. */
+ * it sits in the one corner nothing else wants. It is there the whole battle:
+ * mid-action it takes a second press to confirm, and once the last ship of a
+ * side has gone one press takes you home -- the battle used to take the
+ * player home on a timer three seconds after the result, which is the one
+ * thing about an ending that cannot be waited out. */
 .port-key {
   position: absolute; z-index: 9; pointer-events: auto;
   left: max(1.4vw, env(safe-area-inset-left));
   bottom: max(1.4vh, calc(env(safe-area-inset-bottom) + 0.6rem));
-  padding: 0.6rem 1.3rem; min-height: 44px;
+  padding: 0.35rem 0.8rem; min-height: 32px;
   background: rgba(8, 19, 31, 0.92);
   border: 1px solid var(--sand); border-left: 3px solid var(--red);
-  color: var(--sand); font-family: var(--ui); font-size: 0.86rem;
-  font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--sand); font-family: var(--ui); font-size: 0.66rem;
+  font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
   cursor: pointer;
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
   animation: portIn 0.5s ease both;
   transition: color 0.15s ease, background 0.15s ease;
 }
 .port-key[hidden] { display: none; }
+/* Pressed once mid-battle, it asks again before it takes you out of it. */
+.port-key.arm { color: #0b141d; background: var(--red); border-color: var(--red); }
 .port-key:hover, .port-key:focus-visible {
   color: #0b141d; background: var(--sand); outline: none;
 }
@@ -2914,12 +2917,14 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
   font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: #d9b45a;
 }
 
-/* The missile radar, beside the plot in the top corner: what she has left,
-   what the next one goes for, and her missiles in the air on a scope. */
+/* The missile radar, in the top left corner, out of the plot's way: what she
+   has left, what the next one goes for, and her missiles in the air on a
+   scope. Beside the fullscreen key, which has the very corner in battle on a
+   desktop; on a touch screen that key moves to the top edge (see .fs-toggle). */
 .msl-radar {
-  position: absolute; top: 0.8vh; z-index: 7;
-  right: calc(0.7vw + min(30vw, 42vh, 400px) + 10px);
-  width: min(210px, 26vw); padding: 6px;
+  position: absolute; top: max(0.7rem, env(safe-area-inset-top)); z-index: 7;
+  left: calc(max(0.8rem, env(safe-area-inset-left)) + 52px);
+  width: min(192px, 26vw); padding: 5px;
   background: rgba(6, 16, 28, 0.78); border: 1px solid var(--panel-line);
   font: 600 10px/1.2 var(--stencil, inherit); letter-spacing: 0.1em; color: var(--steel);
 }
@@ -2936,7 +2941,8 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
 }
 .msl-target button:hover, .msl-fire button:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.6); }
 .msl-fire { display: flex; gap: 5px; }
-.msl-fire button { flex: 1; position: relative; display: flex; justify-content: space-between; overflow: hidden; }
+.msl-fire button { flex: 1; position: relative; display: flex; justify-content: space-between; gap: 4px; overflow: hidden;
+  padding: 4px 5px; letter-spacing: 0.03em; font-size: 9px; }
 .msl-fire button b { color: var(--sand); }
 .msl-fire button i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--sand); width: 0; }
 .msl-fire button.empty { opacity: 0.4; }
@@ -2947,7 +2953,12 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
 }
 .msl-air button.on { background: #ffd678; color: #0b141d; }
 .msl-hint { margin: 5px 0 0; font-size: 9px; opacity: 0.65; }
-@media (pointer: coarse) { .msl-hint { display: none; } }
-@media (max-width: 700px) {
-  .msl-radar { right: auto; left: 0.7vw; top: auto; bottom: 22vh; width: 150px; }
+@media (pointer: coarse) {
+  .msl-hint { display: none; }
+  .msl-radar { left: max(0.7rem, env(safe-area-inset-left)); }
+}
+@media (max-width: 700px), (max-height: 500px) {
+  .msl-radar { width: 132px; }
+  .msl-hint { display: none; }
+  .msl-fire { flex-direction: column; gap: 3px; }
 }

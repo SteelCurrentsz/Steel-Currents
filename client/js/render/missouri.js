@@ -15,7 +15,7 @@
 //
 //   * her three 16-inch triples, the model's gunhouses on their barbettes,
 //     their barrels on a cradle that elevates;
-//   * her six 5-inch twins and her four Phalanx;
+//   * her six 5-inch twins, and her four Phalanx off the owner's model of one;
 //   * her eight armoured box launchers, each raised on its hinge to fire;
 //   * her four screws, the model's, which turn;
 //
@@ -31,12 +31,13 @@ import { dressShip } from './textures.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { lightMounts } from '../../../shared/sim.js';
-import { box, cyl, strip, sheet, tubeZ, sphere } from './shipkit.js';
+import { box, cyl, strip, sheet } from './shipkit.js';
 import {
   buildMissouriHull, missouriSurfaceY, MOUNT_SEATS, SCULPT_LINES, missouriMaterials, gunPiece,
 } from './missouriHull.js';
 import { SCREWS, BOX_LAUNCHERS, HARPOON_TUBES } from './missouriHull.data.js';
 import { decodePiece } from './sculpt.js';
+import { PHALANX } from './phalanx.data.js';
 
 const CLS = SHIP_CLASSES.missouri;
 export const LOA = CLS.hull.length;
@@ -44,11 +45,9 @@ export const BEAM = CLS.hull.beam;
 export const DRAFT = CLS.hull.draft;
 
 const P = {
-  phalanxWhite: 0xe4e4df,
   phalanxGrey: 0x9aa0a6,
   armour: 0x4a5158,
   steelDark: 0x5a6168,
-  gunDark: 0x40464c,
 };
 
 const MATS = {};
@@ -155,16 +154,16 @@ function mainBattery(g) {
 const stowed = (m) => (m.rest === undefined ? m.angle : m.rest);
 
 /**
- * A Phalanx Mk 15, at its own size: the square pedestal it is bolted to, the
- * turntable and the barbette over it, and on the cradle between the arms the
- * radar dome over the six-barrelled gun and the drum that feeds it. Built
- * here rather than off the model, which draws it in a hundred and fifty
- * thousand faces of bolts (see build/prepare-missouri-hull.mjs). The gun,
- * the dome and the drum elevate together; it trains and elevates faster
+ * A Phalanx Mk 15, the owner's own model of it (build/prepare-phalanx.mjs):
+ * on a square pedestal 1.25 m high, the turntable and its yoke, which train,
+ * and between the yoke's arms what elevates -- the radome, the six-barrelled
+ * gun under it and the drum that feeds it. It trains and elevates faster
  * than anything else aboard.
  */
+let phalanxGeo = null;
 function phalanx(g, x, y, z, rest) {
   const piece = gunPiece('ciws');
+  if (!phalanxGeo) phalanxGeo = { house: decodePiece(PHALANX.house), guns: decodePiece(PHALANX.guns) };
   // The pedestal, which does not train.
   box(g, M.phalanxGrey, 2.3, 1.25, 2.3, x, y + 0.62, z);
   const m = new THREE.Group();
@@ -174,26 +173,10 @@ function phalanx(g, x, y, z, rest) {
   m.userData.dynamic = true;
   m.userData.mounting = true;
   m.userData.trainRate = 2.4;
-  cyl(m, M.phalanxGrey, 0.82, 0.86, 0.32, 0, 0.16, 0, 20);
-  cyl(m, M.phalanxWhite, 0.5, 0.74, 0.95, 0, 0.8, 0, 16);
-  // Its arms, either side of the cradle.
-  for (const sx of [-0.62, 0.62]) box(m, M.phalanxWhite, 0.2, 1.05, 0.8, sx, 1.65, 0);
+  m.add(new THREE.Mesh(phalanxGeo.house, missouriMaterials().sheet));
   const cradle = new THREE.Group();
   cradle.position.set(0, piece.trunnion[1] - 1.25, 0);
-  // The dome: the search and track radars, the white barrel standing over
-  // the gun that gives the whole thing its look.
-  cyl(cradle, M.phalanxWhite, 0.56, 0.56, 1.2, 0, 0.82, -0.12, 20);
-  const cap = sphere(cradle, M.phalanxWhite, 0.56, 0, 1.42, -0.12);
-  cap.scale.y = 0.55;
-  // The drum under the gun, feeding it from behind.
-  tubeZ(cradle, M.phalanxWhite, 0.4, 1.3, 0, -0.18, -0.55, 16);
-  // The gun: six barrels round its axis, clamped, out ahead of the dome.
-  tubeZ(cradle, M.phalanxGrey, 0.16, 0.6, 0, -0.05, 0.3, 12);
-  for (let k = 0; k < 6; k++) {
-    const a = (k / 6) * Math.PI * 2;
-    tubeZ(cradle, M.gunDark, 0.028, 1.6, Math.cos(a) * 0.075, -0.05 + Math.sin(a) * 0.075, 1.35, 6);
-  }
-  tubeZ(cradle, M.gunDark, 0.13, 0.18, 0, -0.05, 1.45, 12);
+  cradle.add(new THREE.Mesh(phalanxGeo.guns, missouriMaterials().sheet));
   m.add(cradle);
   arm(m, cradle, piece.muzzles.map(([mx, my, mz]) => [mx, my, mz]));
   g.add(m);

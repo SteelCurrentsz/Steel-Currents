@@ -1382,10 +1382,10 @@ const GUNS = {
   // six barrels together.
   // Her Phalanx are lifted out of her and only where they stand is kept: the
   // model draws each in some hundred and fifty thousand faces, most of them
-  // bolts, and no decimation of it keeps its six barrels. missouri.js builds
-  // each one at its own size instead, its gun on a cradle under its dome. Its
-  // trunnion and its muzzle here are that build's.
-  ciws: { house: null, guns: null, trunnion: [0, 3.15, 0], muzzles: [[0, -0.05, 2.2]], pitch: 0, roof: 4.6 },
+  // bolts, and no decimation of it keeps its six barrels. missouri.js puts the
+  // owner's own model of the mounting on each seat instead (build/prepare-phalanx.mjs),
+  // on a pedestal 1.25 m high; its trunnion and its muzzle here are that model's.
+  ciws: { house: null, guns: null, trunnion: [0, 2.313, 0], muzzles: [[0.048, 0.043, 2.161]], pitch: 0, roof: 4.66 },
 };
 
 /**

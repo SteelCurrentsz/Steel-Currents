@@ -200,6 +200,32 @@ export function arsenal(cls) {
       hull: cls,
     });
   }
+  // Her missiles: a row to each kind, its launchers and what she carries. A
+  // missile is not laid on a bearing -- it turns onto its target once it is
+  // off the rail -- so its row reads how many are left aboard instead.
+  if (cls.missiles) {
+    const M = cls.missiles;
+    for (const [kind, K] of Object.entries(M.kinds)) {
+      const tomahawk = kind === 'tomahawk';
+      const launchers = tomahawk ? M.boxes.length : Math.round(M.tubes.length / 4);
+      rows.push({
+        name: K.name,
+        caliber: null,
+        barrels: K.rounds,
+        mounts: launchers,
+        reload: K.interval,
+        range: K.range,
+        role: 'surface',
+        pen: null,
+        band: 'Missiles',
+        note: tomahawk
+          ? `${K.rounds} in ${launchers} armoured box launchers`
+          : `${K.rounds} in ${launchers} quadruple canisters`,
+        missile: kind,
+        slot: tomahawk ? 0 : 1,
+      });
+    }
+  }
   if (cls.depthCharges) {
     const D = cls.depthCharges;
     const racks = (D.racks || []).length;
@@ -364,8 +390,30 @@ class HudBase {
     });
     $('btn-leave').onclick = onLeave;
     // The way home once the action is over. Hidden until there is one.
+    // The way home, in the corner from the first moment of the battle. Before
+    // the battle is decided a press only asks again -- it is a small key in a
+    // corner a thumb rests near -- and a second within a few seconds leaves.
     this.el.port = $('btn-port');
-    if (this.el.port) this.el.port.onclick = onLeave;
+    if (this.el.port) {
+      const key = this.el.port;
+      key.hidden = false;
+      key.textContent = 'Back To Port';
+      key.classList.remove('arm');
+      this.portDone = false;
+      let armed = 0;
+      key.onclick = () => {
+        if (this.portDone || (armed && performance.now() - armed < 3500)) { onLeave(); return; }
+        armed = performance.now();
+        key.classList.add('arm');
+        key.textContent = 'Leave battle?';
+        clearTimeout(this.portTimer);
+        this.portTimer = setTimeout(() => {
+          armed = 0;
+          key.classList.remove('arm');
+          key.textContent = 'Back To Port';
+        }, 3500);
+      };
+    }
   }
 
   /**
@@ -1077,14 +1125,23 @@ class HudBase {
   onConn(fn) { this.connFn = fn; }
 
   /**
-   * Put the way home in the corner, or take it away.
+   * Say whether the battle is decided. The key is in the corner the whole
+   * time (see the constructor); once the action is over one press of it takes
+   * you home instead of two.
    *
-   * Nothing else changes when it appears: the sea, the wrecks and the smoke go
-   * on being drawn, the plot still works and the camera still walks. It is a
-   * key, not a curtain.
+   * Nothing else changes: the sea, the wrecks and the smoke go on being
+   * drawn, the plot still works and the camera still walks. It is a key, not
+   * a curtain.
    */
   showPortKey(on) {
-    if (this.el.port) this.el.port.hidden = !on;
+    this.portDone = !!on;
+    if (!this.el.port) return;
+    this.el.port.hidden = false;
+    if (on) {
+      clearTimeout(this.portTimer);
+      this.el.port.classList.remove('arm');
+      this.el.port.textContent = 'Back To Port';
+    }
   }
 
   /** Raise a panel, or lower the one that is up. */
@@ -1793,7 +1850,8 @@ class HudBase {
         + `<div class="arms-sub">${w.note || mounts}</div>`
         + `<dl class="arms-stats">${stats
           .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
-        + (!w.specs ? ''
+        + (w.missile ? '<div class="arms-bear"></div>'
+          : !w.specs ? ''
           // A battery with two rounds to choose between carries the order
           // beside its bearing: armour-piercing or high explosive.
           : w.shell ? '<div class="arms-line"><div class="arms-bear"></div>'
@@ -2410,6 +2468,15 @@ class HudBase {
     let ofMain = 0;
     for (const entry of this.armsRows) {
       const { w, el } = entry;
+      if (w.missile) {
+        const left = own.mq ? own.mq[w.slot] : w.barrels;
+        if (el) {
+          el.textContent = left > 0 ? `${left} of ${w.barrels} aboard` : 'All expended';
+          el.classList.toggle('masked', left === 0);
+          el.classList.toggle('part', left > 0 && left < w.barrels);
+        }
+        continue;
+      }
       if (!w.specs) continue;
       // The depth charge gear does not bear on anything: it is worked, not
       // laid, and its row reads what is loaded and what the sonar has.
@@ -3390,5 +3457,7 @@ export class Hud extends HudBase {
     const own = [document.getElementById('btn-leave'), el.port, el.flyDrop, el.flyLeave,
       el.flyArms, el.flyBombCam, el.flyTake, el.gunSeat, el.shellCam, el.timeWarp, ...Object.values(this.keys || {})];
     for (const n of own) if (n) n.onclick = null;
+    clearTimeout(this.portTimer);
+    if (el.port) { el.port.hidden = true; el.port.classList.remove('arm'); }
   }
 }

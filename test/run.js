@@ -12889,6 +12889,19 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
   assert.ok(dc && dc.barrels > 0, 'her depth charge gear is not in the arsenal');
 });
 
+check('the arsenal lists the Missouri\'s Tomahawks and Harpoons, and only on a ship that carries them', () => {
+  const rows = arsenal(SHIP_CLASSES.missouri).filter((w) => w.band === 'Missiles');
+  assert.deepEqual(rows.map((w) => w.missile), ['tomahawk', 'harpoon']);
+  const [t, h] = rows;
+  assert.equal(t.barrels, 32, 'thirty-two Tomahawks');
+  assert.equal(t.mounts, 8, 'in eight box launchers');
+  assert.equal(h.barrels, 16, 'sixteen Harpoons');
+  assert.equal(h.mounts, 4, 'in four quadruple canisters');
+  for (const w of rows) assert.equal(w.role, 'surface', `${w.name} is for ships only`);
+  assert.ok(/Tomahawk/.test(t.name) && /Harpoon/.test(h.name));
+  assert.ok(!arsenal(SHIP_CLASSES.iowa).some((w) => w.missile), 'the Iowa lists missiles she does not carry');
+});
+
 check('the arsenal offers AP and HE on her guns, and not on her tubes or light guns', () => {
   for (const cls of Object.values(SHIP_CLASSES)) {
     for (const w of arsenal(cls)) {
@@ -17486,12 +17499,12 @@ check('the battle ends with a way home, and nobody is sent home', () => {
   assert.ok(!/onExit/.test(end), 'the end of the battle still leaves it by itself');
 
   // The key itself: bottom left, out of the way of the three keys along the
-  // bottom of the glass, and it says where it goes.
+  // bottom of the glass, and it says where it goes. It is on the glass the
+  // whole battle; the page starts it hidden and the HUD puts it up.
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   const key = html.match(/<button[^>]*id="btn-port"[^>]*>([^<]*)</);
   assert.ok(key, 'there is no way home on the glass at all');
   assert.equal(key[1].trim(), 'Back To Port', `the key says "${key[1].trim()}"`);
-  assert.ok(/hidden/.test(key[0]), 'the way home is showing before the battle is over');
   const css = readFileSync(new URL('../client/css/style.css', import.meta.url), 'utf8');
   const rule = css.slice(css.indexOf('.port-key'), css.indexOf('.port-key') + 700);
   assert.ok(/left:/.test(rule) && /bottom:/.test(rule),
@@ -17501,17 +17514,37 @@ check('the battle ends with a way home, and nobody is sent home', () => {
   // And it is wired to the same door the sinking overlay uses, so pressing it
   // is what takes her home -- nothing else does.
   const hudSrc = readFileSync(new URL('../client/js/hud.js', import.meta.url), 'utf8');
-  assert.ok(/el\.port[\s\S]{0,120}onclick = onLeave/.test(hudSrc),
+  assert.ok(/el\.port = \$\('btn-port'\)[\s\S]{0,900}onLeave\(\)/.test(hudSrc),
     'the way home is not connected to anything');
 
-  // The switch itself, on a HUD with nothing else on it.
-  const el = { port: { hidden: true } };
-  const hud = Object.create(Hud.prototype);
-  hud.el = el;
-  hud.showPortKey(true);
-  assert.equal(el.port.hidden, false, 'the way home never appeared');
-  hud.showPortKey(false);
-  assert.equal(el.port.hidden, true, 'the way home never goes away again');
+  // Pressed mid-battle it asks again, and a second press leaves; once the
+  // battle is decided, one press does.
+  const g = globalThis;
+  const was = { $: g.document };
+  const port = { hidden: true, textContent: '', classList: { add() {}, remove() {} } };
+  g.document = { getElementById: (id) => (id === 'btn-port' ? port : null) };
+  let left = 0;
+  try {
+    const hud = Object.create(Hud.prototype);
+    hud.el = {};
+    const src = hudSrc.slice(hudSrc.indexOf("this.el.port = $('btn-port');"));
+    const body = src.slice(0, src.indexOf('\n    }\n') + 6);
+    // eslint-disable-next-line no-new-func
+    new Function('$', 'onLeave', 'performance', 'setTimeout', 'clearTimeout', body)
+      .call(hud, (id) => g.document.getElementById(id), () => { left++; }, { now: () => 1000 }, () => 0, () => {});
+    assert.equal(port.hidden, false, 'the way home is not on the glass during the battle');
+    port.onclick();
+    assert.equal(left, 0, 'one press mid-battle took her out of it');
+    assert.match(port.textContent, /Leave/i, 'the key does not ask again');
+    port.onclick();
+    assert.equal(left, 1, 'a second press did not take her home');
+    hud.showPortKey(true);
+    port.onclick();
+    assert.equal(left, 2, 'once the battle is over one press does not take her home');
+    assert.equal(port.hidden, false);
+  } finally {
+    g.document = was.$;
+  }
 });
 
 check('a shell breaks what it hit, and not the far end of the ship', () => {
