@@ -3664,12 +3664,21 @@ check("the Guangzhou's RBU-1200s go for a torpedo before a ship close aboard", (
   const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
   const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
   const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 1, index: 0 });
-  // The Fletcher well inside the RBUs' reach, and her fish running at her.
-  a.x = 0; a.z = 0; g.x = 0; g.z = 900; g.heading = Math.PI / 2; g.speed = 0;
+  // The Fletcher trains her tubes and fires with the Guangzhou out past the
+  // RBUs' reach, on a track that runs through where she is then brought:
+  // well inside it, the Fletcher and her fish both there to be thrown at.
+  a.x = 0; a.z = 0; g.x = 0; g.z = 2000; g.heading = Math.PI / 2; g.speed = 0;
+  let launched = 0;
+  for (let t = 0; t < 60 * 30 && !launched; t++) {
+    a.aimX = 0; a.aimZ = 2000; a.heading = Math.PI / 2; a.speed = 0;
+    if (t % 30 === 0) launched += fireTorpedoes(state, a);
+    step(state, 1 / 30);
+  }
+  assert.ok(launched > 0, 'the Fletcher put no fish in the water');
+  g.z = 900;
   const first = [];
   for (let t = 0; t < 120 * 30; t++) {
-    a.aimX = g.x; a.aimZ = g.z; a.heading = Math.PI / 2; a.speed = 0;
-    if (t === 0) fireTorpedoes(state, a);
+    a.speed = 0;
     for (const e of step(state, 1 / 30)) if (e.e === 'rbu') first.push(e.t);
     if (first.length || !g.alive) break;
   }
