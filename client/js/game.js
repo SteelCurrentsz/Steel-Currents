@@ -381,6 +381,8 @@ const LOAD = {
   dive: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
   scout: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
   torpedo: { key: 'TORPEDO', name: 'torpedoes', near: 1600, away: 'Torpedoes away' },
+  // One of a deckload, bombing on the level: a B-25 off the Hornet.
+  level: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
 };
 
 

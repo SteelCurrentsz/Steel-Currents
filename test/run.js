@@ -20410,6 +20410,35 @@ check("each of the Hornet's B-25s carries her bombs to the target and lets them 
   assert.ok(st.len > 1.2 && st.len < 1.8, `her bomb is ${st.len.toFixed(2)} m long`);
 });
 
+check("a B-25 flown by hand lets her bombs go when her pilot says so", () => {
+  const cls = SHIP_CLASSES.hornet;
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Hornet', classId: 'hornet', team: 0, index: 0,
+    airGroup: { fighters: 32, dive: 45, torpedo: 20, deckload: 1 } });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  ship.x = 0; ship.z = 0; ship.heading = 0;
+  foe.x = 0; foe.z = 9000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  assert.ok(launchStrike(state, ship));
+  let p = null;
+  for (let i = 0; i < 30 * 120 && !p; i++) {
+    step(state, 1 / 30);
+    p = state.planes.find((q) => q.owner === ship.id && q.type === 'mitchell' && (q.y ?? 0) > 60);
+  }
+  assert.ok(p, 'the B-25 never got into the air');
+  // Taken by her pilot, and put over the target.
+  assert.ok(flyPlane(state, ship, { i: p.id, x: p.x, z: p.z, h: 0, y: p.y }), 'her captain could not take her');
+  p.x = foe.x; p.z = foe.z - 300;
+  state.events.length = 0;
+  assert.ok(dropOrdnance(state, ship, p.id), 'the simulation would not let her drop');
+  const bombs = state.events.filter((e) => e.e === 'bomb' && e.i === p.id);
+  assert.equal(bombs.length, cls.planes.deckload.bombs, `${bombs.length} bombs left her`);
+  // And the cockpit has a drop key for her: her role is on the rack table.
+  const src = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const table = src.slice(src.indexOf('const LOAD = {'), src.indexOf('};', src.indexOf('const LOAD = {')));
+  assert.match(table, /\n\s*level:\s*\{[^}]*key: 'BOMBS'/, 'a B-25 in the cockpit has no bombs to drop');
+});
+
 check("the Hornet's island is whole, and nothing shows through her under her flight deck", () => {
   const built = buildHornet();
   const FD = built.flightDeckY;

@@ -3835,7 +3835,10 @@ export function dropOrdnance(state, ship, id) {
   if (p.dropped) return false;
   const owner = state.ships.find((q) => q.id === p.owner);
   const cls = shipClass(owner || ship);
-  const P = cls.planes;
+  // One of a deckload drops her own bombs, not her carrier's, by hand as on
+  // the autopilot.
+  const P = cls.planes && p.deckload && cls.planes.deckload
+    ? { ...cls.planes, ...cls.planes.deckload } : cls.planes;
   if (!P) return false;
   // What is on her rack. A fighter carries nothing to drop -- her guns are her
   // weapon -- and letting her "drop" used to mark her as having attacked and
