@@ -2946,6 +2946,10 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
 .msl-fire button b { color: var(--sand); }
 .msl-fire button i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--sand); width: 0; }
 .msl-fire button.empty { opacity: 0.4; }
+.msl-fire.many { flex-wrap: wrap; }
+.msl-fire.many button { flex: 1 1 30%; min-width: 0; font-size: 9px; }
+.msl-fire button.aegis b { color: #ff8a73; }
+.msl-fire button.aegis.on b { color: #8dffb6; }
 .msl-air { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; max-height: 64px; overflow-y: auto; }
 .msl-air button {
   font: inherit; font-size: 9px; padding: 2px 5px; cursor: pointer;

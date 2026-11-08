@@ -10,7 +10,7 @@
 // back on the spawn line and no artillery at all. One copy, and that cannot
 // happen again.
 
-import { setAirGroup } from '../shared/sim.js';
+import { setAirGroup, setVlsLoad } from '../shared/sim.js';
 import { getClass } from '../shared/ships.js';
 import { isOpenSea } from '../shared/world.js';
 import { BOMBER_MAX } from '../shared/bombers.js';
@@ -80,6 +80,13 @@ export function crewBattle(room, req, seat, limits = {}) {
     for (const sh of room.state.ships) {
       if (sh.team !== team || !sh.squadrons || !sh.squadrons.length) continue;
       setAirGroup(sh, getClass(sh.classId), req.airGroup);
+    }
+  }
+  // And how she loaded her side's vertical launchers, the same way.
+  if (req.vls && typeof req.vls === 'object') {
+    room.vlsLoad = { team, load: req.vls };
+    for (const sh of room.state.ships) {
+      if (sh.team === team) setVlsLoad(sh, getClass(sh.classId), req.vls);
     }
   }
   // And her own, if the briefing gave her hull one: every carrier in a fleet

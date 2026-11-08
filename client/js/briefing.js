@@ -521,6 +521,8 @@ export class Briefing {
       // How her carriers are stored: fighters, dive bombers and torpedo
       // bombers, as the captain balanced them in the yard.
       airGroup: getSettings().airGroup,
+      // And how her vertical launchers are loaded, missile by missile.
+      vls: getSettings().vls,
       mapId: theatreFor(d),
       time: s.time,
       weather: s.weather,

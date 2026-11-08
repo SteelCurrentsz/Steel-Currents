@@ -50,6 +50,10 @@ import {
   applyRuin, cityPlans, cityToWorld, worksFloor, surfaceAt, wallAt, SURF, solidHit, worksHard,
   worksTarget, worksTargets, wallMiddle, isWorksTarget,
 } from '../../shared/works.js';
+import { MISSILE_SHAPES } from './render/missiles.js';
+
+/** What each missile code is called on the banner. */
+const MISSILE_NAMES = Object.fromEntries(Object.entries(MISSILE_SHAPES).map(([k, S]) => [k, S.name]));
 
 // How far behind the server everybody else is drawn, in the server's own
 // seconds. A little over two snapshots at fifteen a second, so one of them can
@@ -923,6 +927,7 @@ export class Battle {
       fire: (k) => this.fireMissile(k),
       next: () => this.nextMissileTarget(),
       ride: (id) => this.rideMissile(id),
+      aegis: () => this.toggleAegis(),
       target: (id) => {
         // A ship tapped on the scope: riding a missile, that one is laid on
         // her; otherwise the next one is.
@@ -1547,12 +1552,26 @@ export class Battle {
     audio.click();
   }
 
-  /** Let one go: 't' a Tomahawk, 'h' a Harpoon, at her target or the nearest. */
+  /**
+   * Let one go, by its code ('t' a Tomahawk, 'h' a Harpoon, 'a' an ASROC,
+   * 's'/'e'/'b' a Standard), at her target or the nearest. A Standard goes at
+   * whatever is coming at her side out of the sky.
+   */
   fireMissile(k) {
     const own = this.missileShip();
     if (!own) return;
     const tg = this.missileTarget();
     this.net.send({ t: 'msl', ship: this.conned(), k, tg: tg ? tg.q.i : 0 });
+  }
+
+  /** Let her Aegis put up her Standards on its own, or hold them for her captain. */
+  toggleAegis() {
+    const own = this.missileShip();
+    if (!own || !own.cls.missiles.vls) return;
+    const on = !(own.shown?.ma ?? 1);
+    this.net.send({ t: 'msla', ship: this.conned(), on });
+    if (own.shown) own.shown.ma = on ? 1 : 0;
+    audio.click();
   }
 
   /** Her missiles in the air, oldest first: what the radar lists and J rides. */
@@ -1592,7 +1611,7 @@ export class Battle {
   missileName(m) {
     const snap = this.snapshots[this.snapshots.length - 1];
     const t = snap ? snap.ships.find((q) => q.i === m.tg) : null;
-    return `${m.k === 't' ? 'Tomahawk' : 'Harpoon'}${t ? ` \u2192 ${getClass(t.c).name}` : ''}`;
+    return `${MISSILE_NAMES[m.k] || 'Missile'}${t ? ` \u2192 ${getClass(t.c).name}` : ''}`;
   }
 
   /** Lay the missile being ridden on the next enemy in sight. */
@@ -1644,7 +1663,7 @@ export class Battle {
       ? (this.missilesNow || []).find((q) => q.i === this.watching.id) : null;
     this.hud.setMissiles?.({
       cls: own.cls, me, snap, team: me?.tm ?? this.team,
-      left: me?.mq || null, cool: me?.mc || null,
+      left: me?.mq || null, cool: me?.mc || null, auto: me ? me.ma !== 0 : true,
       target: tg ? tg.q : null, targetRange: tg ? tg.d : 0,
       mine: this.ownMissiles(), all: this.missilesNow || [],
       riding,
@@ -2881,7 +2900,10 @@ export class Battle {
           // Off the rail: the booster lighting, and the cloud it leaves the
           // box in.
           const v = this.scene.shipViews.get(ev.ship);
-          const at = ev.k === 'tomahawk' && v ? v.launcherMouth(ev.at) : null;
+          // A box-launched Tomahawk goes from the mouth of its box as the
+          // box stands now; anything out of a VLS cell or a canister from
+          // where the simulation says.
+          const at = ev.k === 'tomahawk' && !ev.v && v && v.launcherMouth ? v.launcherMouth(ev.at) : null;
           const x = at ? at.x : ev.x, y = at ? at.y : ev.y, z = at ? at.z : ev.z;
           this.scene.missiles.launch(x, y, z);
           fx.hit(x, y, z, 'he', 90);
@@ -2892,6 +2914,7 @@ export class Battle {
           // Into her: a fireball on her deck or against her side, and the
           // plating opened where it went in.
           const big = ev.k === 'tomahawk' ? 500 : 380;
+          // (Only a missile for ships ever hits one.)
           fx.hit(ev.x, ev.y, ev.z, 'he', big);
           fx.debris(ev.x, ev.y, ev.z, big / 14);
           const v = this.scene.shipViews.get(ev.victim);
@@ -2903,13 +2926,32 @@ export class Battle {
         case 'mslDown':
           // Shot down, or into the sea: a burst in the air and the pieces of
           // it falling.
-          if (ev.why === 'ciws' || ev.why === 'flak') {
+          if (ev.why === 'ciws' || ev.why === 'flak' || ev.why === 'sam') {
             fx.flakBurst(ev.x, ev.y, ev.z, 180);
             fx.debris(ev.x, ev.y, ev.z, 8);
             audio.explosion(0.35, { x: ev.x, y: ev.y, z: ev.z });
           }
           if (this.watching?.kind === 'missile' && this.watching.id === ev.i) {
             this.missileHold = { x: ev.x, y: Math.max(4, ev.y), z: ev.z, t: 2.5 };
+          }
+          break;
+        // A Standard's warhead going off by what it was sent for: a dirty
+        // black-and-orange burst high in the sky, and, if it got it, the
+        // pieces of whatever it was coming down.
+        case 'samBurst':
+          fx.flakBurst(ev.x, ev.y, ev.z, 260);
+          if (ev.hit) fx.debris(ev.x, ev.y, ev.z, 10);
+          audio.explosion(0.3, { x: ev.x, y: ev.y, z: ev.z });
+          if (this.watching?.kind === 'missile' && this.watching.id === ev.i) {
+            this.missileHold = { x: ev.x, y: Math.max(4, ev.y), z: ev.z, t: 2.5 };
+          }
+          break;
+        // An ASROC over its mark: the motor falling away and the torpedo
+        // going on down under its parachute.
+        case 'asrocDrop':
+          fx.flakBurst(ev.x, ev.y, ev.z, 60);
+          if (this.watching?.kind === 'missile' && this.watching.id === ev.i) {
+            this.missileHold = { x: ev.tx, y: 4, z: ev.tz, t: 3.5 };
           }
           break;
         case 'ciws': {
@@ -3966,6 +4008,13 @@ export class Battle {
       // next ship to lay them on, and riding the next one in the air.
       case 'KeyZ': this.fireMissile('t'); break;
       case 'KeyV': this.fireMissile('h'); break;
+      // And off a VLS: an ASROC, and her three Standards by hand; L lets her
+      // Aegis fire them on its own, or holds it.
+      case 'KeyU': this.fireMissile('a'); break;
+      case 'KeyI': this.fireMissile('s'); break;
+      case 'KeyO': this.fireMissile('e'); break;
+      case 'KeyY': this.fireMissile('b'); break;
+      case 'KeyL': this.toggleAegis(); break;
       case 'KeyN': this.nextMissileTarget(); break;
       case 'KeyJ': this.rideMissile(); break;
       case 'Digit4': this.net.send({ t: 'strike', ship: this.conned() }); break;

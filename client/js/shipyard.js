@@ -396,7 +396,7 @@ function traverse(cls) {
 }
 
 /** Every barrel she carries, with the magazine behind it. */
-export function armsSheet(cls, group = null) {
+export function armsSheet(cls, group = null, vls = null) {
   const d = cls.datasheet;
   const rows = [];
   rows.push([`${count(barrels(cls))} ${gunLabel(cls.gun.caliber, cls.nation)} main`,
@@ -417,8 +417,17 @@ export function armsSheet(cls, group = null) {
     }
     rows.push([`${count(t.barrels)} ${t.label} ${t.role === 'dp' ? 'DP' : 'AA'}`, `${num(t.rounds)} rds`]);
   }
-  // Her missiles, each kind with its count.
-  for (const m of d.missiles || []) rows.push([m.label, `${num(m.rounds)} missiles`]);
+  // Her missiles, each kind with its count. A VLS is loaded as her captain
+  // likes, so its rows open the panel that loads it, and say how it is loaded.
+  for (const m of d.missiles || []) {
+    if (!m.vls) { rows.push([m.label, `${num(m.rounds)} missiles`]); continue; }
+    rows.push([m.label, `${num(m.rounds)} cells`, 'vls']);
+    const K = cls.missiles?.kinds || {};
+    const load = vls || Object.fromEntries(Object.entries(K)
+      .filter(([, k]) => k.launch === 'vls').map(([k, k2]) => [k, k2.rounds]));
+    rows.push(['VLS loadout', Object.entries(load).filter(([, n]) => n > 0)
+      .map(([k, n]) => `${n} ${K[k]?.short || k}`).join(' &middot; ') || 'Empty', 'vls']);
+  }
   if (cls.torpedoes) {
     // Twenty-one inch unless she says otherwise. The Surcouf is the one boat
     // that carries two calibres of fish -- six 55 cm and four 40 cm -- and

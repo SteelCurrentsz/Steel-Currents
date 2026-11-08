@@ -8,7 +8,7 @@ import {
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack,
-  fireMissile, retargetMissile,
+  fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -136,6 +136,15 @@ export class Room {
     return this.airGroup && this.airGroup.team === team ? this.airGroup.group : null;
   }
 
+  /**
+   * How the captain who set the battle up loaded her side's vertical
+   * launchers, in the yard: so many of each missile to a cell. The other side
+   * sails with the datasheet's loading.
+   */
+  vlsFor(team) {
+    return this.vlsLoad && this.vlsLoad.team === team ? this.vlsLoad.load : null;
+  }
+
   join(player, { name, classId, team, at = null }) {
     if (this.players.size >= this.maxPlayers) return { error: 'Room is full' };
     if (this.phase === 'ended') return { error: 'That battle is over' };
@@ -144,7 +153,7 @@ export class Room {
     const ship = addShip(this.state, {
       name: (name || 'Captain').slice(0, 18),
       classId: cls, team: t, index: this.teamIndex[t]++, playerId: player.id, at,
-      airGroup: this.airGroupFor(t),
+      airGroup: this.airGroupFor(t), vls: this.vlsFor(t),
     });
     // A player's ship gets a brain too. She fights herself -- gunnery,
     // torpedoes, damage control -- and her captain keeps the helm and the
@@ -219,7 +228,7 @@ export class Room {
       const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
       const ship = addShip(this.state, {
         name, classId, team, index: this.teamIndex[team]++, isBot: true,
-        airGroup: this.airGroupFor(team),
+        airGroup: this.airGroupFor(team), vls: this.vlsFor(team),
       });
       this.brains.set(ship.id, createBotBrain(skill));
     }
@@ -263,7 +272,7 @@ export class Room {
     const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
     const ship = addShip(this.state, {
       name, classId: cls, team, index: this.teamIndex[team]++, isBot: true, at,
-      airGroup: airGroup || this.airGroupFor(team),
+      airGroup: airGroup || this.airGroupFor(team), vls: this.vlsFor(team),
     });
     this.brains.set(ship.id, createBotBrain(skill));
     return ship;
@@ -672,7 +681,14 @@ export class Room {
       // or on whatever is nearest, if she names none.
       case 'msl': {
         const to = this.conned(ship, msg);
-        if (to) fireMissile(this.state, to, msg.k === 'h' ? 'harpoon' : 'tomahawk', Number(msg.tg) || 0);
+        if (to) fireMissile(this.state, to, CODE_MISSILE[msg.k] || 'tomahawk', Number(msg.tg) || 0);
+        break;
+      }
+      // Whether her Aegis may put up her Standards on its own, at whatever
+      // comes at her side out of the sky.
+      case 'msla': {
+        const to = this.conned(ship, msg);
+        if (to) setAegisAuto(to, !!msg.on);
         break;
       }
       // One of hers already in the air, laid on another ship.

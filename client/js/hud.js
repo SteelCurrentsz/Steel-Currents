@@ -8,7 +8,11 @@ import { MAP_HALF, islandRing, CHART_X } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
-import { SECTIONS, torpedoClear, layFloor, partyCount } from '../../shared/sim.js';
+import { SECTIONS, torpedoClear, layFloor, partyCount, MISSILE_CODE as MISSILE_CODES } from '../../shared/sim.js';
+import { MISSILE_SHAPES } from './render/missiles.js';
+
+/** The key each missile is fired on, by kind (see onKey in game.js). */
+export const MISSILE_KEYS = { tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y' };
 import {
   worksTargets, townTargetId, wallTargetId, wallSections, sectionSpan, wallDamage, cityToWorld,
 } from '../../shared/works.js';
@@ -225,9 +229,11 @@ export function arsenal(cls) {
   // off the rail -- so its row reads how many are left aboard instead.
   if (cls.missiles) {
     const M = cls.missiles;
-    for (const [kind, K] of Object.entries(M.kinds)) {
-      const tomahawk = kind === 'tomahawk';
-      const launchers = tomahawk ? M.boxes.length : Math.round(M.tubes.length / 4);
+    const cells = M.vls ? M.vls.cells.length : 0;
+    Object.entries(M.kinds).forEach(([kind, K], slot) => {
+      const launch = K.launch || (kind === 'tomahawk' ? 'box' : 'tube');
+      const launchers = launch === 'box' ? M.boxes.length : launch === 'vls' ? 2 : Math.round(M.tubes.length / 4);
+      const role = K.role === 'sam' || K.role === 'abm' ? 'aa' : K.role === 'asroc' ? 'sub' : 'surface';
       rows.push({
         name: K.name,
         caliber: null,
@@ -235,16 +241,17 @@ export function arsenal(cls) {
         mounts: launchers,
         reload: K.interval,
         range: K.range,
-        role: 'surface',
+        role,
         pen: null,
         band: 'Missiles',
-        note: tomahawk
-          ? `${K.rounds} in ${launchers} armoured box launchers`
-          : `${K.rounds} in ${launchers} quadruple canisters`,
+        note: launch === 'box' ? `${K.rounds} in ${launchers} armoured box launchers`
+          : launch === 'vls' ? `${K.rounds} as sailed, in her ${cells}-cell Mk 41 VLS (loaded in the yard)`
+            : `${K.rounds} in ${launchers} quadruple canisters`,
         missile: kind,
-        slot: tomahawk ? 0 : 1,
+        vls: launch === 'vls',
+        slot,
       });
-    }
+    });
   }
   if (cls.depthCharges) {
     const D = cls.depthCharges;
@@ -703,21 +710,25 @@ class HudBase {
   // ------------------------------------------------------- missile radar ----
 
   /**
-   * The missile radar's controls: fire a Tomahawk or a Harpoon, step the
-   * target on, ride a missile in (by id), or lay the next on a ship off the
-   * scope (by id).
+   * The missile radar's controls: fire one of each kind she carries (by its
+   * code), step the target on, ride a missile in (by id), lay the next on a
+   * ship off the scope (by id), and let her Aegis fire on its own or not.
    */
-  bindMissiles({ fire, next, ride, target }) {
+  bindMissiles({ fire, next, ride, target, aegis }) {
     const box = $('msl-radar');
     if (!box) return;
     this.msl = {
       box, scope: $('msl-scope'), mode: $('msl-mode'), target: $('msl-target'),
-      tq: $('msl-tq'), hq: $('msl-hq'), tc: $('msl-tc'), hc: $('msl-hc'),
-      tlam: $('msl-tlam'), harp: $('msl-harp'), air: $('msl-air'), airKey: '',
+      fire: $('msl-fire'), hint: $('msl-hint'), air: $('msl-air'), airKey: '', fireKey: '',
+      buttons: [], auto: null,
       pick: { ride, target }, view: null, sweep: 0,
     };
-    this.msl.tlam.onclick = () => fire('t');
-    this.msl.harp.onclick = () => fire('h');
+    this.msl.fire.onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.aegis) { aegis?.(); return; }
+      if (b.dataset.k) fire(b.dataset.k);
+    };
     $('msl-next').onclick = () => next();
     this.msl.air.onclick = (e) => {
       const b = e.target.closest('button[data-i]');
@@ -746,32 +757,59 @@ class HudBase {
     });
   }
 
+  /**
+   * Her fire buttons, one a kind in her datasheet's order, and her Aegis
+   * switch if she has a VLS: built again only when she is a different ship.
+   */
+  buildMissileButtons(cls) {
+    const M = this.msl;
+    const kinds = Object.entries(cls.missiles.kinds);
+    const vls = !!cls.missiles.vls;
+    const key = `${cls.id}`;
+    if (key === M.fireKey) return;
+    M.fireKey = key;
+    M.fire.innerHTML = kinds.map(([k, K]) => `<button type="button" data-k="${MISSILE_CODES[k] || 'h'}">`
+      + `<span>${K.short || k.toUpperCase()}</span><b>${K.rounds}</b><i></i></button>`).join('')
+      + (vls ? '<button type="button" class="aegis" data-aegis="1"><span>AEGIS</span><b>AUTO</b></button>' : '');
+    M.fire.classList.toggle('many', kinds.length + (vls ? 1 : 0) > 2);
+    M.buttons = [...M.fire.querySelectorAll('button[data-k]')].map((el, i) => ({
+      el, q: el.querySelector('b'), c: el.querySelector('i'), K: kinds[i][1],
+    }));
+    M.auto = M.fire.querySelector('button[data-aegis]');
+    M.hint.textContent = `${kinds.map(([k, K]) => `${MISSILE_KEYS[k] || '?'} ${K.short || k}`).join(' · ')}`
+      + `${vls ? ' · L Aegis' : ''} · N target · J ride`;
+  }
+
   /** The missile radar, redrawn: null takes it down. */
   setMissiles(d) {
     const M = this.msl;
     if (!M) return;
     if (!d) { if (!M.box.hidden) M.box.hidden = true; return; }
     if (M.box.hidden) M.box.hidden = false;
-    const K = d.cls.missiles.kinds;
-    const left = d.left || [K.tomahawk.rounds, K.harpoon.rounds];
-    const cool = d.cool || [0, 0];
-    M.tq.textContent = left[0];
-    M.hq.textContent = left[1];
-    M.tlam.classList.toggle('empty', !left[0]);
-    M.harp.classList.toggle('empty', !left[1]);
-    M.tc.style.width = `${Math.round((1 - Math.min(1, cool[0] / K.tomahawk.interval)) * 100)}%`;
-    M.hc.style.width = `${Math.round((1 - Math.min(1, cool[1] / K.harpoon.interval)) * 100)}%`;
+    this.buildMissileButtons(d.cls);
+    M.buttons.forEach((b, i) => {
+      const left = d.left ? d.left[i] ?? 0 : b.K.rounds;
+      const cool = d.cool ? d.cool[i] ?? 0 : 0;
+      b.q.textContent = left;
+      b.el.classList.toggle('empty', !left);
+      b.c.style.width = `${Math.round((1 - Math.min(1, cool / (b.K.interval || 1))) * 100)}%`;
+    });
+    if (M.auto) {
+      const on = d.auto !== false;
+      M.auto.classList.toggle('on', on);
+      M.auto.querySelector('b').textContent = on ? 'AUTO' : 'HOLD';
+    }
     const km = (m) => `${(m / 1000).toFixed(1)} km`;
     M.target.textContent = d.target
-      ? `${SHIP_CLASSES[d.target.c]?.name || 'enemy'} \u00b7 ${km(d.targetRange)}`
-      : 'AUTO \u00b7 NEAREST';
-    M.mode.textContent = d.riding ? (d.riding.k === 't' ? 'RIDING TLAM' : 'RIDING HARPOON') : 'OWN SHIP';
+      ? `${SHIP_CLASSES[d.target.c]?.name || 'enemy'} · ${km(d.targetRange)}`
+      : 'AUTO · NEAREST';
+    M.mode.textContent = d.riding ? `RIDING ${MISSILE_SHAPES[d.riding.k]?.name.toUpperCase() || 'MISSILE'}` : 'OWN SHIP';
     // Her missiles in the air, as keys to ride them by.
     const key = d.mine.map((m) => `${m.i}${m.a ? 'a' : ''}`).join(',') + `|${d.riding ? d.riding.i : 0}`;
     if (key !== M.airKey) {
       M.airKey = key;
       M.air.innerHTML = d.mine.map((m, n) => `<button type="button" data-i="${m.i}" class="${d.riding && d.riding.i === m.i ? 'on' : ''}">`
-        + `${m.k === 't' ? 'T' : 'H'}${n + 1}${m.a ? ' \u2191' : ''}</button>`).join('');
+        + `${m.k.toUpperCase()}${n + 1}${m.a ? ' ↑' : ''}</button>`).join('');
     }
     this.drawMissileScope(d);
   }
@@ -2491,9 +2529,12 @@ class HudBase {
       if (w.missile) {
         const left = own.mq ? own.mq[w.slot] : w.barrels;
         if (el) {
-          el.textContent = left > 0 ? `${left} of ${w.barrels} aboard` : 'All expended';
+          // A VLS is loaded as her captain chose, so its rows read what is
+          // in the cells, not what the datasheet sails with.
+          el.textContent = left > 0 ? (w.vls ? `${left} in her cells` : `${left} of ${w.barrels} aboard`)
+            : w.vls ? 'None in her cells' : 'All expended';
           el.classList.toggle('masked', left === 0);
-          el.classList.toggle('part', left > 0 && left < w.barrels);
+          el.classList.toggle('part', !w.vls && left > 0 && left < w.barrels);
         }
         continue;
       }

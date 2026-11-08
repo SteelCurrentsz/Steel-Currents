@@ -4,7 +4,7 @@
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
-  slotMask, machineSlot,
+  slotMask, machineSlot, MISSILE_CODE, vlsKinds,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -201,10 +201,14 @@ export function shipSnapshot(ship, full, state = null) {
     }
     s.tp = ship.torpMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
     // Her missiles: how many of each are left, and how long until the next
-    // of each can go -- Tomahawk first, then Harpoon.
-    if (ship.missiles) {
-      s.mq = [ship.missiles.left.tomahawk ?? 0, ship.missiles.left.harpoon ?? 0];
-      s.mc = [r1(ship.missiles.cool.tomahawk ?? 0), r1(ship.missiles.cool.harpoon ?? 0)];
+    // of each can go, in the order her datasheet lists them (the Missouri's
+    // Tomahawk first, then Harpoon); and, if she has a VLS, whether her own
+    // fire control may put up her Standards on its own.
+    if (ship.missiles && cls.missiles) {
+      const kinds = Object.keys(cls.missiles.kinds);
+      s.mq = kinds.map((k) => ship.missiles.left[k] ?? 0);
+      s.mc = kinds.map((k) => r1(ship.missiles.cool[k] ?? 0));
+      if (vlsKinds(cls).length) s.ma = ship.missiles.auto ? 1 : 0;
     }
     // Which mounting her captain has gone down to, and how long every
     // secondary has to go. Both are his own business and nobody else's, so
@@ -360,7 +364,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   // ship it is coming for has to be able to see it to do anything about it.
   const missiles = (state.missiles || []).map((m) => ({
     i: m.id, x: r1(m.x), y: r1(m.y), z: r1(m.z), h: r3(m.heading), p: r3(m.pitch),
-    k: m.kind === 'tomahawk' ? 't' : 'h', tm: m.team, o: m.owner, tg: m.target,
+    k: MISSILE_CODE[m.kind] || 'h', tm: m.team, o: m.owner,
+    // The ship it is laid on; an interceptor's quarry is in the air, not a ship.
+    tg: m.tk === 'm' || m.tk === 'a' ? undefined : m.target,
     // Still aboard, on its rail: drawn in its box or its canister.
     a: m.aboard ? 1 : undefined,
     // How long since it left, for its booster's flame.

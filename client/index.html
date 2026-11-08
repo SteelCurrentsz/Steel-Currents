@@ -447,6 +447,9 @@
       <p class="credit">"<a href="https://skfb.ly/oFMxF" target="_blank" rel="noopener">Chinese PLANavy Guangzhou Ship（中国人民解放军海军广州舰）</a>"
         by 全斗焕 is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/o7TNV" target="_blank" rel="noopener">1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.</a>"
+        by Yi Tsung Lee is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
     </div>
     <footer class="panel-foot">
       <button class="btn ghost" data-action="back">Back</button>
@@ -494,8 +497,9 @@
     </div>
   </div>
 
-  <!-- The missile radar: only on a ship that carries missiles. Her Tomahawks
-       and Harpoons left, the ship the next one goes for, and every one of
+  <!-- The missile radar: only on a ship that carries missiles. A fire button
+       for each kind she carries and what is left of it (and, on a VLS ship,
+       her Aegis switch), the ship the next one goes for, and every one of
        hers in the air on a scope round the one being ridden -- tap one on
        the scope or in the list to ride it in. -->
   <div class="msl-radar" id="msl-radar" hidden>
@@ -503,12 +507,10 @@
     <canvas id="msl-scope" width="300" height="300"></canvas>
     <div class="msl-target"><span>TGT</span><b id="msl-target">AUTO &middot; NEAREST</b>
       <button type="button" id="msl-next" aria-label="Next target">&#9654;</button></div>
-    <div class="msl-fire">
-      <button type="button" id="msl-tlam"><span>TOMAHAWK</span><b id="msl-tq">32</b><i id="msl-tc"></i></button>
-      <button type="button" id="msl-harp"><span>HARPOON</span><b id="msl-hq">16</b><i id="msl-hc"></i></button>
+    <div class="msl-fire" id="msl-fire">
     </div>
     <div class="msl-air" id="msl-air"></div>
-    <p class="msl-hint">Z Tomahawk &middot; V Harpoon &middot; N target &middot; J ride</p>
+    <p class="msl-hint" id="msl-hint">Z Tomahawk &middot; V Harpoon &middot; N target &middot; J ride</p>
   </div>
   <div class="hud-right" id="hud-right">
     <!-- The one way into the free camera. It used to start the moment anybody
@@ -1045,6 +1047,21 @@
     <div class="ag-actions">
       <button class="btn ghost" id="ag-reset" type="button">Default</button>
       <button class="btn" id="ag-done" type="button">Done</button>
+    </div>
+  </div>
+
+  <!-- How her vertical launchers are loaded: a row a missile, as many of
+       each as she likes, so long as they fit her cells. Shown only for a ship
+       with a VLS; the rows are built for her kinds when it opens. -->
+  <div class="airgroup" id="vlspanel" hidden>
+    <h3>VLS Loadout</h3>
+    <p class="ag-sub" id="vls-sub">Load her cells as you like.</p>
+    <div id="vls-rows"></div>
+    <div class="ag-total" id="vls-total"><span>Cells loaded</span><span id="vls-total-n">90 / 90</span></div>
+    <p class="ag-note" id="vls-note"></p>
+    <div class="ag-actions">
+      <button class="btn ghost" id="vls-reset" type="button">Default</button>
+      <button class="btn" id="vls-done" type="button">Done</button>
     </div>
   </div>
 

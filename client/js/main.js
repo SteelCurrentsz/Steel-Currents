@@ -28,7 +28,7 @@ import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, WWII_ORDER, MODERN_ORDER } fro
 import { ADS_REQUIRED, premiumUnlocked, unlockWithAd } from './premium.js';
 import { KNOTS } from '../../shared/math.js';
 import { MAP_PRESETS } from '../../shared/world.js';
-import { normaliseAirGroup, defaultAirGroup } from '../../shared/sim.js';
+import { normaliseAirGroup, defaultAirGroup, normaliseVls, defaultVls, vlsKinds, vlsCells } from '../../shared/sim.js';
 
 /**
  * The loading screen.
@@ -792,6 +792,7 @@ eraEl.addEventListener('click', (e) => { if (e.target === eraEl) closeEra(); });
 
 function closeYard() {
   closeAirGroup();
+  closeVls();
   yardUi.refit = null;
   yard?.detach();
   show(yardUi.from || 'custom');
@@ -819,7 +820,11 @@ function sheet(el, heading, rows) {
     `<div class="yard-row${act ? ' act' : ''}"${act ? ` data-act="${act}"` : ''}>`
     + `<span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
   for (const row of el.querySelectorAll('.yard-row.act')) {
-    row.onclick = () => { audio.click(); if (row.dataset.act === 'airgroup') openAirGroup(); };
+    row.onclick = () => {
+      audio.click();
+      if (row.dataset.act === 'airgroup') openAirGroup();
+      if (row.dataset.act === 'vls') openVls();
+    };
   }
 }
 
@@ -864,6 +869,7 @@ function currentAirGroup(cls) {
 function openAirGroup() {
   const spec = airGroupSpec();
   if (!spec) return;
+  closeVls();
   const id = yardShip();
   yardUi.ag = { ...currentAirGroup(SHIP_CLASSES[id]) };
   document.getElementById('airgroup').hidden = false;
@@ -950,6 +956,96 @@ function stepAirGroup(kind, d) {
   renderAirGroup();
 }
 
+// ------------------------------------------------------------ VLS loadout --
+
+/**
+ * What her vertical launchers carry, and the panel that sets it.
+ *
+ * Every cell takes any of her VLS missiles, one to a cell: Standards for
+ * aircraft and missiles, SM-3s for missiles, Tomahawks for ships and ASROC
+ * for submarines. A captain loads as many of each as he likes, so long as the
+ * lot fits; a cell left empty is a cell that fires nothing. The choice is kept
+ * in settings and rides the sortie request, so the VLS ships on her side sail
+ * with it.
+ */
+function currentVls(cls) {
+  if (!cls || !vlsKinds(cls).length) return null;
+  return normaliseVls(cls, getSettings().vls || null);
+}
+
+function openVls() {
+  const cls = SHIP_CLASSES[yardShip()];
+  if (!cls || !vlsKinds(cls).length) return;
+  closeAirGroup();
+  yardUi.vls = { ...currentVls(cls) };
+  const K = cls.missiles.kinds;
+  const role = { sam: 'aircraft and missiles', abm: 'missiles', surface: 'ships', asroc: 'submarines and ships' };
+  const rows = document.getElementById('vls-rows');
+  rows.innerHTML = vlsKinds(cls).map((k) => `<div class="ag-row" data-kind="${k}">`
+    + `<span class="ag-name">${K[k].short}<em>${K[k].name} &mdash; ${role[K[k].role] || 'ships'}</em></span>`
+    + `<button class="ag-step vls-step" type="button" data-kind="${k}" data-step="-1" aria-label="Fewer ${K[k].short}">&minus;</button>`
+    + `<span class="ag-n" id="vls-n-${k}">0</span>`
+    + `<button class="ag-step vls-step" type="button" data-kind="${k}" data-step="1" aria-label="More ${K[k].short}">+</button>`
+    + '</div>').join('');
+  for (const btn of rows.querySelectorAll('.vls-step')) {
+    holdable(btn, () => stepVls(btn.dataset.kind, Number(btn.dataset.step)));
+  }
+  document.getElementById('vlspanel').hidden = false;
+  renderVls();
+}
+
+function closeVls() {
+  const el = document.getElementById('vlspanel');
+  if (el) el.hidden = true;
+  yardUi.vls = null;
+}
+
+function renderVls() {
+  const cls = SHIP_CLASSES[yardShip()];
+  const g = yardUi.vls;
+  if (!cls || !g) return;
+  const cells = vlsCells(cls);
+  const total = vlsKinds(cls).reduce((n, k) => n + (g[k] || 0), 0);
+  document.getElementById('vls-sub').textContent =
+    `${cells} Mk 41 cells, one missile to a cell. Any mix you like.`;
+  for (const k of vlsKinds(cls)) document.getElementById(`vls-n-${k}`).textContent = g[k] || 0;
+  document.getElementById('vls-total-n').textContent = `${total} / ${cells}`;
+  document.getElementById('vls-total').classList.toggle('full', total === cells);
+  for (const btn of document.querySelectorAll('.vls-step')) {
+    const n = (g[btn.dataset.kind] || 0) + Number(btn.dataset.step);
+    btn.disabled = n < 0 || (Number(btn.dataset.step) > 0 && total >= cells);
+  }
+  const sam = (g.sm2 || 0) + (g.sm2er || 0);
+  const note = document.getElementById('vls-note');
+  if (total < cells) note.textContent = `${cells - total} cells empty.`;
+  else if (!sam) note.textContent = 'No Standards: her Aegis has nothing to stop aircraft with.';
+  else note.textContent = '';
+}
+
+function stepVls(kind, d) {
+  const cls = SHIP_CLASSES[yardShip()];
+  const g = yardUi.vls;
+  if (!cls || !g) return;
+  const n = (g[kind] || 0) + d;
+  const total = vlsKinds(cls).reduce((a, k) => a + (g[k] || 0), 0);
+  if (n < 0 || (d > 0 && total >= vlsCells(cls))) return;
+  g[kind] = n;
+  renderVls();
+}
+
+document.getElementById('vls-reset').onclick = () => {
+  audio.click();
+  const cls = SHIP_CLASSES[yardShip()];
+  if (cls && yardUi.vls) { yardUi.vls = defaultVls(cls); renderVls(); }
+};
+document.getElementById('vls-done').onclick = () => {
+  audio.click();
+  const cls = SHIP_CLASSES[yardShip()];
+  if (cls && yardUi.vls) setSettings({ vls: normaliseVls(cls, yardUi.vls) });
+  closeVls();
+  renderYard();
+};
+
 function renderYard() {
   const id = yardShip();
   const cls = SHIP_CLASSES[id];
@@ -987,7 +1083,7 @@ function renderYard() {
   }
   const group = currentAirGroup(cls);
   sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls, group));
-  sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group));
+  sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group, currentVls(cls)));
 }
 
 function stepYard(dir) {
@@ -995,15 +1091,16 @@ function stepYard(dir) {
   yardUi.refit = null;
   yardUi.index = (yardUi.index + dir + yardUi.order.length) % yardUi.order.length;
   closeAirGroup();
+  closeVls();
   renderYard();
 }
 
 // Eighty aircraft is a lot of presses one at a time, so a stepper held down
 // keeps stepping, and quicker the longer it is held.
-for (const btn of document.querySelectorAll('.ag-step')) {
+/** A stepper that keeps stepping while it is held, quicker the longer. */
+function holdable(btn, step) {
   let timer = null;
   let held = 0;
-  const step = () => stepAirGroup(btn.dataset.kind, Number(btn.dataset.step));
   const stop = () => { clearTimeout(timer); timer = null; };
   const repeat = () => {
     held++;
@@ -1025,6 +1122,9 @@ for (const btn of document.querySelectorAll('.ag-step')) {
   btn.onpointercancel = stop;
   // The keyboard still gets one step a press.
   btn.onclick = (e) => { if (e.detail === 0) { audio.click(); step(); } };
+}
+for (const btn of document.querySelectorAll('.ag-step')) {
+  holdable(btn, () => stepAirGroup(btn.dataset.kind, Number(btn.dataset.step)));
 }
 document.getElementById('ag-reset').onclick = () => {
   audio.click();

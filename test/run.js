@@ -34,7 +34,7 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER, mortarFlight,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
-import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE } from '../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine } from '../shared/sim.js';
 import {
@@ -168,6 +168,8 @@ import {
   buildGuangzhou, shellAt as guangzhouShellAt, keelY as guangzhouKeel, deckOver as guangzhouSheer, zAt as guangzhouZAt,
 } from '../client/js/render/guangzhou.js';
 import { guangzhouSurfaceY, MOUNT_SEATS as GUANGZHOU_SEATS } from '../client/js/render/guangzhouHull.js';
+import { buildBurke } from '../client/js/render/burke.js';
+import { burkeSurfaceY, MOUNT_SEATS as BURKE_SEATS } from '../client/js/render/burkeHull.js';
 import {
   buildTillman, shellAt as tillmanShellAt, keelY as tillmanKeel, deckOver as tillmanSheer, zAt as tillmanZAt,
   LOA as LOA_TILLMAN,
@@ -176,7 +178,9 @@ import { tillmanSurfaceY, MOUNT_SEATS as TILLMAN_SEATS } from '../client/js/rend
 import { ADS_REQUIRED, premiumUnlocked } from '../client/js/premium.js';
 import { buildMissouri } from '../client/js/render/missouri.js';
 import { missouriSurfaceY, MOUNT_SEATS as MISSOURI_SEATS } from '../client/js/render/missouriHull.js';
-import { fireMissile, retargetMissile } from '../shared/sim.js';
+import {
+  fireMissile, retargetMissile, normaliseVls, defaultVls, setVlsLoad, setAegisAuto, vlsCells, vlsKinds, MISSILE_CODE,
+} from '../shared/sim.js';
 import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
@@ -3504,11 +3508,11 @@ check("the Ticonderoga's Phalanx fires on what comes at her", () => {
   assert.ok(down >= 1, 'her Phalanx brought down none of four Harpoons');
 });
 
-check('the CNS Guangzhou is commissioned after the IJN Yukikaze and before the USS Cleveland, armed as the owner asked', () => {
+check('the CNS Guangzhou is commissioned after the IJN Yukikaze and before the USS Arleigh Burke, armed as the owner asked', () => {
   const i = SHIP_ORDER.indexOf('guangzhou');
   assert.ok(i >= 0, 'the Guangzhou is not in the yard');
   assert.equal(SHIP_ORDER[i - 1], 'yukikaze', `before the Guangzhou comes ${SHIP_ORDER[i - 1]}`);
-  assert.equal(SHIP_ORDER[i + 1], 'cleveland', `after the Guangzhou comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'burke', `after the Guangzhou comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.guangzhou;
   assert.equal(cls.fullName, 'CNS Guangzhou');
   assert.equal(cls.type, 'DD', 'she is not a destroyer');
@@ -3580,6 +3584,203 @@ check("the Guangzhou's shell has no holes in it", () => {
   }
   assert.ok(tested > 500, `only ${tested} stations of plating were tested`);
   assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the USS Arleigh Burke is commissioned after the Guangzhou, in the Modern yard, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('burke');
+  assert.ok(i >= 0, 'the Burke is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'guangzhou', `before the Burke comes ${SHIP_ORDER[i - 1]}`);
+  const m = MODERN_ORDER.indexOf('burke');
+  assert.ok(m > 0 && MODERN_ORDER[m - 1] === 'guangzhou', 'she is not in the Modern yard after the Guangzhou');
+  assert.ok(!WWII_ORDER.includes('burke'), 'she is in the Second World War yard');
+  const cls = SHIP_CLASSES.burke;
+  assert.equal(cls.fullName, 'USS Arleigh Burke (DDG-51)');
+  assert.equal(cls.type, 'DD');
+  assert.equal(cls.nation, 'usa');
+  // One single 5-inch, for surface fire.
+  assert.equal(cls.turrets.length, 1);
+  assert.equal(cls.turrets[0].guns, 1);
+  assert.equal(cls.gun.caliber, 127);
+  assert.equal(cls.gun.role, 'surface');
+  // Two Phalanx.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.equal(ciws[0].mounts.length, 2);
+  // Two 25 mm Mk 38s, dual-purpose.
+  assert.equal(cls.secondary.caliber, 25);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.equal(cls.secondary.mounts.length, 2);
+  // Two Mk 32 triples of homing torpedoes.
+  assert.equal(cls.torpedoes.mounts.length, 2);
+  assert.ok(cls.torpedoes.mounts.every((t) => t.tubes === 3));
+  assert.ok(cls.torpedoes.homing, 'her torpedoes do not home');
+  // Harpoons, and ninety Mk 41 cells for everything else.
+  const K = cls.missiles.kinds;
+  for (const k of ['sm2', 'sm2er', 'sm3', 'tomahawk', 'asroc', 'harpoon']) assert.ok(K[k], `she carries no ${k}`);
+  assert.equal(vlsCells(cls), 90, 'she has not ninety cells');
+  assert.equal(cls.missiles.vls.cells.filter((c) => c[2] > 0).length, 29, 'her forward launcher is not 29 cells');
+  assert.equal(cls.missiles.vls.cells.filter((c) => c[2] < 0).length, 61, 'her after launcher is not 61 cells');
+  assert.deepEqual(vlsKinds(cls), ['sm2', 'sm2er', 'sm3', 'tomahawk', 'asroc']);
+  assert.equal(K.harpoon.launch, 'tube');
+  assert.equal(Object.values(defaultVls(cls)).reduce((a, b) => a + b, 0), 90, 'she does not sail with her cells full');
+  const built = buildBurke();
+  assert.equal(built.turrets.length, 1);
+  assert.equal(built.secMounts.length, 2);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  for (const [kind, list] of Object.entries(BURKE_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, burkeSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check('the Credits screen credits the model the Arleigh Burke is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/o7TNV') && screen.includes('Yi Tsung Lee'), 'the credit is not as its licence asks');
+});
+
+check("a VLS is loaded as her captain asks, and never with more than her cells hold", () => {
+  const cls = SHIP_CLASSES.burke;
+  assert.deepEqual(normaliseVls(cls, { sm2: 40, tomahawk: 50, asroc: 20, bogus: 9 }),
+    { sm2: 40, sm2er: 0, sm3: 0, tomahawk: 50, asroc: 0 }, 'an overfull loading was not cut back');
+  assert.deepEqual(normaliseVls(cls, { sm2: -3, asroc: 2.7 }), { sm2: 0, sm2er: 0, sm3: 0, tomahawk: 0, asroc: 2 });
+  assert.deepEqual(normaliseVls(SHIP_CLASSES.missouri, { tomahawk: 90 }), {}, 'the Missouri has a VLS');
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'burke', team: 0, index: 0, vls: { sm2: 60, tomahawk: 30 } });
+  assert.equal(a.missiles.left.sm2, 60);
+  assert.equal(a.missiles.left.tomahawk, 30);
+  assert.equal(a.missiles.left.asroc, 0);
+  assert.equal(a.missiles.left.harpoon, 8, 'her Harpoons went into the VLS loading');
+  assert.equal(a.missiles.cells.filter((c) => c === 'sm2').length, 60);
+  assert.equal(fireMissile(state, a, 'asroc', 0), null, 'an ASROC went out of an empty magazine');
+  setVlsLoad(a, cls, { asroc: 90 });
+  assert.equal(a.missiles.left.asroc, 90);
+  // The Missouri sails as she always has, whatever is asked.
+  const mo = addShip(state, { name: 'M', classId: 'missouri', team: 1, index: 0, vls: { sm2: 60 } });
+  assert.equal(mo.missiles.left.tomahawk, 32);
+  // The yard's loading rides the sortie request onto her side's ships.
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'open_ocean',
+    seed: 4242, half: 14000, private: true, autoStart: false });
+  clearInterval(room.timer);
+  const player = { id: 'p', name: 'Captain', team: 0, send() {} };
+  crewBattle(room, { vls: { sm3: 10, asroc: 80 } }, (at) => {
+    const res = room.join(player, { name: 'Captain', classId: 'burke', team: 0, at });
+    return res.error ? { error: res.error } : { team: player.team };
+  }, { allies: 0, enemies: 0, guns: 0 });
+  const own = room.state.ships.find((q) => q.playerId === 'p');
+  assert.equal(own.missiles.left.asroc, 80, 'the loading chosen in the yard did not sail');
+  assert.equal(own.missiles.left.sm3, 10);
+  assert.equal(own.missiles.left.sm2, 0);
+  // And her own bridge is told what is left of each, in her datasheet's order.
+  const snap = shipSnapshot(own, true, room.state);
+  assert.deepEqual(snap.mq, Object.keys(cls.missiles.kinds).map((k) => own.missiles.left[k]));
+  assert.equal(snap.ma, 1, 'the wire does not say her Aegis is free to fire');
+});
+
+/** A Burke and one enemy, `gap` apart, both in sight; what comes of `act` each tick. */
+function burkeTrial({ mine = 'burke', enemy, gap = 12000, secs = 120, act = () => {}, vls = null }) {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: mine, team: 0, index: 0, vls });
+  const b = addShip(state, { name: 'B', classId: enemy, team: 1, index: 0 });
+  a.x = 0; a.z = -gap / 2; a.heading = Math.PI / 2;
+  b.x = 0; b.z = gap / 2; b.heading = Math.PI / 2;
+  const ev = {};
+  for (let t = 0; t < secs * 30; t++) {
+    a.spottedBy = [true, true]; b.spottedBy = [true, true];
+    act(state, a, b);
+    for (const e of step(state, 1 / 30)) {
+      const k = e.why ? `${e.e}:${e.why}` : e.e;
+      ev[k] = (ev[k] || 0) + 1;
+    }
+  }
+  return { state, a, b, ev };
+}
+
+check("the Burke's Aegis puts Standards up into missiles coming at her, and holds them when told to", () => {
+  let n = 0;
+  const salvo = (state, a, b) => { if (n < 6 && fireMissile(state, a, 'tomahawk', b.id)) n++; };
+  const r = burkeTrial({ mine: 'missouri', enemy: 'burke', act: salvo });
+  assert.ok((r.ev.samBurst || 0) >= 4, `her Standards burst only ${r.ev.samBurst || 0} times`);
+  assert.ok((r.ev['mslDown:sam'] || 0) >= 4, `her Standards brought down only ${r.ev['mslDown:sam'] || 0} of six`);
+  assert.ok(!r.ev.mslHit, 'a Tomahawk got through to her');
+  // Held, her Aegis puts nothing up; her Phalanx are left to it.
+  n = 0;
+  const held = burkeTrial({ mine: 'missouri', enemy: 'burke', act: (state, a, b) => { setAegisAuto(b, false); salvo(state, a, b); } });
+  assert.ok(!held.ev.samBurst, 'her Aegis fired while it was held');
+  assert.equal(held.b.missiles.left.sm2, SHIP_CLASSES.burke.missiles.kinds.sm2.rounds);
+});
+
+check("the Burke's Standards bring down aircraft, and an SM-3 is for missiles only", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'C', classId: 'enterprise', team: 1, index: 0 });
+  const a = addShip(state, { name: 'A', classId: 'burke', team: 0, index: 0, vls: { sm3: 20 } });
+  c.x = 0; c.z = 15000; a.x = 0; a.z = 0;
+  c.aimX = 0; c.aimZ = 0;
+  assert.ok(launchStrike(state, c));
+  let down = 0, burst = 0;
+  for (let t = 0; t < 200 * 30; t++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'samBurst') burst++;
+      if (e.e === 'planeDown' && e.why === 'sam') down++;
+    }
+  }
+  assert.equal(burst, 0, 'an SM-3 went at an aeroplane');
+  // Loaded with Standards she shoots the strike down.
+  const s2 = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const c2 = addShip(s2, { name: 'C', classId: 'enterprise', team: 1, index: 0 });
+  const a2 = addShip(s2, { name: 'A', classId: 'burke', team: 0, index: 0 });
+  c2.x = 0; c2.z = 15000; a2.x = 0; a2.z = 0;
+  c2.aimX = 0; c2.aimZ = 0;
+  assert.ok(launchStrike(s2, c2));
+  for (let t = 0; t < 200 * 30; t++) {
+    for (const s of s2.ships) s.spottedBy = [true, true];
+    for (const e of step(s2, 1 / 30)) if (e.e === 'planeDown' && e.why === 'sam') down++;
+  }
+  assert.ok(down >= 4, `her Standards brought down only ${down} aircraft`);
+  void a;
+});
+
+check("the Burke's ASROC flies out to a submarine and drops a homing torpedo on her", () => {
+  let n = 0;
+  const r = burkeTrial({ enemy: 'u48', gap: 9000, act: (state, a, b) => {
+    b.depth = 30;
+    if (n < 2 && fireMissile(state, a, 'asroc', b.id)) n++;
+  } });
+  assert.equal(n, 2, 'her ASROC would not go');
+  assert.equal(r.ev.asrocDrop, 2, 'an ASROC never let its torpedo go');
+  assert.ok((r.ev.torpHit || 0) >= 1, 'no torpedo it dropped found the boat');
+  assert.ok(r.b.hp < r.b.maxHp, 'the boat took nothing');
+});
+
+check("the Burke's Tomahawks go up out of her cells and her Harpoons out of their canisters, at ships", () => {
+  let t = 0, h = 0;
+  const r = burkeTrial({ enemy: 'iowa', act: (state, a, b) => {
+    if (t < 3 && fireMissile(state, a, 'tomahawk', b.id)) t++;
+    if (h < 3 && fireMissile(state, a, 'harpoon', b.id)) h++;
+  } });
+  assert.equal(t, 3); assert.equal(h, 3);
+  assert.ok((r.ev.mslHit || 0) >= 4, `only ${r.ev.mslHit || 0} of six found an Iowa`);
+  assert.equal(r.a.missiles.left.tomahawk, SHIP_CLASSES.burke.missiles.kinds.tomahawk.rounds - 3);
+  assert.equal(r.a.missiles.left.harpoon, 5);
+  assert.equal(MISSILE_CODE.tomahawk, 't');
+  assert.equal(MISSILE_CODE.harpoon, 'h');
+});
+
+check('the arsenal lists every missile the Burke carries, her VLS by what is in her cells', () => {
+  const rows = arsenal(SHIP_CLASSES.burke).filter((w) => w.band === 'Missiles');
+  assert.deepEqual(rows.map((w) => w.missile), Object.keys(SHIP_CLASSES.burke.missiles.kinds));
+  assert.deepEqual(rows.map((w) => w.slot), rows.map((_, i) => i));
+  assert.equal(rows.find((w) => w.missile === 'sm2').role, 'aa');
+  assert.equal(rows.find((w) => w.missile === 'asroc').role, 'sub');
+  assert.equal(rows.find((w) => w.missile === 'harpoon').mounts, 2, 'her Harpoons are not in two quadruple canisters');
 });
 
 check("the Guangzhou's AK-630s fire on missiles coming at her", () => {

@@ -84,6 +84,13 @@ export const TORPEDO_KINDS = {
     blades: [7, 7], stud: true,
     paint: { head: 0x3c4a3a, flask: 0x495746, after: 0x445241, tail: 0x3a4637, joint: 0x9a8a48, screw: 0x7c7e78, ring: 0x3a4637 },
   },
+  // The Burke's Mk 46: a lightweight 324 mm homing torpedo, short and slim,
+  // its seeker under a flat nose, a dull green body and a ducted tail.
+  mk46: {
+    len: 2.59, r: 0.162, nose: 'blunt', head: 0.24, flask: 0.42, cone: 3.2, fin: 0.94, ring: true,
+    blades: [4, 4], stud: false,
+    paint: { head: 0x2e3a2c, flask: 0x56604f, after: 0x4f5949, tail: 0x3e4739, joint: 0xb3a04e, screw: 0x6d706a, ring: 0x3e4739 },
+  },
   // The Avenger's Mk 13: short and fat, and a ring round its tail that held
   // it straight through the water once its wooden drop gear had gone.
   mk13: {

@@ -18,7 +18,7 @@
 </head><body>
 <script type="module">
 import * as THREE from '../vendor/three.module.js';
-import { buildShip } from '../client/js/render/ships.js';
+import { buildShip, loadShips } from '../client/js/render/ships.js';
 
 const q = new URLSearchParams(location.search);
 const id = q.get('ship') || 'enterprise';
@@ -36,6 +36,8 @@ sun.position.set(0.4, 0.75, -0.5).multiplyScalar(3000);
 scene.add(sun);
 scene.add(new THREE.HemisphereLight(0xa8cee6, 0x2c5a72, 1.0));
 
+// A ship drawn from a model is fetched before she is built, as the game does.
+await loadShips([id]);
 const built = buildShip(id);
 scene.add(built.group);
 if (built.group.userData.step) built.group.userData.step(+(q.get('t') || 3));

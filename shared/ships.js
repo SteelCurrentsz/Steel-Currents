@@ -23,6 +23,21 @@ const HE = 'he';
 
 // `pen` is armour-piercing penetration in mm of belt at a typical fighting
 // range; HE penetration follows the usual caliber/6 rule of thumb.
+/**
+ * The cells of one Mk 41 launcher, [across, up, along] at each hatch: eight
+ * across her, a column of them at each of `zs` along her, at height `y`.
+ * The three under its strikedown crane -- the after-most column's three
+ * starboard cells -- carry nothing, which is why a launcher of thirty-two
+ * cells holds twenty-nine missiles and one of sixty-four holds sixty-one.
+ */
+const VLS_ROWS = [2.75, 1.99, 1.22, 0.455, -0.516, -1.281, -2.051, -2.811];
+function vlsModule(zs, y) {
+  const z0 = Math.min(...zs);
+  const out = [];
+  for (const z of zs) for (const x of VLS_ROWS) if (!(z === z0 && x < -1)) out.push([x, y, z]);
+  return out;
+}
+
 function shells(caliber, apDamage, heDamage, pen, velocity, fireChance) {
   return {
     // `fuseArm` is the plate an armour-piercing shell has to meet to start its
@@ -1223,6 +1238,195 @@ export const SHIP_CLASSES = {
       tertiary: [
         { caliber: 30, label: 'AK-630 CIWS', barrels: 24, mounts: 4, rounds: 8000 },
         { caliber: 250, label: 'RBU-1200', barrels: 20, mounts: 4, rounds: 120 },
+      ],
+    },
+  },
+
+  burke: {
+    // USS Arleigh Burke (DDG-51), the first of the US Navy's guided-missile
+    // destroyers of her name, armed as the owner asked: a single 5-inch/54
+    // Mk 45 on her forecastle, for surface fire; two Phalanx close-in weapon
+    // systems, one on her bridge front and one on her after deckhouse, which
+    // stop missiles as well as aeroplanes (see stepCiws); two 25 mm Mk 38
+    // chain guns, dual-purpose, one a side amidships; two Mk 32 triple tubes
+    // of Mk 46 homing torpedoes (see stepTorpedoes); eight RGM-84 Harpoons in
+    // two quadruple canister launchers aft; and ninety cells of Mk 41
+    // vertical launcher -- twenty-nine forward, sixty-one aft -- loaded as her
+    // captain chooses in the yard (see vlsLoad in sim.js) with:
+    //
+    //   RIM-66M SM-2MR   surface-to-air: aeroplanes and missiles
+    //   RIM-156 SM-2ER   surface-to-air, further and quicker: the same
+    //   RIM-161 SM-3     anti-ballistic: missiles only, from furthest out
+    //   BGM-109 Tomahawk cruise missile: ships
+    //   RUM-139 ASROC    a rocket that throws a Mk 46 into the sea over a
+    //                    ship or a submarine (see stepAsroc)
+    //
+    // Her own fire control -- Aegis -- puts her surface-to-air missiles up at
+    // whatever comes at her side out of the sky, unless her captain switches
+    // it off (see stepAegis).
+    //
+    // She is drawn from the owner's model of her (see burke.js) -- "1:1 Low
+    // poly US NAVY DDG-51 USS Arleigh Burke." by Yi Tsung Lee, under Creative
+    // Commons Attribution 4.0, credited on the Credits screen -- at her own
+    // size, 153.8 m over all, floated where the model paints her bottom.
+    id: 'burke',
+    name: 'Arleigh Burke',
+    fullName: 'USS Arleigh Burke (DDG-51)',
+    className: 'Arleigh Burke',
+    type: 'DD',
+    typeName: 'Destroyer',
+    nation: 'usa',
+    blurb: 'Aegis and ninety cells of Mk 41: Standard missiles that knock aeroplanes and missiles out of the sky, Tomahawks, ASROC that drops a homing torpedo on a submarine, Harpoons, a 5-inch gun and two Phalanx.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 2.5, 21], [0, -13, 21]],
+      length: 153.8, beam: 20.4, draft: 6.3, superstructure: 1.15,
+    },
+    hp: 23500,
+    // Thirty knots out of four gas turbines on two shafts.
+    maxSpeed: 30 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 1.1,
+    turnRate: 0.105,
+    rudderShift: 5.4,
+    speedLossInTurn: 0.2,
+    // Built to be hard to see on a radar: a destroyer's hull with a
+    // frigate's echo.
+    concealment: 7000,
+    fireDetectPenalty: 3600,
+    // SPY-1: further than anything else at sea.
+    radarRange: 22000,
+    repairCooldown: 60,
+    repairHeal: 0.11,
+    smokeCharges: 2,
+    // Kevlar over her vitals, and a destroyer's plating everywhere else.
+    armor: { belt: 25, deck: 16, citadel: 25, bow: 13, superstructure: 13 },
+    turrets: [
+      // Where the model stands it (see build/prepare-burke-hull.mjs).
+      { id: 0, name: 'A', x: -0.03, z: 46.219, angle: 0, arc: 2.75, guns: 1, my: 11.67 },
+    ],
+    gun: {
+      name: '5"/54 Mk 45', role: 'surface',
+      elev: { min: -0.26, max: 1.13 },
+      // Pivot to muzzle on the model's gun.
+      reach: 7.1,
+      // Twenty rounds a minute off its automatic loader.
+      caliber: 127, reload: 3, traverse: 0.52, range: 17000, sigma: 1.3,
+      shells: shells(127, 2000, 1800, 80, 808, 0.08),
+    },
+    // Her two Mk 32 triples, one a side abreast her after launcher, stowed
+    // fore and aft and trained out over her side to fire on the beam. Their
+    // Mk 46s find their own way onto a ship or a boat once they are running.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 8.573, z: -44.737, angle: 1.57, arc: 1.3, rest: 0, tubes: 3, my: 7.23,
+          launch: { eject: 9, stagger: 0.4, lanes: [-0.352, 0.004, 0.351], lie: 0, muzzle: 1.88, height: 7.23,
+            fish: { len: 2.59, r: 0.162, kind: 'mk46' } } },
+        { id: 1, x: -8.643, z: -44.516, angle: -1.57, arc: 1.3, rest: 0, tubes: 3, my: 7.23,
+          launch: { eject: 9, stagger: 0.4, lanes: [-0.351, -0.004, 0.352], lie: 0, muzzle: 1.88, height: 7.23,
+            fish: { len: 2.59, r: 0.162, kind: 'mk46' } } },
+      ],
+      name: 'Mk 46 324 mm homing torpedo', role: 'surface', caliber: 324, kind: 'mk46', tubeLabel: '324 mm',
+      reach: 1.88,
+      traverse: 0.5,
+      reload: 45, damage: 7000, speed: 40 * KNOTS, range: 7500,
+      detection: 900, arming: 200, spread: 0.05, floodChance: 0.3,
+      homing: { seek: 1400, cone: 0.8, turn: 0.2, after: 150 },
+    },
+    // Her two 25 mm Mk 38 chain guns, one a side amidships, dual-purpose.
+    secondary: {
+      name: '25 mm Mk 38', role: 'dp', piece: 'mk38',
+      elev: { min: -0.35, max: 0.9 },
+      reach: 3.29,
+      caliber: 25, reload: 0.35, traverse: 1.2, range: 2500, sigma: 1.0,
+      shells: shells(25, 120, 110, 30, 1100, 0.03),
+      mounts: [
+        { x: 9.08, z: -3.848, angle: Math.PI / 2, arc: 1.5, rest: Math.PI / 2, guns: 1, my: 8.01 },
+        { x: -9.08, z: -3.848, angle: -Math.PI / 2, arc: 1.5, rest: -Math.PI / 2, guns: 1, my: 8.01 },
+      ],
+    },
+    aa: {
+      range: 4000, dps: 30,
+      guns: [
+        // Her two Phalanx Mk 15, as the model draws them: fifty rounds a
+        // second out of six barrels, laid by the radar in the dome over them.
+        { name: 'Phalanx CIWS', caliber: 20, role: 'aa', reload: 0.02, range: 1800, piece: 'ciws', ciws: true,
+          elev: { min: -0.44, max: 1.4 },
+          mounts: [
+            { x: -0.03, z: 30.253, angle: 0, arc: 2.6, rest: 0, guns: 6, my: 13.84 },
+            { x: -0.03, z: -29.774, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 6, my: 13.05 },
+          ] },
+      ],
+    },
+    // What she fires that flies itself. Everything but her Harpoons goes up
+    // out of a cell of her Mk 41, and what is in which cell is her captain's
+    // to choose (see vlsLoad): `rounds` here is how she sails if he does not.
+    missiles: {
+      kinds: {
+        sm2: {
+          name: 'RIM-66M SM-2MR', short: 'SM-2', code: 's', role: 'sam', launch: 'vls', rounds: 32,
+          speed: 700, range: 24000, cruise: 600, turn: 1.6, damage: 0, hp: 1, interval: 1.0,
+          length: 4.72, kill: 16, pk: 0.8, air: true,
+        },
+        sm2er: {
+          name: 'RIM-156 SM-2ER', short: 'SM-2ER', code: 'e', role: 'sam', launch: 'vls', rounds: 16,
+          speed: 800, range: 36000, cruise: 900, turn: 1.4, damage: 0, hp: 1, interval: 1.2,
+          length: 6.55, kill: 18, pk: 0.8, air: true,
+        },
+        sm3: {
+          name: 'RIM-161 SM-3', short: 'SM-3', code: 'b', role: 'abm', launch: 'vls', rounds: 8,
+          speed: 1100, range: 60000, cruise: 1500, turn: 1.2, damage: 0, hp: 1, interval: 2.0,
+          length: 6.55, kill: 20, pk: 0.9, air: false,
+        },
+        tomahawk: {
+          name: 'BGM-109 Tomahawk', short: 'TLAM', code: 't', role: 'surface', launch: 'vls', rounds: 24,
+          speed: 245, range: 32000, cruise: 35, turn: 0.32,
+          damage: 7600, fire: 0.6, hp: 1, interval: 2.2, raise: 0,
+          length: 6.25, popUp: 2200,
+        },
+        asroc: {
+          name: 'RUM-139 VL-ASROC', short: 'ASROC', code: 'a', role: 'asroc', launch: 'vls', rounds: 10,
+          speed: 290, range: 18000, cruise: 320, turn: 0.6, hp: 1, interval: 3.0,
+          length: 4.9, drop: 1300,
+        },
+        harpoon: {
+          name: 'RGM-84 Harpoon', short: 'HARPOON', code: 'h', role: 'surface', launch: 'tube', rounds: 8,
+          speed: 240, range: 24000, cruise: 6, turn: 0.45,
+          damage: 4600, fire: 0.45, hp: 1, interval: 1.4, raise: 0,
+          length: 4.63, popUp: 0,
+        },
+      },
+      // Her two Mk 41s, every cell [across, up, along] at its hatch, as the
+      // model paints them (BURKE_VLS in burkeHull.data.js): twenty-nine
+      // forward and sixty-one aft, ninety in all.
+      vls: {
+        cells: [
+          ...vlsModule([37.294, 38.144, 39.264, 40.114], 7.85),
+          ...vlsModule([-45.815, -44.954, -43.834, -42.974, -41.854, -41.014, -39.883, -39.033], 7.06),
+        ],
+      },
+      // The mouths of her Harpoon canisters, [across, up, along], each cocked
+      // thirty-eight degrees up and pointed square out over her side.
+      tubes: [
+        [3.693, 10.629, -34.674], [3.162, 9.872, -33.793], [3.693, 10.629, -33.793], [3.162, 9.872, -34.674],
+        [-3.749, 10.629, -35.681], [-3.218, 9.872, -36.562], [-3.749, 10.629, -36.562], [-3.218, 9.872, -35.681],
+      ],
+      tubeElev: 0.656,
+    },
+    planes: null,
+    datasheet: {
+      displacement: 8300,
+      aircraft: 0,
+      mainRounds: 600,
+      torpedoesCarried: 24,
+      secondary: { caliber: 25, label: '25mm Mk 38', barrels: 2, rounds: 3000 },
+      tertiary: [
+        { caliber: 20, label: 'Phalanx CIWS', barrels: 12, mounts: 2, rounds: 3100 },
+      ],
+      missiles: [
+        { label: 'Mk 41 VLS cells', rounds: 90, vls: true },
+        { label: 'RGM-84 Harpoon', rounds: 8 },
       ],
     },
   },
@@ -10722,7 +10926,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano'];
 
@@ -10730,9 +10934,9 @@ export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'clevel
  * The yard's list split by era, for the choice the ship icon offers before the
  * yard opens: the war's hulls, or the missile age's. A hull is modern if she
  * sails as she was after 1945 (Missouri as recommissioned in 1991, Leviathan, the
- * Ticonderoga and the Guangzhou); everything else is WWII.
+ * Ticonderoga, the Guangzhou and the Arleigh Burke); everything else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'ticonderoga', 'leviathan', 'missouri']);
+export const MODERN_SHIPS = new Set(['guangzhou', 'burke', 'ticonderoga', 'leviathan', 'missouri']);
 export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id));
 export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));
 

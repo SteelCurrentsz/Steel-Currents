@@ -366,9 +366,17 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     brain.mslTimer = (brain.mslTimer ?? 6) - dt;
     if (brain.mslTimer <= 0) {
       const K = cls.missiles.kinds;
-      const kind = d < K.harpoon.range * 0.8 && ship.missiles.left.harpoon > 0 && Math.random() < 0.5
-        ? 'harpoon' : 'tomahawk';
-      if (d < K[kind].range * 0.9 && fireMissile(state, ship, kind, target.id)) {
+      const left = ship.missiles.left;
+      // A boat under the water is an ASROC's, if she carries any; a ship on
+      // it whichever of her missiles for ships she has left and can reach.
+      let kind = null;
+      if (submerged(target)) kind = K.asroc && left.asroc > 0 ? 'asroc' : null;
+      else {
+        const has = (k) => K[k] && left[k] > 0;
+        kind = has('harpoon') && d < K.harpoon.range * 0.8 && (Math.random() < 0.5 || !has('tomahawk'))
+          ? 'harpoon' : has('tomahawk') ? 'tomahawk' : has('asroc') && d < K.asroc.range * 0.6 ? 'asroc' : null;
+      }
+      if (kind && d < K[kind].range * 0.9 && fireMissile(state, ship, kind, target.id)) {
         brain.mslTimer = 14 + Math.random() * 16 * (1.2 - brain.skill);
       }
     }

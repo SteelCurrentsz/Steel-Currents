@@ -43,7 +43,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou;
+  buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -81,6 +81,7 @@ const SCULPTED = {
   leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
   ticonderoga: () => import('./ticonderoga.js').then((m) => { buildTiconderoga = m.buildTiconderoga; }),
   guangzhou: () => import('./guangzhou.js').then((m) => { buildGuangzhou = m.buildGuangzhou; }),
+  burke: () => import('./burke.js').then((m) => { buildBurke = m.buildBurke; }),
 };
 // The module each class is drawn by, where it is not her own name.
 const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck', spee: 'scheer' };
@@ -1049,6 +1050,21 @@ function buildModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [], rbuMounts: built.rbuMounts || [],
+    };
+  }
+
+  // And the Arleigh Burke: the model's hull, her superstructure, her gun,
+  // her Phalanx, her Mk 38s and her Mk 32 tubes.
+  if (cls.id === 'burke') {
+    const built = buildBurke();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
     };
   }
 

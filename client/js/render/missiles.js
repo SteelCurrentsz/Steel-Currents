@@ -1,4 +1,6 @@
-// Guided missiles in flight: the BGM-109 Tomahawk and the RGM-84 Harpoon.
+// Guided missiles in flight: the BGM-109 Tomahawk, the RGM-84 Harpoon, the
+// Standards an Aegis ship puts up (SM-2MR, SM-2ER, SM-3) and the RUM-139
+// ASROC.
 //
 // A missile is drawn at its own size, which is small -- a Tomahawk is six and
 // a quarter metres long and half a metre across -- and what makes it visible
@@ -17,6 +19,8 @@ import * as THREE from '../../../vendor/three.module.js';
 const MAT = {
   tomahawk: new THREE.MeshLambertMaterial({ color: 0xb9bdc2 }),
   harpoon: new THREE.MeshLambertMaterial({ color: 0xd9dbdc }),
+  standard: new THREE.MeshLambertMaterial({ color: 0xeceeef }),
+  asroc: new THREE.MeshLambertMaterial({ color: 0x9da39a }),
   nose: new THREE.MeshLambertMaterial({ color: 0x3a3d40 }),
   band: new THREE.MeshLambertMaterial({ color: 0xb08a2e }),
   fin: new THREE.MeshLambertMaterial({ color: 0x8e9297 }),
@@ -32,7 +36,16 @@ const MAT = {
 export const MISSILE_SHAPES = {
   t: { name: 'Tomahawk', len: 6.25, r: 0.26, span: 2.67, chord: 0.42, fin: 0.42, wingZ: 0.2, body: MAT.tomahawk },
   h: { name: 'Harpoon', len: 4.63, r: 0.17, span: 0.91, chord: 0.5, fin: 0.36, wingZ: 0.1, body: MAT.harpoon },
+  // The Standards: long, slim and white, four long low strakes along the
+  // body and four tail fins.
+  s: { name: 'SM-2MR', len: 4.72, r: 0.17, span: 0.62, chord: 1.6, fin: 0.36, wingZ: -0.2, body: MAT.standard },
+  e: { name: 'SM-2ER', len: 6.55, r: 0.17, span: 0.62, chord: 1.6, fin: 0.5, wingZ: 0.4, body: MAT.standard },
+  b: { name: 'SM-3', len: 6.55, r: 0.17, span: 0.6, chord: 1.4, fin: 0.5, wingZ: 0.6, body: MAT.standard },
+  // ASROC: a rocket motor with a torpedo in front of it, a fat blunt body.
+  a: { name: 'ASROC', len: 4.9, r: 0.18, span: 0.7, chord: 0.3, fin: 0.42, wingZ: -0.6, body: MAT.asroc },
 };
+/** A missile code the client has no shape for is drawn as a Harpoon. */
+const shapeOf = (k) => (MISSILE_SHAPES[k] ? k : 'h');
 
 function lathe(profile, seg = 14) {
   const geo = new THREE.LatheGeometry(profile.map(([z, r]) => new THREE.Vector2(r, z)), seg);
@@ -50,6 +63,7 @@ function plate(angle, r0, span, chord, z, t = 0.03) {
 
 const GEO = new Map();
 function geometryOf(k) {
+  k = shapeOf(k);
   if (GEO.has(k)) return GEO.get(k);
   const S = MISSILE_SHAPES[k];
   const L = S.len, R = S.r;
@@ -79,6 +93,7 @@ function geometryOf(k) {
 }
 
 function buildMissile(k) {
+  k = shapeOf(k);
   const S = MISSILE_SHAPES[k];
   const G = geometryOf(k);
   const g = new THREE.Group();
@@ -104,11 +119,13 @@ export class Missiles {
     this.scene = scene;
     this.trails = trails;
     this.live = new Map();
-    this.spare = { t: [], h: [] };
+    this.spare = {};
+    for (const k of Object.keys(MISSILE_SHAPES)) this.spare[k] = [];
   }
 
   /** Put a missile group into the scene, from the spares if there is one. */
   take(k) {
+    k = shapeOf(k);
     const g = this.spare[k].pop() || buildMissile(k);
     g.visible = true;
     this.scene.add(g);
@@ -127,7 +144,7 @@ export class Missiles {
       seen.add(m.i);
       let e = this.live.get(m.i);
       if (!e) {
-        e = { g: this.take(m.k), last: null, k: m.k, lay: 0 };
+        e = { g: this.take(m.k), last: null, k: shapeOf(m.k), lay: 0 };
         this.live.set(m.i, e);
       }
       const g = e.g;
@@ -136,7 +153,7 @@ export class Missiles {
       if (m.a) { e.last = null; continue; }
       g.position.set(m.x, m.y, m.z);
       g.rotation.set(-(m.p || 0), m.h || 0, 0, 'YXZ');
-      const S = MISSILE_SHAPES[m.k];
+      const S = MISSILE_SHAPES[e.k];
       const boost = (m.ag ?? 9) < BOOST;
       const flicker = 0.85 + Math.random() * 0.3;
       const fl = (boost ? 5.5 : 1.6) * flicker;
