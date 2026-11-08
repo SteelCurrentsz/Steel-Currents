@@ -13410,7 +13410,9 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     }
     // Her main battery, her light battery, and her tubes if she has any, all
     // reach the list -- and the barrel counts match her datasheet.
-    const light = rows.filter((w) => w.role === 'aa');
+    // A light battery may be dual-purpose throughout -- the Leviathan's is all
+    // 76 mm DP -- and is no less an anti-aircraft battery for it.
+    const light = rows.filter((w) => w.band === 'Light battery' && (w.role === 'aa' || w.role === 'dp'));
     assert.ok(light.length > 0, `${cls.id} has no anti-aircraft guns listed`);
     for (const t of cls.datasheet.tertiary || []) {
       // A calibre she carries in more than one kind of mounting -- the

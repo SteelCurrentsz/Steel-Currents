@@ -506,7 +506,7 @@ function hangarDeck(g, y0, y1, z0, z1) {
 
 function hangar(g) {
   hangarDeck(g, HANGAR, HANGAR_TOP, HANGAR_Z[0], HANGAR_Z[1]);
-  galleryBulkheads(g, HANGAR_TOP, FD - 0.03, HANGAR_Z[0], HANGAR_Z[1]);
+  galleryBulkheads(g, HANGAR_TOP, FD - 0.2, HANGAR_Z[0], HANGAR_Z[1]);
 }
 
 /**
@@ -517,7 +517,7 @@ function hangar(g) {
  * other.
  */
 function galleryBulkheads(g, y0, y1, z0, z1) {
-  const half = (z) => hangarHalf(z, HANGAR + 0.5, HANGAR_TOP);
+  const half = (z) => hangarHalf(z, HANGAR + 0.5, y1);
   const N = 60;
   const w = strip();
   for (let i = 0; i < N; i++) {
