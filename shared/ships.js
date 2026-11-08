@@ -1349,8 +1349,10 @@ export const SHIP_CLASSES = {
           mounts: [
             { x: 3.785, z: 22.085, angle: 1.57, arc: 1.9, rest: 1.414, guns: 6, my: 12.19 },
             { x: -3.812, z: 22.104, angle: -1.57, arc: 1.9, rest: -1.71, guns: 6, my: 12.19 },
-            { x: 7.728, z: -24.415, angle: 1.57, arc: 1.9, rest: 1.414, guns: 6, my: 10.67 },
-            { x: -7.773, z: -24.417, angle: -1.57, arc: 1.9, rest: -1.71, guns: 6, my: 10.67 },
+            // Abreast her funnel: her bridge and her forward superstructure
+            // are between these and anything low dead ahead.
+            { x: 7.728, z: -24.415, angle: 1.57, arc: 1.4, rest: 1.414, guns: 6, my: 10.67 },
+            { x: -7.773, z: -24.417, angle: -1.57, arc: 1.4, rest: -1.71, guns: 6, my: 10.67 },
           ] },
       ],
     },
