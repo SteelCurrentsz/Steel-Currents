@@ -170,6 +170,8 @@ import {
 import { guangzhouSurfaceY, MOUNT_SEATS as GUANGZHOU_SEATS } from '../client/js/render/guangzhouHull.js';
 import { buildBurke } from '../client/js/render/burke.js';
 import { buildSovremenny } from '../client/js/render/sovremenny.js';
+import { buildMutsu } from '../client/js/render/mutsu.js';
+import { mutsuSurfaceY, MOUNT_SEATS as MUTSU_SEATS } from '../client/js/render/mutsuHull.js';
 import { sovremennySurfaceY, MOUNT_SEATS as SOV_SEATS } from '../client/js/render/sovremennyHull.js';
 import { burkeSurfaceY, MOUNT_SEATS as BURKE_SEATS } from '../client/js/render/burkeHull.js';
 import {
@@ -2403,11 +2405,13 @@ check("the Yukikaze trains both banks out and throws their fish over her side, w
   });
 });
 
-check('the Fuso is commissioned before the Yamato, after the Kongo', () => {
+check('the Fuso is commissioned before the Mutsu, after the Kongo', () => {
   const i = SHIP_ORDER.indexOf('fuso');
   assert.ok(i >= 0, 'the Fuso is not in the yard');
   assert.equal(SHIP_ORDER[i - 1], 'kongo', `before the Fuso comes ${SHIP_ORDER[i - 1]}`);
-  assert.equal(SHIP_ORDER[i + 1], 'yamato', `after the Fuso comes ${SHIP_ORDER[i + 1]}`);
+  // And the Mutsu between her and the Yamato.
+  assert.equal(SHIP_ORDER[i + 1], 'mutsu', `after the Fuso comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'yamato', `after the Mutsu comes ${SHIP_ORDER[i + 2]}`);
   const cls = SHIP_CLASSES.fuso;
   assert.equal(cls.fullName, 'IJN Fuso');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -3718,6 +3722,80 @@ check('the Credits screen credits the model the Sovremenny is drawn from', () =>
   const screen = html.slice(html.indexOf('id="screen-credits"'));
   assert.ok(screen.includes('Sovremenny-class destroyer'), 'the model is not credited');
   assert.ok(screen.includes('https://skfb.ly/pBN6X') && screen.includes('SB-129'), 'the credit is not as its licence asks');
+});
+
+check('the IJN Mutsu is commissioned after the Fuso, in the Second World War yard, armed as she was built', () => {
+  const i = SHIP_ORDER.indexOf('mutsu');
+  assert.ok(i >= 0, 'the Mutsu is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'fuso', `before the Mutsu comes ${SHIP_ORDER[i - 1]}`);
+  const w = WWII_ORDER.indexOf('mutsu');
+  assert.ok(w > 0 && WWII_ORDER[w - 1] === 'fuso', 'she is not in the Second World War yard after the Fuso');
+  assert.ok(!MODERN_ORDER.includes('mutsu'), 'she is in the Modern yard');
+  const cls = SHIP_CLASSES.mutsu;
+  assert.equal(cls.fullName, 'IJN Mutsu');
+  assert.equal(cls.type, 'BB');
+  assert.equal(cls.nation, 'jpn');
+  // Eight 41 cm in four twins, two forward and two aft.
+  assert.equal(cls.turrets.length, 4);
+  assert.ok(cls.turrets.every((t) => t.guns === 2), 'a turret of hers is not a twin');
+  assert.equal(cls.turrets.filter((t) => t.z > 0).length, 2, 'she has not two turrets forward');
+  assert.equal(cls.gun.caliber, 410);
+  // Twenty 14 cm in casemates, ten a side.
+  assert.equal(cls.secondary.caliber, 140);
+  assert.equal(cls.secondary.mounts.length, 20);
+  assert.equal(cls.secondary.mounts.filter((m) => m.x < 0).length, 10, 'she has not ten casemates a side');
+  // Four 12.7 cm twins and two twin 40 mm.
+  const [dp, pom] = cls.aa.guns;
+  assert.equal(dp.caliber, 127);
+  assert.equal(dp.mounts.length, 4);
+  assert.equal(pom.caliber, 40);
+  assert.equal(pom.mounts.length, 2);
+  const built = buildMutsu();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.secMounts.length, 20);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 0);
+  assert.ok(Math.abs(built.length - 215.8) < 0.01, `she is ${built.length} m long`);
+  // Every mounting of hers stands on her, not in the air.
+  for (const [kind, list] of Object.entries(MUTSU_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, mutsuSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check('every gun on the Mutsu trains inside its stops and fires only where her fire clears her', () => {
+  const cls = SHIP_CLASSES.mutsu;
+  const close = solveBallistic(cls.gun, 2500, 12).elev;
+  const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
+  const [no1, no2, no3, no4] = cls.turrets;
+  // Her pagoda is abaft No.2 and her mainmast forward of No.3: the forward
+  // pair do not fire dead astern, nor the after pair dead ahead.
+  for (const t of [no1, no2]) assert.ok(!fires(t, Math.PI, cls.gun.elev.max), `${t.name} fires dead astern through her`);
+  for (const t of [no3, no4]) assert.ok(!fires(t, 0, cls.gun.elev.max), `${t.name} fires dead ahead through her`);
+  // And every one of them bears on either beam.
+  for (const t of cls.turrets) {
+    for (const b of [Math.PI / 2, -Math.PI / 2]) {
+      assert.ok(fires(t, b, close), `${t.name} cannot fire on her ${b > 0 ? 'port' : 'starboard'} beam`);
+    }
+  }
+  // A casemate gun fires out of its own side and never across her.
+  for (const m of cls.secondary.mounts) {
+    assert.ok(Math.sign(m.angle) === Math.sign(m.x) && m.arc < Math.PI / 2 + 0.2,
+      `the 14 cm at ${m.x}, ${m.z} trains across her deck`);
+  }
+  surveyedArcsHold('mutsu');
+});
+
+check('the Credits screen credits the model the Mutsu is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('Japanese Battleship Mutsu'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/ptQvY') && screen.includes('kriss50'), 'the credit is not as its licence asks');
 });
 
 check("the Sovremenny's Sunburns go forward out of their canisters, at ships", () => {
@@ -16022,7 +16100,7 @@ check('the damage board is drawn on her own lines, not on a box', () => {
   // the buffers she is drawn with instead, so the sea in her is the shape of
   // the inside of the ship.
   for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'yamato', 'takao', 'hood', 'kgv', 'rodney',
-    'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu']) {
+    'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'mutsu', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu']) {
     const g = buildShip(id).group;
     g.updateMatrixWorld(true);
     const lines = measureLines(g);
@@ -16066,8 +16144,11 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // And the Sovetsky Soyuz's: the owner's model of her carries her side
     // out to its full breadth five metres under her waterline, over her
     // underwater protection, and her section is nearly as full at her bilge.
+    //
+    // And the Mutsu's: the model carries her side plumb down nearly to her
+    // flat bottom, and she is as full at her bilge as the Kongo.
     const box = id === 'musashi' || id === 'yamato' ? 0.97 : id === 'bismarck' || id === 'tirpitz' || id === 'soyuz' ? 0.995
-      : id === 'richelieu' || id === 'kongo' ? 0.975 : 0.92;
+      : id === 'richelieu' || id === 'kongo' || id === 'mutsu' ? 0.975 : 0.92;
     assert.ok(deep < mid * box,
       `${id} has no turn of bilge: her section is a box`);
 
@@ -16104,9 +16185,10 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // bulge is widest three metres under her waterline, and the same goes for
     // the Fuso's blisters, which top out at her waterline, and the Kongo's
     // bulges, which are fullest three metres under it, and the Scharnhorst's
-    // side, which is widest four or five metres under hers.)
+    // side, which is widest four or five metres under hers, and the Mutsu's,
+    // which the model carries out as far under her waterline as at it.)
     if (id === 'bismarck' || id === 'tirpitz' || id === 'richelieu' || id === 'fuso' || id === 'kongo'
-      || id === 'scharnhorst' || id === 'soyuz') {
+      || id === 'scharnhorst' || id === 'soyuz' || id === 'mutsu') {
       let side = 0;
       for (let j = 0; j <= 10; j++) {
         side = Math.max(side, halfBeamAt(lines, -half * 0.2 + (half * 0.4 * j) / 10, waterTop(lines, 0.5)));
@@ -19891,7 +19973,7 @@ check('every deckhouse in the fleet has sides and a roof', () => {
   // Rays are dropped on her the length of her superstructure and the two
   // answers -- as the renderer sees her, and with both faces of everything
   // turned on -- have to agree.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'spee',
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'mutsu', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'spee',
     'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);

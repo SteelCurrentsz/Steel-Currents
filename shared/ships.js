@@ -7656,6 +7656,164 @@ export const SHIP_CLASSES = {
     },
   },
 
+  mutsu: {
+    // IJN Mutsu, the second of the two Nagatos: eight 41 cm/45 in four twin
+    // turrets, two forward and two aft -- the first battleship in the world
+    // to carry sixteen-inch guns -- and twenty 14 cm in casemates along her
+    // sides. She was all but finished when the Washington Treaty was signed,
+    // and Japan would not give her up; she was the Combined Fleet's pride
+    // between the wars, and she was lost at anchor in Hiroshima Bay on 8 June
+    // 1943, when her No.3 magazine blew up under her.
+    //
+    // She is drawn from the owner's model of her (see mutsu.js): "Japanese
+    // Battleship Mutsu" by kriss50, under Creative Commons Attribution 4.0,
+    // as she was in the early 1930s before her rebuilding -- two funnels, the
+    // fore one trunked back off her bridge, the tripod and the pagoda built
+    // round it, and the 12.7 cm twins and twin 40 mm that were her first
+    // anti-aircraft guns. At her own length, 215.8 m, and floated at 9.1 m.
+    id: 'mutsu',
+    name: 'Mutsu',
+    fullName: 'IJN Mutsu',
+    className: 'Nagato',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'jpn',
+    blurb: 'The first battleship with sixteen-inch guns: eight 41 cm, twenty casemate 14 cm, and the pride of the Combined Fleet between the wars.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 5, 23.1], [0, -6, 23.1]], length: 215.8, beam: 29.0, draft: 9.1, superstructure: 1.45 },
+    hp: 72400,
+    // Twenty-six and a half knots on her trials, on four shafts: as fast as
+    // a battlecruiser of the Great War, and faster than any battleship of her
+    // day.
+    maxSpeed: 26.5 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.36,
+    turnRate: 0.048,
+    rudderShift: 14,
+    speedLossInTurn: 0.17,
+    concealment: 15600,
+    fireDetectPenalty: 6900,
+    // No radar: she was lost before the fleet's first sets were fitted. What
+    // she sees she sees through the rangefinders on her pagoda.
+    radarRange: 0,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Twelve inches of belt over her magazines and machinery, 305 on her
+    // turret faces and barbettes, and a deck of seventy millimetres over them:
+    // she was built to the lessons of Jutland, and her deck was not.
+    armor: { belt: 305, deck: 70, citadel: 305, bow: 25, superstructure: 25 },
+    turrets: [
+      // Where the model has them: No.1 low on her forecastle and No.2
+      // superfiring over it; No.3 superfiring over No.4 aft. Arcs and sectors
+      // measured off the model by build/survey-arcs.mjs (see layFloor in
+      // sim.js).
+      { id: 0, name: 'No.1', x: 0, z: 56.089, angle: -0.01, arc: 2.55, guns: 2, my: 8.88,
+        mask: [[-0.1, -0.02, -0.008], [-0.03, 0.03, 0], [0.02, 0.08, -0.008]] },
+      { id: 1, name: 'No.2', x: 0, z: 42.028, angle: 0, arc: 2.6, guns: 2, my: 12.27 },
+      { id: 2, name: 'No.3', x: 0, z: -52.142, angle: Math.PI, arc: 2.78, guns: 2, my: 9.55,
+        mask: [[-0.38, -0.34, 0.035]] },
+      { id: 3, name: 'No.4', x: 0, z: -66.722, angle: Math.PI, arc: 2.58, guns: 2, my: 6.38 },
+    ],
+    gun: {
+      name: '41 cm/45 3rd Year Type', role: 'surface',
+      // Three below the horizontal to thirty up, as she was before her
+      // rebuilding gave her turrets forty-three.
+      elev: { min: -0.052, max: 0.52 },
+      // Pivot to muzzle on the model's turret.
+      reach: 18.06,
+      caliber: 410, reload: 30, traverse: 0.05, range: 21400, sigma: 1.4,
+      shells: shells(410, 13600, 6300, 620, 790, 0.26),
+    },
+    torpedoes: null,
+    // Twenty 14 cm/50 3rd Year Type singles, ten a side, each in its shield in
+    // a casemate: seven in the side of her hull on her main deck, and three a
+    // deck higher in the side of her forward superstructure. The ports' edges
+    // and her own side stand across the bearings that would fire into her:
+    // arcs surveyed off the model, except for the after pair of her upper
+    // casemates and the forward pair aft, which the model draws open behind,
+    // so that nothing of it stops them training round through her. They are
+    // given the arcs of the casemates beside them.
+    secondary: {
+      name: '14 cm/50 3rd Year Type', role: 'surface',
+      elev: { min: -0.122, max: 0.35 },
+      reach: 3.19,
+      caliber: 140, reload: 7.5, traverse: 0.14, range: 11000, sigma: 1.5,
+      shells: shells(140, 2300, 1900, 125, 850, 0.10),
+      mounts: [
+        { x: -11.012, z: 39.13, angle: -1.36, arc: 1.37, rest: -0.5232, guns: 1, my: 5 },
+        { x: 11.012, z: 39.13, angle: 1.36, arc: 1.37, rest: 0.5233, guns: 1, my: 5 },
+        { x: -11.94, z: 29.448, angle: -1.47, arc: 1.37, rest: -0.5232, guns: 1, my: 4.93 },
+        { x: 11.938, z: 29.448, angle: 1.47, arc: 1.37, rest: 0.5236, guns: 1, my: 4.93 },
+        { x: -8.778, z: 25.662, angle: -1.28, arc: 1.4, rest: -0.5237, guns: 1, my: 7.84,
+          mask: [[-0.08, -0.04, -0.008], [-0.05, 0.01, 0], [0, 0.03, 0.009], [0.02, 0.05, 0.14], [0.04, 0.07, 0.21], [0.06, 0.14, 0.262]] },
+        { x: 8.778, z: 25.662, angle: 1.28, arc: 1.4, rest: 0.5228, guns: 1, my: 7.84,
+          mask: [[-0.14, -0.06, 0.262], [-0.07, -0.04, 0.21], [-0.05, -0.02, 0.14], [-0.03, 0, 0.009], [-0.01, 0.05, 0], [0.04, 0.08, -0.008]] },
+        { x: -12.331, z: 21.147, angle: -1.5, arc: 1.3, rest: -0.5222, guns: 1, my: 4.9 },
+        { x: 12.33, z: 21.148, angle: 1.5, arc: 1.3, rest: 0.5238, guns: 1, my: 4.9 },
+        { x: -9.42, z: 17.02, angle: -1.54, arc: 1.3, rest: -0.5228, guns: 1, my: 7.79 },
+        { x: 9.419, z: 17.02, angle: 1.54, arc: 1.3, rest: 0.5228, guns: 1, my: 7.79 },
+        { x: -12.651, z: 13.026, angle: -1.49, arc: 1.31, rest: -0.5236, guns: 1, my: 4.89 },
+        { x: 12.652, z: 13.027, angle: 1.49, arc: 1.31, rest: 0.5248, guns: 1, my: 4.88 },
+        { x: -9.834, z: 8.865, angle: -1.54, arc: 1.3, rest: -0.5235, guns: 1, my: 7.77 },
+        { x: 9.834, z: 8.865, angle: 1.54, arc: 1.3, rest: 0.5238, guns: 1, my: 7.77 },
+        { x: -12.764, z: 5.219, angle: -1.53, arc: 1.3, rest: -0.5241, guns: 1, my: 4.89 },
+        { x: 12.764, z: 5.219, angle: 1.53, arc: 1.3, rest: 0.5242, guns: 1, my: 4.89 },
+        { x: -12.594, z: -21.134, angle: -1.76, arc: 1.38, rest: -2.6791, guns: 1, my: 4.92 },
+        { x: 12.592, z: -21.133, angle: 1.76, arc: 1.38, rest: 2.6789, guns: 1, my: 4.92 },
+        { x: -11.159, z: -28.035, angle: -1.76, arc: 1.38, rest: -2.6803, guns: 1, my: 4.99,
+          mask: [[3.11, -3.13, 0.018], [-3.14, -3.09, 0], [-3.1, -3.08, -0.008]] },
+        { x: 11.159, z: -28.035, angle: 1.76, arc: 1.38, rest: 2.68, guns: 1, my: 4.99,
+          mask: [[3.08, 3.1, -0.008], [3.09, 3.14, 0], [3.13, -3.11, 0.018]] },
+      ],
+    },
+    aa: {
+      range: 6000, dps: 46,
+      guns: [
+        // Four 12.7 cm Type 89 twins, the model's own, two a side: one pair
+        // abreast her pagoda, the other abreast her mainmast.
+        { name: '12.7 cm Type 89', caliber: 127, role: 'dp', reload: 4.0, range: 6200, piece: 'sec',
+          elev: { min: -0.14, max: 1.57 },
+          mounts: [
+            { x: -8.321, z: 19.291, angle: -1.58, arc: 2.67, rest: -1.5522, guns: 2, my: 13.74,
+              lift: [[2.01, 2.11, -0.026]],
+              mask: [[2.01, 2.07, 0.611], [2.06, 2.42, 0.524], [2.41, 2.44, 0.611], [2.43, 2.46, 0.699], [2.45, 2.58, 0.786], [2.57, 2.79, 0.699], [2.78, 2.81, 0.611], [2.8, 2.84, 0.524], [2.83, 2.91, 0.437], [2.9, 2.98, 0.524], [2.97, 3, 0.437], [2.99, 3.02, 0.35], [3.01, 3.03, 0.262], [3.02, 3.07, 0.175], [3.06, 3.09, 0], [3.08, 3.1, 0.07], [3.09, -3.02, 0.14], [-3.03, -2.95, 0.07], [-2.96, -2.92, 0.053], [0.09, 0.15, 0.35], [0.14, 0.21, 0.437], [0.2, 0.29, 0.524], [0.28, 0.31, 0.611], [0.3, 0.36, 0.699], [0.35, 0.43, 1.222], [0.42, 0.64, 1.397], [0.63, 0.73, 1.571], [0.72, 0.76, 0.123], [0.75, 1.11, 1.397]] },
+            { x: 8.321, z: 19.439, angle: 1.55, arc: 2.66, rest: 1.5894, guns: 2, my: 13.74,
+              mask: [[-1.13, -0.84, 1.397], [-0.85, -0.6, 1.571], [-0.61, -0.41, 1.397], [-0.42, -0.35, 1.222], [-0.36, -0.32, 0.699], [-0.33, -0.28, 0.611], [-0.29, -0.23, 0.524], [-0.24, -0.21, 0.437], [-0.22, -0.16, 0.524], [-0.17, -0.14, 0.437], [-0.15, -0.11, 0.35], [2.92, 2.96, 0.053], [2.95, 3.03, 0.07], [3.02, -3.11, 0.14], [-3.12, -3.09, 0.07], [-3.1, -3.06, 0], [-3.07, -3.04, 0.07], [-3.05, -3.02, 0.175], [-3.03, -3.01, 0.262], [-3.02, -2.97, 0.437], [-2.98, -2.9, 0.524], [-2.91, -2.85, 0.437], [-2.86, -2.81, 0.524], [-2.82, -2.78, 0.611], [-2.79, -2.39, 0.699], [-2.4, -2.17, 0.524], [-2.18, -2.1, 0.611], [-2.11, -2.06, 0.699]] },
+            { x: -6.513, z: -23.765, angle: -0.94, arc: 2.93, rest: -1.5522, guns: 2, my: 11.34,
+              lift: [[2.39, 2.46, 0.262], [2.45, 2.47, 0.035]],
+              mask: [[2.39, 2.44, 0.262], [2.43, 2.49, 0.123], [2.48, 2.53, 0.018], [2.52, 2.61, 0], [2.6, 2.63, 0.035], [2.62, 2.81, 0.088], [2.8, 3.09, 0.105], [3.08, 3.1, -0.017], [-0.26, -0.18, 0.175], [-0.19, -0.02, 0.262], [-0.03, 0.01, 0.105], [0, 0.03, 0.21], [0.02, 0.07, 0.524], [0.06, 0.17, 0.611], [0.16, 0.21, 0.699], [0.2, 0.48, 0.786], [0.47, 0.55, 0.699], [0.54, 0.64, 0.21], [0.63, 0.69, 0.123], [0.7, 0.83, -0.017], [0.86, 0.94, -0.017], [0.95, 1.08, -0.017], [1.07, 1.65, 1.571], [1.64, 1.71, 1.397], [1.7, 1.81, 1.571], [1.8, 2, 1.397]] },
+            { x: 6.513, z: -23.617, angle: 1.41, arc: 2.5, rest: 1.5894, guns: 2, my: 11.34,
+              lift: [[-2.46, -2.43, 0.018], [-2.44, -2.41, 0.088], [-2.42, -2.36, 0.262]],
+              mask: [[-1.11, -1.05, -0.017], [-1.06, -0.68, -0.026], [-0.69, -0.65, 0.123], [-0.66, -0.61, 0.175], [-0.62, -0.56, 0.21], [-0.57, -0.54, 0.437], [-0.55, -0.47, 0.699], [-0.48, -0.21, 0.786], [-0.22, -0.18, 0.699], [-0.19, -0.06, 0.611], [-0.07, -0.02, 0.524], [-0.03, 0, 0.21], [-0.01, 0.01, 0.105], [0, 0.05, 0.14], [0.04, 0.17, 0.262], [0.16, 0.26, 0.175], [-3.1, -2.88, 0.105], [-2.89, -2.83, 0.123], [-2.84, -2.71, 0.14], [-2.72, -2.69, -0.026], [-2.7, -2.64, 0], [-2.65, -2.46, -0.026], [-2.46, -2.43, 0], [-2.44, -2.41, 0.018], [-2.42, -2.39, 0.088], [-2.4, -2.36, 0.262]] },
+          ] },
+        // Two twin 40 mm, the Vickers two-pounder built under licence as the
+        // Type 91, on platforms either side of her fore funnel.
+        { name: '40 mm Type 91', caliber: 40, role: 'aa', reload: 0.6, range: 3600, piece: 'aa2',
+          elev: { min: -0.087, max: 1.40 },
+          mounts: [
+            { x: -12.206, z: -10.525, angle: -0.84, arc: 3.07, rest: -1.7807, guns: 2, my: 8.46,
+              mask: [[2.36, 2.39, 0.699], [2.38, 2.4, 0.786], [2.39, 2.46, 0.96], [2.45, 2.49, 0.873], [2.48, 2.61, 0.786], [2.6, 2.65, 0.699], [2.64, 2.67, 0.524], [2.66, 2.84, 0.35], [2.83, 2.88, 0.21], [2.87, 2.95, 0.175], [2.94, 2.96, 0.123], [2.95, 2.98, 0.07], [2.97, 3.05, 0.027], [3.04, 3.07, 0.009], [3.06, 3.1, -0.008], [3.09, 3.12, -0.026], [-0.05, 0.01, -0.026], [0, 0.05, 0.611], [0.04, 0.15, 0.699], [0.14, 0.19, 0.611], [0.18, 0.24, 0.699], [0.23, 0.43, 0.786], [0.42, 0.45, 0.611], [0.44, 0.5, 0.524], [0.49, 0.54, 0.699], [0.53, 0.61, 0.786], [0.6, 0.68, 0.873], [0.67, 0.69, 0.786], [0.68, 0.78, 0.262], [0.77, 0.83, 0.873], [0.82, 0.89, 0.123], [0.88, 0.92, 0.175], [0.91, 0.96, 0.524], [0.95, 0.97, 0.699], [0.96, 1.04, 0.96], [1.03, 1.44, 1.048], [1.43, 1.5, 0.96], [1.49, 1.55, 0.873], [1.54, 1.64, 0.21], [1.63, 1.76, 0.262], [1.75, 2.2, 0.175], [2.19, 2.25, 0.21]] },
+            { x: 12.206, z: -10.911, angle: 0.87, arc: 3.08, rest: 1.3634, guns: 2, my: 8.46,
+              mask: [[-2.23, -2.19, 0.175], [-2.2, -2.15, 0.21], [-2.16, -2.06, 0.262], [-2.07, -2.05, 0.21], [-2.06, -1.99, 0.14], [-2, -1.91, 0.123], [-1.92, -1.82, 0.14], [-1.83, -1.66, 0.123], [-1.67, -1.64, 0.21], [-1.65, -1.54, 0.35], [-1.55, -1.5, 0.21], [-1.51, -1.43, 0.873], [-1.44, -1.38, 0.96], [-1.39, -1.03, 1.048], [-1.04, -0.95, 0.96], [-0.96, -0.93, 0.175], [-0.94, -0.91, 0.21], [-0.92, -0.86, 0.786], [-0.87, -0.84, 0.21], [-0.85, -0.82, 0.14], [-0.83, -0.81, 0.175], [-0.82, -0.79, 0.786], [-0.8, -0.74, 0.873], [-0.75, -0.72, 0.35], [-0.73, -0.65, 0.786], [-0.66, -0.6, 0.873], [-0.61, -0.51, 0.786], [-0.52, -0.49, 0.699], [-0.5, -0.47, 0.611], [-0.48, -0.44, 0.524], [-0.45, -0.42, 0.699], [-0.43, -0.23, 0.786], [-0.24, -0.18, 0.699], [-0.19, -0.04, 0.611], [-0.05, -0.02, 0.524], [-0.03, 0, 0.009], [-0.01, 0.05, -0.026], [-3.14, -3.09, -0.026], [-3.1, -3.04, -0.008], [-3.05, -2.97, 0.027], [-2.98, -2.95, 0.07], [-2.96, -2.94, 0.123], [-2.95, -2.88, 0.175], [-2.89, -2.83, 0.21], [-2.84, -2.6, 0.35], [-2.61, -2.59, 0.524], [-2.6, -2.48, 0.786], [-2.49, -2.39, 0.873], [-2.4, -2.36, 0.786], [-2.37, -2.33, 0.873]] },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 39050,
+      aircraft: 0,
+      mainRounds: 800,
+      secondary: { caliber: 140, label: '14cm', barrels: 20, rounds: 2400 },
+      tertiary: [
+        { caliber: 127, label: '12.7cm', barrels: 8, rounds: 3200 },
+        { caliber: 40, label: '40mm', barrels: 4, rounds: 6000 },
+      ],
+    },
+  },
+
   musashi: {
     // IJN Musashi, Yamato's sister and the second of the class: nine 46 cm/45
     // in three triples behind a 410 mm belt, and the only battleship of either
@@ -10971,7 +11129,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
-  'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano'];
 
 /**

@@ -42,7 +42,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * before a battle is joined.
  */
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
-  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
+  buildFuso, buildMutsu, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
@@ -69,6 +69,7 @@ const SCULPTED = {
     .then((m) => { buildMassachusetts = m.buildMassachusetts; }),
   musashi: () => import('./musashi.js').then((m) => { buildMusashi = m.buildMusashi; }),
   fuso: () => import('./fuso.js').then((m) => { buildFuso = m.buildFuso; }),
+  mutsu: () => import('./mutsu.js').then((m) => { buildMutsu = m.buildMutsu; }),
   kongo: () => import('./kongo.js').then((m) => { buildKongo = m.buildKongo; }),
   matsu: () => import('./matsu.js').then((m) => { buildMatsu = m.buildMatsu; }),
   yukikaze: () => import('./yukikaze.js').then((m) => { buildYukikaze = m.buildYukikaze; }),
@@ -933,6 +934,21 @@ function buildModel(classId) {
       secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
       mineRack: built.mineRack,
+    };
+  }
+
+  // And the Mutsu, the owner's model of her before her rebuilding: her
+  // trunked fore funnel and her pagoda, her four turrets and her casemates.
+  if (cls.id === 'mutsu') {
+    const built = buildMutsu();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
     };
   }
 
