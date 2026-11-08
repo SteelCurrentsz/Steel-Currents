@@ -10729,10 +10729,10 @@ export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'clevel
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
  * yard opens: the war's hulls, or the missile age's. A hull is modern if she
- * sails as she was after 1945 (Missouri as recommissioned in 1991, the
+ * sails as she was after 1945 (Missouri as recommissioned in 1991, Leviathan, the
  * Ticonderoga and the Guangzhou); everything else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'ticonderoga', 'missouri']);
+export const MODERN_SHIPS = new Set(['guangzhou', 'ticonderoga', 'leviathan', 'missouri']);
 export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id));
 export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));
 

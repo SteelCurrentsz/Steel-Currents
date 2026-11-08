@@ -41,7 +41,7 @@ await page.waitForTimeout(800);
 await page.evaluate(() => document.getElementById('ally-add-cell').click());
 await page.waitForTimeout(300);
 // The ship icon asks for an era first; the modern hulls are in a list of their own.
-const ERA = /Missouri|Ticonderoga|Guangzhou/.test(SHIP) ? 'modern' : 'wwii';
+const ERA = /Missouri|Ticonderoga|Guangzhou|Leviathan/.test(SHIP) ? 'modern' : 'wwii';
 await page.evaluate((era) => document.querySelector(`#era-pick [data-era="${era}"]`).click(), ERA);
 await page.waitForTimeout(1800);
 for (let i = 0; i < 40; i++) {
