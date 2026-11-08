@@ -1,5 +1,5 @@
 // The offline keeper. Every file the game can ask for -- the page, its
-// modules, and the forty megabytes of hulls, aircraft and voices it fetches
+// modules, and the forty megabytes of hulls and aircraft it fetches
 // only when a battle wants them -- is put away on this device, and handed back
 // from here whenever the line is down or too weak to answer.
 //
@@ -17,7 +17,7 @@
 // With the line up, the network is asked first so a captain is always on the
 // current build; a request it has not answered in a few seconds, or cannot
 // answer at all, is answered from the store instead. But a data file -- a
-// hull, an aeroplane, the voices, megabytes each -- put away under this very
+// hull, an aeroplane, megabytes each -- put away under this very
 // version is this build's own, and is handed back from the store at once:
 // asking the network for it again was a second download of every ship in a
 // battle, on the line the battle was waiting on.

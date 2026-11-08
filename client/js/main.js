@@ -1410,7 +1410,6 @@ const optShadows = document.getElementById('opt-shadows');
 const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
 const optFF = document.getElementById('opt-ff');
-const optVoices = document.getElementById('opt-voices');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -1421,7 +1420,6 @@ optShadows.checked = settings.shadows;
 optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
 if (optFF) optFF.checked = settings.friendlyFire === true;
-if (optVoices) optVoices.checked = settings.voices !== false;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -1440,7 +1438,6 @@ optSkill.onchange = () => setSettings({ botSkill: optSkill.value });
 optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQuality(); toast('Quality applies to the next battle.'); };
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
-if (optVoices) optVoices.onchange = () => setSettings({ voices: optVoices.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
 if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked }); toast(optFF.checked ? 'Friendly fire on from the next battle.' : 'Friendly fire off from the next battle.'); };
 
@@ -1718,8 +1715,8 @@ async function offlineState() {
 if (window.Capacitor || location.protocol === 'file:') sayOffline('Offline ready', true);
 
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !window.Capacitor) {
-  // Once it has taken over, it is asked to keep the rest -- every hull and
-  // voice -- behind the game, and asked again whenever the line comes back.
+  // Once it has taken over, it is asked to keep the rest -- every hull --
+  // behind the game, and asked again whenever the line comes back.
   const fill = () => navigator.serviceWorker.ready
     .then((reg) => reg.active?.postMessage({ t: 'fill' })).catch(() => {});
   // Beside the page: the server hands it out at the root, and the split build

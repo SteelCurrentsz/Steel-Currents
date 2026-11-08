@@ -1,6 +1,6 @@
 // Headless checks for the simulation: ballistics, armour, torpedoes, bots.
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import {
   generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt, WEATHERS, WEATHER,
@@ -242,7 +242,6 @@ import {
 } from '../client/js/render/hornet.js';
 import { Audio as AudioClass, audio as theAudio } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
-import { VOICE_LINES } from '../client/js/render/voices.data.js';
 import { Input } from '../client/js/input.js';
 import { pixelRadius } from '../client/js/render/pixelcull.js';
 import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween, standInTown } from '../client/js/game.js';
@@ -17203,10 +17202,6 @@ check('the game plays with no connection: every battle is hosted on the device',
   assert.ok(!/fetch\(/.test(main), 'the game still asks a server for something');
   assert.ok(!/Not connected to the battle service/.test(main),
     'a battle still refuses to start without the battle service');
-  // And nothing it plays with is left to be fetched in the middle of a
-  // battle: the voices are asked for as the game starts.
-  const bank = readFileSync(new URL('../client/js/render/voicebank.js', import.meta.url), 'utf8');
-  assert.ok(/^loadVoiceLines\(\);$/m.test(bank), 'the voices are fetched mid-battle');
   // Nothing anywhere in the client reaches off the device for an asset.
   for (const f of readdirSync(new URL('../client/js/', import.meta.url))) {
     if (!f.endsWith('.js')) continue;
@@ -17563,110 +17558,15 @@ check('a ship going down is heard creaking, now and then, and not once she is go
   assert.ok(a.shipVoices.has(7), 'a ship steaming past the camera is not heard');
 });
 
-check('the bridge gives its orders in its own navy, one at a time', () => {
-  // Every navy afloat in the game has its officers' voices, every order.
-  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
-    const set = VOICE_LINES[cls.nation];
-    assert.ok(set, `${id}: no voice for the ${cls.nation} navy`);
-    for (const k of ['main', 'sec', 'torp', 'aa', 'dc']) {
-      assert.ok(set[k] && set[k].length > 4000, `${id}: the ${cls.nation} bridge has no "${k}" order`);
-    }
-  }
-  // MP3 in each: a frame sync or an ID3 tag at the head of it.
-  const head = Buffer.from(VOICE_LINES.jpn.main, 'base64');
-  assert.ok(head.slice(0, 3).toString() === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0), 'a voice line is not an MP3');
-
-  const said = [];
-  const a = new AudioClass();
-  const ctx = { currentTime: 0 };
-  a.ctx = ctx; a.ensure = () => ctx;
-  a.orderBuffer = (navy, key) => { said.push(`${navy}:${key}`); return new Promise(() => {}); };
-  const at = (t, ...args) => { ctx.currentTime = t; a.speakingUntil = Math.min(a.speakingUntil, t); a.order(...args); };
-  at(0, 'main', 'jpn');
-  at(0.1, 'main', 'jpn');          // the same word, twice in a breath
-  at(40, 'main', 'jpn');           // the next time the battle gives it
-  at(41, 'torp', 'ger', true);
-  at(42, 'aa', 'gbr', false);
-  at(43, 'dc', 'fra');
-  at(44, 'sec', 'italy');          // a navy with no voice of its own
-  assert.deepEqual(said, ['jpn:main', 'jpn:main', 'ger:torps', 'gbr:aa', 'fra:dc', 'usa:sec']);
-  // And a second word while he is still on the first waits for him.
-  said.length = 0;
-  a.speakingUntil = 100; ctx.currentTime = 90; a.order('torp', 'usa');
-  assert.deepEqual(said, [], 'two orders at once');
-  assert.equal(a.orderQueue.length, 1, 'the second order was dropped rather than kept for after');
-  clearTimeout(a.orderTimer); a.orderTimer = null;
-  a.speakingUntil = 0; ctx.currentTime = 91; a.nextOrder();
-  assert.deepEqual(said, ['usa:torp'], 'the waiting order was not said when he was free');
-});
-
-check('the lookout reports an enemy coming into sight, with her bearing, and not the ones in sight at the start', () => {
-  const heard = [];
-  const was = theAudio.say;
-  theAudio.say = (line, nation, o = {}) => heard.push([line, nation, o.digits]);
-  try {
-    const b = Object.create(Battle.prototype);
-    b.team = 0; b.shipId = 1; b.cls = { nation: 'jpn' }; b.watchSent = 0;
-    const me = { i: 1, tm: 0, a: 1, x: 0, z: 0 };
-    const foe = (i, x, z) => ({ i, tm: 1, a: 1, x, z });
-    b.ownSnap = me;
-    // In sight when the battle opened: nobody reports her.
-    b.lookouts({ time: 0, ships: [me, foe(2, 0, 9000)] });
-    b.lookouts({ time: 1, ships: [me, foe(2, 0, 9000)] });
-    assert.deepEqual(heard, [], 'a ship in sight from the start was reported');
-    // A new one, due east.
-    b.lookouts({ time: 5, ships: [me, foe(2, 0, 9000), foe(3, 8000, 0)] });
-    assert.deepEqual(heard, [['spotted', 'jpn', '090']]);
-    // Still in sight: not again.
-    b.lookouts({ time: 6, ships: [me, foe(2, 0, 9000), foe(3, 8000, 0)] });
-    assert.equal(heard.length, 1);
-    // Lost for a while and found again, south-west: reported again.
-    for (let t = 7; t < 80; t += 5) b.lookouts({ time: t, ships: [me, foe(2, 0, 9000)] });
-    b.lookouts({ time: 80, ships: [me, foe(2, 0, 9000), foe(3, -5000, -5000)] });
-    assert.deepEqual(heard[1], ['spotted', 'jpn', '225']);
-    // Two at once: the nearer is the one called.
-    b.lookouts({ time: 81, ships: [me, foe(2, 0, 9000), foe(3, -5000, -5000), foe(4, 0, -20000), foe(5, 3000, 3000)] });
-    assert.deepEqual(heard[2], ['spotted', 'jpn', '045']);
-    // Our own side is never reported.
-    b.lookouts({ time: 82, ships: [me, { i: 9, tm: 0, a: 1, x: 100, z: 100 }] });
-    assert.equal(heard.length, 3);
-  } finally { theAudio.say = was; }
-});
-
-check('the bridge reports what has happened to her, in her own navy, and reads a bearing out', () => {
-  // Every navy has every report and every figure of a bearing.
-  const reports = ['abandon', 'lastShell', 'spotted', 'torpPort', 'torpStbd', 'breach', 'seal'];
-  for (const navy of ['usa', 'gbr', 'ger', 'fra', 'jpn']) {
-    for (const k of [...reports, 'd0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9']) {
-      assert.ok(VOICE_LINES[navy][k] && VOICE_LINES[navy][k].length > 800, `the ${navy} bridge has no "${k}"`);
-    }
-  }
-  const said = [];
-  const a = new AudioClass();
-  const ctx = { currentTime: 0 };
-  a.ctx = ctx; a.ensure = () => ctx;
-  a.orderBuffer = (navy, key) => { said.push(`${navy}:${key}`); return new Promise(() => {}); };
-  // "Enemy spotted, bearing zero-four-five": the line, then each figure.
-  a.say('spotted', 'ger', { digits: '045' });
-  assert.deepEqual(said, ['ger:spotted', 'ger:d0', 'ger:d4', 'ger:d5']);
-  // A report waiting on him outlasts an order, and goes ahead of one.
-  said.length = 0;
-  a.speakingUntil = 10; ctx.currentTime = 5;
-  a.say('main', 'usa');
-  a.say('torpStbd', 'usa');
-  assert.equal(a.orderQueue[0].order, 'torpStbd', 'an order was put ahead of a torpedo hit');
-  clearTimeout(a.orderTimer); a.orderTimer = null;
-  a.speakingUntil = 0; ctx.currentTime = 11; a.nextOrder();
-  assert.deepEqual(said, ['usa:torpStbd']);
-  // Six seconds on, the order is stale and is not said; a report would be.
-  a.orderQueue = [{ order: 'main', nation: 'usa', at: 5, tag: 'main' }, { order: 'breach', nation: 'usa', at: 5, tag: 'breach' }];
-  said.length = 0; ctx.currentTime = 11; a.speakingUntil = 0;
-  a.nextOrder(); clearTimeout(a.orderTimer); a.orderTimer = null; a.speakingUntil = 0; a.nextOrder();
-  clearTimeout(a.orderTimer); a.orderTimer = null;
-  assert.deepEqual(said, ['usa:breach'], 'a stale order was said, or a fresh report was not');
-  // And a line nobody wrote is not said at all.
-  said.length = 0; a.speakingUntil = 0; a.say('sing', 'usa');
-  assert.deepEqual(said, []);
+check('no voice is heard on the bridge: the game has no voice lines', () => {
+  const audio = readFileSync(new URL('../client/js/audio.js', import.meta.url), 'utf8');
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(!existsSync(new URL('../client/js/render/voices.data.js', import.meta.url)), 'the recorded voices are still in the game');
+  assert.ok(!existsSync(new URL('../client/js/render/voicebank.js', import.meta.url)), 'the voices are still fetched');
+  assert.ok(!/voicebank|loadVoiceLines|\bsay\(|readyOrders/.test(audio), 'the bridge still speaks');
+  assert.ok(!/audio\.(say|order|readyOrders)\(/.test(game), 'the battle still calls for a voice');
+  assert.ok(!/opt-voices/.test(html), 'Settings still offers the voices');
 });
 
 check('the word is given a second before every salvo', () => {
@@ -24000,7 +23900,7 @@ check('the published build\'s packed ship data opens to exactly what was packed'
     const refs = [...packed.matchAll(/__z\[(\d+)\]/g)].map((m) => +m[1]);
     assert.deepEqual(refs, strings.map((_, i) => i), `${f} does not refer to its strings in order`);
   }
-  // What has nothing long in it, and the already-squeezed voices, go as they are.
+  // What has nothing long in it goes as it is.
   const small = 'export const A = [1, 2, 3];\n';
   assert.equal(packData(small), small, 'a data file with nothing long in it was packed anyway');
   assert.equal(typeof unpack, 'function');

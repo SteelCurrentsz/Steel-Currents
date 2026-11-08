@@ -1169,45 +1169,9 @@ export class Battle {
       if (own.dis) own.dis.forEach((d, i) => { if (ls.turrets[i]) ls.turrets[i].disabled = d ? 1 : 0; });
       if (own.tp) own.tp.forEach((cd, i) => { if (ls.torpMounts[i]) ls.torpMounts[i].cooldown = cd; });
       own.maxHp = this.cls.hp;
-      // The sea getting into her: a compartment that was dry is making water.
-      // Every time, whatever let it in -- a shell, a torpedo, a sea through a
-      // hole above her waterline.
-      if (own.a && (own.fl || 0) > (this.floodWas || 0)) audio.say('breach', this.cls.nation);
-      this.floodWas = own.fl || 0;
       if (!own.a && !this.sunk) this.onOwnSunk();
       this.ownSnap = own;
     }
-    this.lookouts(snap);
-  }
-
-  /**
-   * An enemy ship coming into sight: the lookout reports her and where she
-   * bears, "enemy spotted, bearing two-seven-zero". Not the ones that were in
-   * sight when the battle opened -- nobody reports a ship the whole bridge has
-   * been looking at -- and not a ship that is only here because we asked to
-   * watch her. One that has been out of sight for a minute and comes back is
-   * reported again. Several at once: the nearest is the one called.
-   */
-  lookouts(snap) {
-    const seen = this.foesSeen || (this.foesSeen = new Map());
-    const t = snap.time ?? 0;
-    const seeded = this.foesSeeded;
-    this.foesSeeded = true;
-    const me = this.ownSnap || snap.ships.find((q) => q.i === this.shipId);
-    let call = null;
-    let near = Infinity;
-    for (const s of snap.ships) {
-      if (!s.a || s.tm === this.team || s.i === this.watchSent) continue;
-      const last = seen.get(s.i);
-      seen.set(s.i, t);
-      if (!seeded || !me || (last != null && t - last < 60)) continue;
-      const d = Math.hypot(s.x - me.x, s.z - me.z);
-      if (d < near) { near = d; call = s; }
-    }
-    if (!call || this.sunk) return;
-    const deg = ((Math.atan2(call.x - me.x, call.z - me.z) * 180) / Math.PI + 360) % 360;
-    const digits = String(Math.round(deg) % 360).padStart(3, '0');
-    audio.say('spotted', this.cls.nation, { digits });
   }
 
   /**
@@ -2535,7 +2499,6 @@ export class Battle {
     this.sunk = true;
     this.hud.setSunk(true);
     this.hud.alert('Abandon ship');
-    audio.say('abandon', this.cls.nation);
     this.input.releaseLock();
     // The camera stays with her.
     //
@@ -2749,20 +2712,14 @@ export class Battle {
 
   onEvents(events, late = false) {
     const fx = this.scene.effects;
-    // The bridge you are standing on, and the language her officers give
-    // their orders in.
+    // The bridge you are standing on.
     const bridge = this.conned();
-    const navy = this.scene.shipViews.get(bridge)?.cls?.nation || this.cls?.nation || 'usa';
-    if (navy !== this.ordersFor) { this.ordersFor = navy; audio.readyOrders(navy); }
     for (const ev of events) {
       if (!late && this.holdBack(ev)) continue;
       const d = this.distanceFade(ev.x, ev.z);
       switch (ev.e) {
-        case 'order':
-          // The word, a second before the weapon goes: shouted on the bridge
-          // you are standing on, in her own navy's language.
-          if (ev.ship === bridge) audio.order(ev.k, navy, !!ev.many);
-          break;
+        // The word a second before a weapon goes: nothing is heard of it.
+        case 'order': break;
         case 'muzzle': {
           // On the muzzles, one flash a barrel.
           //
@@ -3205,15 +3162,6 @@ export class Battle {
           fx.splash(ev.x, ev.z, 620, { kind: 'torp' });
           audio.torpHit({ x: ev.x, y: -1, z: ev.z });
           if (ev.owner === this.shipId) this.hud.ribbon('TORPEDO HIT', 'cit');
-          if (ev.victim === bridge) {
-            // Which side it came in on: her starboard side is her -x side.
-            const v = this.scene.shipViews.get(bridge);
-            if (v) {
-              v.group.updateMatrixWorld(true);
-              const p = v.group.worldToLocal(new THREE.Vector3(ev.x, 0, ev.z));
-              audio.say(p.x < 0 ? 'torpStbd' : 'torpPort', navy);
-            }
-          }
           if (ev.victim === this.shipId) {
             this.hud.alert('Torpedo hit');
             // Under her belt and through it: on the board it is a red ring
@@ -3266,9 +3214,6 @@ export class Battle {
           const who = ev.ship === this.shipId ? 'We are' : `${this.names.get(ev.ship) || 'A ship'} is`;
           const mins = Math.max(1, Math.round((ev.T || 60) / 60));
           this.hud.alert(`${who} sinking${ev.kind === 'capsize' ? ' and capsizing' : ''} -- ${mins} min`);
-          // Going, and still fighting for as long as there is a gun above
-          // the water.
-          if (ev.ship === this.shipId) audio.say('lastShell', this.cls.nation);
           break;
         }
         case 'break': {
@@ -3340,7 +3285,6 @@ export class Battle {
         // ship's own `sm` (see makeSmoke) -- not set down beside her once.
         case 'smoke': break;
         case 'repair':
-          if (ev.ship === bridge) audio.say('seal', navy);
           if (ev.ship === this.shipId) {
             // The first call-away shores; the second gets the pumps going.
             this.hud.ribbon(ev.stage >= 2 ? 'PUMPS RUNNING' : 'SHORING UP');

@@ -37,7 +37,7 @@ export function packData(src) {
   if (!strings.length) return src;
   const packed = zlib.gzipSync(Buffer.from(strings.join(',')), { level: 9 }).toString('base64');
   const out = `import { unpack } from './unpack.js';\nconst __z = await unpack("${packed}");\n${body}`;
-  // What is already squeezed -- the voices are compressed audio -- packs to
+  // What is already squeezed packs to
   // nearly what it was, and is left as it is rather than opened for nothing.
   return out.length < src.length * 0.9 ? out : src;
 }

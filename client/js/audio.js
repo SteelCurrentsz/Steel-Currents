@@ -19,7 +19,6 @@
 
 import { getSettings } from './settings.js';
 import { sfxKit, RECIPES, rng } from './sfx.js';
-import { loadVoiceLines } from './render/voicebank.js';
 import { GPU } from './render/gpusafe.js';
 
 /** A number, or the fallback -- so nothing that is not a number reaches the API. */
@@ -40,21 +39,6 @@ const MAX_DELAY = 1.6;
 const MAX_VOICES = 48;
 /** How many ships are heard working through the water at once, nearest first. */
 const SHIP_VOICES = 4;
-
-/**
- * Everything said on the bridge: the orders that go a second before a weapon
- * does, and the reports -- what has happened to her, and what has been seen.
- * A report waiting on him keeps longer than an order, which is no use once the
- * weapon it was for has gone.
- */
-const LINES = {
-  main: 'order', sec: 'order', torp: 'order', aa: 'order', dc: 'order',
-  abandon: 'report', lastShell: 'report', spotted: 'report', torpPort: 'report',
-  torpStbd: 'report', breach: 'report', seal: 'report',
-};
-const KEEPS = { order: 2.5, report: 8 };
-/** The navies that have their own voice; any other ship speaks as an American. */
-const NAVIES = new Set(['usa', 'gbr', 'ger', 'fra', 'jpn', 'sov', 'ita', 'chn']);
 
 /**
  * The order the takes are built in: what is heard in the first seconds of a
@@ -105,9 +89,6 @@ export class Audio {
     this.shipVoices = new Map();
     this.creaks = new Map();
     this.ambience = null;
-    this.orders = new Map();
-    this.orderGiven = {};
-    this.speakingUntil = 0;
   }
 
   ensure() {
@@ -129,32 +110,12 @@ export class Audio {
     comp.attack.value = 0.004;
     comp.release.value = 0.35;
     comp.connect(this.master);
-    // Everything but the bridge goes through one more gain, which drops
-    // while an order is being shouted and comes back after it: the guns and
-    // the sea are held under him so every order is heard, however much is
-    // going off.
-    this.duck = ctx.createGain();
-    this.duck.gain.value = 1;
-    this.duck.connect(comp);
     this.sfx = ctx.createGain();
     this.sfx.gain.value = 0.85;
-    this.sfx.connect(this.duck);
+    this.sfx.connect(comp);
     this.amb = ctx.createGain();
     this.amb.gain.value = 1;
-    this.amb.connect(this.duck);
-    // And the bridge has a path of its own: loud, past the battle's
-    // compressor, with a limiter of its own so a shout as loud as this
-    // stays clean.
-    const lim = ctx.createDynamicsCompressor();
-    lim.threshold.value = -4;
-    lim.knee.value = 2;
-    lim.ratio.value = 20;
-    lim.attack.value = 0.002;
-    lim.release.value = 0.12;
-    lim.connect(this.master);
-    this.voice = ctx.createGain();
-    this.voice.gain.value = 1.7;
-    this.voice.connect(lim);
+    this.amb.connect(comp);
     this.startBuilding();
     return ctx;
   }
@@ -510,132 +471,6 @@ export class Audio {
     this.play('vent', at, { level: 1, ref: 220, rate: 0.85 });
     this.play('bang', at, { level: 0.8, ref: 220, after: 0.4 });
     this.play('splashLarge', at, { level: 0.6, ref: 240, rate: 0.7, after: 0.2 });
-  }
-
-  // ------------------------------------------------------------ the bridge ----
-
-  /**
-   * An order shouted on the bridge of the ship you are on: `order` is 'main',
-   * 'sec', 'torp', 'aa' or 'dc', `many` whether it is a spread of torpedoes or
-   * more than one aeroplane, and `nation` her navy, whose language he speaks.
-   */
-  order(order, nation = 'usa', many = false) {
-    this.say(order, nation, { many });
-  }
-
-  /**
-   * Anything said on the bridge (see LINES), in her navy's language. `digits`
-   * follows the line with a bearing read out figure by figure -- "bearing
-   * two-seven-zero" -- the way a lookout reports one. One man says one thing
-   * at a time: a second line while he is still on the first follows straight
-   * after it, if it is still worth saying then, and the same line twice in a
-   * breath is one line.
-   */
-  say(line, nation = 'usa', { many = false, digits = null } = {}) {
-    if (getSettings().voices === false) return;
-    if (!LINES[line]) return;
-    const ctx = this.ensure(); if (!ctx) return;
-    const now = ctx.currentTime;
-    const tag = digits ? `${line}:${digits}` : line;
-    if (now - (this.orderGiven[tag] ?? -1e9) < 0.6) return;
-    if (now < this.speakingUntil) {
-      const q = (this.orderQueue || []).filter((w) => w.tag !== tag);
-      q.push({ order: line, nation, many, digits, tag, at: now });
-      // What has happened to her before what is to be done.
-      q.sort((x, y) => (LINES[y.order] === 'report') - (LINES[x.order] === 'report'));
-      this.orderQueue = q;
-      if (!this.orderTimer) {
-        this.orderTimer = setTimeout(() => this.nextOrder(), Math.max(50, (this.speakingUntil - now) * 1000));
-      }
-      return;
-    }
-    this.orderGiven[tag] = now;
-    // Held while the line is fetched and opened, so a salvo of four turrets
-    // in one tick does not start four of him.
-    this.speakingUntil = now + 3;
-    const navy = NAVIES.has(nation) ? nation : 'usa';
-    const key = many && (line === 'torp' || line === 'aa') ? `${line}s` : line;
-    const keys = [key, ...(digits ? String(digits).split('').map((d) => `d${d}`) : [])];
-    Promise.all(keys.map((k) => this.orderBuffer(navy, k))).then((bufs) => {
-      bufs = bufs.filter(Boolean);
-      if (!bufs.length || !this.ctx) { this.speakingUntil = 0; return; }
-      try {
-        const c = this.ctx;
-        const rate = 0.98 + Math.random() * 0.05;
-        const at = c.currentTime + 0.02;
-        let t = at;
-        for (let i = 0; i < bufs.length; i++) {
-          const src = c.createBufferSource();
-          src.buffer = bufs[i];
-          src.playbackRate.value = rate;
-          const g = c.createGain();
-          g.gain.value = 1;
-          // On the bridge's own path, past the battle's compressor: he is
-          // standing next to you, and the guns are not allowed to swallow him.
-          src.connect(g).connect(this.voice || this.master);
-          src.onended = () => { try { src.disconnect(); g.disconnect(); } catch { /* gone */ } };
-          src.start(t);
-          // A breath after the line before the figures, and none between them.
-          t += bufs[i].duration / rate + (i === 0 && bufs.length > 1 ? 0.12 : 0.02);
-        }
-        const len = t - at;
-        // Everything else held well down under him for as long as he speaks,
-        // and brought back up after.
-        if (this.duck) {
-          const d = this.duck.gain;
-          d.cancelScheduledValues(at);
-          d.setTargetAtTime(0.28, at - 0.02, 0.03);
-          d.setTargetAtTime(1, at + len, 0.35);
-        }
-        this.speakingUntil = c.currentTime + len + 0.4;
-      } catch { this.speakingUntil = 0; }
-    }, () => { this.speakingUntil = 0; });
-  }
-
-  /** The next line waiting on him, if it is not stale by now. */
-  nextOrder() {
-    this.orderTimer = null;
-    const ctx = this.ctx;
-    if (!ctx || !this.orderQueue || !this.orderQueue.length) return;
-    const now = ctx.currentTime;
-    if (now < this.speakingUntil) {
-      this.orderTimer = setTimeout(() => this.nextOrder(), Math.max(50, (this.speakingUntil - now) * 1000));
-      return;
-    }
-    const q = this.orderQueue.shift();
-    if (now - q.at < KEEPS[LINES[q.order]]) this.say(q.order, q.nation, { many: q.many, digits: q.digits });
-    if (this.orderQueue.length && !this.orderTimer) this.orderTimer = setTimeout(() => this.nextOrder(), 100);
-  }
-
-  /** One order opened for playing, kept once it has been. */
-  orderBuffer(navy, key) {
-    const id = `${navy}:${key}`;
-    if (this.orders.has(id)) return this.orders.get(id);
-    const p = loadVoiceLines().then((lines) => {
-      const set = lines && lines[navy];
-      // Japanese has no plural, so it has no line for one.
-      const b64 = set && (set[key] || set[key.replace(/s$/, '')]);
-      if (!b64 || !this.ctx) return null;
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return new Promise((res, rej) => {
-        // The callback form, for the Safari that has no promise from it.
-        const q = this.ctx.decodeAudioData(bytes.buffer, res, rej);
-        if (q && q.then) q.then(res, rej);
-      });
-    }).catch(() => { this.orders.delete(id); return null; });
-    this.orders.set(id, p);
-    return p;
-  }
-
-  /** Have her navy's orders ready before the first is given. */
-  readyOrders(nation) {
-    if (getSettings().voices === false || !this.ensure()) return;
-    const navy = NAVIES.has(nation) ? nation : 'usa';
-    for (const k of ['main', 'sec', 'torp', 'torps', 'aa', 'aas', 'dc', 'abandon', 'lastShell',
-      'spotted', 'torpPort', 'torpStbd', 'breach', 'seal', 'd0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6',
-      'd7', 'd8', 'd9']) this.orderBuffer(navy, k);
   }
 
   alarm() {

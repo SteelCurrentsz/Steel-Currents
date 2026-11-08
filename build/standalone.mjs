@@ -159,7 +159,7 @@ if (!SPLIT) {
   console.log(`data files: ${(sent / 1e6).toFixed(1)} MB sent for ${(raw / 1e6).toFixed(1)} MB of data`);
   // The offline keeper beside the page (client/sw.js), with the list it keeps
   // written in, as the server writes it into its own: the page, its chunks and
-  // the aircraft to take over with, then the hulls and the voices behind them.
+  // the aircraft to take over with, then the hulls behind them.
   // A page put up anywhere as these files plays with no signal once opened.
   const files = ['./', './unpack.js', ...chunks.map((f) => `./${f}`), ...named.map((f) => `./${f}`)];
   const shell = files.filter((f) => !/\.data\.js$/.test(f) || /Model\.data\.js$/.test(f));
