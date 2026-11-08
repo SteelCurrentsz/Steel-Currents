@@ -132,7 +132,7 @@ const TURRET_ROOF = {
   fletcher: 3, matsu: 3, yukikaze: 3, guangzhou: 10, sovremenny: 10, burke: 13, cleveland: 76, hipper: 70, spee: 105, scheer: 105, u48: 0, surcouf: 25, sboat: 0,
   tillman: 280, morosini: 200, richelieu: 170, scharnhorst: 150, hagen: 130, bismarck: 130, tirpitz: 130, soyuz: 230, hood: 127, kgv: 152, rodney: 184,
   massachusetts: 184, iowa: 184, missouri: 184, kongo: 152, fuso: 152, musashi: 270, yamato: 270,
-  takao: 25, baltimore: 76, ticonderoga: 51, leviathan: 102, shinano: 6, shokaku: 6, hornet: 3, enterprise: 3, grafzeppelin: 20,
+  takao: 25, maya: 25, baltimore: 76, ticonderoga: 51, leviathan: 102, shinano: 6, shokaku: 6, hornet: 3, enterprise: 3, grafzeppelin: 20,
 };
 const SEC_ROOF = {
   guangzhou: 6, sovremenny: 6, burke: 6, iowa: 25, missouri: 25, massachusetts: 25, cleveland: 25, baltimore: 25, ticonderoga: 13, leviathan: 25, bismarck: 35, tirpitz: 35, soyuz: 50,

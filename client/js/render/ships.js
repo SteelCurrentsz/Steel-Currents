@@ -41,7 +41,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * background once the title screen is up, and waited for by the shipyard and
  * before a battle is joined.
  */
-let buildSpee, buildTakao, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
+let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny;
 const SCULPTED = {
@@ -54,7 +54,8 @@ const SCULPTED = {
     loadHellcat(), loadDauntless(), loadAvenger(), loadDevastator(), loadB25(), loadB29()]),
   // The Admiral Scheer and her sister the Graf Spee, both off the model of the Scheer.
   scheer: () => import('./scheer.js').then((m) => { buildSpee = m.buildSpee; buildScheer = m.buildScheer; }),
-  takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
+  // The Takao and her sister the Maya, both off the model of the Atago.
+  takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; buildMaya = m.buildMaya; }),
   hood: () => import('./hood.js').then((m) => { buildHood = m.buildHood; }),
   kgv: () => import('./kgv.js').then((m) => { buildKgv = m.buildKgv; }),
   soyuz: () => import('./soyuz.js').then((m) => { buildSoyuz = m.buildSoyuz; }),
@@ -85,7 +86,7 @@ const SCULPTED = {
   sovremenny: () => import('./sovremenny.js').then((m) => { buildSovremenny = m.buildSovremenny; }),
 };
 // The module each class is drawn by, where it is not her own name.
-const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck', spee: 'scheer' };
+const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck', spee: 'scheer', maya: 'takao' };
 const fetched = new Map();
 const ready = new Set();
 // When each fetch last failed. With no signal every ask fails at once, and
@@ -935,10 +936,10 @@ function buildModel(classId) {
     };
   }
 
-  // And the Takao, whose castle of a bridge and three superfiring turrets
-  // forward are the whole of what she looks like.
-  if (cls.id === 'takao') {
-    const built = buildTakao();
+  // And the Takao, whose castle of a bridge and three turrets forward are the
+  // whole of what she looks like, and the Maya, her sister with No.3 landed.
+  if (cls.id === 'takao' || cls.id === 'maya') {
+    const built = cls.id === 'maya' ? buildMaya() : buildTakao();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
