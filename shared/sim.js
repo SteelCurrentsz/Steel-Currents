@@ -2061,8 +2061,12 @@ export function gunLimits(battery) {
 //   Everything else on the ship carries on. Manning A turret does not stop B
 //   turret shooting, and it does not stop her steering.
 
-/** Which batteries a mounting can be taken from. */
-const MANNED = new Set(['main', 'sec', 'aa', 'torp']);
+/**
+ * Which batteries a mounting can be taken from. Her anti-submarine rocket
+ * launchers ('rbu') among them: one taken over is laid on the point its layer
+ * holds and fires its ripple there when he says so (see stepRbu).
+ */
+const MANNED = new Set(['main', 'sec', 'aa', 'torp', 'rbu']);
 
 /**
  * Her close-range mountings, flattened in the order everything else uses.
@@ -2418,6 +2422,7 @@ function fireManned(state, ship) {
   if (k === 'main') return fireGuns(state, ship, i);
   if (k === 'sec') return fireSecondary(state, ship, i);
   if (k === 'torp') return fireTorpedoes(state, ship, i);
+  if (k === 'rbu') return fireRbuManned(state, ship, i);
   return 0;
 }
 
@@ -2443,7 +2448,8 @@ export function manGun(ship, msg) {
   const list = k === 'main' ? ship.turrets
     : k === 'sec' ? ship.secMounts
       : k === 'torp' ? ship.torpMounts
-        : lightMounts(cls);
+        : k === 'rbu' ? ship.rbuMounts
+          : lightMounts(cls);
   const i = Math.round(msg.i || 0);
   if (!list || i < 0 || i >= list.length) { ship.manned = null; return; }
   ship.manned = { k, i };
@@ -7719,13 +7725,24 @@ const BOX_CELL = 1.19;
  * The one-letter name each missile goes by on the wire, and back. Every kind
  * any class carries has one.
  */
-export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a' };
+export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g' };
 export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(([k, c]) => [c, k]));
 
 /** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc'. */
 export const missileRole = (K) => (K && K.role) || 'surface';
-/** Where a kind goes up from: a Mk 41 cell, an armoured box, or a canister. */
+/**
+ * Where a kind goes up from: a Mk 41 cell ('vls'), an armoured box ('box'), a
+ * canister ('tube') -- fired once -- or the arm of a launcher that is
+ * reloaded from the magazine under it ('rail').
+ */
 const launchOf = (K, kind) => (K && K.launch) || (kind === 'tomahawk' ? 'box' : 'tube');
+
+/** Whether she carries anything that goes up at aircraft or missiles: what her own fire control fires on its own (see stepAegis). */
+export function samKinds(cls) {
+  const M = cls && cls.missiles;
+  if (!M) return [];
+  return Object.entries(M.kinds).filter(([, K]) => missileRole(K) === 'sam' || missileRole(K) === 'abm').map(([k]) => k);
+}
 
 /** Every kind any class carries, by name: for a missile whose ship has gone. */
 const MISSILE_KINDS = {};
@@ -7984,8 +8001,17 @@ function launchLine(cls, ship, kind, at, bearing = 0) {
     const lz = z + Math.cos(rest) * along;
     return { lx, lz, y: y + BOX_CELL * c + len * sn, bearing: rest, elev: BOX_ELEV };
   }
-  const [x, y, z] = M.tubes[at];
-  return { lx: x, lz: z, y, bearing: x < 0 ? -Math.PI / 2 : Math.PI / 2, elev: M.tubeElev || 0.55 };
+  if (how === 'rail') {
+    // Off the end of the arm, which has trained round onto her bearing and
+    // comes up to throw it: it climbs out steeply and turns once it is clear.
+    const [x, y, z] = M.rails[at];
+    return { lx: x, lz: z, y: y + 0.4, bearing, elev: 0.62 };
+  }
+  // A canister: out over her side unless it says which way it points -- a
+  // Moskit's point forward -- and cocked up as her canisters are.
+  const [x, y, z, b, e] = M.tubes[at];
+  const along = Number.isFinite(b) ? b : x < 0 ? -Math.PI / 2 : Math.PI / 2;
+  return { lx: x, lz: z, y, bearing: along, elev: Number.isFinite(e) ? e : M.tubeElev || 0.55 };
 }
 
 /** The cell of hers holding a `kind` nearest the end of her that faces `bearing` (local). */
@@ -8070,13 +8096,27 @@ export function fireMissile(state, ship, kind, targetId = 0, air = null) {
     b.want = 1;
     b.hold = BOX_HOLD + (1 - b.raise) * BOX_RAISE_T;
     hold = (1 - b.raise) * BOX_RAISE_T + 0.4;
+  } else if (how === 'rail') {
+    // The launcher whose arm is stowed nearest the way she is to go: the one
+    // forward for what is ahead of her, the one aft for what is astern.
+    let best = Infinity;
+    M.rails.forEach((rl, i) => {
+      const off = Math.abs(angleDelta(wrapAngle(ship.heading + (rl[3] || 0)), bearing));
+      if (off < best) { best = off; at = i; }
+    });
+    if (at < 0) return null;
   } else {
-    // The canister on the side she is to go.
+    // The canister pointing the way she is to go -- for canisters trained
+    // out over her side, the side; for ones that point forward, the side the
+    // target is on, so the missile does not cross her bow to get there.
     let best = Infinity;
     S.tubes.forEach((full, i) => {
       if (!full) return;
-      const side = M.tubes[i][0] < 0 ? -Math.PI / 2 : Math.PI / 2;
-      const off = Math.abs(angleDelta(wrapAngle(ship.heading + side), bearing));
+      const [x, , , b] = M.tubes[i];
+      const point = Number.isFinite(b) ? b : x < 0 ? -Math.PI / 2 : Math.PI / 2;
+      const local = angleDelta(ship.heading, bearing);
+      const off = Math.abs(angleDelta(wrapAngle(ship.heading + point), bearing))
+        + (Number.isFinite(b) && Math.sign(x) !== Math.sign(local || 1) ? 0.2 : 0) + i * 1e-4;
       if (off < best) { best = off; at = i; }
     });
     if (at < 0) return null;
@@ -8659,6 +8699,26 @@ function stepRbu(state, ship, dt) {
     const spec = R.mounts[m.id];
     if (m.cooldown > 0) m.cooldown -= dt;
     if (m.ripple) { stepRbuRipple(state, ship, cls, spec, m, i, dt); return; }
+    // Taken over: laid where its layer is holding, and fired when he says so
+    // (see fireRbuManned) -- her fire control leaves it alone.
+    if (isManned(ship, 'rbu', i)) {
+      const want = rbuPin(state, ship, R, spec);
+      const at = mountWorldPos(ship, spec);
+      const local = wrapAngle(headingTo(at.x, at.z, want.x, want.z) - ship.heading);
+      m.angle = trainWithin(m.angle, local, R.traverse * dt, spec);
+      const el = rbuFlight(R, clamp(dist(at.x, at.z, want.x, want.z), R.minRange, R.range)).elev;
+      const e0 = m.elev || 0;
+      m.elev = e0 + clamp(el - e0, -0.5 * dt, 0.5 * dt);
+      m.want = null;
+      return;
+    }
+    // Switched off on the targeting panel: stowed, and not fired.
+    if (offForDirector(ship, 'rbu', i)) {
+      m.want = null;
+      m.angle = trainWithin(m.angle, spec.rest ?? spec.angle, R.traverse * dt, spec);
+      m.elev = Math.max(0, (m.elev || 0) - 0.5 * dt);
+      return;
+    }
     m.look = (m.look || 0) - dt;
     if (m.look > 0 && !m.want) return;
     // Looked for twice a second: a fire control solution, not a reflex.
@@ -8687,6 +8747,57 @@ function stepRbu(state, ship, dt) {
     m.look = 0;
     m.cooldown = R.reload;
   });
+}
+
+/**
+ * Where a launcher somebody is laying is laid: the point he is holding,
+ * brought inside what it can reach, and how deep its bombs are set -- for the
+ * boat under the water nearest that point if there is one close to it, for
+ * a ship or a torpedo on the surface if not.
+ */
+function rbuPin(state, ship, R, spec) {
+  const at = mountWorldPos(ship, spec);
+  let x = Number.isFinite(ship.manX) ? ship.manX : at.x;
+  let z = Number.isFinite(ship.manZ) ? ship.manZ : at.z;
+  const d = dist(at.x, at.z, x, z);
+  const want = clamp(d, R.minRange, R.range);
+  if (d > 1e-3 && want !== d) {
+    x = at.x + ((x - at.x) * want) / d;
+    z = at.z + ((z - at.z) * want) / d;
+  }
+  let set = 8, near = R.spread * 4;
+  for (const boat of state.ships) {
+    if (!boat.alive || boat.team === ship.team || !getClass(boat.classId).dive || !submerged(boat)) continue;
+    const off = dist(x, z, boat.x, boat.z);
+    if (off >= near) continue;
+    near = off;
+    set = Math.max(6, boat.depth + getClass(boat.classId).hull.draft * 0.5);
+  }
+  return { kind: 'pin', x, z, set };
+}
+
+/**
+ * The trigger on a launcher somebody is laying: once it is laid on his bearing
+ * and loaded, it throws its ripple across the point he is holding. Returns how
+ * many bombs are going (0 if it is not ready).
+ */
+export function fireRbuManned(state, ship, i) {
+  const cls = shipClass(ship);
+  const R = cls.rbu;
+  if (!R || !ship.alive || !ship.rbuMounts) return 0;
+  const m = ship.rbuMounts[i];
+  if (!m || m.ripple || m.cooldown > 0) return 0;
+  if (gunsDrowned(ship)) return 0;
+  const spec = R.mounts[m.id];
+  const aim = rbuPin(state, ship, R, spec);
+  const at = mountWorldPos(ship, spec);
+  const local = wrapAngle(headingTo(at.x, at.z, aim.x, aim.z) - ship.heading);
+  // Not on a bearing it can be trained to, or not round onto it yet.
+  if (!mountBears(ship, spec, wrapAngle(local + ship.heading))) return 0;
+  if (Math.abs(angleDelta(m.angle, local)) > 0.06) return 0;
+  m.ripple = { left: R.tubes, next: 0, aim };
+  m.cooldown = R.reload;
+  return R.tubes;
 }
 
 /** One tick of a ripple: the next bomb out of its tube when its turn comes. */

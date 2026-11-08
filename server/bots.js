@@ -375,6 +375,11 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
         const has = (k) => K[k] && left[k] > 0;
         kind = has('harpoon') && d < K.harpoon.range * 0.8 && (Math.random() < 0.5 || !has('tomahawk'))
           ? 'harpoon' : has('tomahawk') ? 'tomahawk' : has('asroc') && d < K.asroc.range * 0.6 ? 'asroc' : null;
+        // Any other missile of hers for ships -- a Moskit -- inside its reach.
+        if (!kind) {
+          kind = Object.keys(K).find((k) => has(k) && (K[k].role || 'surface') === 'surface'
+            && (K[k].launch || 'tube') !== 'box' && d < K[k].range * 0.8) || null;
+        }
       }
       if (kind && d < K[kind].range * 0.9 && fireMissile(state, ship, kind, target.id)) {
         brain.mslTimer = 14 + Math.random() * 16 * (1.2 - brain.skill);

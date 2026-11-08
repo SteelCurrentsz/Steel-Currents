@@ -6,7 +6,7 @@ import { fireSeats } from './render/fireseats.js';
 import { BattleScene } from './render/scene.js';
 import { loadShips, shipReady } from './render/ships.js';
 import { BATTERIES, batteryGun } from '../../shared/batteries.js';
-import { Hud, readTarget, THROTTLE_MAX } from './hud.js';
+import { Hud, readTarget, THROTTLE_MAX, MISSILE_KEYS } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { TargetingView } from './render/targetview.js';
 import { PlaneBoard, PART_NAME } from './render/planeboard.js';
@@ -30,7 +30,7 @@ import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT,
+  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -522,6 +522,9 @@ function batteryKind(row) {
   if (row.cond === 'sc') return 'sec';
   if (row.band === 'Torpedo tubes') return 'torp';
   if (row.band === 'Light battery') return 'aa';
+  // Her anti-submarine rocket launchers, laid by hand like a gun and fired on
+  // the trigger: a ripple across the point the layer holds.
+  if (row.band === 'ASW rockets') return 'rbu';
   // The depth charge gear. Nobody stands at a rack: it is worked from the
   // quarterdeck by a party with a pinch bar, and what the captain does is give
   // the word. See dropCharges.
@@ -1564,10 +1567,18 @@ export class Battle {
     this.net.send({ t: 'msl', ship: this.conned(), k, tg: tg ? tg.q.i : 0 });
   }
 
-  /** Let her Aegis put up her Standards on its own, or hold them for her captain. */
+  /** The kind of hers that answers to a missile key, by its code, if she carries one. */
+  fireMissileKey(key) {
+    const own = this.missileShip();
+    if (!own) return;
+    const kind = Object.keys(own.cls.missiles.kinds).find((k) => MISSILE_KEYS[k] === key);
+    if (kind) this.fireMissile(MISSILE_CODE[kind]);
+  }
+
+  /** Let her own fire control put up her surface-to-air missiles on its own, or hold them for her captain. */
   toggleAegis() {
     const own = this.missileShip();
-    if (!own || !own.cls.missiles.vls) return;
+    if (!own || !samKinds(own.cls).length) return;
     const on = !(own.shown?.ma ?? 1);
     this.net.send({ t: 'msla', ship: this.conned(), on });
     if (own.shown) own.shown.ma = on ? 1 : 0;
@@ -1748,7 +1759,7 @@ export class Battle {
       const dx = sh.x - eye.x;
       const dz = sh.z - eye.z;
       const d = Math.hypot(dx, dz);
-      if (d < 200 || d > reach || d > landFlat) continue;
+      if (d < (this.gun.kind === 'rbu' ? 100 : 200) || d > reach || d > landFlat) continue;
       const off = Math.abs(angleDelta(Math.atan2(dx, dz), this.gunYaw));
       // A hull's own half-breadth, seen from here, plus a layer's allowance.
       const wide = Math.atan2(getClass(sh.c).hull.length * 0.32, d) + 0.006;
@@ -1771,7 +1782,10 @@ export class Battle {
     // Nothing under the sight: where the line meets the water, and the gun's
     // own maximum when it never does.
     let t = reach;
-    if (dir.y < -1e-4) t = Math.min(reach, Math.max(400, eye.y / -dir.y));
+    // A rocket launcher's bombs go a kilometre at the most, and a few hundred
+    // metres off her side is as much its business as the horizon is a gun's.
+    const near = this.gun.kind === 'rbu' ? 60 : 400;
+    if (dir.y < -1e-4) t = Math.min(reach, Math.max(near, eye.y / -dir.y));
     return {
       x: eye.x + dir.x * t,
       y: eye.y + dir.y * t,
@@ -1856,7 +1870,8 @@ export class Battle {
     const k = this.gun.kind;
     const list = k === 'main' ? v.turrets
       : k === 'sec' ? v.secMounts
-        : k === 'torp' ? v.torpMounts : v.aaMounts;
+        : k === 'torp' ? v.torpMounts
+          : k === 'rbu' ? v.rbuMounts : v.aaMounts;
     return (list && list[this.gun.id]) || null;
   }
 
@@ -4006,14 +4021,17 @@ export class Battle {
       case 'KeyQ': this.setCourse(null); break;
       // Her missiles, where she carries them: a Tomahawk, a Harpoon, the
       // next ship to lay them on, and riding the next one in the air.
-      case 'KeyZ': this.fireMissile('t'); break;
-      case 'KeyV': this.fireMissile('h'); break;
-      // And off a VLS: an ASROC, and her three Standards by hand; L lets her
-      // Aegis fire them on its own, or holds it.
-      case 'KeyU': this.fireMissile('a'); break;
-      case 'KeyI': this.fireMissile('s'); break;
-      case 'KeyO': this.fireMissile('e'); break;
-      case 'KeyY': this.fireMissile('b'); break;
+      // A key fires whichever of her kinds answers to it (MISSILE_KEYS): V
+      // is a Harpoon on one ship and a Moskit on another.
+      case 'KeyZ': this.fireMissileKey('Z'); break;
+      case 'KeyV': this.fireMissileKey('V'); break;
+      // And off a VLS or a launcher arm: an ASROC, and her surface-to-air
+      // missiles by hand; L lets her own fire control fire them on its own,
+      // or holds it.
+      case 'KeyU': this.fireMissileKey('U'); break;
+      case 'KeyI': this.fireMissileKey('I'); break;
+      case 'KeyO': this.fireMissileKey('O'); break;
+      case 'KeyY': this.fireMissileKey('Y'); break;
       case 'KeyL': this.toggleAegis(); break;
       case 'KeyN': this.nextMissileTarget(); break;
       case 'KeyJ': this.rideMissile(); break;

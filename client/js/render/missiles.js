@@ -1,6 +1,6 @@
 // Guided missiles in flight: the BGM-109 Tomahawk, the RGM-84 Harpoon, the
-// Standards an Aegis ship puts up (SM-2MR, SM-2ER, SM-3) and the RUM-139
-// ASROC.
+// Standards an Aegis ship puts up (SM-2MR, SM-2ER, SM-3), the RUM-139 ASROC,
+// and the Sovremenny's P-270 Moskit and 9M38 Uragan.
 //
 // A missile is drawn at its own size, which is small -- a Tomahawk is six and
 // a quarter metres long and half a metre across -- and what makes it visible
@@ -21,6 +21,8 @@ const MAT = {
   harpoon: new THREE.MeshLambertMaterial({ color: 0xd9dbdc }),
   standard: new THREE.MeshLambertMaterial({ color: 0xeceeef }),
   asroc: new THREE.MeshLambertMaterial({ color: 0x9da39a }),
+  moskit: new THREE.MeshLambertMaterial({ color: 0xa7ada3 }),
+  uragan: new THREE.MeshLambertMaterial({ color: 0xc9cdc4 }),
   nose: new THREE.MeshLambertMaterial({ color: 0x3a3d40 }),
   band: new THREE.MeshLambertMaterial({ color: 0xb08a2e }),
   fin: new THREE.MeshLambertMaterial({ color: 0x8e9297 }),
@@ -43,6 +45,11 @@ export const MISSILE_SHAPES = {
   b: { name: 'SM-3', len: 6.55, r: 0.17, span: 0.6, chord: 1.4, fin: 0.5, wingZ: 0.6, body: MAT.standard },
   // ASROC: a rocket motor with a torpedo in front of it, a fat blunt body.
   a: { name: 'ASROC', len: 4.9, r: 0.18, span: 0.7, chord: 0.3, fin: 0.42, wingZ: -0.6, body: MAT.asroc },
+  // The Moskit: nearly ten metres of ramjet, fat and long, four short
+  // cropped wings well aft and four fins behind them.
+  n: { name: 'Moskit', len: 9.75, r: 0.38, span: 2.1, chord: 0.9, fin: 0.5, wingZ: -1.6, body: MAT.moskit },
+  // The 9M38 Uragan: long low strakes along its body and four tail fins.
+  g: { name: 'Uragan', len: 5.55, r: 0.2, span: 0.86, chord: 1.4, fin: 0.42, wingZ: -0.4, body: MAT.uragan },
 };
 /** A missile code the client has no shape for is drawn as a Harpoon. */
 const shapeOf = (k) => (MISSILE_SHAPES[k] ? k : 'h');

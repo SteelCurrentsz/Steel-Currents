@@ -4,7 +4,7 @@
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
-  slotMask, machineSlot, MISSILE_CODE, vlsKinds,
+  slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -200,15 +200,19 @@ export function shipSnapshot(ship, full, state = null) {
       s.sc = ship.secMounts.map((m) => gunState(ship, cls, cls.secondary.mounts[m.id], m));
     }
     s.tp = ship.torpMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
+    // And her anti-submarine rocket launchers' reloads, for whoever is laying one.
+    if (ship.rbuMounts && ship.rbuMounts.length) {
+      s.rr = ship.rbuMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
+    }
     // Her missiles: how many of each are left, and how long until the next
     // of each can go, in the order her datasheet lists them (the Missouri's
-    // Tomahawk first, then Harpoon); and, if she has a VLS, whether her own
-    // fire control may put up her Standards on its own.
+    // Tomahawk first, then Harpoon); and, if she carries surface-to-air
+    // missiles, whether her own fire control may put them up on its own.
     if (ship.missiles && cls.missiles) {
       const kinds = Object.keys(cls.missiles.kinds);
       s.mq = kinds.map((k) => ship.missiles.left[k] ?? 0);
       s.mc = kinds.map((k) => r1(ship.missiles.cool[k] ?? 0));
-      if (vlsKinds(cls).length) s.ma = ship.missiles.auto ? 1 : 0;
+      if (vlsKinds(cls).length || samKinds(cls).length) s.ma = ship.missiles.auto ? 1 : 0;
     }
     // Which mounting her captain has gone down to, and how long every
     // secondary has to go. Both are his own business and nobody else's, so

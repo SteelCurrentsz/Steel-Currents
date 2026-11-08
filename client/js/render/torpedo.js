@@ -84,6 +84,13 @@ export const TORPEDO_KINDS = {
     blades: [7, 7], stud: true,
     paint: { head: 0x3c4a3a, flask: 0x495746, after: 0x445241, tail: 0x3a4637, joint: 0x9a8a48, screw: 0x7c7e78, ring: 0x3a4637 },
   },
+  // The Sovremenny's TEST-71ME: a 533 mm wire-guided homing torpedo, long,
+  // its seeker under a rounded head, a grey body and a pair of screws.
+  test71: {
+    len: 7.2, r: 0.267, nose: 'round', head: 0.2, flask: 0.42, cone: 3.6, fin: 0.96, ring: false,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x4b4f4a, flask: 0x7c807a, after: 0x737771, tail: 0x5f635e, joint: 0x2c2e29, screw: 0xae8a54 },
+  },
   // The Burke's Mk 46: a lightweight 324 mm homing torpedo, short and slim,
   // its seeker under a flat nose, a dull green body and a ducted tail.
   mk46: {

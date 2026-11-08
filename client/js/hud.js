@@ -8,11 +8,13 @@ import { MAP_HALF, islandRing, CHART_X } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
-import { SECTIONS, torpedoClear, layFloor, partyCount, MISSILE_CODE as MISSILE_CODES } from '../../shared/sim.js';
+import { SECTIONS, torpedoClear, layFloor, partyCount, MISSILE_CODE as MISSILE_CODES, samKinds } from '../../shared/sim.js';
 import { MISSILE_SHAPES } from './render/missiles.js';
 
 /** The key each missile is fired on, by kind (see onKey in game.js). */
-export const MISSILE_KEYS = { tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y' };
+export const MISSILE_KEYS = {
+  tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y', sunburn: 'V', uragan: 'I',
+};
 import {
   worksTargets, townTargetId, wallTargetId, wallSections, sectionSpan, wallDamage, cityToWorld,
 } from '../../shared/works.js';
@@ -206,7 +208,9 @@ export function arsenal(cls) {
     });
   }
   // Her anti-submarine rocket launchers. Her own fire control lays and fires
-  // them (see stepRbu); the row reads where they bear like any battery's.
+  // them (see stepRbu) unless somebody goes down to one: pressing one on her
+  // lays it by hand, and it fires its ripple where he holds when he says so.
+  // The row reads where they bear like any battery's.
   if (cls.rbu) {
     const R = cls.rbu;
     rows.push({
@@ -220,7 +224,7 @@ export function arsenal(cls) {
       role: 'sub',
       pen: null,
       band: 'ASW rockets',
-      note: 'Fired by her own fire control: torpedoes, submarines, ships',
+      note: 'Fired by her own fire control, or laid by hand: torpedoes, submarines, ships',
       specs: R.mounts.map((m) => ({ ...m, guns: R.tubes })),
     });
   }
@@ -232,7 +236,8 @@ export function arsenal(cls) {
     const cells = M.vls ? M.vls.cells.length : 0;
     Object.entries(M.kinds).forEach(([kind, K], slot) => {
       const launch = K.launch || (kind === 'tomahawk' ? 'box' : 'tube');
-      const launchers = launch === 'box' ? M.boxes.length : launch === 'vls' ? 2 : Math.round(M.tubes.length / 4);
+      const launchers = launch === 'box' ? M.boxes.length : launch === 'vls' ? 2 : launch === 'rail' ? M.rails.length
+        : Math.round(M.tubes.length / 4);
       const role = K.role === 'sam' || K.role === 'abm' ? 'aa' : K.role === 'asroc' ? 'sub' : 'surface';
       rows.push({
         name: K.name,
@@ -246,7 +251,8 @@ export function arsenal(cls) {
         band: 'Missiles',
         note: launch === 'box' ? `${K.rounds} in ${launchers} armoured box launchers`
           : launch === 'vls' ? `${K.rounds} as sailed, in her ${cells}-cell Mk 41 VLS (loaded in the yard)`
-            : `${K.rounds} in ${launchers} quadruple canisters`,
+            : launch === 'rail' ? `${K.rounds} for ${launchers} single-arm launchers`
+              : `${K.rounds} in ${launchers} quadruple canisters`,
         missile: kind,
         vls: launch === 'vls',
         slot,
@@ -764,20 +770,23 @@ class HudBase {
   buildMissileButtons(cls) {
     const M = this.msl;
     const kinds = Object.entries(cls.missiles.kinds);
-    const vls = !!cls.missiles.vls;
+    // Her own fire control's switch, if she has surface-to-air missiles for
+    // it to fire: Aegis on a ship with a VLS, her own name for it otherwise.
+    const vls = samKinds(cls).length > 0;
+    const fcs = cls.missiles.fcs || 'AEGIS';
     const key = `${cls.id}`;
     if (key === M.fireKey) return;
     M.fireKey = key;
     M.fire.innerHTML = kinds.map(([k, K]) => `<button type="button" data-k="${MISSILE_CODES[k] || 'h'}">`
       + `<span>${K.short || k.toUpperCase()}</span><b>${K.rounds}</b><i></i></button>`).join('')
-      + (vls ? '<button type="button" class="aegis" data-aegis="1"><span>AEGIS</span><b>AUTO</b></button>' : '');
+      + (vls ? `<button type="button" class="aegis" data-aegis="1"><span>${fcs}</span><b>AUTO</b></button>` : '');
     M.fire.classList.toggle('many', kinds.length + (vls ? 1 : 0) > 2);
     M.buttons = [...M.fire.querySelectorAll('button[data-k]')].map((el, i) => ({
       el, q: el.querySelector('b'), c: el.querySelector('i'), K: kinds[i][1],
     }));
     M.auto = M.fire.querySelector('button[data-aegis]');
     M.hint.textContent = `${kinds.map(([k, K]) => `${MISSILE_KEYS[k] || '?'} ${K.short || k}`).join(' · ')}`
-      + `${vls ? ' · L Aegis' : ''} · N target · J ride`;
+      + `${vls ? ` · L ${fcs === 'AEGIS' ? 'Aegis' : 'auto SAM'}` : ''} · N target · J ride`;
   }
 
   /** The missile radar, redrawn: null takes it down. */
@@ -2498,6 +2507,9 @@ class HudBase {
     } else if (own && own.tp && gun.kind === 'torp') {
       const cd = own.tp[gun.id ?? gun.index];
       bits.push(cd > 0 ? `RELOAD ${Math.round(cd)}` : 'READY');
+    } else if (own && own.rr && gun.kind === 'rbu') {
+      const cd = own.rr[gun.id ?? gun.index];
+      bits.push(cd > 0 ? `RELOAD ${Math.round(cd)}` : 'READY');
     }
     if (beyond) bits.push('OUT OF RANGE');
     read.textContent = bits.join('   ');
@@ -2505,7 +2517,8 @@ class HudBase {
     if (fire && !gun.auto) {
       const i = gun.id ?? gun.index;
       const cd = gun.kind === 'main' ? own?.cd?.[i]
-        : gun.kind === 'sec' ? own?.sd?.[i] : own?.tp?.[i];
+        : gun.kind === 'sec' ? own?.sd?.[i]
+          : gun.kind === 'rbu' ? own?.rr?.[i] : own?.tp?.[i];
       fire.classList.toggle('spent', !!(cd > 0) || beyond);
     }
   }

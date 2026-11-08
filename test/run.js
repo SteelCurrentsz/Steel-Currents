@@ -169,6 +169,8 @@ import {
 } from '../client/js/render/guangzhou.js';
 import { guangzhouSurfaceY, MOUNT_SEATS as GUANGZHOU_SEATS } from '../client/js/render/guangzhouHull.js';
 import { buildBurke } from '../client/js/render/burke.js';
+import { buildSovremenny } from '../client/js/render/sovremenny.js';
+import { sovremennySurfaceY, MOUNT_SEATS as SOV_SEATS } from '../client/js/render/sovremennyHull.js';
 import { burkeSurfaceY, MOUNT_SEATS as BURKE_SEATS } from '../client/js/render/burkeHull.js';
 import {
   buildTillman, shellAt as tillmanShellAt, keelY as tillmanKeel, deckOver as tillmanSheer, zAt as tillmanZAt,
@@ -180,6 +182,7 @@ import { buildMissouri } from '../client/js/render/missouri.js';
 import { missouriSurfaceY, MOUNT_SEATS as MISSOURI_SEATS } from '../client/js/render/missouriHull.js';
 import {
   fireMissile, retargetMissile, normaliseVls, defaultVls, setVlsLoad, setAegisAuto, vlsCells, vlsKinds, MISSILE_CODE,
+  samKinds,
 } from '../shared/sim.js';
 import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
@@ -3508,11 +3511,11 @@ check("the Ticonderoga's Phalanx fires on what comes at her", () => {
   assert.ok(down >= 1, 'her Phalanx brought down none of four Harpoons');
 });
 
-check('the CNS Guangzhou is commissioned after the IJN Yukikaze and before the USS Arleigh Burke, armed as the owner asked', () => {
+check('the CNS Guangzhou is commissioned after the IJN Yukikaze and before the RF Sovremenny, armed as the owner asked', () => {
   const i = SHIP_ORDER.indexOf('guangzhou');
   assert.ok(i >= 0, 'the Guangzhou is not in the yard');
   assert.equal(SHIP_ORDER[i - 1], 'yukikaze', `before the Guangzhou comes ${SHIP_ORDER[i - 1]}`);
-  assert.equal(SHIP_ORDER[i + 1], 'burke', `after the Guangzhou comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'sovremenny', `after the Guangzhou comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.guangzhou;
   assert.equal(cls.fullName, 'CNS Guangzhou');
   assert.equal(cls.type, 'DD', 'she is not a destroyer');
@@ -3586,12 +3589,12 @@ check("the Guangzhou's shell has no holes in it", () => {
   assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
 });
 
-check('the USS Arleigh Burke is commissioned after the Guangzhou, in the Modern yard, armed as the owner asked', () => {
+check('the USS Arleigh Burke is commissioned after the Sovremenny, in the Modern yard, armed as the owner asked', () => {
   const i = SHIP_ORDER.indexOf('burke');
   assert.ok(i >= 0, 'the Burke is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'guangzhou', `before the Burke comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 1], 'sovremenny', `before the Burke comes ${SHIP_ORDER[i - 1]}`);
   const m = MODERN_ORDER.indexOf('burke');
-  assert.ok(m > 0 && MODERN_ORDER[m - 1] === 'guangzhou', 'she is not in the Modern yard after the Guangzhou');
+  assert.ok(m > 0 && MODERN_ORDER[m - 1] === 'sovremenny', 'she is not in the Modern yard after the Sovremenny');
   assert.ok(!WWII_ORDER.includes('burke'), 'she is in the Second World War yard');
   const cls = SHIP_CLASSES.burke;
   assert.equal(cls.fullName, 'USS Arleigh Burke (DDG-51)');
@@ -3644,6 +3647,206 @@ check('the Credits screen credits the model the Arleigh Burke is drawn from', ()
   const screen = html.slice(html.indexOf('id="screen-credits"'));
   assert.ok(screen.includes('1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.'), 'the model is not credited');
   assert.ok(screen.includes('https://skfb.ly/o7TNV') && screen.includes('Yi Tsung Lee'), 'the credit is not as its licence asks');
+});
+
+check('the RF Sovremenny is commissioned before the Arleigh Burke, in the Modern yard, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('sovremenny');
+  assert.ok(i >= 0, 'the Sovremenny is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'burke', `after the Sovremenny comes ${SHIP_ORDER[i + 1]}`);
+  const m = MODERN_ORDER.indexOf('sovremenny');
+  assert.ok(m >= 0 && MODERN_ORDER[m + 1] === 'burke', 'she is not in the Modern yard before the Arleigh Burke');
+  assert.ok(!WWII_ORDER.includes('sovremenny'), 'she is in the Second World War yard');
+  const cls = SHIP_CLASSES.sovremenny;
+  assert.equal(cls.fullName, 'RF Sovremenny');
+  assert.equal(cls.type, 'DD');
+  // Two twin AK-130s, 130 mm, for surface fire.
+  assert.equal(cls.turrets.length, 2);
+  assert.ok(cls.turrets.every((t) => t.guns === 2), 'an AK-130 of hers is not a twin');
+  assert.equal(cls.gun.caliber, 130);
+  assert.match(cls.gun.name, /AK-130/);
+  assert.equal(cls.gun.role, 'surface');
+  // Four AK-630s, which stop missiles.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.match(ciws[0].name, /AK-630/);
+  assert.equal(ciws[0].mounts.length, 4);
+  // Eight Sunburns, four a side, and Uragans off two single-arm launchers.
+  const K = cls.missiles.kinds;
+  assert.match(K.sunburn.name, /Sunburn/);
+  assert.equal(K.sunburn.rounds, 8);
+  assert.equal(K.sunburn.role, 'surface');
+  assert.equal(cls.missiles.tubes.length, 8);
+  assert.equal(cls.missiles.tubes.filter((t) => t[0] > 0).length, 4, 'she has not four canisters a side');
+  assert.match(K.uragan.name, /Uragan/);
+  assert.equal(K.uragan.role, 'sam');
+  assert.equal(K.uragan.launch, 'rail');
+  assert.equal(cls.missiles.rails.length, 2, 'she has not two Uragan launchers');
+  assert.deepEqual(samKinds(cls), ['uragan']);
+  // Two twin 533 mm tubes of TEST-71ME homing torpedoes, eight fish in all.
+  assert.equal(cls.torpedoes.caliber, 533);
+  assert.match(cls.torpedoes.name, /TEST-71ME/);
+  assert.ok(cls.torpedoes.homing, 'her torpedoes do not home');
+  assert.equal(cls.torpedoes.mounts.reduce((n, t) => n + t.tubes, 0), 4);
+  assert.equal(cls.datasheet.torpedoesCarried, 8);
+  // Two RBU-1000s, six 300 mm barrels each.
+  assert.equal(cls.rbu.name, 'RBU-1000');
+  assert.equal(cls.rbu.caliber, 300);
+  assert.equal(cls.rbu.tubes, 6);
+  assert.equal(cls.rbu.mounts.length, 2);
+  const built = buildSovremenny();
+  assert.equal(built.turrets.length, 2);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  assert.equal(built.rbuMounts.length, 2);
+  for (const [kind, list] of Object.entries(SOV_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, sovremennySurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+  // Her tubes stand on her waist deck, not in the air or inside her.
+  for (const m of built.torpMounts) {
+    assert.ok(m.position.y > 3.5 && m.position.y < 6, `a bank of tubes stands ${m.position.y.toFixed(2)} m up`);
+  }
+});
+
+check('the Credits screen credits the model the Sovremenny is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('Sovremenny-class destroyer'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/pBN6X') && screen.includes('SB-129'), 'the credit is not as its licence asks');
+});
+
+check("the Sovremenny's Sunburns go forward out of their canisters, at ships", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(state, { name: 'S', classId: 'sovremenny', team: 0, index: 0 });
+  const c = addShip(state, { name: 'C', classId: 'cleveland', team: 1, index: 0 });
+  s.x = 0; s.z = 0; s.heading = 0; c.x = 3000; c.z = 12000; c.heading = Math.PI / 2;
+  const hp0 = c.hp;
+  let fired = 0, hits = 0;
+  for (let t = 0; t < 90 * 30; t++) {
+    if (fired < 2) {
+      const m = fireMissile(state, s, 'sunburn', c.id);
+      if (m) {
+        fired++;
+        // Off a canister that points forward, cocked up, on her side the
+        // target is on.
+        assert.ok(Math.abs(m.aboard.bearing) < 0.01, 'a Sunburn left her canister not pointing forward');
+        assert.ok(m.aboard.elev > 0.2 && m.aboard.elev < 0.35, 'a Sunburn left her canister not cocked up');
+        assert.ok(m.aboard.lx > 0, 'a Sunburn went from the far side of her');
+      }
+    }
+    for (const e of step(state, 1 / 30)) if (e.e === 'mslHit') hits++;
+  }
+  assert.equal(fired, 2);
+  assert.equal(s.missiles.left.sunburn, 6);
+  assert.ok(hits > 0 && c.hp < hp0, 'her Sunburns hit nothing');
+});
+
+check("the Sovremenny's Uragans go up off their arms at missiles coming at her, and are held when told to", () => {
+  const run = (auto) => {
+    const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+    const s = addShip(state, { name: 'S', classId: 'sovremenny', team: 0, index: 0 });
+    const b = addShip(state, { name: 'B', classId: 'burke', team: 1, index: 0 });
+    s.x = 0; s.z = 0; b.x = 0; b.z = 20000; b.missiles.auto = false;
+    setAegisAuto(s, auto);
+    let fired = 0, up = 0, sam = 0;
+    for (let t = 0; t < 90 * 30; t++) {
+      if (fired < 4 && t % 60 === 0 && fireMissile(state, b, 'harpoon', s.id)) fired++;
+      for (const e of step(state, 1 / 30)) {
+        if (e.e === 'mslOrder' && e.k === 'uragan') up++;
+        if (e.e === 'mslDown' && e.why === 'sam') sam++;
+      }
+    }
+    return { up, sam, wire: shipSnapshot(s, true, state).ma, left: s.missiles.left.uragan };
+  };
+  const on = run(true);
+  assert.ok(on.up > 0, 'she put up no Uragan at the Harpoons');
+  assert.ok(on.sam > 0, 'her Uragans brought nothing down');
+  assert.equal(on.left, 48 - on.up, 'her launchers did not take their Uragans from her magazine');
+  assert.equal(on.wire, 1, 'the wire does not say her fire control is on');
+  const off = run(false);
+  assert.equal(off.up, 0, 'her fire control fired with the switch held');
+  assert.equal(off.wire, 0);
+});
+
+check("the Sovremenny's homing torpedoes run down a submarine as well as a ship", () => {
+  for (const [what, depth] of [['u48', 30], ['fletcher', 0]]) {
+    const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+    const s = addShip(state, { name: 'S', classId: 'sovremenny', team: 0, index: 0 });
+    const u = addShip(state, { name: 'U', classId: what, team: 1, index: 0 });
+    s.x = 0; s.z = 0; s.heading = 0; u.x = 300; u.z = 3000; u.heading = Math.PI / 2;
+    const hp0 = u.hp;
+    let hits = 0;
+    for (let t = 0; t < 260 * 30; t++) {
+      u.depth = depth; u.speed = 0; s.speed = 0; s.aimX = u.x; s.aimZ = u.z;
+      if (t % 30 === 0) fireTorpedoes(state, s);
+      for (const e of step(state, 1 / 30)) if (e.e === 'torpHit' && e.victim === u.id) hits++;
+      if (!u.alive) break;
+    }
+    assert.ok(hits > 0, `her torpedoes never hit the ${what}`);
+    assert.ok(!u.alive || u.hp < hp0, `her torpedoes did the ${what} no harm`);
+  }
+});
+
+check("the Sovremenny's RBU-1000s break up torpedoes running at her", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const g = addShip(state, { name: 'G', classId: 'sovremenny', team: 1, index: 0 });
+  a.x = 0; a.z = 0; g.x = 0; g.z = 2000; g.heading = Math.PI / 2;
+  let rbu = 0, kills = 0, launched = 0;
+  for (let t = 0; t < 180 * 30; t++) {
+    a.aimX = g.x; a.aimZ = g.z; a.heading = Math.PI / 2;
+    if (t % 30 === 0) launched += fireTorpedoes(state, a);
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'rbu' && e.t === 'torp') rbu++;
+      if (e.e === 'torpKill') kills++;
+    }
+    if (!g.alive) break;
+  }
+  assert.ok(launched > 0, 'the Fletcher put no fish in the water');
+  assert.ok(rbu > 0, 'her RBUs never fired at a torpedo');
+  assert.ok(kills > 0, 'her RBUs broke up no torpedo');
+});
+
+check('every ship with rocket launchers can have one taken over, laid by hand and fired on the trigger', () => {
+  const ships = Object.values(SHIP_CLASSES).filter((c) => c.rbu);
+  assert.ok(ships.length >= 2, 'fewer than two classes carry rocket launchers');
+  for (const cls of ships) {
+    // The arsenal row is one a captain can press to stand at.
+    const row = arsenal(cls).find((r) => r.band === 'ASW rockets');
+    assert.ok(row && row.specs.length === cls.rbu.mounts.length, `the ${cls.name} lists no ASW rocket row`);
+    cls.rbu.mounts.forEach((spec, i) => {
+      const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+      const s = addShip(state, { name: 'S', classId: cls.id, team: 0, index: 0 });
+      const f = addShip(state, { name: 'F', classId: 'fletcher', team: 1, index: 0 });
+      s.x = 0; s.z = 0; s.heading = 0; s.speed = 0;
+      // On the beam the launcher bears on, inside its reach, and well off its
+      // stowed bearing.
+      const side = Math.sin(spec.angle) >= 0 ? 1 : -1;
+      const at = { x: s.x + spec.x + side * cls.rbu.range * 0.7, z: s.z + spec.z };
+      f.x = at.x; f.z = at.z + 3000; f.heading = 0; f.speed = 0;
+      manGun(s, { k: 'rbu', i });
+      assert.deepEqual(s.manned, { k: 'rbu', i }, `the ${cls.name}'s RBU ${i + 1} cannot be taken over`);
+      layGun(s, { x: at.x, z: at.z, y: 0 });
+      // Not fired until the trigger is pulled, though there is nothing for
+      // her own fire control to throw at either.
+      const before = [];
+      for (let t = 0; t < 10 * 30; t++) for (const e of step(state, 1 / 30)) if (e.e === 'rbu' && e.m === i) before.push(e);
+      assert.equal(before.length, 0, `the ${cls.name}'s manned RBU fired on its own`);
+      assert.ok(Math.abs(angleDelta(s.rbuMounts[i].angle, Math.atan2(at.x - spec.x, at.z - spec.z))) < 0.1,
+        `the ${cls.name}'s RBU ${i + 1} did not train onto where it was laid`);
+      assert.ok(shootGun(state, s) > 0, `the ${cls.name}'s RBU ${i + 1} did not fire on the trigger`);
+      step(state, 1 / 30);
+      assert.ok(shipSnapshot(s, true, state).rr[i] > 0, 'the wire does not carry the launcher reloading');
+      // And handed back, her fire control has it again.
+      manGun(s, { k: null });
+      assert.equal(s.manned, null);
+    });
+  }
 });
 
 check("a VLS is loaded as her captain asks, and never with more than her cells hold", () => {

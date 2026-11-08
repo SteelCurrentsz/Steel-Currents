@@ -1242,6 +1242,198 @@ export const SHIP_CLASSES = {
     },
   },
 
+  sovremenny: {
+    // RF Sovremenny, the first of the Russian Navy's Project 956 destroyers,
+    // armed as the owner asked: a twin AK-130 130 mm gun on her forecastle and
+    // another on her quarterdeck, for surface fire; four AK-630 six-barrelled
+    // close-in guns, two on the sponsons either side of her bridge and two
+    // abreast her funnel, which stop missiles as well as aeroplanes (see
+    // stepCiws); eight P-270 Moskit (SS-N-22 Sunburn) anti-ship missiles, four
+    // a side in the two quadruple launchers abreast her bridge; two 3S90
+    // single-arm launchers, one before her bridge and one on her hangar, for
+    // her 9M38 Uragan surface-to-air missiles, which her own fire control puts
+    // up at whatever comes at her out of the sky (see stepAegis); two twin
+    // 533 mm tubes in her waist, fixed and pointing forward and out over her
+    // side, for TEST-71ME homing torpedoes, which find their own way onto a
+    // ship or a submarine once they are running (see stepTorpedoes); and two
+    // RBU-1000 rocket launchers either side of her hangar, six 300 mm barrels
+    // each, whose bombs go off on whatever they come down on -- a ship, a
+    // submarine, or a torpedo running at her (see stepRbu).
+    //
+    // She is drawn from the owner's model of her (see sovremenny.js) --
+    // "Sovremenny-class destroyer" by SB-129, under Creative Commons
+    // Attribution 4.0, credited on the Credits screen -- brought up to her
+    // length of 156.5 m, which makes her 17.3 m across, floated where the
+    // model paints her boot-topping.
+    id: 'sovremenny',
+    name: 'Sovremenny',
+    fullName: 'RF Sovremenny',
+    className: 'Sovremenny',
+    type: 'DD',
+    typeName: 'Destroyer',
+    nation: 'sov',
+    blurb: 'Eight Moskit "Sunburn" anti-ship missiles, Uragan surface-to-air missiles, two twin 130 mm guns, four AK-630s, homing torpedoes and RBU-1000 rocket launchers that blow incoming torpedoes out of the water.',
+    hull: {
+      // Where her funnel comes out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -14, 18.5]],
+      length: 156.5, beam: 17.3, draft: 6.0, superstructure: 1.15,
+    },
+    hp: 22000,
+    // Thirty-two knots out of two steam turbines on two shafts.
+    maxSpeed: 32 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 1.0,
+    turnRate: 0.105,
+    rudderShift: 5.4,
+    speedLossInTurn: 0.2,
+    // A tall ship with a great deal of radar on her, and a lot of her to see.
+    concealment: 8200,
+    fireDetectPenalty: 3800,
+    radarRange: 17000,
+    repairCooldown: 60,
+    repairHeal: 0.11,
+    smokeCharges: 2,
+    // A destroyer's plating, and splinter protection over her magazines.
+    armor: { belt: 20, deck: 16, citadel: 20, bow: 13, superstructure: 10 },
+    turrets: [
+      // Each where the model stood it (see build/prepare-sovremenny-hull.mjs):
+      // A on her forecastle, Y on her quarterdeck facing astern.
+      { id: 0, name: 'A', x: 0.024, z: 49.17, angle: 0, arc: 2.6, guns: 2, my: 11.54 },
+      { id: 1, name: 'Y', x: -0.028, z: -57.2, angle: Math.PI, arc: 2.6, guns: 2, my: 8.42 },
+    ],
+    gun: {
+      name: '130 mm/70 AK-130', role: 'surface',
+      // Five below the horizontal to eighty up, though she lays it on ships.
+      elev: { min: -0.087, max: 1.4 },
+      // Pivot to muzzle on the model's gun.
+      reach: 6.92,
+      // Fed automatically from the magazine under it, both barrels together.
+      caliber: 130, reload: 2.6, traverse: 0.6, range: 16500, sigma: 1.5,
+      shells: shells(130, 2100, 1850, 95, 850, 0.09),
+    },
+    // Her two twin tubes, one a side in her waist, each fixed on her deck
+    // pointing forward and a little out over her side: they do not train, and
+    // the fish needs no aiming either -- run out on the tube's bearing, it
+    // turns onto the nearest enemy its seeker hears ahead of it, on the
+    // surface or under it, and runs him down (see stepTorpedoes). Two tubes
+    // a side, and a reload for each: eight fish in all.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 6.1, z: -11.2, angle: 0.22, arc: 0, rest: 0.22, fixed: true, fire: 1.4, tubes: 2, my: 5.6,
+          launch: { eject: 14, stagger: 0.6, lanes: [-0.33, 0.33], lie: 0, muzzle: 3.8, height: 5.6,
+            fish: { len: 7.2, r: 0.267, kind: 'test71' } } },
+        { id: 1, x: -6.1, z: -11.2, angle: -0.22, arc: 0, rest: -0.22, fixed: true, fire: 1.4, tubes: 2, my: 5.6,
+          launch: { eject: 14, stagger: 0.6, lanes: [-0.33, 0.33], lie: 0, muzzle: 3.8, height: 5.6,
+            fish: { len: 7.2, r: 0.267, kind: 'test71' } } },
+      ],
+      name: 'TEST-71ME 533 mm homing torpedo', role: 'surface', caliber: 533, kind: 'test71',
+      reach: 3.8,
+      traverse: 0,
+      reload: 80, damage: 11500, speed: 40 * KNOTS, range: 9000,
+      detection: 1100, arming: 300, spread: 0.04, floodChance: 0.35,
+      // Her seeker: how far ahead it hears a ship or a boat, how wide, how
+      // hard the fish can turn onto one, and how far it runs out before it
+      // starts listening.
+      homing: { seek: 1700, cone: 0.75, turn: 0.15, after: 250 },
+    },
+    secondary: null,
+    aa: {
+      range: 4500, dps: 54,
+      guns: [
+        // Her four AK-630s: six 30 mm barrels turning in one casing, five
+        // thousand rounds a minute, laid by their own radar. Like a Phalanx,
+        // what they shoot at, they hit -- missiles included. See stepCiws.
+        { name: 'AK-630 CIWS', caliber: 30, role: 'aa', reload: 0.012, range: 2000, piece: 'ciws', ciws: true,
+          elev: { min: -0.21, max: 1.54 },
+          mounts: [
+            { x: 3.785, z: 22.085, angle: 1.57, arc: 1.9, rest: 1.414, guns: 6, my: 12.19 },
+            { x: -3.812, z: 22.104, angle: -1.57, arc: 1.9, rest: -1.71, guns: 6, my: 12.19 },
+            { x: 7.728, z: -24.415, angle: 1.57, arc: 1.9, rest: 1.414, guns: 6, my: 10.67 },
+            { x: -7.773, z: -24.417, angle: -1.57, arc: 1.9, rest: -1.71, guns: 6, my: 10.67 },
+          ] },
+      ],
+    },
+    // Her two RBU-1000 launchers, one either side of her hangar: six 300 mm
+    // barrels each, throwing a ripple of rocket-propelled bombs out to a
+    // kilometre. Her own fire control works them (see stepRbu) -- onto a
+    // torpedo running at her first, then onto a submarine her sonar holds,
+    // then onto a ship close aboard -- unless somebody has gone down to one
+    // and is laying it himself. A bomb that comes down on a ship goes off
+    // against her; one that comes down in the sea blows any torpedo within
+    // reach of it out of the water, and sinks, to go off at the depth of the
+    // boat it was thrown at or against her hull on the way down.
+    rbu: {
+      name: 'RBU-1000', caliber: 300, tubes: 6,
+      reload: 20, traverse: 0.6, range: 1000, minRange: 120,
+      // How fast its bombs leave the barrels, and how far apart a ripple falls.
+      speed: 102, spread: 24, ripple: 0.3,
+      // Against a ship: the bomb's warhead going off on her.
+      shells: shells(300, 3000, 3000, 22, 102, 0.14),
+      // In the water: how quickly it sinks, and what its warhead does there.
+      sink: 11, damage: 9000, lethal: 10, hurt: 25, arming: 4,
+      // How close to a torpedo it must go off to break it up.
+      kill: 36,
+      // Her hull sonar, which hears a boat under her and a fish coming at her.
+      sonar: 2800, sonarSpeed: 24 * KNOTS,
+      mounts: [
+        { id: 0, x: 6.14, z: -38.365, angle: Math.PI / 2, arc: 2.6, rest: 0.1, my: 8.45 },
+        { id: 1, x: -6.152, z: -38.365, angle: -Math.PI / 2, arc: 2.6, rest: 0.19, my: 8.45 },
+      ],
+    },
+    // What she fires that flies itself: her Moskits out of their canisters,
+    // forward and cocked up, and her Uragans off the arms of her two
+    // launchers, which train onto what they are firing at and are reloaded
+    // from the magazine under each.
+    missiles: {
+      kinds: {
+        sunburn: {
+          name: 'P-270 Moskit (SS-N-22 Sunburn)', short: 'SUNBURN', code: 'n', role: 'surface', launch: 'tube', rounds: 8,
+          // Twice the speed of sound, a few metres over the sea the whole
+          // way, and a heavy warhead: hard to stop and hard to survive.
+          speed: 680, range: 30000, cruise: 7, turn: 0.55,
+          damage: 6800, fire: 0.5, hp: 1, interval: 2.0, raise: 0,
+          length: 9.75, popUp: 0,
+        },
+        uragan: {
+          name: '9M38 Uragan (SA-N-7 Gadfly)', short: 'URAGAN', code: 'g', role: 'sam', launch: 'rail', rounds: 48,
+          speed: 750, range: 22000, cruise: 600, turn: 1.5, damage: 0, hp: 1, interval: 6.0,
+          length: 5.55, kill: 16, pk: 0.75, air: true,
+        },
+      },
+      // The mouths of her eight Moskit canisters, [across, up, along], as the
+      // model draws them (SOV_MOSKIT in sovremennyHull.data.js): four a side,
+      // each pointed forward and cocked fifteen degrees up.
+      tubes: [
+        [7.156, 10.456, 25.588, 0], [7.156, 8.877, 26.011, 0], [5.436, 10.456, 25.588, 0], [5.436, 8.877, 26.011, 0],
+        [-5.436, 10.456, 25.588, 0], [-5.436, 8.877, 26.011, 0], [-7.156, 10.456, 25.588, 0], [-7.156, 8.877, 26.011, 0],
+      ],
+      tubeElev: 0.26,
+      // The ends of her two Uragan arms, [across, up, along, stowed bearing]
+      // (SOV_URAGAN): before her bridge, stowed forward, and on her hangar,
+      // stowed aft.
+      rails: [[0, 13.405, 37.3, 0], [0, 10.209, -45.206, Math.PI]],
+      // What her own fire control is called, on the switch that holds it.
+      fcs: 'SAM',
+    },
+    planes: null,
+    datasheet: {
+      displacement: 7940,
+      aircraft: 0,
+      mainRounds: 2000,
+      torpedoesCarried: 8,
+      secondary: null,
+      tertiary: [
+        { caliber: 30, label: 'AK-630 CIWS', barrels: 24, mounts: 4, rounds: 12000 },
+        { caliber: 300, label: 'RBU-1000', barrels: 12, mounts: 2, rounds: 48 },
+      ],
+      missiles: [
+        { label: 'P-270 Moskit (SS-N-22 Sunburn)', rounds: 8 },
+        { label: '9M38 Uragan (SA-N-7)', rounds: 48 },
+      ],
+    },
+  },
+
   burke: {
     // USS Arleigh Burke (DDG-51), the first of the US Navy's guided-missile
     // destroyers of her name, armed as the owner asked: a single 5-inch/54
@@ -10926,7 +11118,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano'];
 
@@ -10934,9 +11126,10 @@ export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'burke'
  * The yard's list split by era, for the choice the ship icon offers before the
  * yard opens: the war's hulls, or the missile age's. A hull is modern if she
  * sails as she was after 1945 (Missouri as recommissioned in 1991, Leviathan, the
- * Ticonderoga, the Guangzhou and the Arleigh Burke); everything else is WWII.
+ * Ticonderoga, the Guangzhou, the Sovremenny and the Arleigh Burke); everything
+ * else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'burke', 'ticonderoga', 'leviathan', 'missouri']);
+export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'burke', 'ticonderoga', 'leviathan', 'missouri']);
 export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id));
 export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));
 
