@@ -24,7 +24,7 @@ import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
 import * as account from './account.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
-import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER } from '../../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, WWII_ORDER, MODERN_ORDER } from '../../shared/ships.js';
 import { ADS_REQUIRED, premiumUnlocked, unlockWithAd } from './premium.js';
 import { KNOTS } from '../../shared/math.js';
 import { MAP_PRESETS } from '../../shared/world.js';
@@ -706,7 +706,7 @@ const briefing = new Briefing({
   // The hull icons open the picker; choosing or cancelling returns to the chart.
   onOpenPicker: () => show('fleet'),
   onClosePicker: () => show('custom'),
-  onOpenYard: (side) => openYard(side),
+  onOpenYard: (side) => openEra(side),
   onOpenChart: (at) => openChart(at),
   onOpenGuns: (side) => openGuns(side),
   onOpenBombers: (side) => openBombers(side),
@@ -768,6 +768,28 @@ function openYard(side, { order = SHIP_ORDER, at = null, from = null } = {}) {
   renderYard();
 }
 
+// The ship icon asks first which navy to look at: the war's hulls or the
+// missile age's. The yard then walks that list alone.
+const ERA_ORDER = { wwii: WWII_ORDER, modern: MODERN_ORDER };
+const eraEl = document.getElementById('era-pick');
+let eraSide = 'ally';
+
+function openEra(side) {
+  eraSide = side;
+  eraEl.hidden = false;
+  eraEl.querySelector('[data-era]')?.focus();
+}
+function closeEra() { eraEl.hidden = true; }
+for (const b of eraEl.querySelectorAll('[data-era]')) {
+  b.onclick = () => {
+    audio.click();
+    closeEra();
+    openYard(eraSide, { order: ERA_ORDER[b.dataset.era] });
+  };
+}
+document.getElementById('era-cancel').onclick = () => { audio.click(); closeEra(); };
+eraEl.addEventListener('click', (e) => { if (e.target === eraEl) closeEra(); });
+
 function closeYard() {
   closeAirGroup();
   yardUi.refit = null;
@@ -781,7 +803,8 @@ function closeYard() {
  */
 function openRefit(side, i) {
   const id = briefing.state[side === 'ally' ? 'allyFleet' : 'enemyFleet'][i];
-  const order = PREMIUM_ORDER.includes(id) ? PREMIUM_ORDER : SHIP_ORDER;
+  const order = PREMIUM_ORDER.includes(id) ? PREMIUM_ORDER
+    : MODERN_ORDER.includes(id) ? MODERN_ORDER : WWII_ORDER;
   if (!order.includes(id) || !SHIP_CLASSES[id]?.planes?.group) return;
   audio.click();
   openYard(side, { order, at: id });
@@ -1514,6 +1537,7 @@ function drawFrame(dt) {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && !eraEl.hidden) { closeEra(); return; }
   if (e.code === 'Escape' && current === 'yard') { closeYard(); return; }
   // The gun park and the bomber yard back out to the briefing the same way the
   // shipyard does: a commander who has just looked a battery over wants the

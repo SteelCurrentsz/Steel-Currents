@@ -1134,6 +1134,19 @@
   <span>Steel Currents needs the horizon across the screen.</span>
 </div>
 
+<!-- What the ship icon opens first: which era's hulls the shipyard shows. -->
+<div id="era-pick" class="era-pick" hidden role="dialog" aria-modal="true" aria-labelledby="era-title">
+  <div class="era-box">
+    <h3 id="era-title">Commission Vessel</h3>
+    <p class="era-sub">Which navy?</p>
+    <div class="era-choices">
+      <button class="btn era-btn" type="button" data-era="wwii">WWII<em>1939&ndash;1945</em></button>
+      <button class="btn era-btn" type="button" data-era="modern">Modern<em>The missile age</em></button>
+    </div>
+    <button class="btn ghost era-cancel" id="era-cancel" type="button">Cancel</button>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script type="module" src="js/main.js"></script>

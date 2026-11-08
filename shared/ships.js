@@ -10727,6 +10727,16 @@ export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'clevel
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano'];
 
 /**
+ * The yard's list split by era, for the choice the ship icon offers before the
+ * yard opens: the war's hulls, or the missile age's. A hull is modern if she
+ * sails as she was after 1945 (Missouri as recommissioned in 1991, the
+ * Ticonderoga and the Guangzhou); everything else is WWII.
+ */
+export const MODERN_SHIPS = new Set(['guangzhou', 'ticonderoga', 'missouri']);
+export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id));
+export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));
+
+/**
  * The hulls in the Premium Equipment store, and not in the yard's list: a
  * captain finds them under Premium Equipment, Ships. Every one of them sails
  * as any other hull does once she is in a fleet (see PLAYABLE).

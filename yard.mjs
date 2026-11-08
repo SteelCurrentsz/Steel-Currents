@@ -39,8 +39,12 @@ if (guest) { await guest.click(); await page.waitForTimeout(1200); }
 await page.click('[data-action="custom"]');
 await page.waitForTimeout(800);
 await page.evaluate(() => document.getElementById('ally-add-cell').click());
+await page.waitForTimeout(300);
+// The ship icon asks for an era first; the modern hulls are in a list of their own.
+const ERA = /Missouri|Ticonderoga|Guangzhou/.test(SHIP) ? 'modern' : 'wwii';
+await page.evaluate((era) => document.querySelector(`#era-pick [data-era="${era}"]`).click(), ERA);
 await page.waitForTimeout(1800);
-for (let i = 0; i < 14; i++) {
+for (let i = 0; i < 40; i++) {
   if (await page.$eval('#yard-name', (e) => e.textContent.trim()) === SHIP) break;
   await page.evaluate(() => document.getElementById('yard-next').click());
   await page.waitForTimeout(420);
