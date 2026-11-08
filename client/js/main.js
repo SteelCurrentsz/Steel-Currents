@@ -28,7 +28,7 @@ import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER } from '../../shared/ships.js';
 import { ADS_REQUIRED, premiumUnlocked, unlockWithAd } from './premium.js';
 import { KNOTS } from '../../shared/math.js';
 import { MAP_PRESETS } from '../../shared/world.js';
-import { normaliseAirGroup } from '../../shared/sim.js';
+import { normaliseAirGroup, defaultAirGroup } from '../../shared/sim.js';
 
 /**
  * The loading screen.
@@ -819,6 +819,11 @@ function airGroupSpec() {
   return SHIP_CLASSES[id]?.planes?.group || null;
 }
 
+/** The deckload ranged over her flight deck, for a carrier that has one. */
+function deckloadSpec() {
+  return SHIP_CLASSES[yardShip()]?.planes?.deckload || null;
+}
+
 /**
  * The group as chosen, landed on something legal for this class: the hull's
  * own while one is being refitted, and otherwise whatever the next carrier
@@ -871,6 +876,11 @@ function renderAirGroup() {
     if (em) em.textContent = `${NAMES[types[role]] || fallback} \u2014 ${job}`;
   }
   for (const k of AG_KINDS) document.getElementById(`ag-n-${k}`).textContent = g[k];
+  // Her deckload, if she has one: on her flight deck, not in her hangar, so
+  // it is not counted against it.
+  const DL = deckloadSpec();
+  document.getElementById('ag-row-deckload').hidden = !DL;
+  if (DL) document.getElementById('ag-n-deckload').textContent = g.deckload ?? DL.count;
   document.getElementById('ag-total-n').textContent = `${total} / ${spec.total}`;
   document.getElementById('ag-total').classList.toggle('full', total === spec.total);
   // Every stepper says for itself whether it can be pressed, so a captain is
@@ -878,6 +888,11 @@ function renderAirGroup() {
   for (const btn of document.querySelectorAll('.ag-step')) {
     const k = btn.dataset.kind;
     const d = Number(btn.dataset.step);
+    if (k === 'deckload') {
+      const n = (g.deckload ?? 0) + d;
+      btn.disabled = !DL || n < 0 || n > DL.count;
+      continue;
+    }
     const n = g[k] + d;
     let ok = n >= spec.min[k] && n <= spec.max[k];
     if (ok && d > 0) ok = total < spec.total;
@@ -895,6 +910,14 @@ function stepAirGroup(kind, d) {
   const spec = airGroupSpec();
   const g = yardUi.ag;
   if (!spec || !g) return;
+  if (kind === 'deckload') {
+    const DL = deckloadSpec();
+    const n = (g.deckload ?? 0) + d;
+    if (!DL || n < 0 || n > DL.count) return;
+    g.deckload = n;
+    renderAirGroup();
+    return;
+  }
   const n = g[kind] + d;
   if (n < spec.min[kind] || n > spec.max[kind]) return;
   const total = AG_KINDS.reduce((a, k) => a + g[k], 0);
@@ -983,7 +1006,7 @@ for (const btn of document.querySelectorAll('.ag-step')) {
 document.getElementById('ag-reset').onclick = () => {
   audio.click();
   const spec = airGroupSpec();
-  if (spec) { yardUi.ag = { ...spec.default }; renderAirGroup(); }
+  if (spec) { yardUi.ag = defaultAirGroup(SHIP_CLASSES[yardShip()]); renderAirGroup(); }
 };
 document.getElementById('ag-done').onclick = () => {
   audio.click();

@@ -283,15 +283,21 @@ console.log(`flight deck off: ${keepOnly((t) => !onDeck.has(t))} faces`);
  * starboard: the bridge, its directors and radar, the 40 mm on its galleries
  * at either end of it. Nothing in here is carved.
  */
-export const ISLAND = { x0: -23, x1: -9.2, z0: -29, z1: 53 };
+// Her island's face to port stands as far in as 7.5 m off her centreline:
+// a box any narrower took that face for something left on her runway, and
+// carved it off her, and she sailed with half an island.
+export const ISLAND = { x0: -23, x1: -7.2, z0: -29, z1: 53 };
 const inIsland = (x, z) => x > ISLAND.x0 && x < ISLAND.x1 && z > ISLAND.z0 && z < ISLAND.z1;
+// Her flight deck runs on under her island, out to her side: what stops it
+// is only what stands outboard of her island's own face, not the face.
+const underIsland = (x, z) => inIsland(x, z) && x < -9.2;
 // Abreast her island her runway stops at its face: at each station, the
 // inboard side of whatever of it stands a metre over her deck.
 {
   const face = new Float32Array(plan.nz).fill(99);
   for (let t = 0; t < model.T.length / 3; t++) {
     const [cx, cy, cz] = middleOf(t);
-    if (!inIsland(cx, cz) || cy < FD + 0.8 || cy > FD + 6) continue;
+    if (!underIsland(cx, cz) || cy < FD + 0.8 || cy > FD + 6) continue;
     for (let k = 0; k < 3; k++) {
       const v = model.T[t * 3 + k] * 3;
       const kk = Math.round((model.P[v + 2] - plan.z0) / plan.dz);
@@ -489,9 +495,12 @@ const PAINTED = new Set(model.L.filter((l, i, a) => a.indexOf(l) === i
   console.log(`decks: cut to ${AMAX} m2 a face, ${made} edges halved, ${model.T.length / 3} triangles`);
 }
 // ---- her paint ------------------------------------------------------------------------
-// Every texture decoded once, at no more than 512 pixels a side, blurred a
-// little: a vertex colour is the paint of a few square metres of her, not the
-// grain of one plank.
+// Every texture decoded once, at no more than 1024 pixels a side -- her whole
+// atlas, every strip of it: her island's walls are thin strips in it, packed
+// in between patches of dark paint, and a halved atlas ran the dark into
+// them until her island read as a black box -- blurred a very little: a
+// vertex colour is the paint of a few square metres of her, not the grain of
+// one plank.
 const textures = new Map();
 async function texture(mi) {
   const mat = j.materials[mi];
@@ -502,10 +511,10 @@ async function texture(mi) {
   if (!textures.has(ti)) {
     const img = j.images[j.textures[ti].source];
     const meta = await sharp(Buffer.from(model.views[img.bufferView])).metadata();
-    const k = Math.min(1, 512 / Math.max(meta.width, meta.height));
+    const k = Math.min(1, +(process.env.TEX || 1024) / Math.max(meta.width, meta.height));
     const { data, info } = await sharp(Buffer.from(model.views[img.bufferView]))
       .resize(Math.max(4, Math.round(meta.width * k)), Math.max(4, Math.round(meta.height * k)))
-      .blur(1.2).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      .blur(+(process.env.BLUR || 0.5)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
     textures.set(ti, { data, w: info.width, h: info.height });
   }
   return textures.get(ti);

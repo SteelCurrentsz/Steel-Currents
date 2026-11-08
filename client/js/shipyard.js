@@ -436,8 +436,13 @@ export function armsSheet(cls, group = null) {
     const g = group || cls.planes.group.default;
     const air = g.fighters + g.dive + g.torpedo;
     rows.push([`${cls.planes.squadrons} strike squadrons`, `${air} aircraft`, 'airgroup']);
+    // And a deckload over her flight deck, outside her hangar: the Hornet's
+    // B-25s, as many of them as she sails with.
+    const DL = cls.planes.deckload;
+    const dl = DL ? (g.deckload ?? DL.count) : 0;
     rows.push(['Air group',
-      `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T`, 'airgroup']);
+      `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T${DL ? ` &middot; ${dl}B` : ''}`, 'airgroup']);
+    if (DL) rows.push(['B-25 Mitchells on deck', `${dl} / ${DL.count}`, 'airgroup']);
   } else if (cls.planes) {
     // How she gets them off. Every cruiser and battleship in the game shoots
     // hers off a catapult; the Surcouf hasn't got one, and craning a floatplane

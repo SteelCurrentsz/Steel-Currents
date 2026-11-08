@@ -197,7 +197,7 @@ export class Briefing {
       const g = cls?.planes?.group ? (wings[i] || cls.planes.group.default) : null;
       const wing = g ? ' wing' : '';
       const air = g
-        ? `<span class="hull-wing">${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T</span>` : '';
+        ? `<span class="hull-wing">${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T${cls.planes.deckload ? ` &middot; ${g.deckload ?? cls.planes.deckload.count}B` : ''}</span>` : '';
       return `<li class="fleet-ship${flag}${wing}" data-i="${i}"`
         + `${g ? ' title="Change her air group"' : ''}>`
         + `<b class="hull-code">${code}</b>`

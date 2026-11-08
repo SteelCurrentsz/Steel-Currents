@@ -340,8 +340,6 @@ export function addShip(state, {
         // the first off: see launchStrike.
         ...(cls.planes.deckload ? [{ id: cls.planes.squadrons, state: 'deck', cooldown: 0, deckload: true }] : [])]
       : [],
-    // How many of her deckload are still on her flight deck.
-    deckload: cls.planes && cls.planes.deckload ? cls.planes.deckload.count : 0,
     airGroup: cls.planes ? normaliseAirGroup(cls, airGroup) : null,
     // How long her deck is still busy with the last launch. One aeroplane goes
     // at a time: the lift has to fetch her, she has to taxi aft and run up, and
@@ -370,6 +368,7 @@ export function addShip(state, {
     parties: Array.from({ length: partyCount(cls) }, () => ({ job: isBot ? 'auto' : null, on: null })),
   };
   state.ships.push(ship);
+  setAirGroup(ship, cls, ship.airGroup);
   return ship;
 }
 
@@ -8801,7 +8800,23 @@ function burstMine(state, m, target) {
 /** The air group a class sails with unless a captain has said otherwise. */
 export function defaultAirGroup(cls) {
   const g = cls.planes && cls.planes.group;
-  return g ? { ...g.default } : null;
+  if (!g) return null;
+  const DL = cls.planes.deckload;
+  return DL ? { ...g.default, deckload: DL.count } : { ...g.default };
+}
+
+/**
+ * Give a carrier the air group a captain asked for, made legal: and with it how
+ * many of her deckload are on her flight deck, as many as he sailed her with.
+ * With none, that squadron of hers is spent before it starts.
+ */
+export function setAirGroup(ship, cls, want) {
+  ship.airGroup = cls.planes ? normaliseAirGroup(cls, want) : null;
+  const DL = cls.planes && cls.planes.deckload;
+  ship.deckload = DL ? (ship.airGroup && ship.airGroup.deckload != null ? ship.airGroup.deckload : DL.count) : 0;
+  for (const sq of ship.squadrons || []) {
+    if (sq.deckload) sq.state = ship.deckload > 0 ? 'deck' : 'spent';
+  }
 }
 
 /**
@@ -8816,13 +8831,21 @@ export function defaultAirGroup(cls) {
 export function normaliseAirGroup(cls, want) {
   const spec = cls.planes && cls.planes.group;
   if (!spec) return null;
-  if (!want || typeof want !== 'object') return { ...spec.default };
+  if (!want || typeof want !== 'object') return defaultAirGroup(cls);
   const pick = (k) => {
     const v = Math.round(Number(want[k]));
     if (!Number.isFinite(v)) return spec.default[k];
     return Math.max(spec.min[k], Math.min(spec.max[k], v));
   };
   const g = { fighters: pick('fighters'), dive: pick('dive'), torpedo: pick('torpedo') };
+  // A deckload ranged on her flight deck is not in her hangar and takes no
+  // room in it: the captain says how many of it she sails with, nought to
+  // all of it, on top of whatever is below.
+  const DL = cls.planes.deckload;
+  if (DL) {
+    const v = want.deckload == null ? NaN : Math.round(Number(want.deckload));
+    g.deckload = Number.isFinite(v) ? Math.max(0, Math.min(DL.count, v)) : DL.count;
+  }
   // Enough strike aircraft to be worth the deck space.
   let strike = g.dive + g.torpedo;
   while (strike < spec.minStrike) {
@@ -9620,6 +9643,9 @@ function stepLaunch(state, ship, dt) {
       heading: nose,
       tx: L.tx, tz: L.tz,
       torp: f.torp, bomb: f.bomb,
+      // How many each machine of her carries: one, for anything off a
+      // carrier's own hangar; a B-25 of a deckload carries a stick of them.
+      bombEach: DL ? DL.bombs : 1,
       count: f.count,
       // Fighters are harder to catch than a loaded bomber, and they are what
       // keeps the flak and the enemy's CAP off the ones carrying the weapons.
@@ -10979,7 +11005,7 @@ function loseMachine(state, q, a, heavy, why) {
   q.wear = fs;
   q.count = fs.count;
   if (q.torp) q.torp = Math.min(q.torp, fs.count);
-  if (q.bomb) q.bomb = Math.min(q.bomb, fs.count);
+  if (q.bomb) q.bomb = Math.min(q.bomb, fs.count * (q.bombEach || 1));
   if (!fs.count) { q.hp = 0; killFlight(state, q, why); }
 }
 
@@ -12733,7 +12759,7 @@ function stepFlightDamage(state, p, dt) {
   p.hp = hp;
   // She cannot drop what she has not got left to drop it with.
   if (p.torp) p.torp = Math.min(p.torp, fs.count);
-  if (p.bomb) p.bomb = Math.min(p.bomb, fs.count);
+  if (p.bomb) p.bomb = Math.min(p.bomb, fs.count * (p.bombEach || 1));
   if (!fs.count) killFlight(state, p, p.hurtBy || 'flak');
 }
 

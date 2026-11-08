@@ -506,6 +506,30 @@ function hangarDeck(g, y0, y1, z0, z1) {
 
 function hangar(g) {
   hangarDeck(g, HANGAR, HANGAR_TOP, HANGAR_Z[0], HANGAR_Z[1]);
+  galleryBulkheads(g, HANGAR_TOP, FD - 0.03, HANGAR_Z[0], HANGAR_Z[1]);
+}
+
+/**
+ * Over her hangar's deckhead, under her flight deck: the bulkheads of her
+ * gallery deck, carried up from her hangar's sides. The model's plating along
+ * there is in pieces that do not quite meet, and through the cracks between
+ * them, with nothing behind, the sky showed through her from one side to the
+ * other.
+ */
+function galleryBulkheads(g, y0, y1, z0, z1) {
+  const half = (z) => hangarHalf(z, HANGAR + 0.5, HANGAR_TOP);
+  const N = 60;
+  const w = strip();
+  for (let i = 0; i < N; i++) {
+    const za = z0 + ((z1 - z0) * i) / N;
+    const zb = z0 + ((z1 - z0) * (i + 1)) / N;
+    for (const sgn of [-1, 1]) {
+      w.quad([sgn * half(za), y0, za], [sgn * half(za), y1, za],
+        [sgn * half(zb), y1, zb], [sgn * half(zb), y0, zb], [sgn, 0, 0]);
+    }
+  }
+  const m = w.mesh(g, M.steelDark);
+  if (m) m.userData.inside = true;
 }
 
 /**
@@ -566,43 +590,89 @@ function airGroup(g) {
 /** How many B-25s she carries on her deck. */
 export const B25_COUNT = 16;
 /**
- * Where each of them is ranged, the first to go first, and how she is turned
- * on the deck: from abaft her island to her round-down, the first already on
- * the line with a hundred and thirty metres of deck in front of her, the rest
- * in two staggered rows angled in under each other's wings the way the
- * Doolittle deckload was -- no two of them closer than three-quarters of a
- * metre anywhere, every wheel on the deck, and none of them standing where
- * one going before it has to taxi or run (see B25_TAXI). Packed off her own
- * shape, aeroplane by aeroplane.
+ * Where each of them is ranged, the first to go first, how she is turned on
+ * the deck, and how she taxis from there to where she starts her run: from
+ * abaft her island to her round-down, the first already on the line with a
+ * hundred and thirty metres of deck in front of her, the rest in two
+ * staggered rows angled in under each other's wings the way the Doolittle
+ * deckload was -- no two of them closer than half a metre anywhere, every
+ * wheel on the deck.
+ *
+ * Each taxis under her own power, steered: straight on along the way she is
+ * pointing for `s0` metres, then round in one S-bend onto the line, her nose
+ * along her path all the way and never round tighter than a circle of six
+ * and a half metres, to `spot`, where she runs up and goes. `l1` and `l2`
+ * are how far her bend reaches out of her heading at each end of it, as
+ * fractions of the deck it covers. Packed off her own shape, aeroplane by
+ * aeroplane, with what each sweeps on her taxi and her run kept clear of
+ * every one ranged behind her by a third of a metre, and of her island.
  */
 export const DECKLOAD = [
-  { x: 2, z: -9.5, yaw: 0 },
-  { x: 8.5, z: -20.5, yaw: -0.3 },
-  { x: -3, z: -29, yaw: -0.45 },
-  { x: 8, z: -36.5, yaw: -0.5 },
-  { x: -8.5, z: -39.75, yaw: 0.45 },
-  { x: 3, z: -48, yaw: -0.15 },
-  { x: -8, z: -55.75, yaw: -0.45 },
-  { x: 7.5, z: -61.5, yaw: 0.1 },
-  { x: -4.5, z: -68.5, yaw: 0.35 },
-  { x: 8, z: -76.5, yaw: 0.1 },
-  { x: -7.5, z: -81.75, yaw: -0.4 },
-  { x: 4.5, z: -89.75, yaw: -0.45 },
-  { x: -8.5, z: -97, yaw: 0.3 },
-  { x: 5, z: -102.75, yaw: -0.4 },
-  { x: -7.5, z: -110.5, yaw: 0.25 },
-  { x: 5.5, z: -116.5, yaw: -0.35 },
+  { x: 2, z: -9.5, yaw: 0, spot: -9.5, s0: 0, l1: 0, l2: 0 },
+  { x: 1, z: -22.75, yaw: 0.6, spot: -12.75, s0: 0, l1: 0.4, l2: 0.25 },
+  { x: 8.5, z: -33.5, yaw: -0.4, spot: -17.5, s0: 1, l1: 0.5, l2: 0.25 },
+  { x: -9, z: -34.5, yaw: 0.6, spot: -18.5, s0: 0, l1: 0.3, l2: 0.45 },
+  { x: 3, z: -44, yaw: 0, spot: -34, s0: 0, l1: 0.3, l2: 0.25 },
+  { x: -9, z: -50.25, yaw: 0.6, spot: -32.25, s0: 8, l1: 0.5, l2: 0.35 },
+  { x: 8, z: -57, yaw: -0.05, spot: -39, s0: 0, l1: 0.3, l2: 0.35 },
+  { x: -5.5, z: -61.5, yaw: -0.1, spot: -43.5, s0: 0, l1: 0.4, l2: 0.35 },
+  { x: 4.5, z: -69.75, yaw: -0.3, spot: -59.75, s0: 3, l1: 0.5, l2: 0.25 },
+  { x: -8, z: -76.25, yaw: 0.15, spot: -56.25, s0: 0, l1: 0.3, l2: 0.35 },
+  { x: 7.5, z: -83, yaw: 0.3, spot: -65, s0: 0, l1: 0.4, l2: 0.35 },
+  { x: -5.5, z: -89, yaw: 0.3, spot: -73, s0: 0, l1: 0.3, l2: 0.35 },
+  { x: 5.5, z: -97.25, yaw: 0.3, spot: -83.25, s0: 0, l1: 0.4, l2: 0.35 },
+  { x: -7.5, z: -102, yaw: -0.4, spot: -80, s0: 0, l1: 0.4, l2: 0.35 },
+  { x: 8, z: -110, yaw: 0.15, spot: -94, s0: 0, l1: 0.4, l2: 0.35 },
+  { x: -7.5, z: -115, yaw: -0.45, spot: -91, s0: 0, l1: 0.4, l2: 0.35 },
 ];
-/**
- * How a B-25 goes from where she is ranged to the line: straight ahead `ahead`
- * metres, squaring up as she rolls, clear of the one behind her; then `across`
- * metres more onto the line. The first is on the line already.
- */
-export const B25_TAXI = { ahead: 8, across: 4 };
 /** Where she starts her run from. */
-export const b25Spot = (i) => DECKLOAD[i].z + (i === 0 ? 0 : B25_TAXI.ahead + B25_TAXI.across);
+export const b25Spot = (i) => DECKLOAD[i].spot;
 /** The line the B-25s run down, a little to port of her centreline so a wingtip clears her island. */
 export const B25_LANE = 2.0;
+/** How fast a B-25 taxis, metres a second: a man walking briskly beside her wingtip. */
+const B25_TAXI_SPEED = 2.6;
+
+const b25Paths = new Map();
+/**
+ * Her taxi from where she is ranged to her spot, as `pose(u)` -- where she is
+ * and which way she points with `u` of the way gone, by distance -- and how
+ * far it is.
+ */
+export function b25Taxi(i) {
+  if (b25Paths.has(i)) return b25Paths.get(i);
+  const d = DECKLOAD[i];
+  const pts = [];
+  const sx = Math.sin(d.yaw), cz = Math.cos(d.yaw);
+  for (let s = 0; s < d.s0; s += 0.25) pts.push([d.x + sx * s, d.z + cz * s, d.yaw]);
+  const a = [d.x + sx * d.s0, d.z + cz * d.s0];
+  const D = d.spot - a[1];
+  if (D > 0.5) {
+    const p1 = [a[0] + sx * D * d.l1, a[1] + cz * D * d.l1], p2 = [B25_LANE, d.spot - D * d.l2], p3 = [B25_LANE, d.spot];
+    for (let k = 0; k <= 100; k++) {
+      const u = k / 100, v = 1 - u;
+      const x = v * v * v * a[0] + 3 * v * v * u * p1[0] + 3 * v * u * u * p2[0] + u * u * u * p3[0];
+      const z = v * v * v * a[1] + 3 * v * v * u * p1[1] + 3 * v * u * u * p2[1] + u * u * u * p3[1];
+      const dx = 3 * v * v * (p1[0] - a[0]) + 6 * v * u * (p2[0] - p1[0]) + 3 * u * u * (p3[0] - p2[0]);
+      const dz = 3 * v * v * (p1[1] - a[1]) + 6 * v * u * (p2[1] - p1[1]) + 3 * u * u * (p3[1] - p2[1]);
+      pts.push([x, z, Math.atan2(dx, dz)]);
+    }
+  } else pts.push([d.x, d.z, d.yaw]);
+  // Measured along, so she goes at an even pace round the bend.
+  const at = [0];
+  for (let k = 1; k < pts.length; k++) at.push(at[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+  const length = at[at.length - 1];
+  const pose = (u) => {
+    const want = Math.max(0, Math.min(1, u)) * length;
+    let k = 1;
+    while (k < at.length - 1 && at[k] < want) k++;
+    const f = at[k] > at[k - 1] ? (want - at[k - 1]) / (at[k] - at[k - 1]) : 1;
+    const A = pts[k - 1], B = pts[Math.min(k, pts.length - 1)];
+    return { x: A[0] + (B[0] - A[0]) * f, z: A[1] + (B[1] - A[1]) * f, yaw: A[2] + (B[2] - A[2]) * f };
+  };
+  const out = { pose, length, time: length / B25_TAXI_SPEED };
+  b25Paths.set(i, out);
+  return out;
+}
 
 /** The sixteen B-25s ranged on her deck, each its own group so it can go. */
 function deckload(g) {
@@ -766,9 +836,12 @@ const UP = 3.6;
 const TAXIED = 7.4;
 const ROLL = 9.0;
 // A B-25's: her engines started where she is ranged, the taxi round onto the
-// line, and the run-up against the brakes with her flaps full down.
-const B_TAXIED = 8.5;
-const B_ROLL = 10.5;
+// line -- as long as her own path is (see b25Taxi) -- and the run-up against
+// the brakes with her flaps full down.
+const B_START = 1.6;
+const B_RUNUP = 2.0;
+const bTaxied = (i) => B_START + b25Taxi(i ?? 0).time;
+const bRoll = (i) => bTaxied(i) + B_RUNUP;
 /**
  * Where her own aeroplanes start their run: well aft, a little forward of the
  * wires, with the whole of the deck ahead of them. Each taxis aft off the
@@ -849,7 +922,7 @@ export function stepDeck(deck, t) {
   const aft = lifts[lifts.length - 1];
   const bomber = plane && plane.role === 'mitchell';
   const pr = deck.profile;
-  const RAW = bomber ? B_ROLL : ROLL;
+  const RAW = bomber ? bRoll(deck.b25) : ROLL;
   const FLOWN = pr ? pr.rows.length * pr.dt : 12;
   const LAUNCH = RAW + FLOWN;
   const clock = deckClock(RAW, FLOWN, deck.dur ?? DECK_RUN);
@@ -937,31 +1010,22 @@ export function stepDeck(deck, t) {
   if (bomber) {
     // A B-25 from where she is ranged: engines, the taxi round onto the line,
     // and the run-up with her brakes on.
-    const from = DECKLOAD[deck.b25 ?? 0];
+    const taxi = b25Taxi(deck.b25 ?? 0);
+    const TAXIED = bTaxied(deck.b25);
     if (plane.gear) plane.gear(0);
-    if (run < B_TAXIED) {
-      // Straight ahead, squaring up, then across onto the line: the path
-      // DECKLOAD was packed against.
-      const u = Math.max(0, run - 1.6) / (B_TAXIED - 1.6);
-      const first = deck.b25 === 0;
-      const z1 = first ? from.z : from.z + B25_TAXI.ahead;
-      let x, z, yaw;
-      if (u < 0.5) {
-        const e = ease(u * 2);
-        x = from.x; z = from.z + (z1 - from.z) * e; yaw = from.yaw * (1 - e);
-      } else {
-        const w = (u - 0.5) * 2;
-        x = from.x + (B25_LANE - from.x) * ease(w);
-        z = z1 + (spot - z1) * ease(w);
-        yaw = Math.sin(w * Math.PI) * Math.sign(B25_LANE - from.x) * 0.22;
-      }
-      p.position.set(x, fdY(z) + ON, z);
-      p.rotation.set(0, yaw, 0);
-      power = run < 1.6 ? 0.12 : 0.24;
+    if (run < TAXIED) {
+      // Under her own power, steered round onto the line, her nose along her
+      // path: the path DECKLOAD was packed against. Off slowly and onto the
+      // line slowly.
+      const k = Math.max(0, run - B_START) / (TAXIED - B_START);
+      const at = taxi.pose(ease(k));
+      p.position.set(at.x, fdY(at.z) + ON, at.z);
+      p.rotation.set(0, at.yaw, 0);
+      power = run < B_START ? 0.12 : 0.24;
     } else if (run < RAW) {
-      power = 0.3 + 0.7 * Math.min(1, (run - B_TAXIED) / (RAW - B_TAXIED));
+      power = 0.3 + 0.7 * Math.min(1, (run - TAXIED) / (RAW - TAXIED));
       p.position.set(B25_LANE, fdY(spot) + ON, spot);
-      p.rotation.set(-0.006 * Math.sin((run - B_TAXIED) * 22) * power, 0, 0);
+      p.rotation.set(-0.006 * Math.sin((run - TAXIED) * 22) * power, 0, 0);
     } else {
       power = 1;
       const i = Math.min(pr.rows.length - 1, Math.max(0, Math.round((run - RAW) / pr.dt)));

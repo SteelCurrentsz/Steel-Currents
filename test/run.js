@@ -229,7 +229,7 @@ import {
 import {
   buildHornet, stepLifts as hornetLifts, FD_FWD as HN_FD_FWD, FD_AFT as HN_FD_AFT, LIFTS as HN_LIFTS,
   HANGAR as HN_HANGAR, hangarSpots as hornetHangarSpots, MOUNT_SEATS as HORNET_SEATS, hornetSurfaceY,
-  DECKLOAD as HN_DECKLOAD, B25_COUNT, B25_TAXI as HN_B25_TAXI, b25Spot as hnB25Spot, B25_LANE as HN_B25_LANE,
+  DECKLOAD as HN_DECKLOAD, B25_COUNT, b25Taxi as hnB25Taxi, b25Spot as hnB25Spot, B25_LANE as HN_B25_LANE,
 } from '../client/js/render/hornet.js';
 import { Audio as AudioClass, audio as theAudio } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
@@ -419,7 +419,7 @@ import {
 } from '../client/js/render/surcouf.js';
 import { Room } from '../server/room.js';
 import { setGroup, membersOf, vectorFlight, wingLeader, fleetCourse } from '../shared/groups.js';
-import { crewBattle } from '../server/setup.js';
+import { crewBattle, wingOf as setupWingOf } from '../server/setup.js';
 import {
   cityPlan, wallAt, worksFloor, stageOf, STAGE, standingHeight, inFootprint, SURF, worldToCity,
   applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
@@ -20179,19 +20179,32 @@ check("the Hornet's runway is flat from end to end, with her B-25s ranged on it 
   for (let i = 0; i < parked.length; i++) {
     for (let j = i + 1; j < parked.length; j++) assert.ok(!meet(parked[i], parked[j]), `B-25s ${i} and ${j} are ranged one in the other`);
   }
-  // Nor in the way of one that goes before her, on her taxi onto the line.
+  // Nor in the way of one that goes before her, on her taxi onto the line or
+  // her run down it: steered, her nose along her path, as hornet.js stepDeck
+  // has her -- and she ends that taxi on the line, pointing down it.
   for (let i = 0; i < HN_DECKLOAD.length - 1; i++) {
-    const from = HN_DECKLOAD[i], spot = hnB25Spot(i);
-    const z1 = i === 0 ? from.z : from.z + HN_B25_TAXI.ahead;
-    const ease = (k) => k * k * (3 - 2 * k);
-    for (let u = 0; u <= 1.0001; u += 0.05) {
-      // As hornet.js stepDeck has her: ahead and squaring up, then across.
-      const w = Math.max(0, (u - 0.5) * 2);
-      const pose = u < 0.5
-        ? { x: from.x, z: from.z + (z1 - from.z) * ease(u * 2), yaw: from.yaw * (1 - ease(u * 2)) }
-        : { x: from.x + (HN_B25_LANE - from.x) * ease(w), z: z1 + (spot - z1) * ease(w), yaw: Math.sin(w * Math.PI) * Math.sign(HN_B25_LANE - from.x) * 0.22 };
+    const taxi = hnB25Taxi(i);
+    const start = taxi.pose(0), end = taxi.pose(1);
+    assert.ok(Math.hypot(start.x - HN_DECKLOAD[i].x, start.z - HN_DECKLOAD[i].z) < 0.01 && Math.abs(start.yaw - HN_DECKLOAD[i].yaw) < 0.01,
+      `B-25 ${i} does not start her taxi where she is ranged`);
+    assert.ok(Math.abs(end.x - HN_B25_LANE) < 0.01 && Math.abs(end.z - hnB25Spot(i)) < 0.01 && Math.abs(end.yaw) < 0.01,
+      `B-25 ${i} ends her taxi at ${end.x.toFixed(2)}, ${end.z.toFixed(2)}, not on the line`);
+    let last = start;
+    for (let u = 0.02; u <= 1.0001; u += 0.02) {
+      const pose = taxi.pose(u);
+      // Her nose along her path: she taxis, she does not crab.
+      const step = Math.hypot(pose.x - last.x, pose.z - last.z);
+      if (step > 0.05) {
+        const way = Math.atan2(pose.x - last.x, pose.z - last.z);
+        assert.ok(Math.abs(way - pose.yaw) < 0.12, `B-25 ${i} goes sideways on her taxi at ${pose.x.toFixed(1)}, ${pose.z.toFixed(1)}`);
+      }
+      last = pose;
       const S = at(null, pose);
       for (let j = i + 1; j < parked.length; j++) assert.ok(!meet(parked[j], S), `B-25 ${i} taxis through ${j}`);
+    }
+    for (let z = hnB25Spot(i); z < HN_FD_FWD; z += 1) {
+      const S = at(null, { x: HN_B25_LANE, z, yaw: 0 });
+      for (let j = i + 1; j < parked.length; j++) assert.ok(!meet(parked[j], S), `B-25 ${i} runs through ${j}`);
     }
   }
 });
@@ -20322,6 +20335,110 @@ check('the Hornet flies all sixteen B-25s off before anything comes up a lift, a
   assert.ok(sq && (sq.state === 'spent' || sq.state === 'flying'), `the deckload squadron is ${sq && sq.state}`);
 });
 
+
+check("the Hornet's B-25s are part of her air group, as many of them as her captain sails with", () => {
+  const cls = SHIP_CLASSES.hornet;
+  // Nothing asked for: all sixteen, over and above her hangar.
+  assert.deepEqual(defaultAirGroup(cls), { ...cls.planes.group.default, deckload: 16 });
+  assert.equal(normaliseAirGroup(cls, { fighters: 32, dive: 45, torpedo: 20 }).deckload, 16);
+  // Any number from none to sixteen, and nonsense landed on something legal.
+  assert.equal(normaliseAirGroup(cls, { fighters: 32, dive: 45, torpedo: 20, deckload: 5 }).deckload, 5);
+  assert.equal(normaliseAirGroup(cls, { fighters: 32, dive: 45, torpedo: 20, deckload: 40 }).deckload, 16);
+  assert.equal(normaliseAirGroup(cls, { fighters: 32, dive: 45, torpedo: 20, deckload: -3 }).deckload, 0);
+  // They are on her deck, not in her hangar: the hangar is still ninety-seven.
+  const g = normaliseAirGroup(cls, { fighters: 97, dive: 0, torpedo: 0, deckload: 16 });
+  assert.equal(g.fighters + g.dive + g.torpedo, 97);
+  // And none of it on any carrier that has no deckload.
+  assert.equal(normaliseAirGroup(SHIP_CLASSES.enterprise, { fighters: 30, dive: 30, torpedo: 20, deckload: 9 }).deckload, undefined);
+
+  // She sails with what she was given: five, the last five of the range, and
+  // they are the ones that go.
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Hornet', classId: 'hornet', team: 0, index: 0,
+    airGroup: { fighters: 32, dive: 45, torpedo: 20, deckload: 5 } });
+  assert.equal(ship.deckload, 5);
+  ship.aimX = 0; ship.aimZ = 9000;
+  assert.ok(launchStrike(state, ship), 'she would not launch');
+  assert.equal(ship.launching.flights.length, 5, 'she did not range the five she sailed with');
+  const ev = state.events.find((e) => e.e === 'launch' && e.ship === ship.id);
+  assert.equal(ev.k, 'mitchell');
+  assert.equal(ev.n, 11, 'the first of five is not the first of the five on her deck');
+  // With none, her own air group goes first.
+  const bare = addShip(state, { name: 'Hornet 2', classId: 'hornet', team: 0, index: 1,
+    airGroup: { fighters: 32, dive: 45, torpedo: 20, deckload: 0 } });
+  assert.equal(bare.deckload, 0);
+  assert.equal(bare.squadrons.find((q) => q.deckload).state, 'spent');
+  bare.aimX = 0; bare.aimZ = 9000;
+  assert.ok(launchStrike(state, bare), 'with no B-25s she would not launch her own');
+  assert.ok(bare.launching.flights.every((f) => f.type !== 'mitchell'), 'a B-25 she was not given was ranged');
+  // The server keeps the number on the way in.
+  assert.equal(setupWingOf({ fighters: 1, dive: 2, torpedo: 3, deckload: 7 }).deckload, 7);
+});
+
+check("each of the Hornet's B-25s carries her bombs to the target and lets them go", () => {
+  const cls = SHIP_CLASSES.hornet;
+  assert.ok(cls.planes.deckload.bombs >= 4, 'a B-25 goes with fewer than four bombs');
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Hornet', classId: 'hornet', team: 0, index: 0,
+    airGroup: { fighters: 32, dive: 45, torpedo: 20, deckload: 4 } });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  ship.x = 0; ship.z = 0; ship.heading = 0;
+  foe.x = 0; foe.z = 6000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  assert.ok(launchStrike(state, ship));
+  const mitchells = new Set();
+  const loads = new Map();
+  let bombs = 0;
+  for (let i = 0; i < 30 * 420; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    foe.hp = SHIP_CLASSES.fletcher.hp; foe.alive = true;
+    for (const p of state.planes) {
+      if (p.owner === ship.id && p.type === 'mitchell') {
+        mitchells.add(p.id);
+        if (!loads.has(p.id)) loads.set(p.id, p.bomb);
+      }
+    }
+    for (const e of step(state, 1 / 30)) if (e.e === 'bomb' && mitchells.has(e.i)) bombs++;
+  }
+  assert.equal(mitchells.size, 4, `${mitchells.size} B-25s flew`);
+  for (const [id, n] of loads) assert.equal(n, cls.planes.deckload.bombs, `B-25 ${id} took off with ${n} bombs`);
+  assert.ok(bombs >= 8, `the B-25s let go of only ${bombs} bombs`);
+  // And what falls is her own bomb, off the rack in her bay.
+  flightModels();
+  const st = storeOf('mitchell');
+  assert.ok(st && st.geo, 'a B-25 has no bomb of her own to drop');
+  assert.ok(st.len > 1.2 && st.len < 1.8, `her bomb is ${st.len.toFixed(2)} m long`);
+});
+
+check("the Hornet's island is whole, and nothing shows through her under her flight deck", () => {
+  const built = buildHornet();
+  const FD = built.flightDeckY;
+  for (const l of built.lifts) l.group.position.y = FD;
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const rc = new THREE.Raycaster();
+  // Her island's port face, from her deck up to her bridge, the length of it:
+  // fired at from over her runway, every ray stops at it, inboard of her side.
+  let n = 0;
+  for (let z = -6; z <= 32; z += 1) {
+    for (let y = FD + 1.5; y <= FD + 6.5; y += 1) {
+      rc.set(new THREE.Vector3(0, y, z), new THREE.Vector3(-1, 0, 0));
+      const h = rc.intersectObjects(meshes, false);
+      assert.ok(h.length && h[0].point.x > -14.5, `her island is open at ${z}, ${y.toFixed(1)}`);
+      n++;
+    }
+  }
+  assert.ok(n > 200);
+  // And under her flight deck, between her hangar's deckhead and the deck,
+  // the cracks in her plating have bulkheads behind them.
+  for (const [s, z, y] of [[1, 26.8, 14.5], [1, 26.6, 15.0], [-1, 32.8, 13.0]]) {
+    for (let dz = -0.3; dz <= 0.3; dz += 0.1) for (let dy = -0.3; dy <= 0.3; dy += 0.1) {
+      rc.set(new THREE.Vector3(s * 80, y + dy, z + dz), new THREE.Vector3(-s, 0, 0));
+      assert.ok(rc.intersectObjects(meshes, false).length, `daylight through her at ${(z + dz).toFixed(1)}, ${(y + dy).toFixed(1)}`);
+    }
+  }
+});
 
 check('the Credits screen credits the model the Shokaku is drawn from', () => {
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');

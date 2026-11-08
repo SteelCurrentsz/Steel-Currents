@@ -10507,8 +10507,8 @@ export const SHIP_CLASSES = {
         // Where her run leaves each of them in turn, and how high, measured
         // off the integrated launch the deck on her flies, from where each
         // starts her run (see hornet.js DECKLOAD).
-        runOut: [326.1, 327.1, 318.6, 311.1, 307.8, 299.6, 291.8, 286.1, 279.1, 271.1, 270.5, 271.1, 271.7, 271.9, 272.5, 273],
-        runHeight: [15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 16.1, 16.7, 17.1, 17.4, 17.8, 18],
+        runOut: [326.1, 322.8, 318.1, 317.1, 301.6, 303.3, 296.6, 292.1, 275.8, 279.3, 270.6, 270.8, 271.5, 271.2, 272.2, 272],
+        runHeight: [15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 15.8, 16.3, 17, 16.8, 17.6, 17.4],
       },
     },
     datasheet: {

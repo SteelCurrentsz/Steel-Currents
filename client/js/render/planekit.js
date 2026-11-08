@@ -37,7 +37,7 @@ import { hellcatModel } from './hellcatModel.js';
 import { dauntlessModel } from './dauntlessModel.js';
 import { avengerModel } from './avengerModel.js';
 import { devastatorModel } from './devastatorModel.js';
-import { b25Model } from './b25Model.js';
+import { b25Model, B25 } from './b25Model.js';
 import { b29Model, b29Ready } from './b29Model.js';
 
 // ---------------------------------------------------------------------------
@@ -4071,6 +4071,14 @@ function tbd(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
  */
 function mitchell(g, x, y, z, ry, folded = false, opts = {}) {
   const p = b25Model({ solidGlass: opts.solidGlass });
+  // Her bombs: five-hundred-pounders, racked in her bay over where the model
+  // says they leave her. Inside her, out of sight until they go; and what
+  // falls when she lets one go is one of them.
+  const store = new THREE.Group();
+  store.position.set(B25.bay[0], B25.bay[1] + 0.32, B25.bay[2]);
+  p.add(store);
+  bomb(store, 1.45, 0.18);
+  animPart(p, 'store', store, { fall: true });
   p.position.set(x, y, z);
   p.rotation.y = ry;
   g.add(p);
