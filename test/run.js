@@ -28542,6 +28542,66 @@ check('flak, fighters and a Phalanx cannot touch an atomic bomb on its way down'
   assert.ok(at.t > 12 && at.t < 16, `a bomb from a thousand metres took ${at.t.toFixed(1)} s to fall`);
 }));
 
+check('the wave off a burst capsizes a ship it takes on the beam, and a ship bows-on rides it', () => {
+  const world = generateWorld(91, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  // Beam-on: the burst is square off her side.
+  const dd = addShip(st, { name: 'Beam', classId: 'fletcher', team: 0, index: 0 });
+  dd.x = 3000; dd.z = 0; dd.speed = 0; dd.heading = 0;
+  // Bows-on (stern-on, here): the burst is right astern of her.
+  const bb = addShip(st, { name: 'Ahead', classId: 'iowa', team: 0, index: 1 });
+  bb.x = 0; bb.z = 2400; bb.speed = 0; bb.heading = 0;
+  nukeBlast(st, 0, 0, 0, null);
+  let cap = null;
+  let wave = 0;
+  let lifted = 0;
+  for (let i = 0; i < 30 * 90 && !(cap && wave >= 2); i++) {
+    for (const e of step(st, DT)) {
+      if (e.e === 'nukeWave') { wave++; if (e.cap === 2) cap = e.ship; }
+    }
+    // The sea the simulation floats her on has the wave in it.
+    if (st.nukeSea && st.nukeSea.bursts.length) lifted++;
+  }
+  assert.ok(wave >= 2, 'the wave never reached them');
+  assert.ok(lifted > 0, 'the wave is not in the sea the battle floats ships on');
+  assert.equal(cap, dd.id, 'the destroyer beam-on to it did not capsize');
+  assert.ok(dd.sinking && dd.sinking.capsize, 'she is not going over');
+  assert.ok(!(bb.sinking && bb.sinking.capsize), 'the battleship bows-on to it capsized');
+  // Over in seconds, and out of the fight bottom up.
+  for (let i = 0; i < 30 * 30; i++) step(st, DT);
+  assert.ok(Math.abs(dd.heel) > 2.5, `she is lying at ${dd.heel.toFixed(2)} rad, not bottom up`);
+  assert.ok(!dd.alive, 'a ship bottom up is still in the fight');
+});
+
+check('a burst wrecks the light guns on the side it comes from, and the wire carries them', () => {
+  const world = generateWorld(91, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'Near', classId: 'baltimore', team: 0, index: 0 });
+  s.x = 1500; s.z = 0; s.speed = 0; s.heading = 0;
+  nukeBlast(st, 0, 0, 0, null);
+  for (let i = 0; i < 30 * 4; i++) step(st, DT);
+  const ko = Object.keys(s.ko || {});
+  assert.ok(ko.length > 3, `only ${ko.length} mountings wrecked by a burst a mile off`);
+  assert.ok(ko.some((k) => k.startsWith('aa:')), 'not one close-range mounting wrecked');
+});
+
+check('a Silverplate\'s two escorts lay their own sticks with the weapon', () => pinned(() => {
+  const { st, bm } = atomicRun();
+  let atomic = 0, bombs = 0;
+  for (let i = 0; i < 30 * 240 && !(atomic && bm.loads === 0); i++) {
+    const before = new Set(st.shells.map((q) => q.id));
+    step(st, DT);
+    for (const q of st.shells) {
+      if (before.has(q.id) || q.bomber !== bm.id) continue;
+      if (q.atomic) atomic++; else bombs++;
+    }
+  }
+  assert.equal(atomic, 1, `${atomic} atomic weapons left the formation`);
+  assert.equal(bombs, 16, `the escorts laid ${bombs} bombs, not two sticks of eight`);
+}));
+
 check('the shock goes out where nukeFront has it, and wrecks by distance', () => {
   const world = generateWorld(91, 'open_ocean');
   world.islands = [];
@@ -28608,7 +28668,8 @@ check('after the flash and the shock comes the wave: slower, big close in, and n
   // A heavy sea, not a wall a hundred metres high, and lower the further out.
   assert.ok(wave.h >= 3 && wave.h <= 15, `a ${wave.h} m sea at nearly five kilometres`);
   assert.ok(waveHeight(500) > waveHeight(3000) && waveHeight(3000) > waveHeight(6000));
-  assert.ok(waveHeight(0) < 30, `the wave stands ${waveHeight(0).toFixed(0)} m at the burst`);
+  // Baker's was near thirty metres a thousand feet out.
+  assert.ok(waveHeight(0) < 35, `the wave stands ${waveHeight(0).toFixed(0)} m at the burst`);
   for (let i = 0; i < 30 * 6; i++) { step(st, DT); rolled = Math.max(rolled, Math.abs(dd.rock || 0)); }
   assert.ok(rolled > 0.02, `it rolled her ${rolled.toFixed(3)} rad`);
   assert.ok(dd.alive && dd.hp > hp0 * 0.9, 'a five-metre sea sank a destroyer');

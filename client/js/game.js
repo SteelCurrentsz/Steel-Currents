@@ -2950,7 +2950,14 @@ export class Battle {
           // The bomb. Seen from everywhere on the map and heard everywhere,
           // late, the further off the later; see nuke.js for what it looks
           // like and the simulation's stepNukes for what it does.
-          this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land);
+          // On the battle's clock, which the sea runs on: the cloud, the
+          // shock and the wave in the water all keep that time.
+          const t0 = Number.isFinite(ev.t) ? ev.t
+            : (Number.isFinite(this.scene.ocean.clock) ? this.scene.ocean.clock : null);
+          this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land, t0);
+          // Its wave is the sea from here on (see burstSwell).
+          if (!ev.land && t0 != null) this.scene.ocean.addBurst(ev.x, ev.z, t0);
+          (this.nukeAt || (this.nukeAt = new Map())).set(ev.i, { x: ev.x, z: ev.z });
           this.whiteOut();
           const eye = this.scene.camera.position;
           const far = Math.hypot(eye.x - ev.x, eye.z - ev.z);
@@ -2960,7 +2967,19 @@ export class Battle {
           this.hud.alert('Atomic detonation');
           break;
         }
-        case 'nukeHit':
+        case 'nukeHit': {
+          // What the blast has done to her, there to be seen: charred on the
+          // side it came from, dished in, stripped of what was loose on deck.
+          // Worked a little a frame (see stepBlasts).
+          const view = this.scene.shipViews.get(ev.ship);
+          const at = this.nukeAt && this.nukeAt.get(ev.i);
+          if (view && at && view.blastSteps) {
+            const q = this.blasts || (this.blasts = []);
+            // Her own first: it is the ship the captain is looking at.
+            if (ev.ship === this.shipId) q.unshift(view.blastSteps(at.x, at.z, ev.b || 0));
+            else q.push(view.blastSteps(at.x, at.z, ev.b || 0));
+          }
+        }
           // The shock has reached one of ours.
           if (ev.ship === this.shipId) {
             this.shake = Math.max(this.shake, 1.8);
@@ -2971,7 +2990,12 @@ export class Battle {
           // The third thing it does: the sea it shoved aside, coming back.
           if (ev.ship === this.shipId) {
             this.shake = Math.max(this.shake, Math.min(1.6, 0.3 + ev.h / 16));
-            this.hud.alert(`Wave from the burst — ${Math.round(ev.h)} m sea`);
+            this.hud.alert(ev.cap === 2 ? `Capsized by the wave — ${Math.round(ev.h)} m sea`
+              : ev.cap === 1 ? `Laid on her beam ends — ${Math.round(ev.h)} m sea`
+                : `Wave from the burst — ${Math.round(ev.h)} m sea`);
+          } else if (ev.cap === 2) {
+            const who = this.names.get(ev.ship);
+            if (who) this.hud.alert(`${who} capsized by the wave`);
           }
           break;
         case 'airburst':
@@ -6892,7 +6916,30 @@ export class Battle {
     return null;
   }
 
+  /**
+   * The blast damage still to be put on the ships a burst has struck, a few
+   * milliseconds of it a frame (see ShipView.blastSteps): the whole fleet is
+   * struck in the same second, and done at once that was a frame of seconds.
+   */
+  stepBlasts() {
+    const q = this.blasts;
+    if (!q || !q.length) return;
+    const until = performance.now() + 3;
+    while (q.length && performance.now() < until) {
+      let r;
+      try { r = q[0].next(); } catch (e) { r = { done: true }; console.error('Steel Currents: blast damage', e); }
+      if (r.done) q.shift();
+    }
+  }
+
   update(dt) {
+    this.stepBlasts();
+    // The shock of a burst reaching the eye: the picture is hit, hard, the
+    // moment the front arrives -- not when the flash was seen.
+    {
+      const j = this.scene.nukes.takeJolt();
+      if (j > 0) this.shake = Math.max(this.shake || 0, 0.8 + 2.4 * j);
+    }
     const ls = this.localShip;
     const settings = getSettings();
     if (this.torpLast && this.torpLast.t > 0) this.torpLast.t -= dt;

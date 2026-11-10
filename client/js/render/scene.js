@@ -1607,6 +1607,113 @@ export class ShipView {
   }
 
   /**
+   * An atomic blast across her, from a burst at (bx, bz) in the world, as
+   * hard as `bite` (its share of her life; one and over is her finished).
+   *
+   * The one thing that does mark her paint: the side of her facing the burst
+   * is charred black by the flash, her plating is dished in along it by the
+   * shock, what is standing loose on her deck -- boats, rafts, rails, ready-use
+   * lockers -- is torn off and thrown downwind into the sea, and close in her
+   * upperworks are holed. Her mountings are wrecked by the battle and come
+   * over the wire (see blastMounts in sim.js).
+   *
+   * A generator, worked a little at a time (see Battle.stepBlasts): a whole
+   * fleet is struck in the same second, and each ship of it is a few hundred
+   * thousand triangles to go over.
+   */
+  *blastSteps(bx, bz, bite) {
+    if (this.rupture || !this.group) return;
+    const k = Math.min(1, Math.max(0, bite));
+    if (k < 0.04) return;
+    this.group.updateMatrixWorld(true);
+    const at = new THREE.Vector3(bx, Math.max(40, this.group.position.y + 60), bz);
+    this.group.worldToLocal(at);
+    const side = Math.sign(at.x) || 1;
+    const half = this.cls.hull.length / 2;
+    const beam = this.cls.hull.beam / 2;
+    const fb = freeboardOf(this.cls);
+    const top = fb + 8 + 10 * (this.cls.hull.superstructure || 1);
+    // Where along her a point is in reach of the flash: the bow and the stern
+    // that point at the burst get it too, but the side does most.
+    const step = Math.max(8, half / 14);
+    // The flash: charred along the side facing it and across her decks.
+    for (let z = -half; z <= half; z += step) {
+      const taper = 1 - 0.55 * Math.pow(Math.abs(z) / half, 3);
+      const x = side * beam * taper;
+      for (const y of [fb * 0.55, fb + 4, top - 4]) {
+        const r = step * 1.25;
+        const amt = Math.min(0.92, 0.35 + 0.8 * k) * (y > fb + 2 ? 1 : 0.85);
+        if (this.plating) this.plating.scorch(x * (y > fb + 2 ? 0.4 : 1), y, z, r, amt);
+        if (this.fittings) this.fittings.scorch(x * 0.5, y, z, r * 1.4, amt);
+        yield;
+      }
+    }
+    // The shock: her side dished in between the frames, along its length.
+    if (this.plating && GPU.marks) {
+      const dents = Math.round(8 + 26 * k);
+      for (let i = 0; i < dents; i++) {
+        const u = ((i * 0.6180339) % 1) * 2 - 1;
+        const z = u * half * 0.9;
+        const taper = 1 - 0.55 * Math.pow(Math.abs(z) / half, 3);
+        const y = fb * (0.35 + 0.6 * (((i * 0.7548776) % 1)));
+        this.plating.dent(side * beam * taper, y, z, 2.6 + 3.5 * k, 0.12 + 0.5 * k);
+        yield;
+      }
+    }
+    yield;
+    // What is standing loose on her, torn off and thrown downwind.
+    if (this.fittings && this.wreck) {
+      const out = [];
+      const from = { x: at.x, y: Math.max(fb, at.y * 0.2), z: at.z };
+      let looked = 0;
+      for (const piece of [...this.fittings.pieces]) {
+        if (++looked % 40 === 0) yield;
+        if (!piece.on || !piece.fitting) continue;
+        // The side facing the burst first, and the higher the more exposed.
+        const facing = Math.sign(piece.cx || side) === side ? 1 : 0.45;
+        const high = Math.min(1.4, 0.7 + Math.max(0, piece.cy - fb) / 20);
+        const roll = ((Math.abs(piece.cx * 13.7 + piece.cz * 7.3 + piece.cy * 3.1)) % 1);
+        if (roll > k * 1.25 * facing * high) continue;
+        out.push(this.fittings.shed(piece, from.x, from.y, from.z, 1.2 + 2.8 * k));
+        yield;
+      }
+      if (out.length) {
+        // Thrown with the wind of it: away from the burst, as hard as it was.
+        const dx = this.group.position.x - bx, dz = this.group.position.z - bz;
+        const d = Math.hypot(dx, dz) || 1;
+        const v = 18 + 45 * k;
+        const h = this.group.rotation.y;
+        const sv = this.speedNow || 0;
+        for (const cut of out) {
+          this.wreck.add(cut, this.group, Math.sin(h) * sv + (dx / d) * v, Math.cos(h) * sv + (dz / d) * v);
+          yield;
+        }
+      }
+    }
+    yield;
+    // Close in, her upperworks holed through on the side it came from.
+    if (k > 0.45 && this.plating) {
+      const holes = Math.round(3 + 10 * (k - 0.45));
+      for (let i = 0; i < holes; i++) {
+        const u = ((i * 0.3819660 + 0.17) % 1) * 2 - 1;
+        const z = u * half * 0.55;
+        const y = fb + 2 + (top - fb - 4) * ((i * 0.7548776) % 1);
+        // Torn out of her rather than cut by the hole shader, which would
+        // put the plate back in its own paint and take the char off it.
+        const near = this.plating.nearest(side * beam * 0.5, y, z, 8);
+        if (near) {
+          const r = 1.4 + 2.6 * k;
+          if (this.plating.punch(near[0], near[1], near[2], r, 0.5) > 0) {
+            this.dropUnsupported(near[0], near[1], near[2], r);
+            this.opened(near[0], near[1], near[2], r);
+          }
+        }
+        yield;
+      }
+    }
+  }
+
+  /**
    * Fire on her: whatever is standing in it blackens, and goes on blackening.
    *
    * Called every frame a compartment is alight, with the heat, so a fire that
@@ -2235,6 +2342,8 @@ export class BattleScene {
     // Its shaders compiled now, in the background, rather than in the frame
     // the bomb goes off.
     this.nukes.warm(this.renderer, this.camera);
+    // And the oil a wreck leaves, which a burst makes a great deal of at once.
+    this.oil?.warm?.(this.renderer);
 
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the
@@ -2479,7 +2588,7 @@ export class BattleScene {
     this.wreck.update(dt);
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
-    this.nukes.update(dt, this.camera);
+    this.nukes.update(dt, this.camera, this.ocean?.clock);
     this.torpedoes.update(dt, this.torpsNow || []);
     this.missiles.update(this.missilesNow || [], dt);
     this.charges.update(dt, this.chargesNow || []);
@@ -2564,6 +2673,8 @@ export class BattleScene {
     this.oil.render(this.renderer, this.camera);
     this.oil.bind(this.ocean.material.uniforms);
     renderCulled(this.renderer, this.scene, this.camera);
+    // And the shock of an atomic burst, over all of it (see nuke.js).
+    this.nukes.renderShock(this.renderer, this.camera);
   }
 
   /**
@@ -2591,6 +2702,16 @@ export class BattleScene {
           const key = `${q.uuid}|${o.isInstancedMesh ? 1 : 0}`;
           if (w.seen.has(key)) continue;
           w.seen.add(key);
+          // And as it is drawn once a blast has charred her (see blastSteps):
+          // the same material, coloured per vertex.
+          if (!q.vertexColors && !q.isShaderMaterial && !o.isInstancedMesh) {
+            const vc = q.clone();
+            vc.vertexColors = true;
+            w.mats.push(vc);
+            const vm = new THREE.Mesh(o.geometry, vc);
+            vm.frustumCulled = false;
+            scene.add(vm);
+          }
           // Once, and cut again: a magazine tears her across twice, and a
           // piece of a piece is cut a third time -- each its own shader.
           let m = q;

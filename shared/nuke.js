@@ -39,9 +39,14 @@ export const NUKE = {
   /** Its time constant, seconds: see nukeWave. */
   waveTau: 110,
   /** How tall it stands where it is thrown up, and how fast that falls away. */
-  waveHigh: 22,
-  waveFall: 2500,
+  // Off Baker: a wave nearly thirty metres from crest to trough a thousand
+  // feet from the burst, and still five or six two miles out.
+  waveHigh: 30,
+  waveFall: 2600,
 };
+
+/** The most bursts the sea carries at once: the ocean shader's array is this long. */
+export const MAX_BURSTS = 4;
 
 /**
  * How far out the shock front is, `age` seconds after the burst.
@@ -98,4 +103,62 @@ export function nukeBite(d) {
   }
   const k = (d - NUKE.heavy) / (NUKE.reach - NUKE.heavy);
   return 0.3 * (1 - k) * (1 - k);
+}
+
+// ------------------------------------------------------------ the sea itself
+
+/**
+ * The wave as water: how high the sea stands, `r` metres from a burst `age`
+ * seconds old, and how fast that changes outward (dh/dr). Zero away from it.
+ *
+ * Not a ring painted on the sea but the sea: the ocean's vertex shader lifts
+ * the surface by exactly this (see BURST_GLSL in ocean.js), and the same
+ * function is what a hull is floated on, on the screen (seaAttitude) and in
+ * the simulation (seaOver) -- so a ship is seen to climb the face of it, hang
+ * on the crest and drop into the trough behind it, and the water that comes
+ * over her deck edge is the water drawn there.
+ *
+ * A short train rather than one hump: a steep leading crest standing taller
+ * than the troughs are deep, the way a breaking wave does, and two or three
+ * smaller ones behind it, lengthening as the train runs out.
+ */
+export function burstSwell(age, r, out) {
+  out.y = 0; out.dr = 0;
+  if (!(age > 0)) return out;
+  const R = nukeWave(age);
+  const lam = 160 + 0.06 * R;
+  const s = r - R;
+  // Nothing more than four of its lengths behind the front or one ahead.
+  if (s > lam * 1.2 || s < -lam * 4.2) return out;
+  const grow = Math.min(1, age / 5);
+  const fade = Math.min(1, Math.max(0, (NUKE.life - age) / 40));
+  const A = 0.5 * waveHeight(R) * grow * grow * (3 - 2 * grow) * fade;
+  if (!(A > 0)) return out;
+  const k = (Math.PI * 2) / lam;
+  const sig = s > 0 ? 0.3 * lam : 1.25 * lam;
+  const env = Math.exp(-(s * s) / (sig * sig));
+  const c = Math.cos(k * s), c2 = Math.cos(2 * k * s);
+  const y = A * (c + 0.3 * c2) * env;
+  out.y = y;
+  out.dr = A * env * (-k * Math.sin(k * s) - 0.6 * k * Math.sin(2 * k * s)) + y * (-2 * s / (sig * sig));
+  return out;
+}
+
+const SW = { y: 0, dr: 0 };
+/**
+ * Every burst's wave at a point: `bursts` is [{ x, z, t0 }], `time` the
+ * clock they were set off on. Adds into `out.y` and the slope `out.gx`,
+ * `out.gz`.
+ */
+export function burstSea(bursts, x, z, time, out) {
+  for (let i = 0; i < bursts.length; i++) {
+    const b = bursts[i];
+    const dx = x - b.x, dz = z - b.z;
+    const r = Math.sqrt(dx * dx + dz * dz);
+    burstSwell(time - b.t0, r, SW);
+    if (SW.y === 0 && SW.dr === 0) continue;
+    out.y += SW.y;
+    if (r > 1e-3) { out.gx += SW.dr * dx / r; out.gz += SW.dr * dz / r; }
+  }
+  return out;
 }

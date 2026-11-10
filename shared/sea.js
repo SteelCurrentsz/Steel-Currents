@@ -13,6 +13,7 @@
 // what makes the two the same water.
 
 import { getWeather } from './world.js';
+import { burstSea } from './nuke.js';
 
 const G = 9.81;
 
@@ -105,6 +106,8 @@ export function waveTerms(amp, steep = 1, short = 0) {
  * well as up, so the sample point is walked back to the parameter that lands
  * on the point asked about.
  */
+const BS = { y: 0, gx: 0, gz: 0 };
+
 export function seaSample(W, x, z, time, tilt = true) {
   const n = W.n;
   const DX = W.dirx, DZ = W.dirz, K = W.k, A = W.a, OM = W.om, Q = W.q;
@@ -143,6 +146,15 @@ export function seaSample(W, x, z, time, tilt = true) {
   }
   px = x - dx;
   pz = z - dz;
+  // And the sea an atomic burst has thrown up, where there is one (see
+  // burstSwell): laid on top of the swell, straight up, as the shader does.
+  if (W.bursts && W.bursts.length) {
+    BS.y = 0; BS.gx = 0; BS.gz = 0;
+    burstSea(W.bursts, x, z, time, BS);
+    dy += BS.y;
+    ddxy += BS.gx;
+    ddzy += BS.gz;
+  }
   if (!tilt) return { y: dy, px, pz, nx: 0, ny: 1, nz: 0 };
   const nx = ddzy * ddxz - ddzz * ddxy;
   const ny = ddzz * ddxx - ddzx * ddxz;

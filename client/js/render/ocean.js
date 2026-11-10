@@ -20,6 +20,7 @@
 // instead of boiling.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { NUKE, MAX_BURSTS } from '../../../shared/nuke.js';
 import {
   WAVES, AMP_SCALE, waveTerms, waveScales, seaSample, seaAttitude,
 } from '../../../shared/sea.js';
@@ -112,6 +113,58 @@ vec3 gerstner(vec2 p, out vec3 nrm, out float fold) {
  * of it is white with foam, and A how aerated it is -- the water her screws
  * have been through, which is paler and glassier than the sea round it.
  */
+/**
+ * The sea an atomic burst throws up, as water.
+ *
+ * burstSwell in shared/nuke.js, line for line: the two have to agree, because
+ * one is what is drawn and the other is what a hull is floated on. Up to
+ * MAX_BURSTS at once; `uBurst[i]` is where (xy), when on the sea's own clock
+ * (z), and whether it went off on the sea at all (w).
+ */
+export const BURST_GLSL = /* glsl */`
+uniform vec4 uBurst[${MAX_BURSTS}];
+uniform float uBurstN;
+
+float nkWaveR(float age) { return 6500.0000 * (1.0 - exp(-age / 110.0000)); }
+float nkShockR(float age) { return 4200.0000 * (1.0 - exp(-age / 3.2000)); }
+
+// x: height, y: d(height)/d(range), z: the wave's own amplitude there.
+vec3 nkSwell(float age, float r) {
+  if (age <= 0.0) return vec3(0.0);
+  float R = nkWaveR(age);
+  float lam = 160.0 + 0.06 * R;
+  float s = r - R;
+  if (s > lam * 1.2 || s < -lam * 4.2) return vec3(0.0);
+  float grow = min(1.0, age / 5.0);
+  float fade = clamp((150.0000 - age) / 40.0, 0.0, 1.0);
+  float H = 30.0000 * exp(-max(0.0, R) / 2600.0000) + 1.5;
+  float A = 0.5 * H * grow * grow * (3.0 - 2.0 * grow) * fade;
+  float k = 6.2831853 / lam;
+  float sig = s > 0.0 ? 0.3 * lam : 1.25 * lam;
+  float env = exp(-(s * s) / (sig * sig));
+  float c = cos(k * s);
+  float y = A * (c + 0.3 * cos(2.0 * k * s)) * env;
+  float dr = A * env * (-k * sin(k * s) - 0.6 * k * sin(2.0 * k * s)) + y * (-2.0 * s / (sig * sig));
+  return vec3(y, dr, A);
+}
+
+// x: height, yz: slope along x and z.
+vec3 burstLift(vec2 p) {
+  vec3 o = vec3(0.0);
+  for (int i = 0; i < ${MAX_BURSTS}; i++) {
+    if (float(i) >= uBurstN) break;
+    vec4 b = uBurst[i];
+    if (b.w < 0.5) continue;
+    vec2 d = p - b.xy;
+    float r = length(d);
+    vec3 w = nkSwell(uTime - b.z, r);
+    o.x += w.x;
+    if (r > 1e-3) o.yz += w.y * d / r;
+  }
+  return o;
+}
+`;
+
 export const WAKE_GLSL = /* glsl */`
 uniform sampler2D uWakeNear;
 uniform sampler2D uWakeFar;
@@ -259,6 +312,7 @@ varying float vDist;
 varying float vWake;
 varying float vHeld;
 ${WAVE_GLSL}
+${BURST_GLSL}
 ${WAKE_GLSL}
 ${HULL_GLSL}
 
@@ -306,6 +360,11 @@ void main() {
   float far = length(wp.xyz - cameraPosition);
   float keep = 1.0 - smoothstep(uFade * 0.35, uFade, far);
   wp.xyz += d * keep;
+  // And the wall of water off an atomic burst, which is not a short wave and
+  // is carried as far out as the sea is drawn at all.
+  vec3 bl = uBurstN > 0.0 ? burstLift(wp.xz) : vec3(0.0);
+  float bkeep = 1.0 - smoothstep(uFade * 0.9, uFade * 1.4, far);
+  wp.y += bl.x * bkeep;
   // And the wake, which is the water and not something laid on it. Displaced
   // here, in the same stage and on the same vertex as the swell: a ship's bow
   // wave is a lump in the sea, and this is where it is put there.
@@ -324,7 +383,8 @@ void main() {
   vHeld = holdOff(hp);
   wp.xyz = hp;
   vWorld = wp.xyz;
-  vNormal = normalize(mix(vec3(0.0, 1.0, 0.0), nrm, keep));
+  vec3 sn = normalize(mix(vec3(0.0, 1.0, 0.0), nrm, keep));
+  vNormal = normalize(sn / max(sn.y, 0.2) - vec3(bl.y, 0.0, bl.z) * bkeep);
   vCrest = d.y;
   vFold = fold;
   vDist = far;
@@ -365,6 +425,59 @@ varying float vFold;
 varying float vDist;
 varying float vWake;
 varying float vHeld;
+uniform vec4 uBurst[${MAX_BURSTS}];
+uniform float uBurstN;
+float nkWaveR(float age) { return 6500.0000 * (1.0 - exp(-age / 110.0000)); }
+float nkShockR(float age) { return 4200.0000 * (1.0 - exp(-age / 3.2000)); }
+float nkHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float nkNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(nkHash(i), nkHash(i + vec2(1.0, 0.0)), u.x),
+             mix(nkHash(i + vec2(0.0, 1.0)), nkHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+// What a burst has done to the look of the water here: x the white water --
+// the crest of the wave breaking, the sea boiling over the burst, the spray
+// thrown up where the shock first meets it -- and y the slick: the shock in
+// the water darkening the surface in a ring that races out ahead of
+// everything else, as every film of Baker shows it.
+vec2 burstMarks(vec2 p) {
+  vec2 o = vec2(0.0);
+  for (int i = 0; i < ${MAX_BURSTS}; i++) {
+    if (float(i) >= uBurstN) break;
+    vec4 b = uBurst[i];
+    if (b.w < 0.5) continue;
+    float age = uTime - b.z;
+    if (age <= 0.0) continue;
+    float r = length(p - b.xy);
+    float lace = nkNoise(p * 0.045 + age * 0.08) * 0.6 + nkNoise(p * 0.17 - age * 0.11) * 0.4;
+    // The shock, in the first twenty seconds.
+    if (age < 22.0) {
+      float Rs = nkShockR(age);
+      float w = 60.0 + 0.05 * Rs;
+      float s = r - Rs;
+      float band = exp(-(s + w * 0.6) * (s + w * 0.6) / (w * w)) * step(s, w);
+      o.y = max(o.y, 0.55 * band * (1.0 - age / 22.0));
+      float edge = exp(-(s * s) / (14.0 * 14.0 + Rs * 0.4));
+      o.x = max(o.x, edge * smoothstep(0.3, 0.7, lace) * (1.0 - smoothstep(2.0, 9.0, age)));
+    }
+    // The wave: white along its crest, torn into streaks down its back.
+    float R = nkWaveR(age);
+    float lam = 160.0 + 0.06 * R;
+    float s = r - R;
+    float fade = clamp((150.0000 - age) / 40.0, 0.0, 1.0) * min(1.0, age / 4.0);
+    float crest = exp(-(s + lam * 0.05) * (s + lam * 0.05) / (lam * lam * 0.018));
+    float back = exp(-(s + lam * 0.55) * (s + lam * 0.55) / (lam * lam * 0.25)) * 0.55;
+    float h = clamp((30.0000 * exp(-R / 2600.0000) + 1.5) / 14.0, 0.15, 1.0);
+    o.x = max(o.x, (crest + back * smoothstep(0.45, 0.8, lace)) * smoothstep(0.25, 0.65, lace + crest * 0.4) * fade * h);
+    // And over the burst itself, the sea boiling white for a minute and more.
+    float pool = smoothstep(R * 0.9, R * 0.45, r) * max(0.0, 1.0 - age / 110.0);
+    o.x = max(o.x, pool * smoothstep(0.3, 0.75, lace + 0.25 * (1.0 - age / 110.0)));
+  }
+  return o;
+}
+
 ${WAKE_GLSL}
 ${HULL_GLSL}
 
@@ -656,6 +769,10 @@ void main() {
     foam = max(foam, horse);
   }
   foam *= clamp(1.0 - dcam / 7000.0, 0.0, 1.0);
+  // The burst's white water and the slick, which are seen from anywhere.
+  vec2 bm = uBurstN > 0.0 ? burstMarks(q) : vec2(0.0);
+  foam = max(foam, bm.x);
+  col *= 1.0 - bm.y;
 
   // The wake's own white water.
   //
@@ -1008,6 +1125,9 @@ export class Ocean {
         uWakeFarAt: { value: new THREE.Vector4(0, 0, 6144, 0) },
         uWakeScale: { value: 5 },
         uWakeStep: { value: 1 },
+        // Atomic bursts on the sea: see BURST_GLSL.
+        uBurst: { value: Array.from({ length: MAX_BURSTS }, () => new THREE.Vector4()) },
+        uBurstN: { value: 0 },
       },
     });
     this.mesh = new THREE.Mesh(geo, this.material);
@@ -1069,6 +1189,30 @@ export class Ocean {
     // the whole sea streaked white in a typhoon.
   }
 
+  /**
+   * An atomic burst on the sea at (x, z), set off at `t0` on the sea's own
+   * clock: its wave is the water from here on, for the shader and for every
+   * hull floated on it (see burstSwell). Gone again when it has run out.
+   */
+  addBurst(x, z, t0) {
+    const list = this.bursts || (this.bursts = []);
+    list.push({ x, z, t0 });
+    if (list.length > MAX_BURSTS) list.shift();
+    this.syncBursts();
+  }
+
+  syncBursts() {
+    const list = this.bursts || [];
+    const u = this.material.uniforms;
+    const now = u.uTime.value;
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (now - list[i].t0 > NUKE.life + 5) list.splice(i, 1);
+    }
+    list.forEach((b, i) => u.uBurst.value[i].set(b.x, b.z, b.t0, 1));
+    u.uBurstN.value = list.length;
+    if (this.terms) this.terms.bursts = list;
+  }
+
   /** Run the sea on a clock of somebody else's -- the server's, in a battle. */
   setTime(t) {
     this.material.uniforms.uTime.value = t;
@@ -1079,6 +1223,7 @@ export class Ocean {
     // which is what makes it the same sea the simulation is running.
     if (Number.isFinite(this.clock)) this.material.uniforms.uTime.value = this.clock;
     else this.material.uniforms.uTime.value += dt;
+    if (this.bursts && this.bursts.length) this.syncBursts();
     if (cameraPos) {
       // Carried with the camera exactly. The wave field is worked out from the
       // world position of each vertex, so the water stays where it is while the
@@ -1122,6 +1267,7 @@ export class Ocean {
     const short = this.short || 0;
     if (c && c.amp === amp && c.steep === steep && c.short === short) return c;
     this.terms = waveTerms(amp, steep, short);
+    this.terms.bursts = this.bursts || [];
     return this.terms;
   }
 

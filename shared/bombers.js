@@ -138,7 +138,11 @@ export const BOMBERS = {
     armour: 0,
     engines: '4 × R-3350-41 Duplex-Cyclone, 2,200 hp',
     payload: 9700,
-    load: '1 × atomic bomb, 9,700 lb',
+    load: '1 × atomic bomb, 9,700 lb; escorts 20,000 lb of GP bombs each',
+    // What each of the other two in the vic carries: a Superfortress's
+    // ordinary load, forty 500 lb general-purpose bombs, laid in a stick
+    // behind the weapon.
+    escortPayload: 20000,
     turrets: 5,
     stations: 'Fwd upper, fwd lower, aft upper, aft lower, tail',
     // Every gun position aboard, in the order the model builds them -- the

@@ -269,6 +269,7 @@ renderer.toneMappingExposure = 1.04;
 // it is Multiplayer Battle, which is not in the game yet; when it is, it gets
 // a socket of its own (net.js) for that mode alone.
 const net = new LocalNet();
+window.__net = net;   // a handle for the console, like __battle
 
 /**
  * The classes a battle about to be joined can have in it. A custom battle
