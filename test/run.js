@@ -61,6 +61,7 @@ import { twoFingerGesture, TouchControls } from '../client/js/touch.js';
 import { startManeuver, flyManeuver, pathOf } from '../shared/pilot.js';
 import { suiseiGeometries, SUISEI, SUISEI_SEGS, SUISEI_PARTS } from '../client/js/render/suiseiModel.js';
 import { Bombs, bombScale } from '../client/js/render/ordnance.js';
+import { Nukes } from '../client/js/render/nuke.js';
 import { enterDogfight, stepDogfight } from '../shared/dogfight.js';
 import { cleanScript, previewAt, unitKey } from '../shared/stage.js';
 import { ReplayNet } from '../client/js/replaynet.js';
@@ -28458,6 +28459,28 @@ function atomicRun(classId = 'iowa', seed = 3301) {
   const bm = addBomber(st, { bomberId: 'silverplate', team: 1, x: 0, z: 9000, heading: Math.PI });
   return { st, ship, far, bm };
 }
+
+check('an atomic burst lights the sea without bringing a light into the battle', () => {
+  // A light added to a scene, or taken out of it, recompiles every lit shader
+  // in it -- the whole fleet -- in the frame it happens. The flash borrows one
+  // of the scene's own lights and gives it back.
+  const scene = new THREE.Scene();
+  const lamp = new THREE.PointLight(0xffbb66, 0, 900, 2);
+  scene.add(lamp);
+  let held = 0;
+  const lender = { holdLight() { held++; return lamp; }, releaseLight(l) { assert.equal(l, lamp); held--; } };
+  const lights = () => { let n = 0; scene.traverse((o) => { if (o.isLight) n++; }); return n; };
+  const nukes = new Nukes(scene, lender);
+  nukes.add(0, 400, 0, false);
+  assert.equal(lights(), 1, 'the burst brought a light of its own');
+  assert.equal(held, 1, 'the flash lights nothing');
+  nukes.update(0.3);
+  assert.ok(lamp.intensity > 1e6, 'the flash is not bright');
+  for (let t = 0; t < 160; t += 0.5) nukes.update(0.5);
+  assert.equal(nukes.live.length, 0, 'the burst never went');
+  assert.equal(held, 0, 'the light was never given back');
+  assert.equal(lights(), 1);
+});
 
 check('a Silverplate opens her doors, lets go of her one bomb and it goes off on the target', () => pinned(() => {
   const { st, ship, far, bm } = atomicRun();

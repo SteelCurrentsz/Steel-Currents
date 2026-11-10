@@ -95,6 +95,8 @@ function bootModules() {
     }
   };
   walk(path.join(ROOT, 'client/js/main.js'));
+  // And the battle's own thread, which the page starts by name (see localnet.js).
+  walk(path.join(ROOT, 'client/js/simworker.js'));
   return [...seen];
 }
 const INDEX = path.join(ROOT, 'client/index.html');
@@ -123,6 +125,8 @@ function everyModule() {
     }
   };
   walk(path.join(ROOT, 'client/js/main.js'));
+  // And the battle's own thread, which the page starts by name (see localnet.js).
+  walk(path.join(ROOT, 'client/js/simworker.js'));
   return [...seen];
 }
 function pageName(f) {

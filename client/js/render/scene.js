@@ -2231,7 +2231,10 @@ export class BattleScene {
     this.heavies = new Heavies(this.scene, 27);
     // And an atomic bomb going off, which is nothing like anything else here.
     // See nuke.js.
-    this.nukes = new Nukes(this.scene);
+    this.nukes = new Nukes(this.scene, this.effects);
+    // Its shaders compiled now, in the background, rather than in the frame
+    // the bomb goes off.
+    this.nukes.warm(this.renderer, this.camera);
 
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the

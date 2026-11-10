@@ -27,6 +27,28 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { NUKE, nukeFront, nukeWave, waveHeight } from '../../../shared/nuke.js';
 
+/**
+ * The shapes every burst is drawn with, all of unit size and scaled to the
+ * moment: made once for the battle and shared, so a burst builds nothing but
+ * its materials. Never disposed with a burst -- the next one wants them.
+ */
+let SHAPES = null;
+function shapes() {
+  if (SHAPES) return SHAPES;
+  const base = new THREE.PlaneGeometry(1, 1);
+  SHAPES = {
+    ball: new THREE.SphereGeometry(1, 40, 24),
+    ring: new THREE.RingGeometry(0.94, 1, 160, 1),
+    wave: new THREE.CylinderGeometry(0.994, 1, 1, 180, 1, true),
+    foam: new THREE.RingGeometry(0.95, 1, 180, 1),
+    spray: new THREE.SphereGeometry(1, 48, 20, 0, Math.PI * 2, 0, Math.PI / 2),
+    dome: new THREE.SphereGeometry(1, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+    puff: base,
+  };
+  for (const g of Object.values(SHAPES)) g.userData.shared = true;
+  return SHAPES;
+}
+
 /** A soft round puff, for the cloud: made once, on a canvas. */
 let PUFF = null;
 function puffTexture() {
@@ -54,7 +76,7 @@ function puffTexture() {
  * big, so bright, in its own colour. Faces the eye in the vertex shader.
  */
 function puffBatch(max) {
-  const base = new THREE.PlaneGeometry(1, 1);
+  const base = shapes().puff;
   const geo = new THREE.InstancedBufferGeometry();
   geo.index = base.index;
   geo.setAttribute('position', base.attributes.position);
@@ -99,9 +121,10 @@ function puffBatch(max) {
 
 function setPuff(b, x, y, z, size, r, g, bl, a) {
   if (b.n >= b.max) return;
-  const i = b.n++;
-  b.at.array.set([x, y, z, size], i * 4);
-  b.col.array.set([r, g, bl, a], i * 4);
+  const i = (b.n++) * 4;
+  const at = b.at.array, col = b.col.array;
+  at[i] = x; at[i + 1] = y; at[i + 2] = z; at[i + 3] = size;
+  col[i] = r; col[i + 1] = g; col[i + 2] = bl; col[i + 3] = a;
 }
 
 // The fireball's colour as it cools, white to a dull red, by how far it has.
@@ -116,16 +139,119 @@ function heat(k, out) {
 }
 
 /** A small, repeatable pseudo-random number for puff `i` of a burst. */
-const hash = (i, k) => {
+const hashOf = (i, k) => {
   const s = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
   return s - Math.floor(s);
 };
+// The same for every burst and every frame, so worked out once: the cloud is
+// nine hundred puffs a dozen numbers apiece, sixty times a second, and a sine
+// apiece of that was ten thousand of them a frame for figures that never change.
+const HASH_N = 360;
+const HASH_K = 13;
+const HASH = new Float64Array(HASH_N * HASH_K);
+for (let i = 0; i < HASH_N; i++) for (let k = 0; k < HASH_K; k++) HASH[i * HASH_K + k] = hashOf(i, k);
+const hash = (i, k) => HASH[i * HASH_K + k];
+
+const DIRT_LAND = [0.58, 0.48, 0.40];
+const DIRT_SEA = [0.86, 0.86, 0.84];
+const SURGE = [0.94, 0.95, 0.96];
 
 export class Nukes {
-  constructor(scene) {
+  /**
+   * `lights` lends the flash a light (see Effects.holdLight). A burst used to
+   * bring a point light of its own into the scene, and a light added to a
+   * scene -- or taken out of it again -- changes every lit shader in it: the
+   * whole fleet, every material of every ship, was recompiled the instant the
+   * bomb went off and again when the light went, which was a freeze of
+   * seconds at exactly the moment worth watching. The scene's own flash
+   * lights are always there, so borrowing one costs nothing to compile.
+   */
+  constructor(scene, lights = null) {
     this.scene = scene;
+    this.lights = lights;
     this.live = [];
     this.tmp = [0, 0, 0];
+    this.kept = null;
+  }
+
+  /**
+   * Every shader a burst is drawn with, compiled ahead of it under the
+   * battle's own lights and fog, while nothing is happening -- not in the
+   * frame the bomb goes off. The materials are kept for the battle, because
+   * a program no material holds is thrown away.
+   */
+  warm(renderer, camera) {
+    if (this.kept || !renderer) return;
+    const parts = this.parts(false);
+    const scene = new THREE.Scene();
+    for (const k of ['ball', 'glow', 'ring', 'wave', 'foam', 'spray', 'dome']) scene.add(parts[k]);
+    scene.add(parts.puffs.mesh);
+    this.kept = parts;
+    try {
+      const done = renderer.compileAsync ? renderer.compileAsync(scene, camera, this.scene)
+        : renderer.compile(scene, camera, this.scene);
+      done?.catch?.(() => {});
+    } catch { /* compiled the first time one is drawn instead */ }
+  }
+
+  /** What one burst is drawn with, unlit and unplaced. */
+  parts(land) {
+    const S = shapes();
+    // The fireball.
+    const ball = new THREE.Mesh(
+      S.ball,
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, depthWrite: false, fog: false }),
+    );
+    // The glow round it, and the flash: additive, so it only ever brightens.
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: puffTexture(), color: 0xfff2d0, transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false,
+    }));
+    glow.renderOrder = 9;
+    // The shock on the water, a ring of white.
+    const ring = new THREE.Mesh(
+      S.ring,
+      new THREE.MeshBasicMaterial({
+        color: 0xf4f8fb, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 1.2;
+    // The wave: a wall of water standing up off the sea, its face leaning
+    // out the way it is going, and the foam of its crest breaking behind it.
+    const wave = new THREE.Mesh(
+      S.wave,
+      new THREE.MeshLambertMaterial({
+        color: 0x5f8aa0, emissive: 0x1d2c36, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
+      }),
+    );
+    wave.visible = !land;
+    const foam = new THREE.Mesh(
+      S.foam,
+      new THREE.MeshBasicMaterial({ color: 0xeef4f7, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    foam.rotation.x = -Math.PI / 2;
+    foam.visible = !land;
+    // The spray dome: the sea over the burst heaved up into a white dome in
+    // the first seconds, and slumping back into the base surge.
+    const spray = new THREE.Mesh(
+      S.spray,
+      new THREE.MeshLambertMaterial({
+        color: 0xf3f6f8, emissive: 0x3c444a, transparent: true, opacity: 0, depthWrite: false,
+      }),
+    );
+    spray.visible = false;
+    // The condensation cloud: a dome of white blown up off the sea behind the
+    // shock, and gone in a couple of seconds.
+    const dome = new THREE.Mesh(
+      S.dome,
+      new THREE.MeshLambertMaterial({
+        color: 0xffffff, emissive: 0x6a7076, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
+      }),
+    );
+    // The cloud: the column, the cap, the skirt round the foot of it.
+    const puffs = puffBatch(900);
+    return { ball, glow, ring, wave, foam, spray, dome, puffs };
   }
 
   /**
@@ -136,76 +262,48 @@ export class Nukes {
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     this.scene.add(g);
-    // The fireball.
-    const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 40, 24),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, depthWrite: false, fog: false }),
-    );
-    ball.position.y = Math.max(0, y);
-    g.add(ball);
-    // The glow round it, and the flash: additive, so it only ever brightens.
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: puffTexture(), color: 0xfff2d0, transparent: true, opacity: 1,
-      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false,
-    }));
-    glow.position.y = Math.max(0, y) + 40;
-    glow.renderOrder = 9;
-    g.add(glow);
-    // What the flash lights: everything on the sea, from the burst.
-    const lamp = new THREE.PointLight(0xfff0d0, 0, 0, 2);
-    lamp.position.y = 300;
-    g.add(lamp);
-    // The shock on the water, a ring of white.
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.94, 1, 160, 1),
-      new THREE.MeshBasicMaterial({
-        color: 0xf4f8fb, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
-      }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 1.2;
-    g.add(ring);
-    // The wave: a wall of water standing up off the sea, its face leaning
-    // out the way it is going, and the foam of its crest breaking behind it.
-    const wave = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.994, 1, 1, 180, 1, true),
-      new THREE.MeshLambertMaterial({
-        color: 0x5f8aa0, emissive: 0x1d2c36, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
-      }),
-    );
-    wave.visible = !land;
-    g.add(wave);
-    const foam = new THREE.Mesh(
-      new THREE.RingGeometry(0.95, 1, 180, 1),
-      new THREE.MeshBasicMaterial({ color: 0xeef4f7, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }),
-    );
-    foam.rotation.x = -Math.PI / 2;
-    foam.visible = !land;
-    g.add(foam);
-    // The spray dome: the sea over the burst heaved up into a white dome in
-    // the first seconds, and slumping back into the base surge.
-    const spray = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 48, 20, 0, Math.PI * 2, 0, Math.PI / 2),
-      new THREE.MeshLambertMaterial({
-        color: 0xf3f6f8, emissive: 0x3c444a, transparent: true, opacity: 0, depthWrite: false,
-      }),
-    );
-    spray.visible = false;
-    g.add(spray);
-    // The condensation cloud: a dome of white blown up off the sea behind the
-    // shock, and gone in a couple of seconds.
-    const dome = new THREE.Mesh(
-      new THREE.SphereGeometry(1, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2),
-      new THREE.MeshLambertMaterial({
-        color: 0xffffff, emissive: 0x6a7076, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
-      }),
-    );
-    g.add(dome);
-    // The cloud: the column, the cap, the skirt round the foot of it.
-    const puffs = puffBatch(900);
-    g.add(puffs.mesh);
-    this.live.push({ g, ball, glow, lamp, ring, wave, foam, spray, dome, puffs, y: Math.max(0, y), t: 0, land });
+    const p = this.parts(land);
+    p.ball.position.y = Math.max(0, y);
+    p.glow.position.y = Math.max(0, y) + 40;
+    for (const k of ['ball', 'glow', 'ring', 'wave', 'foam', 'spray', 'dome']) g.add(p[k]);
+    g.add(p.puffs.mesh);
+    // What the flash lights: everything on the sea, from the burst. One of
+    // the scene's own lights, lent for as long as the flash is worth drawing.
+    const lamp = this.lights?.holdLight?.() || null;
+    if (lamp) {
+      lamp.color.setHex(0xfff0d0);
+      lamp.intensity = 0;
+      lamp.distance = 0;
+      lamp.position.set(x, 300, z);
+    }
+    this.live.push({ g, ...p, lamp, y: Math.max(0, y), t: 0, land });
     this.flash = 1;
+  }
+
+  /** Give the flash's light back to the scene. */
+  dropLamp(n) {
+    if (!n.lamp) return;
+    this.lights?.releaseLight?.(n.lamp);
+    n.lamp = null;
+  }
+
+  /** The battle is over: give back the kept shaders and anything still burning. */
+  dispose() {
+    for (const n of this.live) {
+      this.scene.remove(n.g);
+      this.dropLamp(n);
+      n.g.traverse((o) => {
+        if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
+        o.material?.dispose?.();
+      });
+    }
+    this.live.length = 0;
+    if (this.kept) {
+      for (const k of ['ball', 'glow', 'ring', 'wave', 'foam', 'spray', 'dome']) this.kept[k].material.dispose();
+      this.kept.puffs.mesh.material.dispose();
+      this.kept.puffs.mesh.geometry.dispose();
+      this.kept = null;
+    }
   }
 
   /** How bright the whole sky is, 0..1, for whatever is drawing a white-out over the screen. */
@@ -219,7 +317,11 @@ export class Nukes {
       const t = n.t;
       if (t > NUKE.life) {
         this.scene.remove(n.g);
-        n.g.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
+        this.dropLamp(n);
+        n.g.traverse((o) => {
+          if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
+          o.material?.dispose?.();
+        });
         this.live.splice(i, 1);
         continue;
       }
@@ -240,8 +342,13 @@ export class Nukes {
       n.glow.scale.setScalar(NUKE.fireball * (4 + 10 * Math.exp(-t / 0.5)));
       n.glow.position.y = n.ball.position.y;
       n.glow.material.opacity = Math.min(1, f);
-      n.lamp.intensity = 3e7 * Math.exp(-t / 0.6) + 2e6 * Math.exp(-t / 5);
-      n.lamp.position.y = n.ball.position.y;
+      if (n.lamp) {
+        n.lamp.intensity = 3e7 * Math.exp(-t / 0.6) + 2e6 * Math.exp(-t / 5);
+        n.lamp.position.set(n.g.position.x, n.ball.position.y, n.g.position.z);
+        // Forty seconds on it is lighting nothing a ship would show, and the
+        // scene's gun flashes want it back.
+        if (t > 40) { n.lamp.intensity = 0; this.dropLamp(n); }
+      }
       // The shock on the water, where the simulation has it.
       const front = nukeFront(t);
       n.ring.scale.setScalar(Math.max(1, front));
@@ -293,10 +400,15 @@ export class Nukes {
     const c = this.tmp;
     const age = t - 0.8;
     const fade = Math.min(1, age / 2.5);
-    const dirt = n.land ? [0.58, 0.48, 0.40] : [0.86, 0.86, 0.84];
+    const dirt = n.land ? DIRT_LAND : DIRT_SEA;
     // The cap: a ring of turning cloud round the fireball, rolling over on
     // itself the way a vortex ring does, and widening as it climbs.
     const capR = R * 0.9 + 900 * (1 - Math.exp(-age / 30));
+    // The colour it is lit with is the same for every puff of it this frame.
+    heat(0.35 + age / 20, c);
+    const cr = c[0], cg = c[1], cb = c[2];
+    const capHot = Math.max(0, 1 - age / 14);
+    const capA = 0.55 * fade;
     for (let i = 0; i < 360; i++) {
       const a = hash(i, 1) * Math.PI * 2;
       const roll = hash(i, 2) * Math.PI * 2 + age * 0.25;
@@ -305,40 +417,43 @@ export class Nukes {
       const y = capY + Math.sin(roll) * tube * 0.7;
       const size = capR * (0.55 + 0.45 * hash(i, 4));
       // Lit from within at first, and cooling to cloud.
-      const hot = Math.max(0, 1 - age / 14) * (0.5 + 0.5 * Math.cos(roll));
-      heat(0.35 + age / 20, c);
+      const hot = capHot * (0.5 + 0.5 * Math.cos(roll));
       const k = Math.min(1, hot * 1.4);
       setPuff(b, Math.cos(a) * rr, y, Math.sin(a) * rr, size,
-        dirt[0] * (1 - k) + c[0] * k, dirt[1] * (1 - k) + c[1] * k, dirt[2] * (1 - k) + c[2] * k,
-        0.55 * fade);
+        dirt[0] * (1 - k) + cr * k, dirt[1] * (1 - k) + cg * k, dirt[2] * (1 - k) + cb * k,
+        capA);
     }
     // The stem: drawn up off the sea into the cap, narrower in the middle.
     const top = capY - capR * 0.3;
     const base = n.y;
     const stemN = 220;
+    heat(0.5 + age / 16, c);
+    const sr = c[0], sg = c[1], sb = c[2];
+    const stemHot = Math.max(0, 1 - age / 8);
+    const stemA = 0.5 * fade;
+    const rise = Math.min(1, age / 6);
     for (let i = 0; i < stemN; i++) {
       const u = hash(i, 5);
-      const y = base + (top - base) * Math.min(1, u * Math.min(1, age / 6));
+      const y = base + (top - base) * Math.min(1, u * rise);
       const waist = 0.55 + 0.45 * Math.abs(u - 0.5) * 2;
       const rr = (NUKE.fireball * 0.5 + 120) * waist * Math.sqrt(hash(i, 6));
       const a = hash(i, 7) * Math.PI * 2 + age * 0.1 * (u - 0.5);
       const size = 260 + 220 * hash(i, 8);
-      const hot = Math.max(0, 1 - age / 8) * (1 - u);
-      heat(0.5 + age / 16, c);
+      const hot = stemHot * (1 - u);
       setPuff(b, Math.cos(a) * rr, y, Math.sin(a) * rr, size,
-        dirt[0] * (1 - hot) + c[0] * hot, dirt[1] * (1 - hot) + c[1] * hot, dirt[2] * (1 - hot) + c[2] * hot,
-        0.5 * fade);
+        dirt[0] * (1 - hot) + sr * hot, dirt[1] * (1 - hot) + sg * hot, dirt[2] * (1 - hot) + sb * hot,
+        stemA);
     }
     // The skirt: spray and cloud rolling out along the sea at the foot of the
     // column -- the base surge -- slower than the shock and much slower than
     // the flash.
     const surge = Math.min(nukeFront(t) * 0.7, 2600 * (1 - Math.exp(-age / 14)));
+    const alpha = 0.5 * Math.max(0, 1 - age / 50) * Math.min(1, age / 2);
+    const w = n.land ? dirt : SURGE;
     for (let i = 0; i < 300; i++) {
       const a = hash(i, 9) * Math.PI * 2;
       const rr = surge * (0.55 + 0.45 * hash(i, 10));
       const size = 180 + 240 * hash(i, 11) + surge * 0.08;
-      const alpha = 0.5 * Math.max(0, 1 - age / 50) * Math.min(1, age / 2);
-      const w = n.land ? dirt : [0.94, 0.95, 0.96];
       setPuff(b, Math.cos(a) * rr, n.y + 40 + 120 * hash(i, 12), Math.sin(a) * rr, size, w[0], w[1], w[2], alpha);
     }
     b.mesh.geometry.instanceCount = b.n;

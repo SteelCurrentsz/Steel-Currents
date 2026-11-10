@@ -205,8 +205,41 @@ export class Effects {
     return p;
   }
 
+  /** The next of the flash lights to use, passing over any lent out. */
+  nextLight() {
+    const n = this.lights.length;
+    for (let i = 0; i < n; i++) {
+      const entry = this.lights[this.lightCursor = (this.lightCursor + 1) % n];
+      if (!entry.held) return entry;
+    }
+    return this.spare || (this.spare = { light: new THREE.PointLight(), life: 0 });
+  }
+
+  /**
+   * One of the flash lights, lent to something that wants a light of its own
+   * for a while -- an atomic burst -- and given back with releaseLight. A
+   * light brought into the scene or taken out of it recompiles every lit
+   * material in it; one lent like this is already there.
+   */
+  holdLight() {
+    const entry = this.lights.find((l) => !l.held);
+    if (!entry) return null;
+    entry.held = true;
+    entry.life = 0;
+    return entry.light;
+  }
+
+  releaseLight(light) {
+    const entry = this.lights.find((l) => l.light === light);
+    if (!entry) return;
+    entry.held = false;
+    entry.life = 0;
+    light.intensity = 0;
+    light.distance = 900;
+  }
+
   flash(x, y, z, power = 1) {
-    const entry = this.lights[this.lightCursor = (this.lightCursor + 1) % this.lights.length];
+    const entry = this.nextLight();
     entry.light.position.set(x, y, z);
     entry.light.color.setHex(0xffbb66);
     entry.light.intensity = 8 * power;
@@ -223,7 +256,7 @@ export class Effects {
    * squared that says how far it reaches.
    */
   gunFlash(x, y, z, caliber) {
-    const entry = this.lights[this.lightCursor = (this.lightCursor + 1) % this.lights.length];
+    const entry = this.nextLight();
     const k = 0.5 + caliber / 250;
     entry.light.position.set(x, y, z);
     entry.light.color.setHex(0xffa452);
@@ -819,7 +852,7 @@ export class Effects {
   /** The flashes' lights dying away. */
   stepLights(dt) {
     for (const l of this.lights) {
-      if (l.life > 0) {
+      if (l.life > 0 && !l.held) {
         l.life -= dt;
         l.light.intensity *= Math.pow(l.fade ?? 0.02, dt);
         if (l.life <= 0) l.light.intensity = 0;

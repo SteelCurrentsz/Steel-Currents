@@ -7255,6 +7255,13 @@ export class Battle {
     if (Number.isFinite(this.renderST)) this.scene.ocean.clock = this.renderST;
     if (!pair) return;
     const { a, b, t, ahead } = pair;
+    // How long this frame may spend finding where new fires stand (see
+    // fireseats.js). Each is rays let down through her whole model, and an
+    // atomic burst sets every compartment of every ship in reach alight in
+    // the same instant: found all at once, that was a frame of a second or
+    // more. Spread over the next few frames instead, a fire stands up a
+    // frame or two later than it caught, which nobody can see.
+    this.seatBudget = 4;
 
     // A ship conned off the chart holds the con until she sinks or drops off
     // the plot altogether. She used to have to be in `ships` -- which an
@@ -7555,7 +7562,10 @@ export class Battle {
           view.fireSeats = view.fireSeats || new Map();
           let seats = view.fireSeats.get(i);
           if (!seats) {
+            if (!(this.seatBudget > 0)) continue;
+            const t0 = performance.now();
             seats = fireSeats(view, cls, SECTIONS[i], freeboardOf(cls));
+            this.seatBudget -= performance.now() - t0;
             view.fireSeats.set(i, seats);
           }
           // The whole of the compartment goes up, not one column over it:
