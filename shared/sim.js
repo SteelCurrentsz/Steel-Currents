@@ -11,6 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt } from './formation.js';
+import { NUKE, nukeFront, nukeBite, nukeWave, waveHeight } from './nuke.js';
 import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
@@ -33,6 +34,7 @@ import {
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
   wallAt, hurtBuilding, hurtWall, wallHp, solidGround, solidAt, solidHit, buildingAt, worksTarget,
+  cityPlans,
 } from './works.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
@@ -62,6 +64,8 @@ export function createState(world, opts = {}) {
     batteries: [],
     shells: [],
     torps: [],
+    // Guided missiles in flight, and on their rails. See stepMissiles.
+    missiles: [],
     // The depth charges in the water, sinking. See stepCharges.
     charges: [],
     // The mines laid, on their moorings and waiting. See stepMines.
@@ -72,6 +76,8 @@ export function createState(world, opts = {}) {
     planes: [],
     // The heavy squadrons, which belong to nobody's deck.
     bombers: [],
+    // Atomic bursts, and how far out each one's shock has got. See stepNukes.
+    nukes: [],
     // The smoke a ship has laid, lying on the sea along her track. See
     // laySmoke and smokeBetween.
     smokes: [],
@@ -170,7 +176,7 @@ export function shipClearance(cls) {
 
 export function addShip(state, {
   id, name, classId, team, index, isBot = false, playerId = null, at = null,
-  airGroup = null,
+  airGroup = null, vls = null,
 }) {
   const cls = getClass(classId);
   const sp = berth(state.world, team, index, at, cls);
@@ -287,6 +293,9 @@ export function addShip(state, {
       id: t.id, angle: t.angle, elev: Math.max(0, layFloor(t.lift, t.angle)), cooldown: 0, disabled: 0, hurt: 0,
     })),
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
+    // Her RBU-1200 launchers, if she has them: where each is trained, its
+    // reload, and the ripple it is firing, if any. See stepRbu.
+    rbuMounts: cls.rbu ? cls.rbu.mounts.map((m) => ({ id: m.id, angle: m.rest ?? m.angle, elev: 0, cooldown: 0, ripple: null })) : [],
     // The depth charge gear. `dcLeft` is how many charges are still in the
     // stowage, `dcMounts` is a reload clock per rack and per thrower, `dcSet`
     // is what the pistols are wound to, and `dcAuto` is whether her own
@@ -326,7 +335,10 @@ export function addShip(state, {
     // tracer on screen is the tracer the simulation is firing.
     aaFire: 0,
     squadrons: cls.planes
-      ? Array.from({ length: cls.planes.squadrons }, (_, i) => ({ id: i, state: 'deck', cooldown: 0 }))
+      ? [...Array.from({ length: cls.planes.squadrons }, (_, i) => ({ id: i, state: 'deck', cooldown: 0 })),
+        // A deckload ranged on her flight deck is a squadron of its own, and
+        // the first off: see launchStrike.
+        ...(cls.planes.deckload ? [{ id: cls.planes.squadrons, state: 'deck', cooldown: 0, deckload: true }] : [])]
       : [],
     airGroup: cls.planes ? normaliseAirGroup(cls, airGroup) : null,
     // How long her deck is still busy with the last launch. One aeroplane goes
@@ -339,6 +351,11 @@ export function addShip(state, {
     recovery: [],
     // A launch ordered and not yet off the deck.
     launching: null,
+    // Her missiles, where she carries any: how many of each are left, how long
+    // until the next can go, and her box launchers, each raised or lowered.
+    // See fireMissile. Her vertical launcher, if she has one, is loaded as
+    // her captain chose in the yard (`vls`), or as her datasheet has it.
+    missiles: freshMissiles(cls, vls),
     spottedBy: [false, false],
     lastFiredAt: -999,
     kills: 0,
@@ -352,6 +369,7 @@ export function addShip(state, {
     parties: Array.from({ length: partyCount(cls) }, () => ({ job: isBot ? 'auto' : null, on: null })),
   };
   state.ships.push(ship);
+  setAirGroup(ship, cls, ship.airGroup);
   return ship;
 }
 
@@ -2043,8 +2061,12 @@ export function gunLimits(battery) {
 //   Everything else on the ship carries on. Manning A turret does not stop B
 //   turret shooting, and it does not stop her steering.
 
-/** Which batteries a mounting can be taken from. */
-const MANNED = new Set(['main', 'sec', 'aa', 'torp']);
+/**
+ * Which batteries a mounting can be taken from. Her anti-submarine rocket
+ * launchers ('rbu') among them: one taken over is laid on the point its layer
+ * holds and fires its ripple there when he says so (see stepRbu).
+ */
+const MANNED = new Set(['main', 'sec', 'aa', 'torp', 'rbu']);
 
 /**
  * Her close-range mountings, flattened in the order everything else uses.
@@ -2400,6 +2422,7 @@ function fireManned(state, ship) {
   if (k === 'main') return fireGuns(state, ship, i);
   if (k === 'sec') return fireSecondary(state, ship, i);
   if (k === 'torp') return fireTorpedoes(state, ship, i);
+  if (k === 'rbu') return fireRbuManned(state, ship, i);
   return 0;
 }
 
@@ -2425,7 +2448,8 @@ export function manGun(ship, msg) {
   const list = k === 'main' ? ship.turrets
     : k === 'sec' ? ship.secMounts
       : k === 'torp' ? ship.torpMounts
-        : lightMounts(cls);
+        : k === 'rbu' ? ship.rbuMounts
+          : lightMounts(cls);
   const i = Math.round(msg.i || 0);
   if (!list || i < 0 || i >= list.length) { ship.manned = null; return; }
   ship.manned = { k, i };
@@ -3037,34 +3061,73 @@ function deliverOrdnance(state, p, best, P) {
   // the ship is -- so a flight shot about on the way in misses, which is most
   // of what a close-range battery is actually for.
   const aim = ((p.wear && p.wear.aim !== undefined) ? p.wear.aim : 1) * diveSteady(p);
-  for (let i = 0; i < (p.bomb || 0); i++) {
+  if (!(p.bomb > 0)) return;
+  // Where on her it is going, and where she will be when it gets there.
+  //
+  // The bomb takes a few seconds to come down, and a ship at thirty knots is
+  // fifty metres on by then: it used to be sent at the middle of her as she
+  // was at the release, and came down astern of her -- in her wake, on a hit.
+  // It is sent instead at where she will be, and at the part of her the
+  // pilot had in his sight: the point of her nearest where the dive was
+  // pointing, kept inside her decks.
+  const cls = getClass(best.classId);
+  const drop = bombFall(p, best);
+  const v = velocityOf(best);
+  const sx = best.x + v.x * drop, sz = best.z + v.z * drop;
+  const pv = { x: Math.sin(p.heading || 0) * (p.speed || 0), z: Math.cos(p.heading || 0) * (p.speed || 0) };
+  const lb = worldToLocal(p.x + pv.x * drop - sx, p.z + pv.z * drop - sz, best.heading);
+  const on = {
+    x: clamp(lb.x, -cls.hull.beam * 0.25, cls.hull.beam * 0.25),
+    z: clamp(lb.z, -cls.hull.length * 0.38, cls.hull.length * 0.38),
+  };
+  const onW = localToWorld(on.x, on.z, best.heading);
+  for (let i = 0; i < p.bomb; i++) {
     const hit = state.rng() <= (P.bombHit ?? 0.4) * aim;
-    // A miss is a miss you can see: it goes into the water short, over or off
-    // her beam, which is where they went.
-    const off = hit ? 0 : 45 + state.rng() * 130;
-    const ang = state.rng() * Math.PI * 2;
+    // A miss is a miss you can see: a near miss, into the water close
+    // alongside her or just short of her bow or over her stern, where a dive
+    // bomber's misses went. Never on her deck, and never a quarter of a mile
+    // off, which is not where anybody diving on her was aiming.
+    let at = on;
+    if (!hit) {
+      const side = state.rng() < 0.5 ? -1 : 1;
+      const L = cls.hull.length * 0.5, B = cls.hull.beam * 0.5;
+      at = state.rng() < 0.7
+        ? { x: side * (B + 6 + state.rng() * 40), z: clamp(on.z + (state.rng() - 0.5) * 40, -L - 10, L + 10) }
+        : { x: on.x + (state.rng() - 0.5) * B * 2, z: side * (L + 8 + state.rng() * 35) };
+    }
+    const atW = hit ? onW : localToWorld(at.x, at.z, best.heading);
+    const tx = sx + atW.x, tz = sz + atW.z;
     state.events.push({
       e: 'bomb', team: p.team, i: p.id,
       x: p.x, z: p.z,
-      tx: best.x + Math.sin(ang) * off,
-      tz: best.z + Math.cos(ang) * off,
+      tx: Math.round(tx * 10) / 10, tz: Math.round(tz * 10) / 10,
       hit: hit ? 1 : 0,
     });
     if (!hit) {
       // Into the sea beside her, a couple of seconds after it left the rack,
       // which is how long it takes to get there (see the drop in ordnance.js).
-      waterBlow(state, best.x + Math.sin(ang) * off, best.z + Math.cos(ang) * off, 320, 2.2);
+      waterBlow(state, tx, tz, 320, 2.2);
       continue;
     }
     const owner = state.ships.find((s) => s.id === p.owner) || null;
-    const cls = getClass(best.classId);
-    const lb = worldToLocal(p.x - best.x, p.z - best.z, best.heading);
-    const cell = sectionAt(clamp(lb.z / (cls.hull.length * 0.5), -1, 1), 'deck');
+    const cell = sectionAt(on.z / (cls.hull.length * 0.5), 'deck');
     // Where on her it landed, so the burst breaks what it actually reached
     // rather than something at the other end of the ship.
-    bombHit(state, best, owner, cell, lb.x >= 0 ? 1 : -1, P,
-      { x: lb.x, y: freeboardOf(cls), z: lb.z });
+    bombHit(state, best, owner, cell, on.x >= 0 ? 1 : -1, P,
+      { x: on.x, y: freeboardOf(cls), z: on.z });
   }
+}
+
+/**
+ * How long a bomb let go now takes to come down to her deck: from the height
+ * of the aeroplane over her, thrown down at the aeroplane's own rate of
+ * descent and pulled on by gravity. The air is left out -- over a few hundred
+ * metres it costs a bomb a few tenths of a second.
+ */
+function bombFall(p, best) {
+  const h = Math.max(1, (p.y ?? 0) - (best.y || 0) - 12);
+  const down = Math.max(0, -(p.vy || 0));
+  return (-down + Math.sqrt(down * down + 2 * G * h)) / G;
 }
 
 /**
@@ -3779,7 +3842,10 @@ export function dropOrdnance(state, ship, id) {
   if (p.dropped) return false;
   const owner = state.ships.find((q) => q.id === p.owner);
   const cls = shipClass(owner || ship);
-  const P = cls.planes;
+  // One of a deckload drops her own bombs, not her carrier's, by hand as on
+  // the autopilot.
+  const P = cls.planes && p.deckload && cls.planes.deckload
+    ? { ...cls.planes, ...cls.planes.deckload } : cls.planes;
   if (!P) return false;
   // What is on her rack. A fighter carries nothing to drop -- her guns are her
   // weapon -- and letting her "drop" used to mark her as having attacked and
@@ -6071,6 +6137,15 @@ function stepShells(state, dt) {
       continue;
     }
 
+    // An atomic bomb goes off on whatever it reaches first -- a deck, a gun
+    // position, a roof, the ground or the sea -- and none of the rest of
+    // this applies to it. See nukeBlast.
+    if (sh.atomic) {
+      if (atomicArrives(state, sh, px, py, pz)) continue;
+      if (sh.life <= 200) out.push(sh);
+      continue;
+    }
+
     let consumed = false;
     // Ship intersection: sample the segment so fast shells cannot tunnel.
     for (const target of state.ships) {
@@ -6178,6 +6253,7 @@ function stepShells(state, dt) {
         });
         if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber);
         if (!ashore && sh.mortar) mortarMiss(state, sh);
+        if (!ashore && sh.asw) rbuSplash(state, sh);
         // Short of a sea wall, at its foot: the burst is against its face.
         if (!ashore && state.world.works?.walls?.length && wallAt(state.world, sh.x, sh.z, 8)) {
           landStrike(state, sh.x, sh.z, sh.caliber / 1000, sh.bomb ? 'bomb' : 'shell',
@@ -6228,6 +6304,196 @@ function stepShells(state, dt) {
     out.push(sh);
   }
   state.shells = out;
+}
+
+/**
+ * Whether an atomic bomb has reached anything along this tick's fall, and if
+ * it has, the burst. Returns true when it has gone off.
+ */
+function atomicArrives(state, sh, px, py, pz) {
+  const steps = 6;
+  for (let i = 1; i <= steps; i++) {
+    const f = i / steps;
+    const cx = lerp(px, sh.x, f), cz = lerp(pz, sh.z, f), cy = lerp(py, sh.y, f);
+    for (const target of state.ships) {
+      if (!target.alive) continue;
+      const cls = getClass(target.classId);
+      const deck = 9 + cls.hull.superstructure * 14;
+      if (cy > deck) continue;
+      if (!pointInBox(cx, cz, target.x, target.z, target.heading, cls.hull.length * 0.5, cls.hull.beam * 0.5 + 2)) continue;
+      nukeBlast(state, cx, cy, cz, sh);
+      return true;
+    }
+    for (const bat of state.batteries) {
+      if (!bat.alive) continue;
+      const reach = BATTERIES[bat.batteryId].span * 0.6 + 6;
+      if (cy > bat.y + 14 || dist2(cx, cz, bat.x, bat.z) > reach * reach) continue;
+      nukeBlast(state, cx, cy, cz, sh);
+      return true;
+    }
+    const g = Math.max(0, groundHeight(state.world, cx, cz));
+    if (cy <= g) {
+      nukeBlast(state, cx, g, cz, sh);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The bomb going off.
+ *
+ * What happens in the first instant happens here: the flash, which every
+ * client sees wherever it is looking, and the ground it is on. Everything
+ * else -- ships, aeroplanes, guns, the town, the wave -- happens as the shock
+ * reaches it, in stepNukes, so that what is wrecked is wrecked at the moment
+ * the ring of white water racing out across the sea gets to it.
+ *
+ * It is no respecter of sides. Whatever is near it when it goes is near it.
+ */
+export function nukeBlast(state, x, y, z, sh = null) {
+  const id = eid();
+  const team = sh ? sh.team : -1;
+  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0,
+    sea: groundHeight(state.world, x, z) <= 0.5 };
+  (state.nukes || (state.nukes = [])).push(n);
+  const ashore = groundHeight(state.world, x, z) > 0.5;
+  state.events.push({ e: 'nuke', i: id, x: r(x), y: r(y), z: r(z), tm: team, land: ashore ? 1 : 0, tk: state.tick });
+  // The hole it leaves in the ground, if it went off on the ground.
+  if (ashore) landStrike(state, x, z, 1.52, 'bomb', 1);
+  stepNukes(state, 0);
+  return n;
+}
+
+/**
+ * The shock of every atomic burst, going out, and what it finds.
+ *
+ * Each tick the front has moved on from where it was to where nukeFront says
+ * it is now, and everything between those two rings is struck: the share of
+ * its life nukeBite says the blast is worth at that distance, the fires it
+ * starts, and the wave it throws -- every hull it reaches is rolled and set
+ * bodily away from the burst. Aeroplanes are measured in three dimensions,
+ * because a bomber at four thousand feet is a long way further from a burst
+ * on the sea than a ship at the same range.
+ */
+function stepNukes(state, dt) {
+  const list = state.nukes;
+  if (!list || !list.length) return;
+  void dt;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const n = list[i];
+    const age = state.t - n.t0;
+    const r0 = n.r;
+    const r1 = nukeFront(age);
+    const crossed = (d) => d <= r1 && (d > r0 || (r0 === 0 && d >= 0));
+    for (const s of state.ships) {
+      if (!s.alive) continue;
+      const cls = getClass(s.classId);
+      const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
+      if (!crossed(d)) continue;
+      // A boat deep under is spared a little of it by the water over her;
+      // not much, because a shock in water is worse than one in air.
+      const deep = (s.depth || 0) > 8 ? 0.7 : 1;
+      const bite = nukeBite(d) * deep;
+      if (bite <= 0) continue;
+      damageShip(state, s, null, cls.hp * bite, 'nuke');
+      if (s.alive) {
+        // Everything on her upper deck that will burn is alight.
+        startFire(state, s, 'works', Math.min(1, bite * 1.6));
+        if (bite > 0.35) {
+          for (const k of ['fore', 'aft']) if (s.sections[k]) startFire(state, s, k, Math.min(1, bite));
+        }
+      }
+      // The shock is a blow, not a wave: it jolts her and that is all. The
+      // water comes later (see the wave, below).
+      nukeShove(s, cls, n, 0.25 * Math.max(0, 1 - d / NUKE.reach));
+      state.events.push({ e: 'nukeHit', ship: s.id, i: n.id, b: Math.round(bite * 100) / 100 });
+    }
+    // In the air.
+    const air = (q) => Math.hypot(q.x - n.x, (q.y ?? 220) - n.y, q.z - n.z);
+    for (const q of state.planes) {
+      if (q.dead) continue;
+      const d = air(q);
+      if (!crossed(d) || d > NUKE.air) continue;
+      if (d < NUKE.air * 0.45) killFlight(state, q, 'blast');
+      else {
+        hurtFlight(state, q, 900 * Math.pow(1 - d / NUKE.air, 1.5), 'blast');
+        if (q.hp <= 0 && !q.dead) killFlight(state, q, 'blast');
+      }
+    }
+    for (const bm of state.bombers) {
+      if (!bm.alive) continue;
+      const d = air(bm);
+      if (!crossed(d) || d > NUKE.air) continue;
+      if (d < NUKE.air * 0.45) heavyGone(state, bm, 'blast');
+      else hurtBomber(state, bm, 2400 * Math.pow(1 - d / NUKE.air, 2), 'blast');
+    }
+    for (const bat of state.batteries) {
+      if (!bat.alive) continue;
+      const d = Math.hypot(bat.x - n.x, bat.z - n.z);
+      if (!crossed(d)) continue;
+      const bite = nukeBite(d);
+      if (bite > 0) hurtBattery(state, bat, batteryHp(BATTERIES[bat.batteryId]) * bite * 1.2);
+    }
+    // What is in the water near it does not survive the shock in the water.
+    for (const tp of state.torps) {
+      if (!tp.dead && Math.hypot(tp.x - n.x, tp.z - n.z) < Math.min(r1, NUKE.heavy)) tp.dead = true;
+    }
+    for (const m of state.missiles || []) {
+      if (m.hp > 0 && air(m) < Math.min(r1, NUKE.heavy)) m.hp = 0;
+    }
+    // The town: every building the front has crossed.
+    if (state.world?.works) {
+      for (const plan of cityPlans(state.world)) {
+        for (const b of plan.byId.values()) {
+          const d = Math.hypot(b.x - n.x, b.z - n.z);
+          if (!crossed(d)) continue;
+          const bite = nukeBite(d);
+          if (bite > 0) hurtBuilding(state.world, b, b.hp * bite * 1.6, state.events, worksDice(state), { x: n.x, z: n.z, he: true });
+        }
+      }
+    }
+    // The third thing: the wave, the sea that was shoved aside coming back
+    // as a ring of heavy water, slower than the shock by a long way. It does
+    // not wreck a ship the way the shock does -- it rolls her, carries her
+    // bodily away from the burst, and puts green water over a low deck.
+    const w0 = n.w, w1 = n.sea ? nukeWave(age) : 0;
+    if (w1 > w0) {
+      for (const s of state.ships) {
+        if (!s.alive || (s.depth || 0) > 8) continue;
+        const cls = getClass(s.classId);
+        const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
+        if (d <= w0 || d > w1) continue;
+        const h = waveHeight(d);
+        nukeShove(s, cls, n, h / NUKE.waveHigh);
+        // Over her deck edge: a sea aboard, and what it does to what is there.
+        const over = h - freeboardOf(cls);
+        if (over > 0) damageShip(state, s, null, cls.hp * Math.min(0.12, over * 0.008), 'flood');
+        state.events.push({ e: 'nukeWave', ship: s.id, i: n.id, h: Math.round(h) });
+      }
+      n.w = w1;
+    }
+    n.r = r1;
+    if (age > NUKE.tau * 6 && (!n.sea || age > NUKE.life)) list.splice(i, 1);
+  }
+}
+
+/**
+ * A blow off a burst at `n`, as hard as `k` (1 is the wave at its tallest):
+ * she is rolled away from it and set bodily away from it, the more the
+ * smaller she is.
+ */
+function nukeShove(s, cls, n, k) {
+  if (!(k > 0)) return;
+  const dx = s.x - n.x, dz = s.z - n.z;
+  const dd = Math.hypot(dx, dz) || 1;
+  const lx = worldToLocal(n.x - s.x, n.z - s.z, s.heading).x;
+  const j = k * clamp(DD_BULK / Math.max(1, cls.hull.length * cls.hull.beam * cls.hull.draft), 0.25, 3);
+  s.rockRate = clamp((s.rockRate || 0) - Math.sign(lx || 1) * ROLL_KICK * 40 * j, -MAX_ROCK_RATE, MAX_ROCK_RATE);
+  s.driftX = (s.driftX || 0) + (dx / dd) * PUSH_KICK * 10 * j;
+  s.driftZ = (s.driftZ || 0) + (dz / dd) * PUSH_KICK * 10 * j;
+  const v = Math.hypot(s.driftX, s.driftZ);
+  if (v > MAX_DRIFT) { s.driftX *= MAX_DRIFT / v; s.driftZ *= MAX_DRIFT / v; }
 }
 
 /** Which part of the hull a shell struck, and the armour it must beat. */
@@ -7088,6 +7354,8 @@ function stepTorpMounts(state, ship, dt) {
   const manWorld = headingTo(ship.x, ship.z, ship.manX, ship.manZ);
   const manLocal = wrapAngle(manWorld - ship.heading);
   for (const m of ship.torpMounts) {
+    // A tube fixed on her deck stays where it is mounted.
+    if (T.mounts[m.id].fixed) { m.angle = T.mounts[m.id].rest ?? T.mounts[m.id].angle; continue; }
     const manned = isManned(ship, 'torp', m.id);
     const given = manned ? null : assignedAim(state, ship, 'torp', m.id, T.range, null, T.speed);
     // Given a ship out of reach: the bank stands where it is.
@@ -7123,19 +7391,27 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
       : given ? headingTo(ship.x, ship.z, given.x, given.z)
         : headingTo(ship.x, ship.z, ship.aimX, ship.aimZ);
     const local = wrapAngle(world - ship.heading);
-    if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
-    // Her own hull is not something to fire a torpedo through. The bank trains
-    // to the nearest bearing it can shoot on, so it will be sitting on the
-    // edge of the blind sector with the target beyond it -- and firing there
-    // is five fish thirty degrees off the target for the sake of pressing the
-    // button. The order is refused until the ship has come round.
-    if (!torpedoClear(cls, spec, local)) continue;
-    if (!torpedoClear(cls, spec, m.angle)) continue;
-    if (layFloor(spec.mask, local) > 0 || layFloor(spec.mask, m.angle) > 0) continue;
-    // And she has to have come round. Fired before the bank has trained, the
-    // fish go where the tubes were pointing, which is over her own bow.
-    if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local, cls))) > 0.05) continue;
-    if (!manned && !orderGiven(state, ship, 'torp', { many: spec.tubes > 1 })) continue;
+    if (spec.fixed) {
+      // A tube that does not train fires down its own line, which is clear of
+      // her: its fish is a homing one and turns onto the target itself, so it
+      // is fired at anything near enough the bearing it points on.
+      if (Math.abs(angleDelta(spec.angle, local)) > (spec.fire ?? 0.35)) continue;
+      if (!manned && !orderGiven(state, ship, 'torp', { many: false })) continue;
+    } else {
+      if (Math.abs(angleDelta(spec.angle, local)) > spec.arc) continue;
+      // Her own hull is not something to fire a torpedo through. The bank trains
+      // to the nearest bearing it can shoot on, so it will be sitting on the
+      // edge of the blind sector with the target beyond it -- and firing there
+      // is five fish thirty degrees off the target for the sake of pressing the
+      // button. The order is refused until the ship has come round.
+      if (!torpedoClear(cls, spec, local)) continue;
+      if (!torpedoClear(cls, spec, m.angle)) continue;
+      if (layFloor(spec.mask, local) > 0 || layFloor(spec.mask, m.angle) > 0) continue;
+      // And she has to have come round. Fired before the bank has trained, the
+      // fish go where the tubes were pointing, which is over her own bow.
+      if (Math.abs(angleDelta(m.angle, torpDesired(ship, spec, local, cls))) > 0.05) continue;
+      if (!manned && !orderGiven(state, ship, 'torp', { many: spec.tubes > 1 })) continue;
+    }
     const pos = localToWorld(spec.x, spec.z, ship.heading);
     // Down the line of the tubes, which is where a torpedo goes.
     const base = wrapAngle(ship.heading + m.angle);
@@ -7150,6 +7426,11 @@ export function fireTorpedoes(state, ship, only = null, { assignedOnly = false }
         flood: T.floodChance,
         kind: torpedoKind(cls),
       };
+      // A homing fish carries its seeker with it (see stepTorpedoes); one out
+      // of a fixed tube has its gyro set to come round onto the bearing it was
+      // fired at once it is in the water.
+      if (T.homing) tp.homing = { ...T.homing };
+      if (spec.fixed) tp.gyro = wrapAngle(world);
       // A bank can carry its own launch -- the Surcouf's bow tubes and her
       // trainable triples are nothing alike -- or take the class's.
       const L = spec.launch || T.launch;
@@ -7225,9 +7506,53 @@ export function torpedoKind(cls, aerial = false) {
  */
 export const TORP_ARM_TIME = 5;
 
+/**
+ * A homing torpedo's seeker at work.
+ *
+ * Run out on the bearing it was fired on, a homing fish listens once it is
+ * clear of the ship that fired it (`after`, in metres run): for the nearest
+ * enemy ahead of it -- inside `cone` either side of its own course and `seek`
+ * metres -- on the surface or under it. Once it has one it turns onto him, no
+ * harder than its rudders can put it round (`turn`, radians a second), and
+ * leads him by the time it will take to get there. Lose him -- out of its
+ * cone, out of its hearing, sunk -- and it runs straight on, listening.
+ */
+function steerHoming(state, tp, dt) {
+  const H = tp.homing;
+  // Its gyro first: out of a fixed tube it comes round onto the course it
+  // was set, and runs it until the seeker has something.
+  const gyro = () => {
+    if (tp.gyro === undefined) return;
+    tp.heading = wrapAngle(tp.heading + clamp(angleDelta(tp.heading, tp.gyro), -H.turn * 2 * dt, H.turn * 2 * dt));
+  };
+  if (tp.travelled < (H.after || 0)) { gyro(); return; }
+  let best = null, bd = Infinity;
+  for (const s of state.ships) {
+    if (!s.alive || s.team === tp.team || !mayHurt(state, tp.team, s)) continue;
+    const d = dist(tp.x, tp.z, s.x, s.z);
+    if (d > H.seek || d >= bd) continue;
+    // The one it was locked on to it holds a little longer, out to the edge
+    // of its cone and a little past it, rather than flicking between two.
+    const cone = s.id === tp.lock ? H.cone * 1.3 : H.cone;
+    if (Math.abs(angleDelta(tp.heading, headingTo(tp.x, tp.z, s.x, s.z))) > cone) continue;
+    best = s; bd = d;
+  }
+  tp.lock = best ? best.id : 0;
+  if (!best) { gyro(); return; }
+  // Once it has heard one it is his, and the gyro's course is forgotten.
+  tp.gyro = undefined;
+  const lead = bd / Math.max(1, tp.speed);
+  const ax = best.x + Math.sin(best.heading || 0) * (best.speed || 0) * lead;
+  const az = best.z + Math.cos(best.heading || 0) * (best.speed || 0) * lead;
+  const off = angleDelta(tp.heading, headingTo(tp.x, tp.z, ax, az));
+  tp.heading = wrapAngle(tp.heading + clamp(off, -H.turn * dt, H.turn * dt));
+}
+
 function stepTorpedoes(state, dt) {
   const out = [];
   for (const tp of state.torps) {
+    // Broken up by a bomb going off beside it (see rbuBurst).
+    if (tp.dead) continue;
     // How long since it was launched. A fish put in the water by hand comes
     // in with only how far it has run, which is how long it has been running.
     tp.age = (tp.age ?? (tp.travelled || 0) / Math.max(1, tp.speed)) + dt;
@@ -7263,6 +7588,7 @@ function stepTorpedoes(state, dt) {
       out.push(tp);
       continue;
     }
+    if (tp.homing) steerHoming(state, tp, dt);
     const nx = tp.x + Math.sin(tp.heading) * tp.speed * dt;
     const nz = tp.z + Math.cos(tp.heading) * tp.speed * dt;
     tp.travelled += tp.speed * dt;
@@ -7330,7 +7656,7 @@ function stepTorpedoes(state, dt) {
         // wrecks is local to where it went off: frames, the plating round it,
         // whatever was standing against that bulkhead. The ship is killed by
         // the water, and the water is what this is really for.
-        damageShip(state, target, owner, tp.damage * 0.28 * (1 - reduction), 'torpedo', hole);
+        damageShip(state, target, owner, tp.damage * 0.28 * TORP_BLAST * (1 - reduction), 'torpedo', hole);
         target.sections[hole].pens++;
         // Four metres under water and against her side, which is where a
         // torpedo goes off and a long way below anything that trains.
@@ -7345,7 +7671,7 @@ function stepTorpedoes(state, dt) {
         // does not close it: that is what the bulges were for.
         const side = lt.x >= 0 ? 1 : -1;
         openHull(state, target, hole,
-          (34 + state.rng() * 30) * (1 - reduction), side, 4 + state.rng() * 2.5);
+          (34 + state.rng() * 30) * TORP_RENT * (1 - reduction), side, 4 + state.rng() * 2.5);
         if (owner) owner.ribbons.torps++;
         state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
         // And the column of water it throws up her side, which is a wave like
@@ -7359,6 +7685,1221 @@ function stepTorpedoes(state, dt) {
   }
   state.torps = out;
 }
+
+// ---------------------------------------------------------------------------
+// Guided missiles
+// ---------------------------------------------------------------------------
+//
+// The one weapon aboard that is not aimed at all once it has gone. A missile
+// is given a ship and flies itself there: off its rail, up and round onto her,
+// down to the height it cruises at, and in -- a Tomahawk rising at the end and
+// coming down on her decks, a Harpoon skimming the sea the whole way and into
+// her side. Her captain may lay it on another ship while it is still in the
+// air, and if the one it was sent at is gone before it gets there it looks for
+// another ahead of it.
+//
+// Nothing a ship of the war carried was made to shoot one down. A missile is
+// small, quick and low, and a flak battery that brings a squadron down puts a
+// burst near one once in a long while: every gun that bears has its chance,
+// and the chance is very small (MISSILE_FLAK). What stops a missile is a
+// Phalanx, which locks on to one at a time and hoses it out of the air (see
+// stepCiws) -- and a salvo arriving together is more than one can take.
+
+/** How much of a squadron's punishment a missile in the same flak takes. */
+export const MISSILE_FLAK = 4e-5;
+/** How fast a missile comes off its rail, and how hard its booster pushes. */
+const MISSILE_EJECT = 38;
+const MISSILE_BOOST = 85;
+/** Seconds it climbs out along its rail's line before it turns for her. */
+const MISSILE_CLIMB = 2.2;
+/** How long a box stays up after its last missile, in case of another. */
+const BOX_HOLD = 6;
+/** Seconds a box takes to come up, or go down. */
+export const BOX_RAISE_T = 2.4;
+/** How far a box is raised, in radians. */
+export const BOX_ELEV = 0.6;
+/** How high a box's cells are over the foot it is hinged at. */
+const BOX_CELL = 1.19;
+
+/**
+ * The one-letter name each missile goes by on the wire, and back. Every kind
+ * any class carries has one.
+ */
+export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g' };
+export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(([k, c]) => [c, k]));
+
+/** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc'. */
+export const missileRole = (K) => (K && K.role) || 'surface';
+/**
+ * Where a kind goes up from: a Mk 41 cell ('vls'), an armoured box ('box'), a
+ * canister ('tube') -- fired once -- or the arm of a launcher that is
+ * reloaded from the magazine under it ('rail').
+ */
+const launchOf = (K, kind) => (K && K.launch) || (kind === 'tomahawk' ? 'box' : 'tube');
+
+/** Whether she carries anything that goes up at aircraft or missiles: what her own fire control fires on its own (see stepAegis). */
+export function samKinds(cls) {
+  const M = cls && cls.missiles;
+  if (!M) return [];
+  return Object.entries(M.kinds).filter(([, K]) => missileRole(K) === 'sam' || missileRole(K) === 'abm').map(([k]) => k);
+}
+
+/** Every kind any class carries, by name: for a missile whose ship has gone. */
+const MISSILE_KINDS = {};
+for (const c of Object.values(SHIP_CLASSES)) {
+  for (const [k, K] of Object.entries(c.missiles?.kinds || {})) if (!MISSILE_KINDS[k]) MISSILE_KINDS[k] = K;
+}
+/** The kind a missile in the air flies by: her class's if her ship is still there. */
+function kindOf(state, m) {
+  const ship = state.ships.find((s) => s.id === m.owner);
+  const K = ship ? shipClass(ship).missiles?.kinds?.[m.kind] : null;
+  return K || MISSILE_KINDS[m.kind];
+}
+
+// ---- her vertical launchers ------------------------------------------------
+//
+// A Mk 41 is ninety cells and any missile in any of them: what she sails with
+// is her captain's choice, made in the yard (see the VLS panel there) and
+// handed to her when she is put on the water. Whatever he asked for is landed
+// on what she can carry here: whole missiles, none of a kind she has not got,
+// and no more than her cells.
+
+/** The kinds that go in her vertical launcher, in the order her datasheet lists them. */
+export function vlsKinds(cls) {
+  const M = cls && cls.missiles;
+  if (!M || !M.vls) return [];
+  return Object.entries(M.kinds).filter(([k, K]) => launchOf(K, k) === 'vls').map(([k]) => k);
+}
+
+/** How many cells she has. */
+export function vlsCells(cls) {
+  return (cls && cls.missiles && cls.missiles.vls && cls.missiles.vls.cells.length) || 0;
+}
+
+/** Her launcher loaded as her datasheet has it: each kind's `rounds`. */
+export function defaultVls(cls) {
+  const out = {};
+  for (const k of vlsKinds(cls)) out[k] = cls.missiles.kinds[k].rounds;
+  return out;
+}
+
+/**
+ * A loadout as asked, landed on what she can carry: a count for every kind
+ * her cells take, whole and not negative, the lot no more than her cells --
+ * taken off the last kinds first if it is. Anything else asked for is
+ * ignored; nothing asked for at all is her datasheet's.
+ */
+export function normaliseVls(cls, want) {
+  const kinds = vlsKinds(cls);
+  if (!kinds.length) return {};
+  if (!want || typeof want !== 'object') return defaultVls(cls);
+  const out = {};
+  let room = vlsCells(cls);
+  for (const k of kinds) {
+    const n = Math.max(0, Math.floor(Number(want[k]) || 0));
+    out[k] = Math.min(n, room);
+    room -= out[k];
+  }
+  return out;
+}
+
+function freshMissiles(cls, want = null) {
+  const M = cls.missiles;
+  if (!M) return null;
+  const load = normaliseVls(cls, want);
+  const left = {}, cool = {};
+  for (const [k, K] of Object.entries(M.kinds)) { left[k] = load[k] ?? K.rounds; cool[k] = 0; }
+  // Her cells, each holding a kind or nothing. The kinds are spread through
+  // both launchers rather than run in from one end, so a launcher lost to a
+  // hit takes some of everything rather than all of one.
+  const n = vlsCells(cls);
+  const order = [...Array(n).keys()].sort((a, b) => ((a * 0.618034) % 1) - ((b * 0.618034) % 1));
+  const cells = new Array(n).fill(null);
+  let at = 0;
+  for (const k of vlsKinds(cls)) for (let i = 0; i < load[k]; i++) cells[order[at++]] = k;
+  return {
+    left, cool, cells,
+    // Her box launchers: how far up each is (0 down, 1 up), whether it is
+    // wanted up, how long it stays up, and how many it has left.
+    boxes: (M.boxes || []).map(() => ({ raise: 0, want: 0, hold: 0, left: 4 })),
+    // Her Harpoon canisters, each fired once.
+    tubes: (M.tubes || []).map(() => 1),
+    // Whether her own fire control may put her surface-to-air missiles up
+    // without being told (see stepAegis), and how long until it next looks.
+    auto: true, aegis: 0,
+  };
+}
+
+/**
+ * Load her launcher as `want` asks, before she has fired anything: what the
+ * yard sends with her. Whatever is not hers to carry is dropped (see
+ * normaliseVls). Returns what she was loaded with.
+ */
+export function setVlsLoad(ship, cls, want) {
+  if (!ship || !cls || !vlsKinds(cls).length) return null;
+  const auto = ship.missiles ? ship.missiles.auto : true;
+  ship.missiles = freshMissiles(cls, want);
+  ship.missiles.auto = auto;
+  return normaliseVls(cls, want);
+}
+
+/** Whether her own fire control may fire her surface-to-air missiles on its own. */
+export function setAegisAuto(ship, on) {
+  if (ship && ship.missiles) ship.missiles.auto = !!on;
+}
+
+/** What she has left of each, for the wire. */
+export function missilesLeft(ship) {
+  return ship.missiles ? { ...ship.missiles.left } : null;
+}
+
+/** Whether `t` is a ship a missile of `team` may be laid on. */
+function missileMark(state, team, t) {
+  return !!t && t.alive && t.team !== team && !submerged(t)
+    && (!t.spottedBy || !!t.spottedBy[team]);
+}
+
+/** How far her hull sonar hears a boat under the sea, for an ASROC to be fired at. */
+export const ASROC_SONAR = 7000;
+
+/**
+ * Whether `t` is something an ASROC from `from` may be thrown at: a ship her
+ * side can see, or a boat under the sea inside her sonar's hearing.
+ */
+function asrocMark(state, from, t) {
+  if (!t || !t.alive || t.team === from.team) return false;
+  if (submerged(t)) return dist(from.x, from.z, t.x, t.z) <= ASROC_SONAR || !!(t.spottedBy && t.spottedBy[from.team]);
+  return !t.spottedBy || !!t.spottedBy[from.team];
+}
+
+/**
+ * The ship a missile goes for when it is given none: whatever her side can see
+ * nearest her, inside the missile's reach; or, in the air, nearest ahead of it.
+ */
+function missileAuto(state, team, x, z, reach, heading = null) {
+  let best = null, bd = Infinity;
+  for (const t of state.ships) {
+    if (!missileMark(state, team, t)) continue;
+    const d = dist(x, z, t.x, t.z);
+    if (d > reach) continue;
+    if (heading !== null && Math.abs(angleDelta(heading, headingTo(x, z, t.x, t.z))) > 1.1) continue;
+    if (d < bd) { bd = d; best = t; }
+  }
+  return best;
+}
+
+/** The nearest an ASROC may be thrown at: a boat her sonar holds first, then any ship. */
+function asrocAuto(state, from, reach) {
+  let best = null, bd = Infinity;
+  for (const t of state.ships) {
+    if (!asrocMark(state, from, t)) continue;
+    const d = dist(from.x, from.z, t.x, t.z) - (submerged(t) ? 4000 : 0);
+    if (dist(from.x, from.z, t.x, t.z) > reach || d >= bd) continue;
+    bd = d; best = t;
+  }
+  return best;
+}
+
+// ---- what a surface-to-air missile goes for --------------------------------
+
+/** Whether a missile in the air is one a ship would want shot down: something coming to hurt her side. */
+function isThreat(state, m, team) {
+  if (m.team === team || m.aboard || m.hp <= 0 || m.dead) return false;
+  const role = missileRole(kindOf(state, m));
+  return role === 'surface' || role === 'asroc';
+}
+
+/** Where something in the air is, and which way it is going, by its kind ('m' a missile, 'a' an aeroplane). */
+function airTarget(state, k, id) {
+  if (k === 'm') {
+    const q = state.missiles.find((x) => x.id === id);
+    if (!q || q.aboard || q.hp <= 0 || q.dead) return null;
+    const c = Math.cos(q.pitch);
+    return {
+      x: q.x, y: q.y, z: q.z,
+      vx: Math.sin(q.heading) * c * q.speed, vy: Math.sin(q.pitch) * q.speed, vz: Math.cos(q.heading) * c * q.speed,
+      kill: (why) => { q.hp = 0; q.downBy = why; },
+    };
+  }
+  for (const { q, heavy } of airborne(state)) {
+    if (q.id !== id) continue;
+    const y = q.y ?? 220;
+    const v = Math.max(40, q.speed || 90);
+    return {
+      x: q.x, y, z: q.z, vx: Math.sin(q.heading || 0) * v, vy: 0, vz: Math.cos(q.heading || 0) * v,
+      kill: (why) => {
+        const live = flyingMachines(q, heavy);
+        if (live.length) loseMachine(state, q, live[0].a, heavy, why);
+        else if (heavy) heavyGone(state, q, why); else killFlight(state, q, why);
+      },
+    };
+  }
+  return null;
+}
+
+/** How many of her side's interceptors are already on `id`. */
+function engaged(state, team, k, id) {
+  let n = 0;
+  for (const m of state.missiles) if (m.team === team && m.tk === k && m.target === id) n++;
+  return n;
+}
+
+/**
+ * What a surface-to-air missile of hers might be put up at, most pressing
+ * first: missiles coming at her side, soonest to arrive first, and then
+ * aeroplanes, nearest first -- inside the missile's reach and her radar's,
+ * and not already being dealt with by one of her side's.
+ */
+function airThreats(state, ship, K) {
+  const cls = shipClass(ship);
+  const reach = Math.min(K.range * 0.85, Math.max(cls.radarRange || 0, K.range * 0.5));
+  const out = [];
+  for (const m of state.missiles) {
+    if (!isThreat(state, m, ship.team)) continue;
+    const d = Math.hypot(m.x - ship.x, m.z - ship.z, m.y);
+    if (d > reach) continue;
+    if (engaged(state, ship.team, 'm', m.id)) continue;
+    // Coming at her side, or near enough her to be.
+    const t = state.ships.find((s) => s.id === m.target);
+    const onUs = t && t.team === ship.team;
+    if (!onUs && d > 9000) continue;
+    out.push({ k: 'm', id: m.id, d, rank: d / Math.max(60, m.speed || 200) });
+  }
+  if (K.air) {
+    for (const { q } of airborne(state)) {
+      if (q.team === ship.team) continue;
+      if ((q.y ?? 220) < 15) continue;
+      const d = Math.hypot(q.x - ship.x, q.z - ship.z, q.y ?? 220);
+      if (d > reach) continue;
+      if (engaged(state, ship.team, 'a', q.id) >= Math.max(1, Math.ceil((q.count || 1) / 3))) continue;
+      out.push({ k: 'a', id: q.id, d, rank: 1000 + d / 120 });
+    }
+  }
+  out.sort((a, b) => a.rank - b.rank);
+  return out;
+}
+
+// ---- where a missile leaves her ------------------------------------------
+
+/** Where on her hull a launcher lets its missile go, and along what line. */
+function launchLine(cls, ship, kind, at, bearing = 0) {
+  const M = cls.missiles;
+  const how = launchOf(M.kinds[kind], kind);
+  if (how === 'vls') {
+    // Straight up out of its cell, its hatch already open: it pitches over
+    // onto its course once it is clear of her.
+    const [x, y, z] = M.vls.cells[at];
+    return { lx: x, lz: z, y: y + 0.6, bearing, elev: Math.PI / 2 - 0.02 };
+  }
+  if (how === 'box') {
+    const [x, y, z, rest, len] = M.boxes[at];
+    // The middle of the outboard end of the box, raised about its hinge: its
+    // cells are 1.2 m over the foot it is hinged at.
+    const c = Math.cos(BOX_ELEV), sn = Math.sin(BOX_ELEV);
+    const along = len * c - BOX_CELL * sn;
+    const lx = x + Math.sin(rest) * along;
+    const lz = z + Math.cos(rest) * along;
+    return { lx, lz, y: y + BOX_CELL * c + len * sn, bearing: rest, elev: BOX_ELEV };
+  }
+  if (how === 'rail') {
+    // Off the end of the arm, which has trained round onto her bearing and
+    // comes up to throw it: it climbs out steeply and turns once it is clear.
+    const [x, y, z] = M.rails[at];
+    return { lx: x, lz: z, y: y + 0.4, bearing, elev: 0.62 };
+  }
+  // A canister: out over her side unless it says which way it points -- a
+  // Moskit's point forward -- and cocked up as her canisters are.
+  const [x, y, z, b, e] = M.tubes[at];
+  const along = Number.isFinite(b) ? b : x < 0 ? -Math.PI / 2 : Math.PI / 2;
+  return { lx: x, lz: z, y, bearing: along, elev: Number.isFinite(e) ? e : M.tubeElev || 0.55 };
+}
+
+/** The cell of hers holding a `kind` nearest the end of her that faces `bearing` (local). */
+function vlsCell(cls, S, kind, local) {
+  let at = -1, best = Infinity;
+  const fore = Math.cos(local);
+  S.cells.forEach((k, i) => {
+    if (k !== kind) return;
+    const z = cls.missiles.vls.cells[i][2];
+    const score = -z * fore + i * 1e-4;
+    if (score < best) { best = score; at = i; }
+  });
+  return at;
+}
+
+/**
+ * Let one go: a Tomahawk out of a box -- raised first, if it is not up -- or a
+ * Harpoon out of a canister, or anything out of a Mk 41 cell, at the ship
+ * `targetId`, or at whatever is nearest if she was given none. A
+ * surface-to-air missile goes for the most pressing thing in the air (see
+ * airThreats) unless `air` names one -- { k: 'm' | 'a', id }. Returns the
+ * missile, or null if none went.
+ */
+export function fireMissile(state, ship, kind, targetId = 0, air = null) {
+  const cls = shipClass(ship);
+  const M = cls.missiles;
+  const S = ship.missiles;
+  if (!M || !S || !ship.alive || !M.kinds[kind]) return null;
+  if (S.left[kind] <= 0 || S.cool[kind] > 0) return null;
+  if (gunsDrowned(ship)) return null;
+  const K = M.kinds[kind];
+  const role = missileRole(K);
+  let target = null, tk = 's', tid = 0, aim = null;
+  if (role === 'sam' || role === 'abm') {
+    // Something in the air: the one asked for if it is a threat this can
+    // reach, or the most pressing there is.
+    const list = airThreats(state, ship, role === 'abm' ? { ...K, air: false } : K);
+    const got = air ? list.find((e) => e.k === air.k && e.id === air.id) : null;
+    const pick = got || list[0];
+    if (!pick) return null;
+    tk = pick.k; tid = pick.id;
+    aim = airTarget(state, tk, tid);
+    if (!aim) return null;
+  } else if (role === 'asroc') {
+    target = targetId ? state.ships.find((t) => t.id === targetId) : null;
+    if (!asrocMark(state, ship, target) || dist(ship.x, ship.z, target.x, target.z) > K.range) {
+      target = asrocAuto(state, ship, K.range);
+    }
+    if (!target) return null;
+    tid = target.id; aim = target;
+  } else {
+    target = targetId ? state.ships.find((t) => t.id === targetId) : null;
+    if (!missileMark(state, ship.team, target) || dist(ship.x, ship.z, target.x, target.z) > K.range) {
+      target = missileAuto(state, ship.team, ship.x, ship.z, K.range);
+    }
+    if (!target) return null;
+    tid = target.id; aim = target;
+  }
+  const bearing = headingTo(ship.x, ship.z, aim.x, aim.z);
+  const how = launchOf(K, kind);
+  let at = -1;
+  let hold = 0;
+  if (how === 'vls') {
+    at = vlsCell(cls, S, kind, wrapAngle(bearing - ship.heading));
+    if (at < 0) return null;
+    S.cells[at] = null;
+    // The hatch opening, and the motor lighting.
+    hold = 0.35;
+  } else if (how === 'box') {
+    // The box on the side she is to go, with missiles in it; one already up
+    // before one that is down.
+    let best = Infinity;
+    S.boxes.forEach((b, i) => {
+      if (b.left <= 0) return;
+      const off = Math.abs(angleDelta(wrapAngle(ship.heading + M.boxes[i][3]), bearing));
+      const score = off + (1 - b.raise) * 1.5;
+      if (score < best) { best = score; at = i; }
+    });
+    if (at < 0) return null;
+    const b = S.boxes[at];
+    b.left--;
+    b.want = 1;
+    b.hold = BOX_HOLD + (1 - b.raise) * BOX_RAISE_T;
+    hold = (1 - b.raise) * BOX_RAISE_T + 0.4;
+  } else if (how === 'rail') {
+    // The launcher whose arm is stowed nearest the way she is to go: the one
+    // forward for what is ahead of her, the one aft for what is astern.
+    let best = Infinity;
+    M.rails.forEach((rl, i) => {
+      const off = Math.abs(angleDelta(wrapAngle(ship.heading + (rl[3] || 0)), bearing));
+      if (off < best) { best = off; at = i; }
+    });
+    if (at < 0) return null;
+  } else {
+    // The canister pointing the way she is to go -- for canisters trained
+    // out over her side, the side; for ones that point forward, the side the
+    // target is on, so the missile does not cross her bow to get there.
+    let best = Infinity;
+    S.tubes.forEach((full, i) => {
+      if (!full) return;
+      const [x, , , b] = M.tubes[i];
+      const point = Number.isFinite(b) ? b : x < 0 ? -Math.PI / 2 : Math.PI / 2;
+      const local = angleDelta(ship.heading, bearing);
+      const off = Math.abs(angleDelta(wrapAngle(ship.heading + point), bearing))
+        + (Number.isFinite(b) && Math.sign(x) !== Math.sign(local || 1) ? 0.2 : 0) + i * 1e-4;
+      if (off < best) { best = off; at = i; }
+    });
+    if (at < 0) return null;
+    S.tubes[at] = 0;
+  }
+  S.left[kind]--;
+  S.cool[kind] = K.interval;
+  const L = launchLine(cls, ship, kind, at, wrapAngle(bearing - ship.heading));
+  const w = localToWorld(L.lx, L.lz, ship.heading);
+  const m = {
+    id: eid(), owner: ship.id, team: ship.team, kind,
+    x: ship.x + w.x, y: L.y, z: ship.z + w.z,
+    heading: wrapAngle(ship.heading + L.bearing), pitch: L.elev,
+    speed: 0, travelled: 0, age: 0,
+    target: tid, tk, hold, from: at, vls: how === 'vls' ? 1 : 0,
+    // Aboard until it is off its rail: carried with her, in her frame.
+    aboard: { lx: L.lx, lz: L.lz, y: L.y, bearing: L.bearing, elev: L.elev },
+    hp: K.hp, burn: 0,
+  };
+  state.missiles.push(m);
+  state.events.push({ e: 'mslOrder', ship: ship.id, k: kind, at, tg: tid, hold: r(hold) });
+  return m;
+}
+
+/** Lay a missile already in the air on another ship. Hers only, and not one going for something in the air. */
+export function retargetMissile(state, ship, id, targetId) {
+  const m = state.missiles.find((q) => q.id === id);
+  if (!m || m.owner !== ship.id || m.tk === 'm' || m.tk === 'a') return false;
+  const t = state.ships.find((q) => q.id === targetId);
+  const role = missileRole(kindOf(state, m));
+  if (role === 'asroc' ? !asrocMark(state, ship, t) : !missileMark(state, m.team, t)) return false;
+  m.target = t.id;
+  return true;
+}
+
+/** Her boxes going up and coming down, and her missiles' reload clocks. */
+function stepLaunchers(state, ship, dt) {
+  const S = ship.missiles;
+  if (!S) return;
+  for (const k of Object.keys(S.cool)) if (S.cool[k] > 0) S.cool[k] = Math.max(0, S.cool[k] - dt);
+  for (const b of S.boxes) {
+    if (b.hold > 0) b.hold -= dt;
+    else b.want = 0;
+    const to = b.want ? 1 : 0;
+    b.raise += clamp(to - b.raise, -dt / BOX_RAISE_T, dt / BOX_RAISE_T);
+  }
+}
+
+/**
+ * Her own fire control -- Aegis -- at work: twice a second it looks at
+ * everything in the air her radar holds and, for the most pressing thing no
+ * missile of her side is already on, puts one up: an SM-2 if it is in reach of
+ * one, an SM-2ER if it is further, and against a missile an SM-3 if nothing
+ * else will reach. Her captain can switch it off and fire them himself.
+ */
+function stepAegis(state, ship, dt) {
+  const S = ship.missiles;
+  if (!S || !S.auto || !ship.alive) return;
+  const cls = shipClass(ship);
+  const kinds = Object.entries(cls.missiles.kinds).filter(([, K]) => {
+    const role = missileRole(K);
+    return role === 'sam' || role === 'abm';
+  });
+  if (!kinds.length) return;
+  S.aegis = (S.aegis || 0) - dt;
+  if (S.aegis > 0) return;
+  S.aegis = 0.5;
+  if (gunsDrowned(ship)) return;
+  // Shortest reach first: the cheapest missile that will do.
+  kinds.sort((a, b) => a[1].range - b[1].range);
+  for (const [k, K] of kinds) {
+    if (S.left[k] <= 0 || S.cool[k] > 0) continue;
+    const list = airThreats(state, ship, missileRole(K) === 'abm' ? { ...K, air: false } : K);
+    // The longest-reaching missile is kept for what the shorter cannot reach.
+    const pick = list.find((e) => kinds.every(([k2, K2]) => k2 === k || K2.range > K.range
+      || S.left[k2] <= 0 || e.d > K2.range * 0.85 || (e.k === 'a' && !K2.air)));
+    if (!pick) continue;
+    if (fireMissile(state, ship, k, 0, { k: pick.k, id: pick.id })) return;
+  }
+}
+
+/** How a surface-to-air missile pushes off its cell. */
+const SAM_BOOST = 420;
+/** Seconds it goes straight up before it turns for its target. */
+const SAM_UP = 0.7;
+/** Seconds it flies on without a target before it destroys itself. */
+const SAM_LOST = 3;
+
+/**
+ * A surface-to-air missile in the air, a tick: up out of its cell, over onto
+ * what it was put up at, led onto where that will be, and a proximity fuse
+ * that bursts it when it passes close enough -- which brings an aeroplane of a
+ * flight down, or knocks the missile it was after out of the sky, `pk` of the
+ * time. Returns whether it is still flying.
+ */
+function stepInterceptor(state, m, K, dt) {
+  m.speed = Math.min(K.speed, m.speed + SAM_BOOST * dt);
+  const t = airTarget(state, m.tk, m.target);
+  const px = m.x, py = m.y, pz = m.z;
+  if (!t) {
+    m.lost = (m.lost || 0) + dt;
+    if (m.lost > SAM_LOST) { loseMissile(state, m, 'burst'); return false; }
+  } else if (m.age > SAM_UP) {
+    m.lost = 0;
+    const d = Math.hypot(t.x - m.x, t.y - m.y, t.z - m.z);
+    const tti = Math.min(20, d / Math.max(100, m.speed));
+    const ax = t.x + t.vx * tti, ay = Math.max(2, t.y + t.vy * tti), az = t.z + t.vz * tti;
+    const wantH = headingTo(m.x, m.z, ax, az);
+    const wantP = Math.atan2(ay - m.y, Math.max(1, Math.hypot(ax - m.x, az - m.z)));
+    const turn = K.turn * (m.age < SAM_UP + 1.5 ? 2 : 1) * dt;
+    m.heading = wrapAngle(m.heading + clamp(angleDelta(m.heading, wantH), -turn, turn));
+    m.pitch += clamp(wantP - m.pitch, -turn, turn);
+  }
+  const c = Math.cos(m.pitch);
+  m.x += Math.sin(m.heading) * c * m.speed * dt;
+  m.z += Math.cos(m.heading) * c * m.speed * dt;
+  m.y += Math.sin(m.pitch) * m.speed * dt;
+  m.travelled += m.speed * dt;
+  if (t) {
+    // Its fuse: the nearest it came to the target this tick, along the way
+    // both of them went.
+    const tx0 = t.x - t.vx * dt, ty0 = t.y - t.vy * dt, tz0 = t.z - t.vz * dt;
+    let near = Infinity;
+    for (let k = 0; k <= 4; k++) {
+      const u = k / 4;
+      near = Math.min(near, Math.hypot(px + (m.x - px) * u - (tx0 + (t.x - tx0) * u),
+        py + (m.y - py) * u - (ty0 + (t.y - ty0) * u), pz + (m.z - pz) * u - (tz0 + (t.z - tz0) * u)));
+    }
+    if (near <= (K.kill || 15)) {
+      const hit = state.rng() < (K.pk ?? 0.8);
+      if (hit) t.kill('sam');
+      const owner = state.ships.find((s) => s.id === m.owner);
+      if (hit && owner) owner.ribbons.hits++;
+      state.events.push({ e: 'samBurst', x: r(m.x), y: r(m.y), z: r(m.z), k: m.kind, i: m.id, owner: m.owner, hit: hit ? 1 : 0, tk: m.tk });
+      loseMissile(state, m, 'burst');
+      return false;
+    }
+  }
+  if (m.travelled > K.range) { loseMissile(state, m, 'burst'); return false; }
+  if (m.y <= 0.3) {
+    state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 250 });
+    loseMissile(state, m, 'sea');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * An ASROC in the air, a tick: up out of its cell, over onto the ship or the
+ * boat it was thrown at, at the height it flies, and -- once it is close
+ * enough -- its rocket falls away and the Mk 46 under it comes down on its
+ * parachute ahead of her and goes into the sea, already hunting. The torpedo
+ * is a homing one like any other (see steerHoming), and will go for a ship on
+ * the surface or a boat under it. Returns whether it is still flying.
+ */
+function stepAsroc(state, m, K, dt) {
+  const owner = state.ships.find((s) => s.id === m.owner);
+  let t = state.ships.find((s) => s.id === m.target);
+  if (!t || !t.alive) {
+    t = owner ? asrocAuto(state, owner, Math.max(3000, K.range - m.travelled)) : null;
+    m.target = t ? t.id : 0;
+  }
+  m.speed = Math.min(K.speed, m.speed + MISSILE_BOOST * dt);
+  if (m.age < MISSILE_CLIMB) {
+    m.pitch = Math.max(0.35, m.pitch - 0.6 * dt);
+  } else {
+    const climb = clamp((K.cruise - m.y) * 0.5, -40, 40);
+    m.pitch = Math.atan2(climb, Math.max(1, m.speed));
+  }
+  if (t) {
+    const want = headingTo(m.x, m.z, t.x, t.z);
+    m.heading = wrapAngle(m.heading + clamp(angleDelta(m.heading, want), -K.turn * dt, K.turn * dt));
+  }
+  const c = Math.cos(m.pitch);
+  m.x += Math.sin(m.heading) * c * m.speed * dt;
+  m.z += Math.cos(m.heading) * c * m.speed * dt;
+  m.y += Math.sin(m.pitch) * m.speed * dt;
+  m.travelled += m.speed * dt;
+  const d = t ? dist(m.x, m.z, t.x, t.z) : Infinity;
+  if (t && d < (K.drop || 1200) && m.age > MISSILE_CLIMB) {
+    // Separation: the torpedo goes in a little short of her, on her line,
+    // and the seeker does the rest.
+    const T = owner ? shipClass(owner).torpedoes : null;
+    const H = (T && T.homing) || { seek: 1400, cone: 0.8, turn: 0.2, after: 0 };
+    const v = velocityOf(t);
+    const fall = 6;
+    const ax = t.x + v.x * fall, az = t.z + v.z * fall;
+    const back = Math.min(250, Math.hypot(ax - m.x, az - m.z) * 0.4);
+    const h = headingTo(m.x, m.z, ax, az);
+    const tp = {
+      id: eid(), owner: m.owner, team: m.team,
+      x: ax - Math.sin(h) * back, z: az - Math.cos(h) * back,
+      heading: h,
+      speed: (T && T.speed) || 20.6, range: 4000, travelled: 0,
+      damage: (T && T.damage) || 7000, detection: (T && T.detection) || 900, arming: 0,
+      flood: (T && T.floodChance) || 0.3,
+      kind: 'mk46', homing: { ...H, after: 0 }, aerial: true, air: fall,
+    };
+    state.torps.push(tp);
+    state.events.push({ e: 'asrocDrop', x: r(m.x), y: r(m.y), z: r(m.z), tx: r(tp.x), tz: r(tp.z), i: m.id, owner: m.owner, tg: t.id });
+    loseMissile(state, m, 'drop');
+    return false;
+  }
+  if (m.travelled > K.range) {
+    loseMissile(state, m, 'fuel');
+    state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 250 });
+    return false;
+  }
+  if (m.y <= 0.3) {
+    state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 300 });
+    loseMissile(state, m, 'sea');
+    return false;
+  }
+  return true;
+}
+
+/** Bring a missile down short of anything: shot down, or out of fuel. */
+function loseMissile(state, m, why) {
+  state.events.push({ e: 'mslDown', x: r(m.x), y: r(m.y), z: r(m.z), k: m.kind, i: m.id, why, owner: m.owner });
+}
+
+/** Put a missile into her: a burst inside her, fire, and for a Harpoon a hole at her waterline. */
+function missileHit(state, m, K, t, cls) {
+  const owner = state.ships.find((s) => s.id === m.owner);
+  const lt = worldToLocal(m.x - t.x, m.z - t.z, t.heading);
+  const rel = lt.z / (cls.hull.length * 0.5);
+  const high = m.y > (cls.hull.draft || 8) * 0.9 + 6;
+  const where = sectionAt(rel, m.kind === 'tomahawk' && high && Math.abs(rel) < 0.35 ? 'superstructure' : 'belt');
+  // Her armour takes some of it: a thousand pounds of explosive bursting on a
+  // battleship's armour deck does a great deal less than it does inside a
+  // cruiser.
+  const armour = m.kind === 'harpoon' ? cls.armor.belt : cls.armor.deck;
+  const cut = clamp(armour / 900, 0, 0.32);
+  damageShip(state, t, owner, K.damage * (1 - cut), 'he', where);
+  wreckContents(state, t, where, 0.53, 'bomb', { x: lt.x, y: m.y, z: lt.z });
+  if (state.rng() < K.fire) startFire(state, t, where, 0.45);
+  // Unburnt fuel: a missile's own tanks go up with her.
+  if (state.rng() < K.fire * 0.6) startFire(state, t, 'works', 0.3);
+  if (m.kind === 'harpoon') {
+    openHull(state, t, where, 6 + state.rng() * 6, lt.x >= 0 ? 1 : -1, 0.5 + state.rng());
+  }
+  if (owner) owner.ribbons.hits++;
+  state.events.push({
+    e: 'mslHit', x: r(m.x), y: r(Math.max(1, m.y)), z: r(m.z), k: m.kind, victim: t.id, owner: m.owner, i: m.id,
+  });
+}
+
+/**
+ * A Second World War battery's chance at a missile coming at it: tiny, for
+ * every gun that bears. Most of a fleet's flak goes behind something this
+ * quick. Returns whether it came down.
+ */
+function missileFlak(state, m, dt) {
+  // A Second World War battery's chance at it: tiny, for every gun that
+  // bears. Most of a fleet's flak goes behind something this quick.
+  let down = false;
+  for (const s of state.ships) {
+    if (!s.alive || s.team === m.team || gunsDrowned(s) || s.blown) continue;
+    const scls = getClass(s.classId);
+    if (!scls.aa) continue;
+    const d = dist(m.x, m.z, s.x, s.z);
+    if (d >= scls.aa.range) continue;
+    const bear = aaBearing(scls, s, m.x, m.z, m.y);
+    if (!bear.barrels) continue;
+    // The Phalanx are their own business (stepCiws): only the guns of the
+    // war count here.
+    const lambda = scls.aa.dps * bear.share * aaBite(d, scls.aa.range) * MISSILE_FLAK * (scls.missiles ? 0.3 : 1);
+    if (state.rng() < lambda * dt) { down = true; break; }
+    s.aaFire -= dt * 0.5;
+    const auto = autoCal(scls, d);
+    if (s.aaFire <= 0 && auto) {
+      s.aaFire = 0.3 + 0.5 / Math.max(1, bear.barrels / 8);
+      state.events.push({ e: 'aa', ship: s.id, x: r(s.x), z: r(s.z), tx: r(m.x), tz: r(m.z), ty: r(m.y), n: bear.barrels, cal: auto });
+    }
+  }
+  return down;
+}
+
+/** Every missile in the air, a tick at a time. */
+function stepMissiles(state, dt) {
+  if (!state.missiles || !state.missiles.length) return;
+  const out = [];
+  const bound = (state.world.half || MAP_HALF) + 2000;
+  for (const m of state.missiles) {
+    const ship = state.ships.find((s) => s.id === m.owner);
+    const K = kindOf(state, m);
+    if (!K) continue;
+    m.age += dt;
+    if (m.aboard) {
+      // On its rail: waiting for its box to come up, then off.
+      if (!ship || !ship.alive) continue;
+      const a = m.aboard;
+      const w = localToWorld(a.lx, a.lz, ship.heading);
+      m.x = ship.x + w.x; m.z = ship.z + w.z; m.y = a.y;
+      m.heading = wrapAngle(ship.heading + a.bearing);
+      m.pitch = a.elev;
+      m.hold -= dt;
+      if (m.hold > 0) { out.push(m); continue; }
+      m.aboard = null;
+      m.speed = MISSILE_EJECT;
+      m.age = 0;
+      state.events.push({ e: 'mslLaunch', ship: ship.id, k: m.kind, at: m.from, i: m.id, x: r(m.x), y: r(m.y), z: r(m.z), v: m.vls || undefined });
+    }
+    // Shot down by one of the other side's: a Phalanx, or a Standard missile.
+    if (m.hp <= 0) { loseMissile(state, m, m.downBy || 'ciws'); continue; }
+    // Something going for something in the air, and a rocket throwing a
+    // torpedo: each flies its own way.
+    const role = missileRole(K);
+    if (role === 'sam' || role === 'abm') { if (stepInterceptor(state, m, K, dt)) out.push(m); continue; }
+    if (role === 'asroc') {
+      if (!stepAsroc(state, m, K, dt)) continue;
+      if (missileFlak(state, m, dt)) { loseMissile(state, m, 'flak'); continue; }
+      out.push(m);
+      continue;
+    }
+    // Her booster, and then her sustainer up to her speed.
+    m.speed = Math.min(K.speed, m.speed + MISSILE_BOOST * dt);
+    let t = state.ships.find((s) => s.id === m.target);
+    if (!t || !t.alive) {
+      t = missileAuto(state, m.team, m.x, m.z, Math.max(3000, K.range - m.travelled), m.heading);
+      m.target = t ? t.id : 0;
+    }
+    const climbing = m.age < MISSILE_CLIMB;
+    let wantY = K.cruise;
+    // The last of the run, flown straight at the point on her it is going
+    // for: her deck, or her side at the waterline.
+    let dive = null;
+    if (t && !climbing) {
+      const d = dist(m.x, m.z, t.x, t.z);
+      // Led onto where she will be when it gets there.
+      const tti = d / Math.max(60, m.speed);
+      const v = velocityOf(t);
+      const ax = t.x + v.x * tti, az = t.z + v.z * tti;
+      const want = headingTo(m.x, m.z, ax, az);
+      const turn = K.turn * (m.age < MISSILE_CLIMB + 2 ? 1.6 : 1);
+      m.heading = wrapAngle(m.heading + clamp(angleDelta(m.heading, want), -turn * dt, turn * dt));
+      // The end of the run: a Tomahawk rises and comes down on her decks, a
+      // Harpoon stays on the sea and goes in at her waterline.
+      if (K.popUp && d < K.popUp) {
+        if (d > K.popUp * 0.4) wantY = K.cruise + (1 - d / K.popUp) * 260;
+        else dive = Math.atan2(9 - m.y, Math.max(1, d));
+      } else if (!K.popUp && d < 600) {
+        dive = Math.atan2(3 - m.y, Math.max(1, d));
+      }
+    }
+    if (climbing) {
+      // Out of a cell it goes up first and pitches over hard onto its course;
+      // off a rail it is already most of the way there.
+      m.pitch = Math.max(0.12, m.pitch - (m.vls ? 0.75 : 0.12) * dt);
+    } else if (dive !== null) {
+      m.pitch += clamp(dive - m.pitch, -1.2 * dt, 1.2 * dt);
+    } else {
+      const climb = clamp((wantY - m.y) * 0.9, -45, 35);
+      m.pitch = Math.atan2(climb, Math.max(1, m.speed));
+    }
+    const hs = Math.cos(m.pitch) * m.speed;
+    const px = m.x, pz = m.z, py = m.y;
+    m.x += Math.sin(m.heading) * hs * dt;
+    m.z += Math.cos(m.heading) * hs * dt;
+    m.y += Math.sin(m.pitch) * m.speed * dt;
+    m.travelled += m.speed * dt;
+    if (m.travelled > K.range || Math.abs(m.x) > bound || Math.abs(m.z) > bound) {
+      loseMissile(state, m, 'fuel');
+      state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 300 });
+      continue;
+    }
+    if (m.y <= 0.3) {
+      state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 350 });
+      loseMissile(state, m, 'sea');
+      continue;
+    }
+    // Into the land: it goes off against the hillside like a bomb.
+    if (groundHeight(state.world, m.x, m.z) > m.y) {
+      landStrike(state, m.x, m.z, 0.53, 'bomb', 1.4);
+      loseMissile(state, m, 'land');
+      continue;
+    }
+    // Into a ship: any enemy hull it runs into, not only the one it was sent at.
+    let hit = false;
+    for (const s of state.ships) {
+      if (!s.alive || s.team === m.team || submerged(s)) continue;
+      const scls = getClass(s.classId);
+      const top = (scls.hull.superstructure || 1.3) * 14;
+      for (let k = 1; k <= 3 && !hit; k++) {
+        const qx = px + (m.x - px) * (k / 3), qz = pz + (m.z - pz) * (k / 3), qy = py + (m.y - py) * (k / 3);
+        if (qy > top) continue;
+        if (!pointInBox(qx, qz, s.x, s.z, s.heading, scls.hull.length * 0.5, scls.hull.beam * 0.5 + 1)) continue;
+        m.x = qx; m.z = qz; m.y = qy;
+        missileHit(state, m, K, s, scls);
+        hit = true;
+      }
+      if (hit) break;
+    }
+    if (hit) continue;
+    if (missileFlak(state, m, dt)) { loseMissile(state, m, 'flak'); continue; }
+    if (m.hp <= 0) { loseMissile(state, m, m.downBy || 'ciws'); continue; }
+    out.push(m);
+  }
+  state.missiles = out;
+}
+
+/** How far a Phalanx reaches for a missile, and how quickly it kills one. */
+export const CIWS_REACH = 1800;
+const CIWS_KILL = 0.5;
+/** Seconds a Phalanx takes to swing onto a new target and start firing. */
+const CIWS_SLEW = 0.45;
+
+/**
+ * Her Phalanx at work: each mounting finds the nearest missile coming at its
+ * side, swings onto it, and fires into it until it is gone -- one missile at a
+ * time, which is the whole of how a salvo gets through one. It fires on
+ * aeroplanes too, as the light battery it is (see aaBattery); this is only
+ * the missiles.
+ */
+function stepCiws(state, ship, dt) {
+  const cls = shipClass(ship);
+  const guns = (cls.aa?.guns || []).filter((g) => g.ciws);
+  if (!guns.length || !state.missiles.length || gunsDrowned(ship)) return;
+  const battery = aaBattery(cls);
+  const C = ship.ciws || (ship.ciws = []);
+  // Their places in her flak battery, and in her light battery: what the
+  // client lays and fires their tracer from (see lightMounts).
+  const light0 = battery.length - lightMounts(cls).length;
+  const places = [];
+  battery.forEach((b, i) => { if (b.name === guns[0].name) places.push(i); });
+  places.forEach((mi, k) => {
+    const spec = battery[mi];
+    const c = C[k] || (C[k] = { target: 0, lock: 0, fire: 0 });
+    if (!flakUp(ship, mi) || lightGunState(ship, cls, spec) >= 3 || flakOff(ship, cls, mi)) { c.target = 0; return; }
+    const at = mountWorldPos(ship, spec);
+    // The nearest missile of the enemy's it bears on.
+    let best = null, bd = Infinity;
+    for (const m of state.missiles) {
+      if (!isThreat(state, m, ship.team)) continue;
+      const d = Math.hypot(m.x - at.x, m.z - at.z, m.y - (spec.my ?? 20));
+      if (d > CIWS_REACH || d > bd) continue;
+      if (!mountBears(ship, spec, headingTo(at.x, at.z, m.x, m.z))) continue;
+      best = m; bd = d;
+    }
+    if (!best) { c.target = 0; return; }
+    if (best.id !== c.target) { c.target = best.id; c.lock = CIWS_SLEW; }
+    if (c.lock > 0) { c.lock -= dt; return; }
+    // Closer in, surer: at the edge of its reach the stream is spread over a
+    // hundred metres of sky, at five hundred metres it is a solid rod.
+    const f = clamp(1 - (bd - 500) / (CIWS_REACH - 500), 0.25, 1);
+    if (state.rng() < CIWS_KILL * f * dt) best.hp = 0;
+    c.fire -= dt;
+    if (c.fire <= 0) {
+      c.fire = 0.12;
+      state.events.push({ e: 'ciws', ship: ship.id, m: mi - light0, x: r(best.x), y: r(best.y), z: r(best.z), i: best.id });
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Anti-submarine rocket launchers
+// ---------------------------------------------------------------------------
+//
+// A ship of the missile age does not run over a boat to drop charges on her:
+// she throws them, from a launcher that trains and elevates like a gun, a
+// ripple of rocket-propelled bombs out to a kilometre and more ahead of her.
+// An RBU-1200 is five 250 mm tubes and nothing else -- no guidance, no
+// seeker, only a bomb that goes where it was thrown and goes off when it
+// meets something: a ship's side if it comes down on one, a boat's hull on
+// the way down, or the depth it was set for. And because what it throws is a
+// pattern of heavy charges going off in the water, it is the one thing aboard
+// that can stop a torpedo: laid across the track of one coming at her, the
+// shock of a bomb going off beside it breaks it up.
+//
+// Her own fire control works them, the way it works her depth charges: a fish
+// running at her first, because it is the thing that will kill her; a boat
+// her sonar holds next; and a ship close aboard last.
+
+/**
+ * What one of her launchers should throw at, if anything: the nearest
+ * torpedo of the enemy's coming at her, a submerged boat her sonar has, or a
+ * ship she can see, inside the launcher's reach and on a bearing it can be
+ * trained to. Where it should be thrown -- the target led by the bombs' time
+ * in the air -- comes with it, and how deep to set the bombs for.
+ */
+function rbuTarget(state, ship, cls, spec) {
+  const R = cls.rbu;
+  const at = mountWorldPos(ship, spec);
+  const reach = (x, z) => {
+    const d = dist(at.x, at.z, x, z);
+    return d >= R.minRange && d <= R.range && mountBears(ship, spec, headingTo(at.x, at.z, x, z));
+  };
+  // Where a body going `v` on `h` will be when the bombs get there.
+  const led = (x, z, h, v) => {
+    let px = x, pz = z;
+    for (let k = 0; k < 3; k++) {
+      const t = rbuFlight(R, dist(at.x, at.z, px, pz)).tof;
+      px = x + Math.sin(h) * v * t;
+      pz = z + Math.cos(h) * v * t;
+    }
+    return { x: px, z: pz };
+  };
+  // A torpedo of the enemy's running at her: one whose track passes close
+  // enough to her to hit her, inside the minute or so it has left to run.
+  const half = cls.hull.length * 0.5 + 25;
+  let best = null, bd = Infinity;
+  // A threat under the water this launcher cannot throw at yet -- out of its
+  // arc, inside its minimum range, or past its reach. While there is one she
+  // keeps the launcher for it: laid as near onto it as it will go, and loaded,
+  // not spent on a ship on the surface with an eighteen-second reload to follow.
+  let held = null, hd = Infinity;
+  const hold = (kind, id, aim, d) => {
+    if (d < hd) { held = { kind, id, x: aim.x, z: aim.z, hold: true }; hd = d; }
+  };
+  for (const tp of state.torps) {
+    if (tp.dead || tp.aboard || tp.air > 0 || tp.team === ship.team) continue;
+    const d = dist(ship.x, ship.z, tp.x, tp.z);
+    if (d > R.sonar || d >= bd) continue;
+    // Its closest approach to her, as she is going and as it is.
+    const rx = tp.x - ship.x, rz = tp.z - ship.z;
+    const vx = Math.sin(tp.heading) * tp.speed - Math.sin(ship.heading) * ship.speed;
+    const vz = Math.cos(tp.heading) * tp.speed - Math.cos(ship.heading) * ship.speed;
+    const vv = vx * vx + vz * vz;
+    const tc = vv > 1e-6 ? -(rx * vx + rz * vz) / vv : 0;
+    if (tc < 0 || tc > 90) continue;
+    // And one that will have run its fuel out before it gets to her is no
+    // threat to her.
+    if (tc * tp.speed > tp.range - tp.travelled + half) continue;
+    if (Math.hypot(rx + vx * tc, rz + vz * tc) > half) continue;
+    const aim = led(tp.x, tp.z, tp.heading, tp.speed);
+    if (!reach(aim.x, aim.z)) { hold('torp', tp.id, aim, d); continue; }
+    best = { kind: 'torp', id: tp.id, x: aim.x, z: aim.z, set: 4 };
+    bd = d;
+  }
+  if (best) return best;
+  // A boat under the water, on her sonar: deaf at speed, as every hull set is.
+  if (!(R.sonarSpeed && Math.abs(ship.speed) > R.sonarSpeed)) {
+    for (const boat of state.ships) {
+      if (!boat.alive || boat.team === ship.team || !getClass(boat.classId).dive || !submerged(boat)) continue;
+      const d = dist(ship.x, ship.z, boat.x, boat.z);
+      if (d > R.sonar || d >= bd) continue;
+      const aim = led(boat.x, boat.z, boat.heading, boat.speed);
+      if (!reach(aim.x, aim.z)) { hold('sub', boat.id, aim, d); continue; }
+      best = { kind: 'sub', id: boat.id, x: aim.x, z: aim.z, set: Math.max(6, boat.depth + getClass(boat.classId).hull.draft * 0.5) };
+      bd = d;
+    }
+    if (best) return best;
+  }
+  if (held) return held;
+  // A ship she can see, close aboard: thrown at her like a mortar.
+  for (const foe of state.ships) {
+    if (!foe.alive || foe.team === ship.team || (getClass(foe.classId).dive && submerged(foe))) continue;
+    if (foe.spottedBy && !foe.spottedBy[ship.team]) continue;
+    const d = dist(ship.x, ship.z, foe.x, foe.z);
+    if (d >= bd) continue;
+    const aim = led(foe.x, foe.z, foe.heading, foe.speed);
+    if (!reach(aim.x, aim.z)) continue;
+    best = { kind: 'ship', id: foe.id, x: aim.x, z: aim.z, set: 8 };
+    bd = d;
+  }
+  return best;
+}
+
+/** How a bomb out of an RBU gets `d` metres: its elevation, and its time in the air. */
+export function rbuFlight(R, d) {
+  const v = R.speed;
+  const s2 = clamp((d * G) / (v * v), 0, 1);
+  // The low throw: the quicker of the two, which is what matters against a
+  // torpedo running at forty knots.
+  const elev = Math.asin(s2) / 2;
+  return { elev, tof: (2 * v * Math.sin(elev)) / G };
+}
+
+/**
+ * Her RBU-1200s at work: each trains onto what its fire control gives it and,
+ * once it is laid and loaded, throws its five bombs in a ripple, one a
+ * quarter of a second, across the point it was laid on.
+ */
+function stepRbu(state, ship, dt) {
+  const cls = shipClass(ship);
+  const R = cls.rbu;
+  if (!R || !ship.rbuMounts || !ship.rbuMounts.length) return;
+  if (gunsDrowned(ship)) return;
+  ship.rbuMounts.forEach((m, i) => {
+    const spec = R.mounts[m.id];
+    if (m.cooldown > 0) m.cooldown -= dt;
+    if (m.ripple) { stepRbuRipple(state, ship, cls, spec, m, i, dt); return; }
+    // Taken over: laid where its layer is holding, and fired when he says so
+    // (see fireRbuManned) -- her fire control leaves it alone.
+    if (isManned(ship, 'rbu', i)) {
+      const want = rbuPin(state, ship, R, spec);
+      const at = mountWorldPos(ship, spec);
+      const local = wrapAngle(headingTo(at.x, at.z, want.x, want.z) - ship.heading);
+      m.angle = trainWithin(m.angle, local, R.traverse * dt, spec);
+      const el = rbuFlight(R, clamp(dist(at.x, at.z, want.x, want.z), R.minRange, R.range)).elev;
+      const e0 = m.elev || 0;
+      m.elev = e0 + clamp(el - e0, -0.5 * dt, 0.5 * dt);
+      m.want = null;
+      return;
+    }
+    // Switched off on the targeting panel: stowed, and not fired.
+    if (offForDirector(ship, 'rbu', i)) {
+      m.want = null;
+      m.angle = trainWithin(m.angle, spec.rest ?? spec.angle, R.traverse * dt, spec);
+      m.elev = Math.max(0, (m.elev || 0) - 0.5 * dt);
+      return;
+    }
+    m.look = (m.look || 0) - dt;
+    if (m.look > 0 && !m.want) return;
+    // Looked for twice a second: a fire control solution, not a reflex.
+    if (m.look <= 0) { m.want = rbuTarget(state, ship, cls, spec); m.look = 0.5; }
+    const want = m.want;
+    const rest = spec.rest ?? spec.angle;
+    if (!want) {
+      m.angle = trainWithin(m.angle, rest, R.traverse * dt, spec);
+      m.elev = Math.max(0, (m.elev || 0) - 0.5 * dt);
+      return;
+    }
+    const at = mountWorldPos(ship, spec);
+    const local = wrapAngle(headingTo(at.x, at.z, want.x, want.z) - ship.heading);
+    m.angle = trainWithin(m.angle, local, R.traverse * dt, spec);
+    // Its tubes come up to the throw the range wants, as it trains: the
+    // clients draw both off the wire (see protocol), so the launcher is seen
+    // to come round and lay on what it is going to fire at.
+    const el = rbuFlight(R, clamp(dist(at.x, at.z, want.x, want.z), R.minRange, R.range)).elev;
+    const e0 = m.elev || 0;
+    m.elev = e0 + clamp(el - e0, -0.5 * dt, 0.5 * dt);
+    // Laid on a threat it cannot reach yet: trained and waiting, not fired.
+    if (want.hold) return;
+    if (m.cooldown > 0 || Math.abs(angleDelta(m.angle, local)) > 0.06) return;
+    m.ripple = { left: R.tubes, next: 0, aim: want };
+    m.want = null;
+    m.look = 0;
+    m.cooldown = R.reload;
+  });
+}
+
+/**
+ * Where a launcher somebody is laying is laid: the point he is holding,
+ * brought inside what it can reach, and how deep its bombs are set -- for the
+ * boat under the water nearest that point if there is one close to it, for
+ * a ship or a torpedo on the surface if not.
+ */
+function rbuPin(state, ship, R, spec) {
+  const at = mountWorldPos(ship, spec);
+  let x = Number.isFinite(ship.manX) ? ship.manX : at.x;
+  let z = Number.isFinite(ship.manZ) ? ship.manZ : at.z;
+  const d = dist(at.x, at.z, x, z);
+  const want = clamp(d, R.minRange, R.range);
+  if (d > 1e-3 && want !== d) {
+    x = at.x + ((x - at.x) * want) / d;
+    z = at.z + ((z - at.z) * want) / d;
+  }
+  let set = 8, near = R.spread * 4;
+  for (const boat of state.ships) {
+    if (!boat.alive || boat.team === ship.team || !getClass(boat.classId).dive || !submerged(boat)) continue;
+    const off = dist(x, z, boat.x, boat.z);
+    if (off >= near) continue;
+    near = off;
+    set = Math.max(6, boat.depth + getClass(boat.classId).hull.draft * 0.5);
+  }
+  return { kind: 'pin', x, z, set };
+}
+
+/**
+ * The trigger on a launcher somebody is laying: once it is laid on his bearing
+ * and loaded, it throws its ripple across the point he is holding. Returns how
+ * many bombs are going (0 if it is not ready).
+ */
+export function fireRbuManned(state, ship, i) {
+  const cls = shipClass(ship);
+  const R = cls.rbu;
+  if (!R || !ship.alive || !ship.rbuMounts) return 0;
+  const m = ship.rbuMounts[i];
+  if (!m || m.ripple || m.cooldown > 0) return 0;
+  if (gunsDrowned(ship)) return 0;
+  const spec = R.mounts[m.id];
+  const aim = rbuPin(state, ship, R, spec);
+  const at = mountWorldPos(ship, spec);
+  const local = wrapAngle(headingTo(at.x, at.z, aim.x, aim.z) - ship.heading);
+  // Not on a bearing it can be trained to, or not round onto it yet.
+  if (!mountBears(ship, spec, wrapAngle(local + ship.heading))) return 0;
+  if (Math.abs(angleDelta(m.angle, local)) > 0.06) return 0;
+  m.ripple = { left: R.tubes, next: 0, aim };
+  m.cooldown = R.reload;
+  return R.tubes;
+}
+
+/** One tick of a ripple: the next bomb out of its tube when its turn comes. */
+function stepRbuRipple(state, ship, cls, spec, m, i, dt) {
+  const R = cls.rbu;
+  const r = m.ripple;
+  r.next -= dt;
+  while (r.left > 0 && r.next <= 0) {
+    fireRbuBomb(state, ship, cls, spec, m, i, r.aim, R.tubes - r.left);
+    r.left--;
+    r.next += R.ripple;
+  }
+  if (r.left <= 0) m.ripple = null;
+}
+
+/**
+ * Where the bombs should go now: what the launcher was laid on, led again off
+ * where it is this instant, since a torpedo has run a hundred metres while the
+ * launcher came round onto it.
+ */
+function rbuReaim(state, ship, R, spec, aim) {
+  const body = aim.kind === 'torp' ? state.torps.find((tp) => tp.id === aim.id && !tp.dead)
+    : state.ships.find((s) => s.id === aim.id && s.alive);
+  if (!body) return aim;
+  const at = mountWorldPos(ship, spec);
+  let px = body.x, pz = body.z;
+  for (let k = 0; k < 3; k++) {
+    const t = rbuFlight(R, dist(at.x, at.z, px, pz)).tof;
+    px = body.x + Math.sin(body.heading || 0) * (body.speed || 0) * t;
+    pz = body.z + Math.cos(body.heading || 0) * (body.speed || 0) * t;
+  }
+  return { ...aim, x: px, z: pz };
+}
+
+/** One bomb out of one tube, thrown across the point the launcher is laid on. */
+function fireRbuBomb(state, ship, cls, spec, m, i, aim0, k) {
+  const R = cls.rbu;
+  const aim = rbuReaim(state, ship, R, spec, aim0);
+  const at = mountWorldPos(ship, spec);
+  const y0 = spec.my ?? 6;
+  // The five bombs fall in a ring round the aim point, as the five tubes are
+  // splayed to put them there, a little off where each was meant to go.
+  const a = (k / R.tubes) * TAU + state.rng() * 0.6;
+  const rad = k === 0 ? 0 : R.spread * (0.75 + state.rng() * 0.5);
+  const tx = aim.x + Math.sin(a) * rad + gauss(state.rng) * 4;
+  const tz = aim.z + Math.cos(a) * rad + gauss(state.rng) * 4;
+  const d = clamp(dist(at.x, at.z, tx, tz), R.minRange * 0.8, R.range * 1.05);
+  const b = headingTo(at.x, at.z, tx, tz);
+  const f = rbuFlight(R, d);
+  // Thrown from her deck, and going her way as well as its own.
+  const vh = R.speed * Math.cos(f.elev);
+  fireShell(state, {
+    id: eid(), owner: ship.id, team: ship.team, rocket: true,
+    x: at.x + Math.sin(b) * 1.2, z: at.z + Math.cos(b) * 1.2, y: y0,
+    vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: R.speed * Math.sin(f.elev),
+    g: G, spec: R.shells.he, caliber: R.caliber, classId: cls.id, life: 0,
+    asw: {
+      set: aim.set, sink: R.sink, arming: R.arming, damage: R.damage,
+      lethal: R.lethal, hurt: R.hurt, kill: R.kill,
+    },
+  });
+  if (k === 0) {
+    state.events.push({
+      e: 'rbu', ship: ship.id, m: i, b: r(b), el: r(f.elev * 1000) / 1000,
+      x: r(at.x), y: r(y0), z: r(at.z), t: aim.kind,
+    });
+  }
+  ship.lastFiredAt = state.t;
+}
+
+/**
+ * An RBU's bomb into the sea: any torpedo of the enemy's running close by is
+ * broken up by it, and it goes on down, to go off at the depth it was set for
+ * as a depth charge does (see stepCharges and burstCharge).
+ */
+function rbuSplash(state, sh) {
+  const A = sh.asw;
+  for (const tp of state.torps) {
+    if (tp.dead || tp.aboard || tp.air > 0 || tp.team === sh.team) continue;
+    if (dist(tp.x, tp.z, sh.x, sh.z) > A.kill) continue;
+    tp.dead = true;
+    state.events.push({ e: 'torpKill', x: r(tp.x), z: r(tp.z), i: tp.id, ship: sh.owner });
+  }
+  state.charges.push({
+    id: eid(), owner: sh.owner, team: sh.team,
+    x: sh.x, z: sh.z, y: 0,
+    set: A.set, sink: A.sink, arming: A.arming,
+    damage: A.damage, lethal: A.lethal, hurt: A.hurt,
+    age: 0,
+  });
+}
+
+/**
+ * How hard a torpedo hits, against what it used to.
+ *
+ * One fish was taking a cruiser out of the fight and two were rolling a
+ * battleship over before her parties had reached the hole. The warhead now
+ * wrecks a fifth less of the structure round it and opens a fifth less of her
+ * side, so a torpedo is still the thing that sinks ships -- just not on its own.
+ */
+export const TORP_BLAST = 0.8;
+export const TORP_RENT = 0.8;
 
 // ---------------------------------------------------------------------------
 // Depth charges
@@ -7825,7 +9366,23 @@ function burstMine(state, m, target) {
 /** The air group a class sails with unless a captain has said otherwise. */
 export function defaultAirGroup(cls) {
   const g = cls.planes && cls.planes.group;
-  return g ? { ...g.default } : null;
+  if (!g) return null;
+  const DL = cls.planes.deckload;
+  return DL ? { ...g.default, deckload: DL.count } : { ...g.default };
+}
+
+/**
+ * Give a carrier the air group a captain asked for, made legal: and with it how
+ * many of her deckload are on her flight deck, as many as he sailed her with.
+ * With none, that squadron of hers is spent before it starts.
+ */
+export function setAirGroup(ship, cls, want) {
+  ship.airGroup = cls.planes ? normaliseAirGroup(cls, want) : null;
+  const DL = cls.planes && cls.planes.deckload;
+  ship.deckload = DL ? (ship.airGroup && ship.airGroup.deckload != null ? ship.airGroup.deckload : DL.count) : 0;
+  for (const sq of ship.squadrons || []) {
+    if (sq.deckload) sq.state = ship.deckload > 0 ? 'deck' : 'spent';
+  }
 }
 
 /**
@@ -7840,13 +9397,21 @@ export function defaultAirGroup(cls) {
 export function normaliseAirGroup(cls, want) {
   const spec = cls.planes && cls.planes.group;
   if (!spec) return null;
-  if (!want || typeof want !== 'object') return { ...spec.default };
+  if (!want || typeof want !== 'object') return defaultAirGroup(cls);
   const pick = (k) => {
     const v = Math.round(Number(want[k]));
     if (!Number.isFinite(v)) return spec.default[k];
     return Math.max(spec.min[k], Math.min(spec.max[k], v));
   };
   const g = { fighters: pick('fighters'), dive: pick('dive'), torpedo: pick('torpedo') };
+  // A deckload ranged on her flight deck is not in her hangar and takes no
+  // room in it: the captain says how many of it she sails with, nought to
+  // all of it, on top of whatever is below.
+  const DL = cls.planes.deckload;
+  if (DL) {
+    const v = want.deckload == null ? NaN : Math.round(Number(want.deckload));
+    g.deckload = Number.isFinite(v) ? Math.max(0, Math.min(DL.count, v)) : DL.count;
+  }
   // Enough strike aircraft to be worth the deck space.
   let strike = g.dive + g.torpedo;
   while (strike < spec.minStrike) {
@@ -8277,10 +9842,17 @@ export function launchStrike(state, ship) {
   if (ship.trapBusy > 0 || landingCommitted(state, ship)) return false;
   // Nothing takes off over a hole. See flightDeckOut.
   if (flightDeckOut(ship)) return false;
-  const sq = ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0);
+  // A deckload on her flight deck goes before anything of hers can come up a
+  // lift: it is standing on the lifts, and on the deck any of hers would need
+  // to run down. Until the last of it is off, a launch is the next of it.
+  const load = ship.deckload > 0 ? ship.squadrons.find((s) => s.deckload) : null;
+  if (load && load.state !== 'deck') return false;
+  const sq = load || ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0 && !s.deckload);
   if (!sq) return false;
+  // As far as she is told to send them: there is no limit on how far out a
+  // captain may order his aircraft.
   const d = dist(ship.x, ship.z, ship.aimX, ship.aimZ);
-  if (d > cls.planes.strikeRange) return false;
+  if (!Number.isFinite(d)) return false;
   // And not at a point on top of her. A squadron sent to where it already is
   // arrives on the next tick and is recovered on the one after -- the aircraft
   // is still on the lift when the simulation has already flown it out and
@@ -8334,7 +9906,13 @@ export function launchStrike(state, ship) {
   // fighter first had the escort circling over the ship for the whole of the
   // launch while the bombers were still coming up the lift one by one; ranged
   // in turn, the strike forms up as a strike from its first three aeroplanes.
-  const queue = launchOrder(fighters, bomb, torp);
+  const DL = cls.planes.deckload;
+  const queue = sq.deckload
+    ? Array.from({ length: ship.deckload }, () => ({
+      role: 'level', count: 1, torp: 0, bomb: DL.bombs, type: DL.type, deckload: 1,
+    }))
+    : launchOrder(fighters, bomb, torp);
+  if (sq.deckload) fighters = 0;
   ship.launching = {
     sqId: sq.id, left: cls.planes.deckRun ?? DECK_RUN,
     tx: ship.aimX, tz: ship.aimZ,
@@ -8355,8 +9933,59 @@ export function launchStrike(state, ship) {
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: ship.launching.flights[0] ? ship.launching.flights[0].role : undefined,
     d: ship.launching.left,
+    ...deckloadTag(ship, cls, ship.launching.flights[0]),
   });
   return true;
+}
+
+/**
+ * What a launch event says about one of a deckload, so the deck drawn on
+ * the ship flies off the right one: what she is, and which of the deckload
+ * she is -- they go from the front.
+ */
+function deckloadTag(ship, cls, f) {
+  if (!f || !f.deckload) return {};
+  return { k: f.type, n: cls.planes.deckload.count - ship.deckload };
+}
+
+/**
+ * Where a captain's order to launch sends her aircraft, when he gives one.
+ *
+ * Wherever she is laid, however far: there is no limit on range. Only a
+ * point on top of her -- or no point at all -- is not somewhere to fly to
+ * (see MIN_STRIKE_RANGE), and then they go out that way, or for the nearest
+ * enemy, or failing both on a search ahead of her, rather than the key doing
+ * nothing.
+ *
+ * Sets her aim to it and returns it.
+ */
+export function strikeAim(state, ship) {
+  const cls = shipClass(ship);
+  if (!cls.planes) return null;
+  const out = MIN_STRIKE_RANGE * 1.5;
+  const from = (x, z) => {
+    const d = dist(ship.x, ship.z, x, z);
+    return d > 1 ? { x: ship.x + ((x - ship.x) / d) * out, z: ship.z + ((z - ship.z) / d) * out } : null;
+  };
+  const aimed = Number.isFinite(ship.aimX) && Number.isFinite(ship.aimZ);
+  let at = null;
+  if (aimed && dist(ship.x, ship.z, ship.aimX, ship.aimZ) >= MIN_STRIKE_RANGE) at = { x: ship.aimX, z: ship.aimZ };
+  if (!at) {
+    let best = null, bd = Infinity;
+    for (const o of state.ships) {
+      if (!o.alive || o.team === ship.team) continue;
+      const d = dist(ship.x, ship.z, o.x, o.z);
+      if (d >= MIN_STRIKE_RANGE && d < bd) { bd = d; best = o; }
+    }
+    if (best) at = { x: best.x, z: best.z };
+  }
+  if (!at && aimed) at = from(ship.aimX, ship.aimZ);
+  if (!at) {
+    const h = ship.heading || 0;
+    at = { x: ship.x + Math.sin(h) * out, z: ship.z + Math.cos(h) * out };
+  }
+  ship.aimX = at.x; ship.aimZ = at.z;
+  return at;
 }
 
 /**
@@ -8450,6 +10079,12 @@ export function launchOffset(cls, side = 1, role = null) {
   return { out, bearing, heading };
 }
 
+/** A number a ship's data may give once, or once for each of a deckload in turn. */
+function byIndex(v, i) {
+  if (Array.isArray(v)) return v[Math.max(0, Math.min(v.length - 1, i))];
+  return v;
+}
+
 /** A number a ship's data may give once for all her aircraft, or per role. */
 function byRole(v, role) {
   if (v && typeof v === 'object') return v[role] ?? v.torpedo ?? Object.values(v)[0];
@@ -8527,6 +10162,8 @@ function stepLaunch(state, ship, dt) {
     const low = wrapAngle(ship.heading + Math.sign(
       (ship.heel || 0) + (ship.lean || 0) + (ship.rock || 0) || 1) * Math.PI / 2);
     const out = fate === 'side' ? (cls.planes?.deckBeam ?? cls.hull.beam * 1.3) * 0.5 : 0;
+    // One of a deckload lost off the deck is one fewer on it.
+    if (f.deckload) ship.deckload = Math.max(0, ship.deckload - 1);
     ship.launching = null;
     ship.deckBusy = Math.max(ship.deckBusy, 10);
     sq.state = 'deck';
@@ -8546,9 +10183,15 @@ function stepLaunch(state, ship, dt) {
     // whatever she has been laid on.
     // Where this ship's launch actually leaves her: off the bow down a flight
     // deck, off the beam off a catapult.
-    const off = launchOffset(cls, L.side || 1, f.role);
+    const DL = f.deckload ? cls.planes.deckload : null;
+    // One of a deckload is handed over where her own run off the deck leaves
+    // her, which is further out the further forward she started.
+    const which = DL ? DL.count - ship.deckload : 0;
+    const off = DL ? { out: byIndex(DL.runOut, which), bearing: 0, heading: 0 }
+      : launchOffset(cls, L.side || 1, f.role);
     const away = wrapAngle(ship.heading + off.bearing);
     const nose = wrapAngle(ship.heading + off.heading);
+    const hp0 = DL ? DL.hp : planeHp(cls, f, L);
     const p = {
       id: eid(), owner: ship.id, team: ship.team, sqId: sq.id, role: f.role,
       // What she is, as against what she is for. A cruiser flies float planes
@@ -8559,35 +10202,38 @@ function stepLaunch(state, ship, dt) {
       // `types` maps fighter, dive and torpedo to what she actually embarks,
       // so a Japanese carrier's fighters are Zeros and an American carrier's
       // are Wildcats without the renderer having to know whose deck it is.
-      type: (cls.planes.types && cls.planes.types[f.role]) || cls.planes.type || null,
-      speed: cls.planes.cruiseSpeed,
+      type: f.type || (cls.planes.types && cls.planes.types[f.role]) || cls.planes.type || null,
+      speed: DL ? DL.cruiseSpeed : cls.planes.cruiseSpeed,
       x: ship.x + Math.sin(away) * off.out,
       z: ship.z + Math.cos(away) * off.out,
       heading: nose,
       tx: L.tx, tz: L.tz,
       torp: f.torp, bomb: f.bomb,
+      // How many each machine of her carries: one, for anything off a
+      // carrier's own hangar; a B-25 of a deckload carries a stick of them.
+      bombEach: DL ? DL.bombs : 1,
       count: f.count,
       // Fighters are harder to catch than a loaded bomber, and they are what
       // keeps the flak and the enemy's CAP off the ones carrying the weapons.
       // Where the launch actually leaves her, off the ground: the end of the
       // integrated deck run or catapult shot, not a number chosen to look
       // right. She climbs away from there under her own power.
-      y: byRole(cls.planes.runHeight, f.role) ?? 41,
+      y: DL ? byIndex(DL.runHeight, which) : byRole(cls.planes.runHeight, f.role) ?? 41,
       vy: 4,
       // Not at cruise: at what she left the deck at, a few knots over the
       // stall with her flaps still down, and she works up to cruise from
       // there. Born at cruise she was drawn leaping forward at the hand-over,
       // twice as fast as the aeroplane that had just gone off the bow.
       launchV: cls.planes.launchSpeed ?? LAUNCH_SPEED,
-      hp: planeHp(cls, f, L),
+      hp: hp0,
       // The aeroplanes themselves. A flight is not a hit-point bar with a
       // number of aircraft written on it: it is that many machines, each with
       // her own engine, tanks, wings, tail and crew, and each of them able to
       // be hit, set on fire, crippled or shot down on her own. See
       // airframe.js.
-      perHp: planeHp(cls, f, L) / Math.max(1, f.count),
+      perHp: hp0 / Math.max(1, f.count),
       machines: Array.from({ length: f.count },
-        () => freshAirframe(planeHp(cls, f, L) / Math.max(1, f.count),
+        () => freshAirframe(hp0 / Math.max(1, f.count),
           carrierBomber(cls, f) ? BOMBER_TOUGH : 1)),
       // She goes for the enemy the moment her wheels are up. A deckload
       // goes off one aeroplane at a time, twenty-odd seconds apart, and
@@ -8600,6 +10246,9 @@ function stepLaunch(state, ship, dt) {
       flown: false, flownAt: 0, dead: false,
       targetId: 0, targetAir: 0, targetHeavy: 0, targetBat: 0, turn: 0, bank: 0, roll: 0,
     };
+    // One of a deckload: she bombs on the level, and she does not come back
+    // -- nothing that size lands on a carrier. See `away`.
+    if (DL) { p.deckload = 1; p.away = 1; ship.deckload = Math.max(0, ship.deckload - 1); }
     if (!L.lead) L.lead = p.id;
     p.lead = p.id;
     state.planes.push(p);
@@ -8650,6 +10299,7 @@ function rangeNext(state, ship, cls, L) {
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: L.flights[0] ? L.flights[0].role : undefined,
     d: L.left,
+    ...deckloadTag(ship, cls, L.flights[0]),
   });
 }
 
@@ -8937,7 +10587,7 @@ const CRUISE_ALT = 760;
  */
 const FORM_ALT = 260;
 /** A torpedo bomber runs in on the water; a dive bomber comes over the top. */
-const RUN_IN_ALT = { torpedo: 42, dive: 1150, fighter: 300, scout: 260 };
+const RUN_IN_ALT = { torpedo: 42, dive: 1150, fighter: 300, scout: 260, level: 150 };
 /**
  * A dive bombing attack, which is a shape rather than a height.
  *
@@ -8959,21 +10609,22 @@ const DIVE_AT = 170;           // and the range -- just inside the release
 /**
  * How she gets from the perch into the dive: not by pushing the stick
  * forward, which puts her crew on the canopy and her engine out of fuel, but
- * over on her back. Brakes out first, on the level, so she is slowed and
- * steady before anything else happens; then she rolls inverted, pulls the
- * nose down through the horizon onto her target with the g on her the right
- * way, and only once she is pointing well down at it does she roll upright
- * again -- seventy degrees down with her brakes out and the ship in her sight.
+ * by rolling. Brakes out first, on the level, so she is slowed and steady
+ * before anything else happens; then one smooth barrel roll, all the way
+ * round, toward the side her target is on -- easing into it, quickest as she
+ * goes over on her back, and easing out of it again. The nose comes down
+ * through the horizon while she is over on her back, with the g on her the
+ * right way, so she comes out of the roll upright, wings level, already well
+ * down and with the ship in her sight.
  *
- * It used to be a clock. She rolled over and back in two seconds flat, came
- * out of it upright and still only twenty degrees nose-down, and then pushed
- * the rest of the way: a roll followed by a bunt, which is not how anybody
- * ever went into a dive.
+ * It used to be a half roll: over onto her back at a fixed rate, a hang there
+ * while she pulled, and back the way she came -- three moves with a stop
+ * between each.
  */
 const DIVE_ANGLE = 1.22;       // seventy degrees: the dive she rolls out into
-const DIVE_OVER = 2.75;        // how far over she goes: a hundred and fifty-odd degrees
-const DIVE_ROLL_RATE = 2.6;    // radians a second, rolling in and rolling out
-const DIVE_ROLL_OUT = 0.9;     // and she starts back upright this far short of her angle
+const DIVE_ROLL_TIME = 4.2;    // seconds, all the way round
+/** Where in the roll -- 0 at its start, 1 upright again -- her nose starts down, and where it is down. */
+const DIVE_NOSE = [0.12, 0.72];
 /**
  * And how hard she pulls in each part of it, in gravities: the roll-in is a
  * hard pull with her on her back, and the pull-out at the bottom is the
@@ -9019,8 +10670,8 @@ const DIVE_BRAKE_LEAD = 5;
 // is a long way out: two hundred and fifty metres of climb at a loaded
 // bomber's rate of climb is most of a minute, and she has to be at the top of
 // it before she is over her target rather than still going up underneath her.
-const RUN_IN_FROM = { torpedo: 5200, dive: 12000, fighter: 3000, scout: 3200 };
-const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800 };
+const RUN_IN_FROM = { torpedo: 5200, dive: 12000, fighter: 3000, scout: 3200, level: 6000 };
+const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800, level: 1600 };
 
 /**
  * Where a dive bomber is in her attack, and what it asks of her vertical.
@@ -9029,9 +10680,8 @@ const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800 };
  * `roll` from the moment she is over her push-over point until she is upright
  * in the dive; `dive` down onto her target to the release; `pull` from the
  * release until she is climbing again, after which the climb back up to
- * cruising height is the ordinary business of coming home. Inside the roll
- * `p.dvS` is which part of it she is in: `over` onto her back, `pull` the
- * nose down through the horizon while she is there, and `out` upright again.
+ * cruising height is the ordinary business of coming home. `p.dvT` is how
+ * long she has been rolling, and `p.dvSide` which way.
  *
  * `p.show` is her bank through all of it, which is more than the autopilot's
  * own bank can ever be -- she goes right over on her back -- and is what the
@@ -9043,18 +10693,17 @@ const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800 };
  */
 function diveStage(state, p, dt) {
   const V = Math.max(30, p.as ?? Math.hypot(p.speed || 0, p.vy || 0));
-  const path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0));
   if (p.dv === 'pull') {
     // Out of it: brakes in, as hard as she will stand until the nose is
     // above the horizon, and then the climb home. She comes out wings level,
     // which is what is drawn.
     p.brkWant = 0;
     p.show = 0;
-    if ((p.vy || 0) > 2) { p.dv = undefined; p.dvS = undefined; p.show = undefined; return null; }
+    if ((p.vy || 0) > 2) { p.dv = undefined; p.show = undefined; return null; }
     return { vy: 30, g: DIVE_PULL_OUT };
   }
   if (p.phase !== 'outbound' || !(p.bomb > 0) || p.dropped) {
-    p.dv = undefined; p.dvS = undefined; p.show = undefined; p.brkWant = 0;
+    p.dv = undefined; p.show = undefined; p.brkWant = 0;
     return null;
   }
   const mark = p.targetBat
@@ -9086,7 +10735,6 @@ function diveStage(state, p, dt) {
     // Over the top. Which way she rolls is the way her target is turning out
     // from under her, so she comes out of it already pointing at it.
     p.dv = 'roll';
-    p.dvS = 'over';
     p.dvT = 0;
     p.show = 0;
     // Where the bomb leaves her, fixed for this dive at the height she has
@@ -9105,47 +10753,28 @@ function diveStage(state, p, dt) {
   const down = -V * Math.sin(steep);
   if (p.dv === 'roll') {
     p.dvT += dt;
-    const bank = Math.abs(p.show || 0);
-    const roll = (want) => {
-      const err = want - bank;
-      // Eased in at the ends of each roll, so it starts and stops like an
-      // aeroplane and not like a switch.
-      const rate = DIVE_ROLL_RATE * Math.min(1, 0.3 + Math.abs(err) / 0.5);
-      return bank + clamp(err, -rate * dt, rate * dt);
-    };
-    // A dive that has gone wrong somewhere -- she was knocked about on the
-    // way over -- is still a dive: after eight seconds she is in it.
-    if (p.dvT > 8) p.dvS = 'out';
-    if (p.dvS === 'over') {
-      // Over onto her back, holding her height: a touch of back stick, no
-      // more, while the wings go round.
-      const b = roll(DIVE_OVER);
-      p.show = p.dvSide * b;
-      if (b >= DIVE_OVER - 0.04) p.dvS = 'pull';
-      return { vy: 3, g: 1.2 };
-    }
-    if (p.dvS === 'pull') {
-      // On her back and pulling: the nose comes down through the horizon
-      // and onto the ship. She is pulling toward her own canopy, which is
-      // toward the sea, so this is positive g and the pilot stays in his seat.
-      p.show = p.dvSide * DIVE_OVER;
-      if (path <= -(DIVE_ANGLE - DIVE_ROLL_OUT * 0.5)) p.dvS = 'out';
-      return { vy: down, g: DIVE_PULL_IN };
-    }
-    // And upright again, with the last of the pull going on as she rolls, so
-    // she arrives in the dive at her angle and pointing at it.
-    const b = roll(0);
-    p.show = p.dvSide * b;
-    if (b <= 0.02) {
+    // How far round she is. Eased at both ends -- the rate of roll is nought
+    // as she starts and as she finishes, and twice its average with her on
+    // her back -- so it starts and stops like an aeroplane and not a switch.
+    const u = clamp(p.dvT / DIVE_ROLL_TIME, 0, 1);
+    const turned = u - Math.sin(2 * Math.PI * u) / (2 * Math.PI);
+    p.show = wrapAngle(p.dvSide * 2 * Math.PI * turned);
+    if (u >= 1) {
       p.dv = 'dive';
-      p.dvS = undefined;
       p.show = 0;
       // The line she dives down starts where she is now, at the height she
       // has now: the roll and the pull through have used some of both.
       p.diveFrom = Math.max(DIVE_AT + 120, d);
       p.perch = Math.max((mark.y || 0) + dropHeight(p, mark) + 60, p.y);
+      return { vy: down, g: DIVE_PULL_IN };
     }
-    return { vy: down, g: DIVE_PULL_IN };
+    // The nose. Held up while the wings go round toward the vertical, pulled
+    // down through the horizon while she is over on her back, and down the
+    // sight by the time she is upright.
+    const [n0, n1] = DIVE_NOSE;
+    const k = clamp((u - n0) / (n1 - n0), 0, 1);
+    const nose = k * k * (3 - 2 * k);
+    return { vy: lerp(3, down, nose), g: lerp(1.2, DIVE_PULL_IN, Math.min(1, nose * 3)) };
   }
   // In the dive: down her sight onto the ship, wings level, brakes out. She
   // is drawn off her own path from here -- see protocol.js -- so the nose is
@@ -9277,7 +10906,8 @@ function wantedHeight(state, p, carrier, inCompany) {
   // while she is trying to close.
   if (p.phase === 'formup') return FORM_ALT;
   if (p.phase === 'return') {
-    if (!carrier) return CRUISE_ALT;
+    // One of a deckload is not coming back to her: see `away`.
+    if (!carrier || p.away) return CRUISE_ALT;
     const d = dist(p.x, p.z, carrier.x, carrier.z);
     // Down the glide over the last two miles. It is a long let-down because
     // she is coming down from cruising height with a bomber's rate of descent,
@@ -9941,7 +11571,7 @@ function loseMachine(state, q, a, heavy, why) {
   q.wear = fs;
   q.count = fs.count;
   if (q.torp) q.torp = Math.min(q.torp, fs.count);
-  if (q.bomb) q.bomb = Math.min(q.bomb, fs.count);
+  if (q.bomb) q.bomb = Math.min(q.bomb, fs.count * (q.bombEach || 1));
   if (!fs.count) { q.hp = 0; killFlight(state, q, why); }
 }
 
@@ -10158,6 +11788,10 @@ function dyingFlight(p) {
  * -- so once she is off she is off, and when her work is done she does the
  * only other thing there is to do with her.
  */
+/** How far one of a deckload flies on out of the battle before she is gone from it. */
+const AWAY_OUT = 60000;
+const AWAY_GONE = 9000;
+
 export function oneWay(P) {
   return !!(P && (P.catapult || P.launcher === 'derrick'));
 }
@@ -10671,6 +12305,21 @@ function aloft(p) {
   return p.life - (p.formT || 0);
 }
 
+/**
+ * How long a strike keeps going out before it gives up and turns for home
+ * with nothing found: three minutes, or as long as it takes to fly out to
+ * the point it was sent to and two minutes more, whichever is the longer --
+ * a captain may send his aircraft as far as he likes, and they go. Worked
+ * out the first time it is asked, from where she then is.
+ */
+function outboundFor(p) {
+  if (p.outFor == null) {
+    const d = Number.isFinite(p.tx) ? dist(p.x, p.z, p.tx, p.tz) : 0;
+    p.outFor = Math.max(180, d / Math.max(40, p.speed || 80) + 120);
+  }
+  return p.outFor;
+}
+
 function stepPlanes(state, dt) {
   const out = [];
   for (const p of state.planes) {
@@ -10790,6 +12439,23 @@ function stepPlanes(state, dt) {
     // A float plane has nowhere to go home to (see oneWay). When her work is
     // done -- her bombs gone, her patrol flown, nothing left to find -- she
     // turns for the nearest enemy hull and goes into it.
+    // One of a deckload has no deck to come home to: a B-25 does not land on
+    // a carrier. Her bombs gone, she flies on the way she was going, out of
+    // the battle -- to China, if she has the fuel -- and is gone from it.
+    if (p.away && p.phase === 'return' && !p.flown) {
+      if (p.awayX === undefined) {
+        p.awayX = p.x + Math.sin(p.heading) * AWAY_OUT;
+        p.awayZ = p.z + Math.cos(p.heading) * AWAY_OUT;
+      }
+      p.tx = p.awayX; p.tz = p.awayZ;
+      if (dist(p.x, p.z, p.awayX, p.awayZ) > AWAY_OUT - AWAY_GONE) {
+        // Still over the battle.
+      } else {
+        p.dead = true;
+        state.events.push({ e: 'flownOff', i: p.id, team: p.team, x: r(p.x), z: r(p.z) });
+        continue;
+      }
+    }
     if (!p.flown && p.phase === 'return' && oneWay(P)) {
       const mark = nearestEnemyMark(state, p, Infinity);
       if (mark) goIn(state, p, mark);
@@ -10964,7 +12630,7 @@ function stepPlanes(state, dt) {
     } else if (!p.flown) {
       let goalX = p.tx, goalZ = p.tz;
       if (guide) { goalX = guide.x; goalZ = guide.z; }
-      else if (p.phase === 'return' && carrier) { goalX = carrier.x; goalZ = carrier.z; }
+      else if (p.phase === 'return' && carrier && !p.away) { goalX = carrier.x; goalZ = carrier.z; }
       // In company: she flies her station on the leader rather than at the
       // target, and only breaks off when the strike is close enough to attack.
       else if (station) { goalX = station.x; goalZ = station.z; }
@@ -11336,7 +13002,9 @@ function stepPlanes(state, dt) {
       // A dive bomber lets go at the bottom of her dive, not wherever she
       // happens to be when the ship comes within a quarter of a mile: down
       // the line to her release height, or close over the top of her.
-      const RELEASE = p.torp > 0 ? 900 : p.role === 'dive' ? DIVE_AT + 30 : 260;
+      // On the level she lets go well short: the bombs carry forward the whole
+      // of their fall.
+      const RELEASE = p.torp > 0 ? 900 : p.role === 'dive' ? DIVE_AT + 30 : p.role === 'level' ? 480 : 260;
       const low = p.role === 'dive' && p.dv === 'dive' && best
         && (p.y ?? 0) < (best.y || 0) + dropHeight(p, best) + 20 && bestD < DIVE_AT + 260;
       // And not before she is in her dive. One with the height for one that
@@ -11349,7 +13017,8 @@ function stepPlanes(state, dt) {
       const go = p.role === 'dive' && p.dv === 'dive' ? (low || bestD < 70) : (bestD < RELEASE || low);
       if (best && !holding && go) {
         const fish = p.torp ?? 0;
-        deliverOrdnance(state, p, best, P);
+        // One of a deckload drops her own bombs, not her carrier's.
+        deliverOrdnance(state, p, best, p.deckload && P.deckload ? { ...P, ...P.deckload } : P);
         if (fish > 0 && p.fishAt) {
           state.events.push({ e: 'airDrop', x: p.fishAt.x, z: p.fishAt.z, r: p.role, i: p.id, fish,
             ft: Math.round(p.fishAt.t * 100) / 100 });
@@ -11394,10 +13063,10 @@ function stepPlanes(state, dt) {
           p.tx = best.x + Math.sin(best.heading) * sv * tLead;
           p.tz = best.z + Math.cos(best.heading) * sv * tLead;
         }
-      } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || aloft(p) > 180) {
+      } else if (dist(p.x, p.z, p.tx, p.tz) < 200 || aloft(p) > outboundFor(p)) {
         p.phase = 'return';
       }
-    } else if (p.phase === 'return' && carrier && !oneWay(P)
+    } else if (p.phase === 'return' && carrier && !oneWay(P) && !p.away
       && dist(p.x, p.z, carrier.x, carrier.z) < MARSHAL_R + 600) {
       // Home, and into the circuit: see landingGuide. Her squadron is struck
       // below and rearmed by the sweep below once she is down.
@@ -11429,7 +13098,7 @@ function stepPlanes(state, dt) {
       // She came home with what she needed to get there, and a reserve for
       // going round: past that she goes in the water near her ship.
       if (aloft(p) > 300 + LANDING_RESERVE) { killFlight(state, p, 'fuel'); continue; }
-    } else if (p.phase === 'ram' ? aloft(p) > 600 : (!carrier || aloft(p) > 300)) {
+    } else if (p.phase === 'ram' ? aloft(p) > 600 : p.away ? aloft(p) > 900 : (!carrier || aloft(p) > 300)) {
       // Out of fuel, or her ship is gone from under her. One going in has
       // nowhere to come back to and no reserve to keep for it, so she gets
       // the whole of her tanks, and her own ship sunk is nothing to her.
@@ -11656,7 +13325,7 @@ function stepFlightDamage(state, p, dt) {
   p.hp = hp;
   // She cannot drop what she has not got left to drop it with.
   if (p.torp) p.torp = Math.min(p.torp, fs.count);
-  if (p.bomb) p.bomb = Math.min(p.bomb, fs.count);
+  if (p.bomb) p.bomb = Math.min(p.bomb, fs.count * (p.bombEach || 1));
   if (!fs.count) killFlight(state, p, p.hurtBy || 'flak');
 }
 
@@ -11723,6 +13392,9 @@ function sweepSquadrons(state) {
       // A float plane does not come back (see oneWay): her place on the
       // catapult is empty for the rest of the action.
       if (oneWay(cls.planes)) { sq.state = 'spent'; continue; }
+      // Nor does a deckload, once the last of it is off her deck. Any of it
+      // still on it is still there to go.
+      if (sq.deckload) { sq.state = ship.deckload > 0 ? 'deck' : 'spent'; continue; }
       sq.state = 'deck';
       sq.cooldown = cls.planes.rearm;
     }
@@ -11842,8 +13514,12 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     hp: n * HEAVY_HP,
     maxHp: n * HEAVY_HP,
     // How many times she can lay a stick. Two runs and she is out of bombs and
-    // goes home, which is what an aeroplane with a finite bomb bay does.
-    loads: 2,
+    // goes home, which is what an aeroplane with a finite bomb bay does. A
+    // Silverplate formation has the one weapon between the three of them.
+    loads: b.atomic ? 1 : 2,
+    // Her bay doors, open: on the run, and for an atomic run for the last of
+    // the approach before it as well (see stepBombers).
+    doors: false, doorsUntil: 0,
     stick: 0,
     stickT: 0,
     // The aeroplanes themselves, each with her own engine, tanks, wings, tail,
@@ -11882,6 +13558,19 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
 /** What her bombs do, off her own datasheet rather than off a carrier's. */
 function heavyLoad(bm) {
   const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
+  // One bomb, and not a stick: what it does is nukeBlast's business, not the
+  // shell pipeline's, so the figures here are only what a bomb of its weight
+  // and its five feet across would be if it were an ordinary one -- which is
+  // what it is, in the wreck of a Superfortress that went in with it still
+  // aboard. The weapon was not armed until it was on its way down.
+  if (b.atomic) {
+    return {
+      n: 1, atomic: true,
+      bombDamage: 700 + b.payload * 3.4 * 0.25,
+      bombPen: 60, bombBore: 1.2, bombFire: 0.6,
+      caliber: 1520,
+    };
+  }
   // Pounds of bombs, spread over the stick she lays. A Lancaster's fourteen
   // thousand goes down as a cookie and a dozen incendiary containers; what
   // matters here is that each body that arrives is worth what a bomb of that
@@ -11962,9 +13651,24 @@ function dropBomb(state, bm, L) {
   // bomb does on the way down, so they go into how it leaves rather than
   // where. Spread over the fall they are the same miss at the bottom.
   const fall = Math.sqrt(2 * Math.max(50, bm.y) / 9.81);
+  // The weapon goes from the bay of the machine carrying it: the formation's
+  // leader, or whichever of the three is leading it now.
+  let ox = 0, oy = 0, oz = 0;
+  if (L.atomic) {
+    const carrier = (bm.machines || []).find((a) => a.alive && !a.left);
+    if (carrier) {
+      const at = vicAt(machineSlot(bm, carrier), bm.heading || 0);
+      ox = at.x; oy = at.y; oz = at.z;
+    }
+    state.events.push({ e: 'nukeAway', i: bm.id, tm: bm.team, x: r(bm.x + ox), y: r(bm.y + oy), z: r(bm.z + oz) });
+  }
   fireShell(state, {
     id: eid(), owner: 0, bomber: bm.id, team: bm.team,
-    x: bm.x, y: bm.y, z: bm.z,
+    x: bm.x + ox, y: bm.y + oy - 1, z: bm.z + oz,
+    // An atomic bomb. Nothing in the game can shoot one down: it is not an
+    // aeroplane, the flak has nothing to say to it, and a Phalanx looks for
+    // missiles. It falls until it hits something, and then it goes off.
+    atomic: L.atomic ? 1 : undefined,
     vx: sn * bm.speed + (e.x + sx) / fall, vy: 0, vz: cs * bm.speed + (e.z + sz) / fall,
     g: 9.81,
     caliber: L.caliber,
@@ -12194,7 +13898,7 @@ function loseHeavy(state, bm, a, why) {
       vy: limp ? -4 - state.rng() * 3 : -6 - state.rng() * 8,
       mass: HEAVY_RAM,
       // Her share of a stick she never got to lay.
-      load: bm.loads > 0 && !(bm.stick > 0 && bm.stick < L.n) ? L.bombDamage * 2.5 : 0,
+      load: bm.loads > 0 && !(bm.stick > 0 && bm.stick < L.n) ? L.bombDamage * (L.atomic ? 1 : 2.5) : 0,
     });
     ev.f = f.id;
     ev.vx = r(f.vx); ev.vy = r(f.vy); ev.vz = r(f.vz);
@@ -12267,7 +13971,11 @@ export function dropStick(state, ship, id) {
   const L = heavyLoad(bm);
   bm.phase = 'run';
   bm.stick = L.n;
-  bm.stickT = 0;
+  // The doors first. A stick goes out of a bay that is already open on the
+  // run; the one weapon of an atomic run waits for them, which on a B-29's
+  // snap-action doors is a second.
+  bm.stickT = L.atomic && !(state.t < (bm.doorsUntil || 0)) ? 1.0 : 0;
+  bm.doorsUntil = state.t + 4;
   bm.err = aimError(state, bm);
   return true;
 }
@@ -12445,14 +14153,15 @@ function heavySeen(state, bm) {
  * Whether a gun position bears on something, given where it is off her nose
  * (`fore`, the cosine off her heading) and how far above or below her it is
  * (`up`, the sine of its elevation). A nose or a chin gun looks ahead, a tail
- * gun astern, a dorsal turret over her and a ball or a gondola under her.
+ * gun astern, a dorsal turret over her and a ball or a gondola under her --
+ * and a Superfortress's barbettes the same, two over her and two under.
  */
 function postBears(name, fore, up) {
   switch (name) {
     case 'nose': case 'chin': return fore > -0.15 && (name !== 'chin' || up < 0.5);
     case 'tail': return fore < 0.15;
-    case 'dorsal': return up > -0.2;
-    case 'ball': case 'gondola': return up < 0.2;
+    case 'dorsal': case 'upper': case 'aftupper': return up > -0.2;
+    case 'ball': case 'gondola': case 'lower': case 'aftlower': return up < 0.2;
     default: return true;
   }
 }
@@ -12528,11 +14237,13 @@ function stepBombers(state, dt) {
           if (bm.stick === 0) {
             bm.loads -= 1;
             bm.phase = 'inbound';
+            bm.doorsUntil = state.t + 2.5;
             state.events.push({ e: 'sticksAway', i: bm.id, tm: bm.team });
           }
         }
         bm.stickT -= dt;
       }
+      bm.doors = bm.phase === 'run' || state.t < (bm.doorsUntil || 0);
       heavyFlak(state, bm, dt);
       heavyDamage(state, bm, dt);
       stepHeavyRam(state, bm);
@@ -12597,7 +14308,14 @@ function stepBombers(state, dt) {
         // the course she has, then come round and make a proper run of it.
         want = bm.heading;
         if (toAim > throwFwd + HEAVY_OPEN_OUT) bm.overshot = false;
-      } else if (toAim <= throwFwd + 140 && bm.loads > 0) {
+      } else if (L.atomic && bm.loads > 0 && toAim <= throwFwd + bm.speed * 7
+        && Math.abs(angleDelta(bm.heading, want)) < 0.3) {
+        // On the last of the approach to an atomic release the doors are
+        // open: the weapon goes the instant the sight says so, and it is not
+        // going out through a shut bay.
+        bm.doorsUntil = state.t + 1;
+      }
+      if (bm.phase === 'inbound' && !bm.overshot && toAim <= throwFwd + 140 && bm.loads > 0) {
         // Only lined up on it. A run begun with the target off to one side
         // is a stick laid in the sea beside it -- which is what used to
         // happen to a squadron that had been put on a new target close in.
@@ -12620,6 +14338,15 @@ function stepBombers(state, dt) {
           bm.phase = 'away';
           bm.aimX = 0; bm.aimZ = 0; bm.targetId = 0;
           bm.hold = 26;
+          bm.doorsUntil = state.t + 2.5;
+          // An atomic weapon away: the turn the 509th practised for a year,
+          // a hundred and fifty-five degrees and down, to have as much air as
+          // possible between her and it when it goes off forty-odd seconds
+          // later. Held for longer, and she does not come back.
+          if (L.atomic) {
+            bm.awayTo = wrapAngle(bm.heading + (state.rng() < 0.5 ? 1 : -1) * 2.7);
+            bm.hold = 60;
+          }
           state.events.push({ e: 'sticksAway', i: bm.id, tm: bm.team });
         }
       }
@@ -12673,6 +14400,8 @@ function stepBombers(state, dt) {
     bm.z += Math.cos(bm.heading) * bm.speed * dt;
     // And a heavy is in the same gale as everything else.
     buffet(state, bm, dt);
+
+    bm.doors = bm.phase === 'run' || state.t < (bm.doorsUntil || 0);
 
     heavyFlak(state, bm, dt);
     heavyDamage(state, bm, dt);
@@ -13046,14 +14775,18 @@ function stepFlooding(state, ship, dt) {
   // whichever compartment has most in it, which is where the suctions are led
   // first.
   if (ship.pumping > 0) {
-    let left = pumpRate(cls) * dt;
+    // They come up to speed slowly: the suctions have to be led to the
+    // flooded spaces and the pumps primed before they draw anything like
+    // what they are rated at. See PUMP_SPIN.
+    if (ship.pumping < 1) ship.pumping = Math.min(1, ship.pumping + dt / PUMP_SPIN);
+    let left = pumpRate(cls) * ship.pumping * dt;
     const wet = SECTIONS
       .filter((s) => s.from !== null && ship.sections[s.k].water > 0)
       .sort((a, q) => ship.sections[q.k].water - ship.sections[a.k].water);
     for (const s of wet) {
       if (left <= 0) break;
       const c = ship.sections[s.k];
-      const q = Math.min(c.water, left);
+      const q = Math.min(c.water, left * suction(c, sectionVolume(cls, s.k)));
       c.water -= q;
       left -= q;
       c.inflow = (c.inflow || 0) - q / dt;
@@ -13105,6 +14838,20 @@ function stepFlooding(state, ship, dt) {
   ship.sink = after.sink;
   ship.heel = after.heel;
   ship.trim = after.trim;
+  // Coming back up after she was saved. She does not bob up out of the sea
+  // the moment the last of the danger is past: the water lying on her decks
+  // and in her upper spaces has to run off and be pumped out, so the depth
+  // and the list her going down had put on her come off over the next minute
+  // or so. See saved.
+  if (ship.rising) {
+    const R = ship.rising;
+    const k = Math.exp(-dt / RISE_T);
+    R.sink *= k; R.heel *= k; R.trim *= k;
+    ship.sink += R.sink;
+    ship.heel += R.heel;
+    ship.trim += R.trim;
+    if (Math.abs(R.sink) < 0.02 && Math.abs(R.heel) < 0.002 && Math.abs(R.trim) < 0.001) ship.rising = null;
+  }
   // Her back can go before she does. Once it has, there is no ship: two
   // halves, and neither of them floats for long.
   //
@@ -13220,8 +14967,11 @@ function stepSinking(state, ship, dt) {
   // with nothing more of going down added on.
   if (saved(ship, S, dt)) {
     ship.sinking = null;
-    const b = buoyancy(ship);
-    ship.sink = b.sink; ship.heel = b.heel; ship.trim = b.trim;
+    // Not all at once: what going down had done to her comes off gradually
+    // (see stepFlooding). She stays where she is this tick.
+    const prev = ship.rising || { sink: 0, heel: 0, trim: 0 };
+    ship.rising = { sink: prev.sink + S.down, heel: prev.heel + S.heel, trim: prev.trim + S.trim };
+    ship.sink += S.down; ship.heel += S.heel; ship.trim += S.trim;
     state.events.push({ e: 'saved', ship: ship.id, x: r(ship.x), z: r(ship.z) });
     return;
   }
@@ -13564,6 +15314,106 @@ export function sectionAt(rel, part) {
   return rel > 0 ? 'bow' : 'stern';
 }
 
+/** How long a ship's own pumps take to come up to full speed, in seconds. */
+export const PUMP_SPIN = 40;
+/** How long a party takes to rig and prime a portable pump, in seconds. */
+export const PARTY_SPIN = 20;
+/** How long what going down did to her takes to come off once she is saved, in seconds. */
+export const RISE_T = 22;
+/** How long she has to be held out of danger before she counts as saved, in seconds. */
+export const SAVE_HOLD = 20;
+
+/**
+ * How much of a pump's rating it draws out of a compartment this full.
+ *
+ * A pump draws well while its suction is deep in water and badly once the
+ * level is down round the strum box: the last of the water in a compartment
+ * comes out slowly, which is why pumping a ship out takes a long time and is
+ * never a matter of a few seconds.
+ */
+export function suction(c, vol) {
+  if (!vol) return 1;
+  const full = clamp(c.water / vol, 0, 1);
+  return 0.3 + 0.7 * Math.min(1, full * 5);
+}
+
+// ------------------------------------------------------------- integrity
+
+/** What each kind of damage counts for against her integrity, at its worst. */
+export const INTEGRITY_WEIGHTS = { structure: 0.75, flooding: 0.3, fire: 0.3, weapons: 0.15 };
+/** How much of the integrity she loses she never gets back, whatever is mended. */
+export const INTEGRITY_SCAR = 0.2;
+/** How much integrity she has to be brought back to before she can be saved from going down on it. */
+export const INTEGRITY_SAVE = 0.12;
+
+/**
+ * How much of her is still a ship, nought to one, and what it is made of.
+ *
+ * Not her structure alone: the sum of every way she has been hurt -- her
+ * structure shot away, the sea in her, the fires burning in her and the guns
+ * she has lost. Each counts for its weight at its worst, and the weights add
+ * up to more than one, so a ship hurt every way at once runs out of integrity
+ * well before any one of them has finished her.
+ */
+export function integrityParts(ship) {
+  const cls = shipClass(ship);
+  const structure = clamp(1 - ship.hp / Math.max(1, ship.maxHp), 0, 1);
+  const b = buoyancy(ship);
+  const flooding = clamp(Math.max(1 - b.reserve, 0) * Math.min(1, b.water / Math.max(1, b.free) * 4), 0, 1);
+  let burning = 0;
+  let n = 0;
+  for (const s of SECTIONS) { burning += ship.sections[s.k].fire || 0; n++; }
+  const fire = clamp(burning / Math.max(1, n * 0.35), 0, 1);
+  let worst = 0;
+  let mounts = 0;
+  const count = (list, specs) => {
+    (list || []).forEach((m, i) => {
+      mounts++;
+      worst += gunState(ship, cls, specs ? specs[m.id ?? i] : null, m, true) / 3;
+    });
+  };
+  count(ship.turrets, cls.turrets);
+  if (cls.secondary) count(ship.secMounts, cls.secondary.mounts);
+  for (const m of ship.torpMounts || []) { mounts++; if (m.lost) worst += 1; }
+  const weapons = mounts ? clamp(worst / mounts, 0, 1) : 0;
+  return { structure, flooding, fire, weapons };
+}
+
+/** Her integrity as it stands, before the scar of what she has had done to her. */
+export function rawIntegrity(ship) {
+  const p = integrityParts(ship);
+  const W = INTEGRITY_WEIGHTS;
+  const loss = p.structure * W.structure + p.flooding * W.flooding + p.fire * W.fire + p.weapons * W.weapons;
+  return clamp(1 - loss, 0, 1);
+}
+
+/**
+ * Her integrity, kept up to date, and what happens when it runs out.
+ *
+ * It goes down as she is hurt and comes back up as she is mended, pumped out
+ * and her fires put out -- but never all the way: a part of everything she
+ * loses is gone for good (INTEGRITY_SCAR), and once she has been hurt at all
+ * she is never quite the ship she was. At nought she starts going down; her
+ * parties can still save her, if they get enough of it back in time.
+ */
+function stepIntegrity(state, ship, dt) {
+  // How fast her reserve of buoyancy is coming or going, a share of it a
+  // second: her pumps, her parties and the sea together. Smoothed over a few
+  // seconds, since the sea comes in gulps. See saved.
+  const reserve = buoyancy(ship).reserve;
+  if (ship.reserveWas != null && dt > 0) {
+    const k = 1 - Math.exp(-dt / 3);
+    ship.reserveRate = (ship.reserveRate || 0) + ((reserve - ship.reserveWas) / dt - (ship.reserveRate || 0)) * k;
+  }
+  ship.reserveWas = reserve;
+  const raw = rawIntegrity(ship);
+  if (ship.igCap == null) ship.igCap = 1;
+  const loss = 1 - raw;
+  if (loss > 0.002) ship.igCap = Math.min(ship.igCap, 1 - Math.max(0.01, loss * INTEGRITY_SCAR));
+  ship.integrity = Math.min(raw, ship.igCap);
+  if (ship.alive && !ship.sinking && ship.integrity <= 0) startSinking(state, ship, 'integrity');
+}
+
 /** A fresh set of compartments, all sound. */
 export function freshSections(maxHp) {
   const out = {};
@@ -13880,7 +15730,8 @@ export function useRepair(state, ship) {
   ship.shored = 1;
   for (const sec of SECTIONS) ship.sections[sec.k].fire = 0;
   ship.fires = 0;
-  if (ship.dcStage >= 2) ship.pumping = 1;
+  // The pumps are got going, and come up to speed from nothing.
+  if (ship.dcStage >= 2 && !(ship.pumping > 0)) ship.pumping = 0.02;
   ship.sink = buoyancy(ship).sink;
   ship.flooding = floodedCount(ship);
   ship.engineDamage = 0; ship.steeringDamage = 0;
@@ -13903,7 +15754,10 @@ export const PARTY_JOBS = ['pump', 'repair', 'guns', 'engine'];
 let PARTY_SPAN = null;
 export function partyCount(cls) {
   if (!PARTY_SPAN) {
-    const lens = Object.values(SHIP_CLASSES).map((c) => c.hull.length);
+    // The fleet's hulls only: a premium hull longer than any of them (the
+    // Tillman's 300 m) is clamped to eight, and does not shorten everybody
+    // else's complement by stretching the span.
+    const lens = Object.values(SHIP_CLASSES).filter((c) => !c.premium).map((c) => c.hull.length);
     PARTY_SPAN = [Math.min(...lens), Math.max(...lens)];
   }
   const [lo, hi] = PARTY_SPAN;
@@ -13946,7 +15800,7 @@ function partyEffort(ship) {
  * hand in twenty seconds against the seventy its own crew takes.
  */
 const PARTY = {
-  pump: 0.6, // of her own pumpRate, cubic metres a second
+  pump: 0.42, // of her own pumpRate, cubic metres a second, once it is running
   patch: 0.07, // square metres of hole closed a second
   fire: 0.03, // of a compartment's fire put out a second
   hull: 0.0004, // of her full structure put back a second
@@ -14134,6 +15988,10 @@ function stepParties(state, ship, dt) {
   const cls = shipClass(ship);
   const eff = partyEffort(ship);
   let mended = false;
+  // How many parties are already on the pumps in each compartment this tick:
+  // a second portable pump in the same flat shares the same sump and does
+  // less than the first.
+  const onPump = {};
   ship.parties.forEach((p, i) => {
     const job = p.job === 'auto' ? autoJob(ship, cls, i) : p.job;
     const w = job ? partyWork(ship, cls, job) : null;
@@ -14144,6 +16002,8 @@ function stepParties(state, ship, dt) {
       if (!w) { p.lag = 0; p.on = null; return; }
       if (!p.on && (p.lag = (p.lag || 0) + dt) < AUTO_LAG) return;
     }
+    // A party that has moved to something else has to rig its pump again.
+    if (!w || w.on !== p.on) p.spin = 0;
     p.on = w ? w.on : null;
     if (!w) return;
     if (job === 'pump' && w.what === 'trim') {
@@ -14151,7 +16011,12 @@ function stepParties(state, ship, dt) {
       c.cf = Math.min(1, (c.cf || 0) + PARTY.trim * eff * dt);
     } else if (job === 'pump') {
       const c = ship.sections[w.k];
-      const q = Math.min(c.water, partyPump(cls, ship) * dt);
+      // Rigged and primed over the first PARTY_SPIN seconds.
+      p.spin = Math.min(1, (p.spin || 0) + dt / PARTY_SPIN);
+      const n = (onPump[w.k] = (onPump[w.k] || 0) + 1);
+      const share = Math.pow(0.7, n - 1);
+      const q = Math.min(c.water,
+        partyPump(cls, ship) * p.spin * share * suction(c, sectionVolume(cls, w.k)) * dt);
       c.water -= q;
       c.inflow = (c.inflow || 0) - q / dt;
     } else if (job === 'repair') {
@@ -14206,10 +16071,19 @@ function saved(ship, S, dt) {
   if (!working) { S.held = 0; return false; }
   // Held there, not touched for a moment: twenty seconds with her deck edge
   // clear and her list coming off before anybody can call her safe.
+  //
+  // And she has to be gaining on it, not losing: a ship whose deck edge is
+  // clear for a moment with the sea still putting her deeper has not been
+  // saved. Her reserve of buoyancy is what is watched rather than the water
+  // in her, because counter-flooding lets more water in on purpose and is
+  // still the thing that brings her back. Gone down on her integrity alone,
+  // she needs enough of it back to be a ship again.
   const b = buoyancy(ship);
-  const ok = b.reserve >= 0.15 && Math.abs(b.heel) < 0.5;
-  S.held = ok ? (S.held || 0) + dt : 0;
-  return S.held >= 20;
+  const gaining = (ship.reserveRate || 0) >= -0.0015;
+  const whole = S.kind !== 'integrity' || (ship.integrity ?? 1) >= INTEGRITY_SAVE;
+  const ok = b.reserve >= 0.15 && Math.abs(b.heel) < 0.5 && gaining && whole;
+  S.held = ok ? (S.held || 0) + dt : Math.max(0, (S.held || 0) - dt * 2);
+  return S.held >= SAVE_HOLD;
 }
 
 /** How long a stretch of smoke lies on the sea before it has thinned out. */
@@ -14289,6 +16163,7 @@ function stepDamageOverTime(state, ship, dt) {
   stepFires(state, ship, dt);
   stepParties(state, ship, dt);
   stepFlooding(state, ship, dt);
+  stepIntegrity(state, ship, dt);
   if (ship.repairActive > 0) {
     ship.repairActive -= dt;
     // Into her compartments, where the damage actually is: plating over what
@@ -14504,6 +16379,10 @@ export function step(state, dt = DT) {
     stepDamageOverTime(state, ship, dt);
     stepSinking(state, ship, dt);
     stepFlak(state, ship, dt);
+    stepLaunchers(state, ship, dt);
+    stepAegis(state, ship, dt);
+    stepCiws(state, ship, dt);
+    stepRbu(state, ship, dt);
     stepDrowning(state, ship, dt);
     stepDepthAttack(state, ship, dt);
     if (ship.mnCool > 0) ship.mnCool = Math.max(0, ship.mnCool - dt);
@@ -14514,11 +16393,13 @@ export function step(state, dt = DT) {
   stepShells(state, dt);
   stepBullets(state, dt);
   stepTorpedoes(state, dt);
+  stepMissiles(state, dt);
   stepCharges(state, dt);
   stepMines(state, dt);
   stepPlanes(state, dt);
   stepRearGunners(state, dt);
   stepBombers(state, dt);
+  stepNukes(state, dt);
   stepAirSpacing(state);
   stepMidAir(state);
   stepFallers(state, dt);

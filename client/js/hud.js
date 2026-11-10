@@ -8,7 +8,13 @@ import { MAP_HALF, islandRing, CHART_X } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { MPS_TO_KNOTS, clamp, wrapAngle, angleDelta, dist } from '../../shared/math.js';
-import { SECTIONS, torpedoClear, layFloor, partyCount } from '../../shared/sim.js';
+import { SECTIONS, torpedoClear, layFloor, partyCount, MISSILE_CODE as MISSILE_CODES, samKinds } from '../../shared/sim.js';
+import { MISSILE_SHAPES } from './render/missiles.js';
+
+/** The key each missile is fired on, by kind (see onKey in game.js). */
+export const MISSILE_KEYS = {
+  tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y', sunburn: 'V', uragan: 'I',
+};
 import {
   worksTargets, townTargetId, wallTargetId, wallSections, sectionSpan, wallDamage, cityToWorld,
 } from '../../shared/works.js';
@@ -63,6 +69,7 @@ const M_TO_YARDS = 1.09361;
 const TURRET_LABEL = {
   nose: 'Nose', chin: 'Chin', dorsal: 'Mid-upper', ball: 'Ball',
   tail: 'Tail', gondola: 'Ventral', rear: 'Rear',
+  upper: 'Fwd upper', lower: 'Fwd lower', aftupper: 'Aft upper', aftlower: 'Aft lower',
 };
 
 /** The top of the throttle ladder: a tenth over full power, which is emergency power. */
@@ -200,6 +207,58 @@ export function arsenal(cls) {
       hull: cls,
     });
   }
+  // Her anti-submarine rocket launchers. Her own fire control lays and fires
+  // them (see stepRbu) unless somebody goes down to one: pressing one on her
+  // lays it by hand, and it fires its ripple where he holds when he says so.
+  // The row reads where they bear like any battery's.
+  if (cls.rbu) {
+    const R = cls.rbu;
+    rows.push({
+      name: R.name,
+      caliber: R.caliber,
+      barrels: R.mounts.length * R.tubes,
+      mounts: R.mounts.length,
+      reload: R.reload,
+      range: R.range,
+      // Ships, boats under the sea and the torpedoes running at her.
+      role: 'sub',
+      pen: null,
+      band: 'ASW rockets',
+      note: 'Fired by her own fire control, or laid by hand: torpedoes, submarines, ships',
+      specs: R.mounts.map((m) => ({ ...m, guns: R.tubes })),
+    });
+  }
+  // Her missiles: a row to each kind, its launchers and what she carries. A
+  // missile is not laid on a bearing -- it turns onto its target once it is
+  // off the rail -- so its row reads how many are left aboard instead.
+  if (cls.missiles) {
+    const M = cls.missiles;
+    const cells = M.vls ? M.vls.cells.length : 0;
+    Object.entries(M.kinds).forEach(([kind, K], slot) => {
+      const launch = K.launch || (kind === 'tomahawk' ? 'box' : 'tube');
+      const launchers = launch === 'box' ? M.boxes.length : launch === 'vls' ? 2 : launch === 'rail' ? M.rails.length
+        : Math.round(M.tubes.length / 4);
+      const role = K.role === 'sam' || K.role === 'abm' ? 'aa' : K.role === 'asroc' ? 'sub' : 'surface';
+      rows.push({
+        name: K.name,
+        caliber: null,
+        barrels: K.rounds,
+        mounts: launchers,
+        reload: K.interval,
+        range: K.range,
+        role,
+        pen: null,
+        band: 'Missiles',
+        note: launch === 'box' ? `${K.rounds} in ${launchers} armoured box launchers`
+          : launch === 'vls' ? `${K.rounds} as sailed, in her ${cells}-cell Mk 41 VLS (loaded in the yard)`
+            : launch === 'rail' ? `${K.rounds} for ${launchers} single-arm launchers`
+              : `${K.rounds} in ${launchers} quadruple canisters`,
+        missile: kind,
+        vls: launch === 'vls',
+        slot,
+      });
+    });
+  }
   if (cls.depthCharges) {
     const D = cls.depthCharges;
     const racks = (D.racks || []).length;
@@ -292,6 +351,8 @@ class HudBase {
     this.world = world;
     this.el = {
       ownName: $('own-name'), condRow: $('cond-row'),
+      integrity: $('integrity'), integrityPct: $('integrity-pct'),
+      integrityFill: $('integrity-fill'), integrityLost: $('integrity-lost'),
       status: $('status-row'),
       targetPlate: $('target-plate'), targetName: $('target-name'),
       shellCam: $('shell-cam'),
@@ -362,8 +423,30 @@ class HudBase {
     });
     $('btn-leave').onclick = onLeave;
     // The way home once the action is over. Hidden until there is one.
+    // The way home, in the corner from the first moment of the battle. Before
+    // the battle is decided a press only asks again -- it is a small key in a
+    // corner a thumb rests near -- and a second within a few seconds leaves.
     this.el.port = $('btn-port');
-    if (this.el.port) this.el.port.onclick = onLeave;
+    if (this.el.port) {
+      const key = this.el.port;
+      key.hidden = false;
+      key.textContent = 'Back To Port';
+      key.classList.remove('arm');
+      this.portDone = false;
+      let armed = 0;
+      key.onclick = () => {
+        if (this.portDone || (armed && performance.now() - armed < 3500)) { onLeave(); return; }
+        armed = performance.now();
+        key.classList.add('arm');
+        key.textContent = 'Leave battle?';
+        clearTimeout(this.portTimer);
+        this.portTimer = setTimeout(() => {
+          armed = 0;
+          key.classList.remove('arm');
+          key.textContent = 'Back To Port';
+        }, 3500);
+      };
+    }
   }
 
   /**
@@ -630,6 +713,197 @@ class HudBase {
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
 
+  // ------------------------------------------------------- missile radar ----
+
+  /**
+   * The missile radar's controls: fire one of each kind she carries (by its
+   * code), step the target on, ride a missile in (by id), lay the next on a
+   * ship off the scope (by id), and let her Aegis fire on its own or not.
+   */
+  bindMissiles({ fire, next, ride, target, aegis }) {
+    const box = $('msl-radar');
+    if (!box) return;
+    this.msl = {
+      box, scope: $('msl-scope'), mode: $('msl-mode'), target: $('msl-target'),
+      fire: $('msl-fire'), hint: $('msl-hint'), air: $('msl-air'), airKey: '', fireKey: '',
+      buttons: [], auto: null,
+      pick: { ride, target }, view: null, sweep: 0,
+    };
+    this.msl.fire.onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.aegis) { aegis?.(); return; }
+      if (b.dataset.k) fire(b.dataset.k);
+    };
+    $('msl-next').onclick = () => next();
+    this.msl.air.onclick = (e) => {
+      const b = e.target.closest('button[data-i]');
+      if (b) ride(Number(b.dataset.i));
+    };
+    // A tap on the scope: the nearest of her missiles under it is ridden in;
+    // failing that, the nearest enemy under it is the next one's target.
+    this.msl.scope.addEventListener('pointerdown', (e) => {
+      const v = this.msl.view;
+      if (!v) return;
+      const r = this.msl.scope.getBoundingClientRect();
+      const px = ((e.clientX - r.left) / r.width) * 2 - 1, py = ((e.clientY - r.top) / r.height) * 2 - 1;
+      const wx = v.cx + px * v.R, wz = v.cz - py * v.R;
+      const near = (list) => {
+        let best = null, bd = v.R * 0.09;
+        for (const q of list) {
+          const d = Math.hypot(q.x - wx, q.z - wz);
+          if (d < bd) { bd = d; best = q; }
+        }
+        return best;
+      };
+      const m = near(v.mine.filter((q) => !q.a));
+      if (m) { ride(m.i); return; }
+      const t = near(v.foes);
+      if (t) target(t.i);
+    });
+  }
+
+  /**
+   * Her fire buttons, one a kind in her datasheet's order, and her Aegis
+   * switch if she has a VLS: built again only when she is a different ship.
+   */
+  buildMissileButtons(cls) {
+    const M = this.msl;
+    const kinds = Object.entries(cls.missiles.kinds);
+    // Her own fire control's switch, if she has surface-to-air missiles for
+    // it to fire: Aegis on a ship with a VLS, her own name for it otherwise.
+    const vls = samKinds(cls).length > 0;
+    const fcs = cls.missiles.fcs || 'AEGIS';
+    const key = `${cls.id}`;
+    if (key === M.fireKey) return;
+    M.fireKey = key;
+    M.fire.innerHTML = kinds.map(([k, K]) => `<button type="button" data-k="${MISSILE_CODES[k] || 'h'}">`
+      + `<span>${K.short || k.toUpperCase()}</span><b>${K.rounds}</b><i></i></button>`).join('')
+      + (vls ? `<button type="button" class="aegis" data-aegis="1"><span>${fcs}</span><b>AUTO</b></button>` : '');
+    M.fire.classList.toggle('many', kinds.length + (vls ? 1 : 0) > 2);
+    M.buttons = [...M.fire.querySelectorAll('button[data-k]')].map((el, i) => ({
+      el, q: el.querySelector('b'), c: el.querySelector('i'), K: kinds[i][1],
+    }));
+    M.auto = M.fire.querySelector('button[data-aegis]');
+    M.hint.textContent = `${kinds.map(([k, K]) => `${MISSILE_KEYS[k] || '?'} ${K.short || k}`).join(' · ')}`
+      + `${vls ? ` · L ${fcs === 'AEGIS' ? 'Aegis' : 'auto SAM'}` : ''} · N target · J ride`;
+  }
+
+  /** The missile radar, redrawn: null takes it down. */
+  setMissiles(d) {
+    const M = this.msl;
+    if (!M) return;
+    if (!d) { if (!M.box.hidden) M.box.hidden = true; return; }
+    if (M.box.hidden) M.box.hidden = false;
+    this.buildMissileButtons(d.cls);
+    M.buttons.forEach((b, i) => {
+      const left = d.left ? d.left[i] ?? 0 : b.K.rounds;
+      const cool = d.cool ? d.cool[i] ?? 0 : 0;
+      b.q.textContent = left;
+      b.el.classList.toggle('empty', !left);
+      b.c.style.width = `${Math.round((1 - Math.min(1, cool / (b.K.interval || 1))) * 100)}%`;
+    });
+    if (M.auto) {
+      const on = d.auto !== false;
+      M.auto.classList.toggle('on', on);
+      M.auto.querySelector('b').textContent = on ? 'AUTO' : 'HOLD';
+    }
+    const km = (m) => `${(m / 1000).toFixed(1)} km`;
+    M.target.textContent = d.target
+      ? `${SHIP_CLASSES[d.target.c]?.name || 'enemy'} · ${km(d.targetRange)}`
+      : 'AUTO · NEAREST';
+    M.mode.textContent = d.riding ? `RIDING ${MISSILE_SHAPES[d.riding.k]?.name.toUpperCase() || 'MISSILE'}` : 'OWN SHIP';
+    // Her missiles in the air, as keys to ride them by.
+    const key = d.mine.map((m) => `${m.i}${m.a ? 'a' : ''}`).join(',') + `|${d.riding ? d.riding.i : 0}`;
+    if (key !== M.airKey) {
+      M.airKey = key;
+      M.air.innerHTML = d.mine.map((m, n) => `<button type="button" data-i="${m.i}" class="${d.riding && d.riding.i === m.i ? 'on' : ''}">`
+        + `${m.k.toUpperCase()}${n + 1}${m.a ? ' ↑' : ''}</button>`).join('');
+    }
+    this.drawMissileScope(d);
+  }
+
+  /** The scope: round the missile being ridden, or round her. North up. */
+  drawMissileScope(d) {
+    const M = this.msl;
+    const cv = M.scope;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height, C = W / 2;
+    const me = d.me;
+    if (!me) return;
+    const ships = d.snap ? d.snap.ships : [];
+    const foes = ships.filter((q) => q.a && q.tm !== d.team);
+    const ride = d.riding;
+    const cx = ride ? ride.x : me.x, cz = ride ? ride.z : me.z;
+    let R = 6000;
+    if (!ride) {
+      let far = d.target ? Math.hypot(d.target.x - cx, d.target.z - cz) : 0;
+      for (const m of d.mine) far = Math.max(far, Math.hypot(m.x - cx, m.z - cz));
+      R = Math.min(32000, Math.max(6000, far * 1.15));
+    }
+    M.view = { cx, cz, R, mine: d.mine, foes };
+    const X = (x) => C + ((x - cx) / R) * C;
+    const Y = (z) => C - ((z - cz) / R) * C;
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(C, C, C - 1, 0, Math.PI * 2); ctx.clip();
+    // Its rings and its sweep.
+    ctx.strokeStyle = 'rgba(120, 230, 170, 0.25)';
+    ctx.lineWidth = 1;
+    for (const f of [1 / 3, 2 / 3, 1]) { ctx.beginPath(); ctx.arc(C, C, (C - 2) * f, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(C, 0); ctx.lineTo(C, H); ctx.moveTo(0, C); ctx.lineTo(W, C); ctx.stroke();
+    M.sweep = (M.sweep + 0.09) % (Math.PI * 2);
+    const g = ctx.createConicGradient ? ctx.createConicGradient(M.sweep - Math.PI / 2, C, C) : null;
+    if (g) {
+      g.addColorStop(0, 'rgba(120, 230, 170, 0.28)');
+      g.addColorStop(0.12, 'rgba(120, 230, 170, 0)');
+      g.addColorStop(1, 'rgba(120, 230, 170, 0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+    ctx.fillStyle = 'rgba(120, 230, 170, 0.55)';
+    ctx.font = '600 15px sans-serif';
+    ctx.fillText(`${(R / 1000).toFixed(R < 10000 ? 1 : 0)} km`, 8, H - 10);
+    // The ships: hers green, the enemy's red, her target ringed.
+    const arrow = (x, y, h, len, col, w = 2) => {
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.sin(h) * len, y - Math.cos(h) * len); ctx.stroke();
+    };
+    for (const q of ships) {
+      if (!q.a) continue;
+      const own = q.tm === d.team;
+      const x = X(q.x), y = Y(q.z);
+      ctx.fillStyle = q.i === me.i ? '#8dffb6' : own ? '#4fd08a' : '#ff6a55';
+      ctx.beginPath(); ctx.arc(x, y, q.i === me.i ? 6 : 4.5, 0, Math.PI * 2); ctx.fill();
+      arrow(x, y, q.h, 10, ctx.fillStyle, 1.5);
+      if (d.target && q.i === d.target.i) {
+        ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    // Every missile in the air: hers yellow, laid on their ships; the
+    // enemy's red; the one being ridden bright, with its line to its mark.
+    for (const m of d.all) {
+      if (m.a) continue;
+      const mine = m.o === me.i;
+      const x = X(m.x), y = Y(m.z);
+      const on = ride && m.i === ride.i;
+      if (on || (mine && !ride)) {
+        const t = ships.find((q) => q.i === m.tg);
+        if (t) {
+          ctx.setLineDash([4, 4]);
+          ctx.strokeStyle = on ? 'rgba(255, 214, 120, 0.9)' : 'rgba(255, 214, 120, 0.35)';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(X(t.x), Y(t.z)); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      ctx.fillStyle = mine ? (on ? '#fff3c4' : '#ffd678') : m.tm === d.team ? '#bfe8ff' : '#ff4a3a';
+      ctx.beginPath(); ctx.arc(x, y, on ? 4.5 : 3, 0, Math.PI * 2); ctx.fill();
+      arrow(x, y, m.h, on ? 12 : 8, ctx.fillStyle, on ? 2 : 1.5);
+    }
+    ctx.restore();
+  }
+
   /**
    * The plate in the lower left that says what the camera is riding when it
    * is not a ship -- `{ what, sub, team }`, or null to put it away.
@@ -660,11 +934,13 @@ class HudBase {
     // Riding a round is neither being aboard something nor standing off it,
     // and there is no bridge on a shell to swap to, so the swap goes away.
     const shell = watch.kind === 'shell';
+    const missile = watch.kind === 'missile';
     this.el.watchWhat.textContent = shell
       ? `Riding ${watch.name}'s salvo`
-      : `${pov ? 'Aboard' : 'Watching'} ${watch.name}`;
+      : missile ? `Riding ${watch.name} \u00b7 N retarget \u00b7 J next`
+        : `${pov ? 'Aboard' : 'Watching'} ${watch.name}`;
     const swap = document.getElementById('watch-swap');
-    if (swap) swap.hidden = shell;
+    if (swap) swap.hidden = shell || missile;
   }
 
   buildFor(classId) {
@@ -817,6 +1093,23 @@ class HudBase {
     this.condCount.textContent = bits.join(' · ');
   }
 
+  /**
+   * Her integrity: structure, flooding, fire and weapons added up, out of a
+   * hundred, and the part of the track she can never get back hatched off.
+   */
+  paintIntegrity(own) {
+    const el = this.el;
+    if (!el.integrity) return;
+    const ig = Math.max(0, Math.min(1000, own.ig ?? 1000)) / 10;
+    const cap = Math.max(0, Math.min(1000, own.igc ?? 1000)) / 10;
+    el.integrityPct.textContent = `${ig < 10 ? ig.toFixed(1) : Math.round(ig)}%`;
+    el.integrityFill.style.width = `${ig}%`;
+    el.integrityLost.style.width = `${100 - cap}%`;
+    el.integrity.classList.toggle('warn', ig < 55 && ig >= 25);
+    el.integrity.classList.toggle('bad', ig < 25);
+    el.integrity.classList.toggle('sinking', own.sn != null);
+  }
+
   /** Whatever panel is up, showing the state it is a control for. */
   paintPanel(own) {
     if (this.panel === 'helm') {
@@ -899,14 +1192,23 @@ class HudBase {
   onConn(fn) { this.connFn = fn; }
 
   /**
-   * Put the way home in the corner, or take it away.
+   * Say whether the battle is decided. The key is in the corner the whole
+   * time (see the constructor); once the action is over one press of it takes
+   * you home instead of two.
    *
-   * Nothing else changes when it appears: the sea, the wrecks and the smoke go
-   * on being drawn, the plot still works and the camera still walks. It is a
-   * key, not a curtain.
+   * Nothing else changes: the sea, the wrecks and the smoke go on being
+   * drawn, the plot still works and the camera still walks. It is a key, not
+   * a curtain.
    */
   showPortKey(on) {
-    if (this.el.port) this.el.port.hidden = !on;
+    this.portDone = !!on;
+    if (!this.el.port) return;
+    this.el.port.hidden = false;
+    if (on) {
+      clearTimeout(this.portTimer);
+      this.el.port.classList.remove('arm');
+      this.el.port.textContent = 'Back To Port';
+    }
   }
 
   /** Raise a panel, or lower the one that is up. */
@@ -1615,7 +1917,8 @@ class HudBase {
         + `<div class="arms-sub">${w.note || mounts}</div>`
         + `<dl class="arms-stats">${stats
           .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
-        + (!w.specs ? ''
+        + (w.missile ? '<div class="arms-bear"></div>'
+          : !w.specs ? ''
           // A battery with two rounds to choose between carries the order
           // beside its bearing: armour-piercing or high explosive.
           : w.shell ? '<div class="arms-line"><div class="arms-bear"></div>'
@@ -2204,6 +2507,9 @@ class HudBase {
     } else if (own && own.tp && gun.kind === 'torp') {
       const cd = own.tp[gun.id ?? gun.index];
       bits.push(cd > 0 ? `RELOAD ${Math.round(cd)}` : 'READY');
+    } else if (own && own.rr && gun.kind === 'rbu') {
+      const cd = own.rr[gun.id ?? gun.index];
+      bits.push(cd > 0 ? `RELOAD ${Math.round(cd)}` : 'READY');
     }
     if (beyond) bits.push('OUT OF RANGE');
     read.textContent = bits.join('   ');
@@ -2211,7 +2517,8 @@ class HudBase {
     if (fire && !gun.auto) {
       const i = gun.id ?? gun.index;
       const cd = gun.kind === 'main' ? own?.cd?.[i]
-        : gun.kind === 'sec' ? own?.sd?.[i] : own?.tp?.[i];
+        : gun.kind === 'sec' ? own?.sd?.[i]
+          : gun.kind === 'rbu' ? own?.rr?.[i] : own?.tp?.[i];
       fire.classList.toggle('spent', !!(cd > 0) || beyond);
     }
   }
@@ -2232,6 +2539,18 @@ class HudBase {
     let ofMain = 0;
     for (const entry of this.armsRows) {
       const { w, el } = entry;
+      if (w.missile) {
+        const left = own.mq ? own.mq[w.slot] : w.barrels;
+        if (el) {
+          // A VLS is loaded as her captain chose, so its rows read what is
+          // in the cells, not what the datasheet sails with.
+          el.textContent = left > 0 ? (w.vls ? `${left} in her cells` : `${left} of ${w.barrels} aboard`)
+            : w.vls ? 'None in her cells' : 'All expended';
+          el.classList.toggle('masked', left === 0);
+          el.classList.toggle('part', !w.vls && left > 0 && left < w.barrels);
+        }
+        continue;
+      }
       if (!w.specs) continue;
       // The depth charge gear does not bear on anything: it is worked, not
       // laid, and its row reads what is loaded and what the sonar has.
@@ -2244,6 +2563,12 @@ class HudBase {
       if (!el) continue;
       let on = 0;
       for (const m of w.specs) {
+        // A tube fixed on her deck bears on whatever its homing fish can be
+        // fired at (see fireTorpedoes), and is clear of her as it is mounted.
+        if (m.fixed) {
+          if (Math.abs(angleDelta(m.angle, local)) <= (m.fire ?? 0.35)) on += m.guns || 1;
+          continue;
+        }
         if (Math.abs(angleDelta(m.angle, local)) > m.arc) continue;
         // A bank of tubes trained down her own forecastle bears on nothing.
         if (w.hull && !torpedoClear(w.hull, m, local)) continue;
@@ -2461,6 +2786,7 @@ class HudBase {
     // Her condition, in a line: how many holes are in her and how much of her
     // is open. Where they are is on the board, drawn on the ship.
     this.paintCondition(own.sec);
+    this.paintIntegrity(own);
 
     const chips = [];
     if (own.f) chips.push(`<span class="status-chip fire">FIRE ×${own.f}</span>`);
@@ -3211,5 +3537,7 @@ export class Hud extends HudBase {
     const own = [document.getElementById('btn-leave'), el.port, el.flyDrop, el.flyLeave,
       el.flyArms, el.flyBombCam, el.flyTake, el.gunSeat, el.shellCam, el.timeWarp, ...Object.values(this.keys || {})];
     for (const n of own) if (n) n.onclick = null;
+    clearTimeout(this.portTimer);
+    if (el.port) { el.port.hidden = true; el.port.classList.remove('arm'); }
   }
 }

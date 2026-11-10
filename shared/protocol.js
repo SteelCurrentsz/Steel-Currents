@@ -4,7 +4,7 @@
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
-  slotMask, machineSlot,
+  slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -128,8 +128,19 @@ export function shipSnapshot(ship, full, state = null) {
     s.sl = ship.secMounts.map((m) => r3(m.elev || 0));
   }
   if (ship.torpMounts.length) s.tt = ship.torpMounts.map((m) => r3(m.angle));
+  // Where her RBU-1200s are trained, and how far up their tubes are: the
+  // launchers come round onto a torpedo or a boat before they fire on it.
+  if (ship.rbuMounts && ship.rbuMounts.length) {
+    s.rt = ship.rbuMounts.map((m) => r3(m.angle));
+    s.rl = ship.rbuMounts.map((m) => r3(m.elev || 0));
+  }
+  // How far up each of her box launchers is. Anyone can see a battleship
+  // raising her Tomahawk boxes, and what it means.
+  if (ship.missiles && ship.missiles.boxes.length) s.ml = ship.missiles.boxes.map((b) => r2(b.raise));
   // The mines still on her rails, and how long until the next one is rolled
   // aft. Anyone can count the mines on a boat's stern through a glass.
+  // The B-25s still on a carrier's flight deck: anyone can count them.
+  if (cls.planes && cls.planes.deckload) s.dl = ship.deckload ?? 0;
   if (cls.mines) {
     s.mnl = ship.mnLeft;
     s.mnc = Math.max(0, Math.round((ship.mnCool || 0) * 10) / 10);
@@ -189,6 +200,20 @@ export function shipSnapshot(ship, full, state = null) {
       s.sc = ship.secMounts.map((m) => gunState(ship, cls, cls.secondary.mounts[m.id], m));
     }
     s.tp = ship.torpMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
+    // And her anti-submarine rocket launchers' reloads, for whoever is laying one.
+    if (ship.rbuMounts && ship.rbuMounts.length) {
+      s.rr = ship.rbuMounts.map((m) => Math.max(0, Math.round(m.cooldown * 10) / 10));
+    }
+    // Her missiles: how many of each are left, and how long until the next
+    // of each can go, in the order her datasheet lists them (the Missouri's
+    // Tomahawk first, then Harpoon); and, if she carries surface-to-air
+    // missiles, whether her own fire control may put them up on its own.
+    if (ship.missiles && cls.missiles) {
+      const kinds = Object.keys(cls.missiles.kinds);
+      s.mq = kinds.map((k) => ship.missiles.left[k] ?? 0);
+      s.mc = kinds.map((k) => r1(ship.missiles.cool[k] ?? 0));
+      if (vlsKinds(cls).length || samKinds(cls).length) s.ma = ship.missiles.auto ? 1 : 0;
+    }
     // Which mounting her captain has gone down to, and how long every
     // secondary has to go. Both are his own business and nobody else's, so
     // they ride in the block that only goes to her own bridge.
@@ -207,6 +232,10 @@ export function shipSnapshot(ship, full, state = null) {
     // The bridge has to know, because the first call-away only buys her time
     // and it is the second that starts taking the water out of her.
     s.dc = Math.min(2, ship.dcStage || 0);
+    // Her integrity, in tenths of a per cent, and the most of it she can ever
+    // be brought back to. See stepIntegrity.
+    s.ig = Math.round((ship.integrity ?? 1) * 1000);
+    s.igc = Math.round((ship.igCap ?? 1) * 1000);
     // The depth charge gear, for the bridge that works it: how many charges
     // are left in the stowage, what the pistols are wound to, how long each
     // rack and thrower has to go, and whether her own anti-submarine officer
@@ -238,7 +267,7 @@ export function shipSnapshot(ship, full, state = null) {
     // side is told: it is an intention, and intentions are not visible to the
     // enemy through a pair of binoculars.
     // Her compartments: what is left of each, and how many holes are in it.
-    // This is what a captain reads her condition off now -- there is no bar.
+    // This is where her damage is; her integrity (above) is how much of it.
     s.sec = SECTIONS.map((k) => {
       const c = ship.sections[k.k];
       return [Math.round((c.hp / c.max) * 100), c.pens];
@@ -313,6 +342,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       bm: sh.bomber || sh.plane || undefined,
       // A rocket rather than a shell: drawn with fins and a motor burning.
       rk: sh.rocket ? 1 : undefined,
+      // An atomic bomb: drawn as itself, and followed down by anyone watching.
+      nk: sh.atomic ? 1 : undefined,
     });
   }
   const torps = [];
@@ -332,6 +363,19 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       a: tp.aboard || tp.air > 0 ? 1 : undefined,
     });
   }
+  // The missiles in the air, and on their rails. Everybody gets them: a
+  // missile at three hundred feet is on every radar in the sea, and the
+  // ship it is coming for has to be able to see it to do anything about it.
+  const missiles = (state.missiles || []).map((m) => ({
+    i: m.id, x: r1(m.x), y: r1(m.y), z: r1(m.z), h: r3(m.heading), p: r3(m.pitch),
+    k: MISSILE_CODE[m.kind] || 'h', tm: m.team, o: m.owner,
+    // The ship it is laid on; an interceptor's quarry is in the air, not a ship.
+    tg: m.tk === 'm' || m.tk === 'a' ? undefined : m.target,
+    // Still aboard, on its rail: drawn in its box or its canister.
+    a: m.aboard ? 1 : undefined,
+    // How long since it left, for its booster's flame.
+    ag: m.aboard ? 0 : r1(m.age),
+  }));
   // The depth charges going down. Everybody gets them, whoever dropped them:
   // eight charges going into the sea off a destroyer's quarter is eight
   // columns of white water and then a noise that is heard from the far side of
@@ -519,7 +563,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       n: b.count, sl: gaps(b), tn: r3(b.turn || 0), s: r1(b.speed),
       // Open on the run and shut everywhere else, which is the one thing about
       // her that anybody watching can actually see.
-      d: b.phase === 'run' ? 1 : 0,
+      d: b.phase === 'run' || b.doors ? 1 : 0,
       hp: Math.round(b.hp), mx: b.maxHp,
       // Which of her are streaming fuel from a holed tank, and from where.
       lp: leakReport(b),
@@ -580,7 +624,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     t: 'snap',
     tick: state.tick,
     time: r1(state.t),
-    ships, contacts, shells, torps, charges, mines, planes, batteries, bombers,
+    ships, contacts, shells, torps, missiles, charges, mines, planes, batteries, bombers,
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

@@ -81,6 +81,25 @@ export const AERO = {
     // brakeDrag.
     brake: 0.090,
   },
+  // The Devastator: the Navy's first all-metal monoplane on a carrier when
+  // she came in in 1937, and by 1942 hopelessly slow -- a hundred and ten
+  // knots with a Mark 13 under her on the run in. Torpedo Eight flew fifteen
+  // of them off the Hornet at Midway and one man came back.
+  devastator: {
+    mass: 4620, wing: 39.2, span: 15.24, clMax: 1.50, cd0: 0.0330,
+    thrust: 11800, vMax: 92, name: 'TBD-1',
+    helix: 0.048, gLimit: 4.0,
+  },
+  // The B-25B as Doolittle's raiders flew her off the Hornet: thirteen tonnes
+  // with extra tanks in her bomb bay and her crawlway, two Wright Cyclones of
+  // seventeen hundred horsepower, and flaps full down for a run of a hundred
+  // and fifty metres into forty knots of wind. Nobody had ever flown a medium
+  // bomber off a carrier, and nobody tried to land one on.
+  mitchell: {
+    mass: 13200, wing: 56.7, span: 20.6, clMax: 1.75, cd0: 0.0300,
+    thrust: 41000, vMax: 125, name: 'B-25B',
+    helix: 0.040, gLimit: 3.67,
+  },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',
@@ -122,6 +141,34 @@ export const AERO = {
     mass: 3500, wing: 40.2, span: 16.00, clMax: 1.52, cd0: 0.0500,
     thrust: 10200, vMax: 61, name: 'Loire 130',
     helix: 0.050, gLimit: 3.5,
+  },
+  // The King George V's scout: a Supermarine Walrus, a biplane boat with her
+  // one Pegasus pushing from under the upper wing. Seven hundred and fifty
+  // horsepower, three and a half tonnes and a great deal of wing and wire --
+  // a hundred and thirty-five miles an hour flat out, and stressed to be
+  // thrown off a catapult loaded.
+  walrus: {
+    mass: 3266, wing: 56.7, span: 13.97, clMax: 1.55, cd0: 0.0560,
+    thrust: 10400, vMax: 60, name: 'Walrus I',
+    helix: 0.048, gLimit: 3.5,
+  },
+  // The Sovetsky Soyuz's scout: a Beriev KOR-1, a biplane on a single float
+  // with an M-25 radial of seven hundred horsepower. Two and a half tonnes and
+  // a great deal of wing, so she climbs off a catapult well and is slow
+  // everywhere: a hundred and fifty-odd miles an hour flat out.
+  kor1: {
+    mass: 2486, wing: 29.5, span: 11.00, clMax: 1.52, cd0: 0.0500,
+    thrust: 9600, vMax: 68, name: 'KOR-1',
+    helix: 0.050, gLimit: 3.8,
+  },
+  // The Morosini's scout: an IMAM Ro.43, a biplane on a single float with a
+  // Piaggio P.XR radial of seven hundred horsepower. Lighter and cleaner than
+  // the KOR-1 and a good deal quicker, a hundred and eighty miles an hour
+  // flat out, but no stouter: she was made to be thrown off a catapult.
+  ro43: {
+    mass: 2400, wing: 33.4, span: 11.57, clMax: 1.50, cd0: 0.0440,
+    thrust: 9800, vMax: 76, name: 'Ro.43',
+    helix: 0.052, gLimit: 4.0,
   },
   // The cruiser's scout. Four hundred and fifty horsepower and a great float
   // hung under her, so she is slow and draggy -- and much too slow to get off
@@ -225,6 +272,14 @@ export const HEAVY_AERO = {
     mass: 29700, wing: 131.9, span: 31.62, clMax: 1.58, cd0: 0.0255,
     thrust: 50000, vMax: 128, name: 'B-17G',
     helix: 0.038, gLimit: 2.7,
+  },
+  // Twice a Fortress's weight on a wing that is not twice the size: the
+  // Superfortress was built to cruise high and fast and she is a handful
+  // slow. The Duplex-Cyclones give her the power to carry it.
+  silverplate: {
+    mass: 54000, wing: 161.3, span: 43.05, clMax: 1.55, cd0: 0.0240,
+    thrust: 78000, vMax: 160, name: 'B-29 Silverplate',
+    helix: 0.034, gLimit: 2.5,
   },
   heinkel: {
     mass: 14000, wing: 87.6, span: 22.60, clMax: 1.52, cd0: 0.0285,

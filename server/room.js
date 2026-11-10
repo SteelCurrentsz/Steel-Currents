@@ -4,15 +4,16 @@ import {
   createState, addShip, addBattery, addBomber, applyInput, step, fireGuns, fireTorpedoes,
   manGun, layGun, shootGun, assignMount, setMountOff,
   steerToWaypoint,
-  launchStrike, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
+  launchStrike, strikeAim, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack,
+  fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
-import { getClass, SHIP_ORDER } from '../shared/ships.js';
+import { getClass, SHIP_ORDER, PLAYABLE } from '../shared/ships.js';
 import { setLamp } from '../shared/searchlights.js';
 import { setGroup, fleetCourse, membersOf, vectorFlight } from '../shared/groups.js';
 import { createBotBrain, stepBot, BOT_NAMES } from './bots.js';
@@ -135,15 +136,24 @@ export class Room {
     return this.airGroup && this.airGroup.team === team ? this.airGroup.group : null;
   }
 
+  /**
+   * How the captain who set the battle up loaded her side's vertical
+   * launchers, in the yard: so many of each missile to a cell. The other side
+   * sails with the datasheet's loading.
+   */
+  vlsFor(team) {
+    return this.vlsLoad && this.vlsLoad.team === team ? this.vlsLoad.load : null;
+  }
+
   join(player, { name, classId, team, at = null }) {
     if (this.players.size >= this.maxPlayers) return { error: 'Room is full' };
     if (this.phase === 'ended') return { error: 'That battle is over' };
-    const cls = SHIP_ORDER.includes(classId) ? classId : 'fletcher';
+    const cls = PLAYABLE.includes(classId) ? classId : 'fletcher';
     const t = this.pickTeam(team);
     const ship = addShip(this.state, {
       name: (name || 'Captain').slice(0, 18),
       classId: cls, team: t, index: this.teamIndex[t]++, playerId: player.id, at,
-      airGroup: this.airGroupFor(t),
+      airGroup: this.airGroupFor(t), vls: this.vlsFor(t),
     });
     // A player's ship gets a brain too. She fights herself -- gunnery,
     // torpedoes, damage control -- and her captain keeps the helm and the
@@ -218,7 +228,7 @@ export class Room {
       const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
       const ship = addShip(this.state, {
         name, classId, team, index: this.teamIndex[team]++, isBot: true,
-        airGroup: this.airGroupFor(team),
+        airGroup: this.airGroupFor(team), vls: this.vlsFor(team),
       });
       this.brains.set(ship.id, createBotBrain(skill));
     }
@@ -262,7 +272,7 @@ export class Room {
     const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
     const ship = addShip(this.state, {
       name, classId: cls, team, index: this.teamIndex[team]++, isBot: true, at,
-      airGroup: airGroup || this.airGroupFor(team),
+      airGroup: airGroup || this.airGroupFor(team), vls: this.vlsFor(team),
     });
     this.brains.set(ship.id, createBotBrain(skill));
     return ship;
@@ -412,7 +422,9 @@ export class Room {
       if (ev.e === 'sink' || ev.e === 'over' || ev.e === 'detonate'
         // What has been done to the town is the town's state, not a flash
         // somebody may or may not have seen: every client keeps its copy.
-        || ev.e === 'ruin') global.push(ev);
+        || ev.e === 'ruin'
+        // And an atomic bomb, which is seen from everywhere on the map.
+        || ev.e === 'nuke') global.push(ev);
       else {
         for (let team = 0; team < 2; team++) {
           if (this.eventVisible(ev, team)) perTeam[team].push(ev);
@@ -665,6 +677,26 @@ export class Room {
       }
       case 'fire': { const to = this.conned(ship, msg); if (to) this.onWord(to, 'main', () => fireGuns(this.state, to)); break; }
       case 'torp': { const to = this.conned(ship, msg); if (to) this.onWord(to, 'torp', () => fireTorpedoes(this.state, to)); break; }
+      // A missile: 't' a Tomahawk, 'h' a Harpoon, laid on the ship `tg` --
+      // or on whatever is nearest, if she names none.
+      case 'msl': {
+        const to = this.conned(ship, msg);
+        if (to) fireMissile(this.state, to, CODE_MISSILE[msg.k] || 'tomahawk', Number(msg.tg) || 0);
+        break;
+      }
+      // Whether her Aegis may put up her Standards on its own, at whatever
+      // comes at her side out of the sky.
+      case 'msla': {
+        const to = this.conned(ship, msg);
+        if (to) setAegisAuto(to, !!msg.on);
+        break;
+      }
+      // One of hers already in the air, laid on another ship.
+      case 'mslt': {
+        const to = this.conned(ship, msg);
+        if (to) retargetMissile(this.state, to, Number(msg.i) || 0, Number(msg.tg) || 0);
+        break;
+      }
       // The depth charge gear. `dc` puts a pattern in the water -- one
       // mounting when `i` names one, the whole battery otherwise -- `dcset`
       // winds the pistols, and `dcauto` says whether her own anti-submarine
@@ -795,6 +827,8 @@ export class Room {
         const foe = brain && this.state.ships.find(
           (s) => s.id === brain.targetId && s.alive && s.team !== from.team);
         if (foe) { from.aimX = foe.x; from.aimZ = foe.z; }
+        // Somewhere her aircraft can actually go: see strikeAim.
+        strikeAim(this.state, from);
         launchStrike(this.state, from);
         break;
       }

@@ -76,6 +76,28 @@ export const TORPEDO_KINDS = {
     blades: [3, 3], stud: true,
     paint: { head: 0x3f4536, flask: 0x969a90, after: 0x898d84, tail: 0x74786f, joint: 0x2c2e29, screw: 0xae8a54 },
   },
+  // The Guangzhou's Yu-6: a 533 mm homing torpedo of the missile age, its
+  // seeker in a blunt rounded head, a smooth dark-green body and a pump-jet
+  // shroud round its tail in place of open screws.
+  yu6: {
+    len: 6.6, r: 0.267, nose: 'round', head: 0.2, flask: 0.4, cone: 3.6, fin: 0.96, ring: true,
+    blades: [7, 7], stud: true,
+    paint: { head: 0x3c4a3a, flask: 0x495746, after: 0x445241, tail: 0x3a4637, joint: 0x9a8a48, screw: 0x7c7e78, ring: 0x3a4637 },
+  },
+  // The Sovremenny's TEST-71ME: a 533 mm wire-guided homing torpedo, long,
+  // its seeker under a rounded head, a grey body and a pair of screws.
+  test71: {
+    len: 7.2, r: 0.267, nose: 'round', head: 0.2, flask: 0.42, cone: 3.6, fin: 0.96, ring: false,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x4b4f4a, flask: 0x7c807a, after: 0x737771, tail: 0x5f635e, joint: 0x2c2e29, screw: 0xae8a54 },
+  },
+  // The Burke's Mk 46: a lightweight 324 mm homing torpedo, short and slim,
+  // its seeker under a flat nose, a dull green body and a ducted tail.
+  mk46: {
+    len: 2.59, r: 0.162, nose: 'blunt', head: 0.24, flask: 0.42, cone: 3.2, fin: 0.94, ring: true,
+    blades: [4, 4], stud: false,
+    paint: { head: 0x2e3a2c, flask: 0x56604f, after: 0x4f5949, tail: 0x3e4739, joint: 0xb3a04e, screw: 0x6d706a, ring: 0x3e4739 },
+  },
   // The Avenger's Mk 13: short and fat, and a ring round its tail that held
   // it straight through the water once its wooden drop gear had gone.
   mk13: {

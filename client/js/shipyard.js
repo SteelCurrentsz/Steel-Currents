@@ -52,8 +52,8 @@ export class ShipyardScene {
     // Deeper and less mirror-bright than the battle sea: a hull is being looked
     // at here, and a blown-out glare path across the frame competes with it.
     const ou = this.ocean.material.uniforms;
-    ou.uDeep.value = new THREE.Color(0x0a1c27);
-    ou.uShallow.value = new THREE.Color(0x1c414d);
+    ou.uDeep.value = new THREE.Color(0x07182a);
+    ou.uShallow.value = new THREE.Color(0x1a3d52);
     ou.uSpecular.value = 0.20;
     // The sun sits abaft the beam rather than over the shoulder, so its path on
     // the water runs away behind her instead of washing out the near field.
@@ -61,20 +61,22 @@ export class ShipyardScene {
     // Seen from below, a single-sided sea is not there at all — and going under
     // her keel is half the reason for this screen.
     this.ocean.material.side = THREE.DoubleSide;
-    this.ocean.setSeaState(1);
+    // A working sea rather than a millpond: enough wind to put white horses
+    // on it.
+    this.ocean.setSeaState(2);
     this.scene.add(this.ocean.mesh);
 
-    this.hemi = new THREE.HemisphereLight(0xbcd6ef, 0x2a3742, 1.05);
+    this.hemi = new THREE.HemisphereLight(0xa6b2bb, 0x252e35, 1.0);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff2dc, 1.5);
+    this.sun = new THREE.DirectionalLight(0xebe4d6, 1.35);
     this.sun.position.set(-420, 520, 320);
     this.scene.add(this.sun);
-    const fill = new THREE.DirectionalLight(0x8fb2d4, 0.45);
+    const fill = new THREE.DirectionalLight(0x8496a6, 0.4);
     fill.position.set(380, 180, -420);
     this.scene.add(fill);
 
     // Above water she is seen through clear air; below it, through water.
-    this.airFog = new THREE.FogExp2(0x9fbcd4, 0.00007);
+    this.airFog = new THREE.FogExp2(0x8a959c, 0.00008);
     this.seaFog = new THREE.FogExp2(0x0d3348, 0.0013);
     this.scene.fog = this.airFog;
 
@@ -343,9 +345,10 @@ const num = (n) => n.toLocaleString('en-US');
 /** Inch guns for the navies that ordered them that way, millimetres for the
  *  ones that did not. The Kriegsmarine and the Imperial Japanese Navy both
  *  ordered in centimetres, so neither of them gets an inch figure: a Yamato's
- *  main battery is a forty-six, not an eighteen-inch. */
+ *  main battery is a forty-six, not an eighteen-inch. The Regia Marina ordered
+ *  in millimetres. */
 function gunLabel(caliber, nation) {
-  if (nation === 'ger' || nation === 'jpn' || nation === 'fra' || caliber < 100) return `${caliber}mm`;
+  if (nation === 'ger' || nation === 'jpn' || nation === 'fra' || nation === 'sov' || nation === 'ita' || nation === 'chn' || caliber < 100) return `${caliber}mm`;
   const inches = caliber / 25.4;
   const shown = Math.abs(inches - Math.round(inches)) < 0.06
     ? Math.round(inches) : inches.toFixed(1);
@@ -393,7 +396,7 @@ function traverse(cls) {
 }
 
 /** Every barrel she carries, with the magazine behind it. */
-export function armsSheet(cls, group = null) {
+export function armsSheet(cls, group = null, vls = null) {
   const d = cls.datasheet;
   const rows = [];
   rows.push([`${count(barrels(cls))} ${gunLabel(cls.gun.caliber, cls.nation)} main`,
@@ -403,8 +406,27 @@ export function armsSheet(cls, group = null) {
     rows.push([`${count(d.secondary.barrels)} ${d.secondary.label} secondary`,
       `${num(d.secondary.rounds)} rds`]);
   }
+  // Light guns are anti-aircraft unless the sheet says they are dual-purpose
+  // (`role: 'dp'`), as the Leviathan's 76 mm are: they fire at ships too.
   for (const t of d.tertiary || []) {
-    rows.push([`${count(t.barrels)} ${t.label} AA`, `${num(t.rounds)} rds`]);
+    // A mounting counted as itself rather than its barrels: four Phalanx, not
+    // twenty-four of something.
+    if (t.mounts) {
+      rows.push([`${count(t.mounts)} ${t.label}`, `${num(t.rounds)} rds`]);
+      continue;
+    }
+    rows.push([`${count(t.barrels)} ${t.label} ${t.role === 'dp' ? 'DP' : 'AA'}`, `${num(t.rounds)} rds`]);
+  }
+  // Her missiles, each kind with its count. A VLS is loaded as her captain
+  // likes, so its rows open the panel that loads it, and say how it is loaded.
+  for (const m of d.missiles || []) {
+    if (!m.vls) { rows.push([m.label, `${num(m.rounds)} missiles`]); continue; }
+    rows.push([m.label, `${num(m.rounds)} cells`, 'vls']);
+    const K = cls.missiles?.kinds || {};
+    const load = vls || Object.fromEntries(Object.entries(K)
+      .filter(([, k]) => k.launch === 'vls').map(([k, k2]) => [k, k2.rounds]));
+    rows.push(['VLS loadout', Object.entries(load).filter(([, n]) => n > 0)
+      .map(([k, n]) => `${n} ${K[k]?.short || k}`).join(' &middot; ') || 'Empty', 'vls']);
   }
   if (cls.torpedoes) {
     // Twenty-one inch unless she says otherwise. The Surcouf is the one boat
@@ -423,8 +445,13 @@ export function armsSheet(cls, group = null) {
     const g = group || cls.planes.group.default;
     const air = g.fighters + g.dive + g.torpedo;
     rows.push([`${cls.planes.squadrons} strike squadrons`, `${air} aircraft`, 'airgroup']);
+    // And a deckload over her flight deck, outside her hangar: the Hornet's
+    // B-25s, as many of them as she sails with.
+    const DL = cls.planes.deckload;
+    const dl = DL ? (g.deckload ?? DL.count) : 0;
     rows.push(['Air group',
-      `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T`, 'airgroup']);
+      `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T${DL ? ` &middot; ${dl}B` : ''}`, 'airgroup']);
+    if (DL) rows.push(['B-25 Mitchells on deck', `${dl} / ${DL.count}`, 'airgroup']);
   } else if (cls.planes) {
     // How she gets them off. Every cruiser and battleship in the game shoots
     // hers off a catapult; the Surcouf hasn't got one, and craning a floatplane

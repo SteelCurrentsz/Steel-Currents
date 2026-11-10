@@ -1,23 +1,23 @@
-// The Takao's hull, superstructure, bridge, funnels and masts: the owner's
-// reference sculpt, in place of the lofted model this ship used to be built
-// from, and her five turrets as that sculpt drew them.
+// The Takao's hull, her castle of a bridge, her funnels, her masts and her
+// catapults: the owner's model of her sister Atago -- the two were built to
+// one drawing -- painted in her own colours, and every gun of hers as the
+// model drew it. The Maya is drawn off the same model (see takao.js).
 //
-// build/prepare-takao-hull.mjs takes the sculpt, strips it of its rigging
-// (build/strip-takao-rigging.mjs), cuts every gun it had cast into her out
-// down to the deck or barbette the gun stood on, closes the holes, cuts the
-// openings in her side her tubes fire through, presses the lumps off her
-// decks, takes the dents out of her without rounding her corners, fairs her
-// topsides and paints her. Her turrets come out of the same cut: each gunhouse
-// exactly the piece of her its box took, and its barrels turned true along
-// the sculpt's own barrels, so the turrets train and elevate as the guns she
-// was drawn with.
+// build/prepare-takao-hull.mjs reads the model as the owner uploaded it --
+// "Japanese Cruiser Atago" by kriss50 (https://skfb.ly/ptQuP), under Creative
+// Commons Attribution 4.0, credited on the Credits screen -- paints her (the
+// model is one untextured grey): her weather decks linoleum, her bottom red
+// under her waterline, her glass dark; lifts her turrets, her 12.7 cm twins,
+// her 25 mm, her tubes and her screws out of her mounting by mounting, and
+// decimates what is left.
 //
-// She is drawn in two surfaces, each with the texture of what it is: her
+// She is drawn in three surfaces, each with the texture of what it is: her
 // plating in the fleet's steel plate, her weather decks in linoleum held down
-// with brass strips, both over her own painted colours.
+// with brass strips, and the plates the model drew as single sheets from both
+// sides, all over her own colours.
 import * as THREE from '../../../vendor/three.module.js';
 import {
-  TAKAO_HULL_B64, TAKAO_SURFACE, TAKAO_TURRETS, TAKAO_OPENINGS, TAKAO_LINES,
+  TAKAO_HULL_B64, TAKAO_SURFACE, TAKAO_GUNS, TAKAO_MOUNTS, TAKAO_LINES,
 } from './takaoHull.data.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
 import { steelMap, linoleumMap, finish } from './textures.js';
@@ -33,32 +33,17 @@ const surface = surfaceOf(TAKAO_SURFACE);
 /** Height of her surface at (x, z), or -99 off her. */
 export const takaoSurfaceY = surface.surfaceY;
 
-/**
- * Where a mounting stands, at (x, z): the median of her surface over a small
- * disc round the pivot, so a bollard or the lip of a patch beside it does not
- * lift the whole mounting off the deck it is actually on.
- */
+/** Where a mounting stands, at (x, z): the median of her surface round it. */
 export const takaoSeatY = surface.seatY;
 
-/** Her turrets as the sculpt drew them: see prepare-takao-hull.mjs. */
-export const TURRET_PIECES = TAKAO_TURRETS;
+/** Where every one of her mountings stands: see prepare-takao-hull.mjs. */
+export const MOUNT_SEATS = TAKAO_MOUNTS;
 
-/** The openings in her side her tubes fire through. */
-export const OPENINGS = TAKAO_OPENINGS;
-
-/**
- * Her lines, as the sculpt has them: her keel and the deck over her insides,
- * a metre at a time along her. What her interior is fitted under.
- */
+/** Her lines, as the model has them: what her interior and armour are fitted under. */
 export const SCULPT_LINES = TAKAO_LINES;
 
-// Her two surfaces. Phong rather than Lambert, for the same reason every
-// other ship is dressed in it (see textures.js): painted steel has a broad
-// weak highlight and a deck almost none, and that is most of what tells a
-// grey ship from a grey shape. Each has a map, which is also what keeps
-// dressShip from replacing it and throwing her paint away.
 let mats = null;
-function materials() {
+export function takaoMaterials() {
   if (mats) return mats;
   const plate = steelMap();
   const lino = linoleumMap();
@@ -71,30 +56,42 @@ function materials() {
       vertexColors: true, map: lino,
       specular: 0x1c1a16, shininess: 6,
     }),
+    // What the model drew as single sheets, seen from both sides; and every
+    // one of her guns, whose shields are the same.
+    sheet: new THREE.MeshPhongMaterial({
+      vertexColors: true, map: plate, specularMap: plate,
+      specular: 0x2f3439, shininess: 26, side: THREE.DoubleSide,
+    }),
   };
   finish(mats.plating);
+  finish(mats.sheet);
   finish(mats.deck, 'lino');
   return mats;
 }
 
-/** Add the sculpted hull, painted and textured, as its length-wise slices. */
+/** Add the model's hull, painted and textured, as its length-wise slices. */
 export function buildTakaoHull(g) {
-  const m = materials();
+  const m = takaoMaterials();
   for (const geo of slices()) {
-    g.add(new THREE.Mesh(geo, geo.userData.surface === 1 ? m.deck : m.plating));
+    g.add(new THREE.Mesh(geo, [m.plating, m.deck, m.sheet][geo.userData.surface] || m.plating));
   }
 }
 
-const pieces = new Map();
+const guns = new Map();
 /**
- * Turret `i`'s gunhouse and barrels, decoded once: each in the frame of its
- * own mounting -- the gunhouse's origin on the pivot at the deck it trains on,
- * the barrels' on their trunnions with the bore along +Z.
+ * One of her guns as the model drew it -- 'main' a low 20.3 cm turret,
+ * 'mainHi' a superfiring one, 'sec' a 12.7 cm twin, 'aa3' and 'aa3b' a 25 mm
+ * triple, 'aa1' a single 25 mm, 'tubes' a quadruple bank -- decoded once, in
+ * the frame of its mounting: the pivot at the origin, the foot of what trains
+ * at y = 0, the bore along +Z; and where its trunnions and muzzles are.
  */
-export function turretPieces(i) {
-  if (!pieces.has(i)) {
-    const t = TAKAO_TURRETS[i];
-    pieces.set(i, { house: decodePiece(t.house), guns: decodePiece(t.guns) });
+export function gunPiece(kind) {
+  if (!guns.has(kind)) {
+    const p = TAKAO_GUNS[kind];
+    guns.set(kind, {
+      house: p.house ? decodePiece(p.house) : null, guns: p.guns ? decodePiece(p.guns) : null,
+      trunnion: p.trunnion, muzzles: p.muzzles, pitch: p.pitch, roof: p.roof,
+    });
   }
-  return pieces.get(i);
+  return guns.get(kind);
 }

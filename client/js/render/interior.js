@@ -955,7 +955,10 @@ function upperworks(inside, hull) {
     // itself is a couple of inches, and a sample spacing of a foot walks
     // straight past it -- which is a mess deck hanging in that gap.
     const nz = Math.max(1, Math.round(Math.abs(z1 - z) / (ENV_DZ * 0.5)));
-    const ny = Math.max(4, Math.round((yhi - ylo) / 0.06));
+    // An inch at a time up it: a deckhouse wall that stops an inch and a half
+    // short of the deck it stands on leaves a slit a plate's lower face, laid
+    // at that height, would stand out through.
+    const ny = Math.max(4, Math.round((yhi - ylo) / 0.02));
     let lo = -Infinity;
     let hi = Infinity;
     for (let j = 0; j <= nz; j++) {

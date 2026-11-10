@@ -106,8 +106,8 @@ const PRELOAD = BOOT.slice(1).map((f) => {
 const STARTED = Date.now().toString(36);
 
 // Every file the game can ask for, as the page names it: what it imports
-// before its first frame, and what it fetches later -- each hull, the
-// aircraft, the voices -- through `import()`. The service worker (client/sw.js)
+// before its first frame, and what it fetches later -- each hull and the
+// aircraft -- through `import()`. The service worker (client/sw.js)
 // puts all of it away on the device, so a battle can be joined with no
 // connection at all once the game has been opened online.
 const DYNAMIC = /import\(\s*['"]([^'"]+)['"]\s*\)/g;

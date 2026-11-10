@@ -14,6 +14,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { heavyBomber } from './planekit.js';
+import { b29Ready } from './b29Model.js';
 import { weld, HoleField, holeRows } from './planes.js';
 import { VIC } from '../../../shared/formation.js';
 
@@ -47,6 +48,9 @@ export class Heavies {
    */
   batch(kind) {
     let b = this.batches.get(kind);
+    // A stand-in, built before her own model was in: thrown away and built
+    // again now that it is.
+    if (b && b.stub && b29Ready()) { this.drop(b); this.batches.delete(kind); b = null; }
     if (b) return b;
     const g = heavyBomber(kind);
     // Her airscrews turn, so they are lifted out and drawn as batches of their
@@ -62,6 +66,30 @@ export class Heavies {
       d.parent.remove(d);
       return { at, rot, geo, mats };
     });
+    // Her bay doors and the weapon in her bay, on a machine that is drawn
+    // opening the one and letting go of the other (the B-29): lifted out the
+    // same way, each about its own hinge or its own middle, so each machine
+    // of the formation can have them where she has them.
+    const trims = [];
+    if (g.userData.liftTrims) {
+      g.updateMatrixWorld(true);
+      const lift = (node, kind, open = 0) => {
+        node.updateMatrixWorld(true);
+        const at = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld);
+        const rot = new THREE.Quaternion().setFromRotationMatrix(node.matrixWorld);
+        const base = new THREE.Matrix4().copy(node.matrixWorld).invert();
+        const { geo: tg, mats: tm } = weld(node, base);
+        node.parent.remove(node);
+        const mesh = new THREE.InstancedMesh(tg, tm, this.max);
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        mesh.frustumCulled = false;
+        mesh.count = 0;
+        this.scene.add(mesh);
+        trims.push({ kind, at, rot, open, mesh, n: 0 });
+      };
+      for (const d of g.userData.parts || []) lift(d.node, 'door', d.open);
+      for (const cr of g.userData.rack || []) lift(cr, 'bomb');
+    }
     const { geo, mats } = weld(g);
     // Her skin is cut where she has been hit: see HoleField.
     const mesh = new THREE.InstancedMesh(geo, this.holes.material(mats), this.max);
@@ -78,9 +106,17 @@ export class Heavies {
       this.scene.add(pm);
       return { spec: sp, mesh: pm, n: 0 };
     });
-    b = { mesh, props, n: 0 };
+    b = { mesh, props, trims, n: 0, stub: !!g.userData.stub };
     this.batches.set(kind, b);
     return b;
+  }
+
+  /** A batch done with: out of the scene and its geometry let go. */
+  drop(b) {
+    for (const m of [b.mesh, ...b.props.map((q) => q.mesh), ...b.trims.map((q) => q.mesh)]) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+    }
   }
 
   /**
@@ -99,6 +135,7 @@ export class Heavies {
     for (const b of this.batches.values()) {
       b.n = 0;
       for (const q of b.props) q.n = 0;
+      for (const q of b.trims) q.n = 0;
     }
     this.holes.begin();
   }
@@ -110,7 +147,7 @@ export class Heavies {
    * the stations `mask` names -- so a squadron that has lost two comes
    * through as a vic with two gaps in it.
    */
-  add(kind, x, y, z, heading, bank, pitch, count, holes = null, span = 31, mask = 0) {
+  add(kind, x, y, z, heading, bank, pitch, count, holes = null, span = 31, mask = 0, trim = null) {
     const b = this.batch(kind);
     const d = this.dummy;
     const n = Math.max(1, Math.min(VIC.length, count | 0));
@@ -118,6 +155,12 @@ export class Heavies {
     const cs = Math.cos(heading);
     // `mask` is which stations are still flying, when a machine has gone out
     // of the middle of the vic and left a gap there.
+    // Which machine of the formation is carrying the weapon: the first of
+    // her still flying, which is the leader unless the leader has gone.
+    let carrier = -1;
+    for (let i = 0; i < VIC.length; i++) {
+      if (mask ? (mask >> i) & 1 : i < n) { carrier = i; break; }
+    }
     for (let i = 0; i < VIC.length && b.n < this.max; i++) {
       if (mask ? !((mask >> i) & 1) : i >= n) continue;
       const [ox, oy, oz] = VIC[i];
@@ -149,6 +192,19 @@ export class Heavies {
         this.pm.premultiply(d.matrix);
         q.mesh.setMatrixAt(q.n++, this.pm);
       }
+      // Her bay doors, open as far as `trim.bay` says on the machine with the
+      // weapon and shut on the others; and the weapon, in her bay until it
+      // has gone.
+      for (const q of b.trims) {
+        if (q.n >= this.max) continue;
+        const mine = i === carrier && trim;
+        if (q.kind === 'bomb' && !(mine && trim.bomb)) continue;
+        this.pm.makeRotationFromQuaternion(q.rot);
+        if (q.kind === 'door') this.pm.multiply(this.sp.makeRotationZ(q.open * (mine ? trim.bay || 0 : 0)));
+        this.pm.setPosition(q.at);
+        this.pm.premultiply(d.matrix);
+        q.mesh.setMatrixAt(q.n++, this.pm);
+      }
     }
   }
 
@@ -159,7 +215,7 @@ export class Heavies {
       b.mesh.visible = b.n > 0;
       b.mesh.instanceMatrix.needsUpdate = true;
       b.mesh.userData.holeRow.needsUpdate = true;
-      for (const q of b.props) {
+      for (const q of [...b.props, ...b.trims]) {
         q.mesh.count = q.n;
         q.mesh.visible = q.n > 0;
         q.mesh.instanceMatrix.needsUpdate = true;

@@ -36,6 +36,9 @@ import { ju87Model } from './ju87Model.js';
 import { hellcatModel } from './hellcatModel.js';
 import { dauntlessModel } from './dauntlessModel.js';
 import { avengerModel } from './avengerModel.js';
+import { devastatorModel } from './devastatorModel.js';
+import { b25Model, B25 } from './b25Model.js';
+import { b29Model, b29Ready } from './b29Model.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -425,6 +428,20 @@ export const P = {
   // The roundel: three rings, and the only marking on this list that is three.
   rafBlue: new THREE.MeshLambertMaterial({ color: 0x1d3a6d }),
   rafRed: new THREE.MeshLambertMaterial({ color: 0xa8322c }),
+  // The Fleet Air Arm's temperate sea scheme: extra dark sea grey and dark
+  // slate grey above, sky -- a pale duck-egg green -- underneath.
+  faaTop: new THREE.MeshLambertMaterial({ color: 0x4b5559 }),
+  // Soviet naval aviation before the war: a dark olive green above and a pale
+  // blue below, with the red star on the fuselage and both wings.
+  vvsTop: new THREE.MeshLambertMaterial({ color: 0x48543b }),
+  vvsBottom: new THREE.MeshLambertMaterial({ color: 0x93a7b2 }),
+  vvsRed: new THREE.MeshLambertMaterial({ color: 0xb0261e }),
+  // The Regia Aeronautica's shipboard scouts: grigio azzurro scuro, a dark
+  // blue-grey, over grigio azzurro chiaro, with the black-and-white fasces on
+  // her wings and the white cross of Savoy on her rudder.
+  raiTop: new THREE.MeshLambertMaterial({ color: 0x6f7b86 }),
+  raiBottom: new THREE.MeshLambertMaterial({ color: 0xb4bcc0 }),
+  faaBottom: new THREE.MeshLambertMaterial({ color: 0xb4bea6 }),
   // A bomber's nose is four square metres of glass, and painted the shade a
   // fighter's sliding hood is painted -- which is right, because a hood is a
   // hand's breadth of glass with a dark cockpit behind it -- the whole nose of
@@ -479,6 +496,12 @@ const SCHEMES = {
   // The Eighth Air Force: bare metal, top and bottom, with the underside a
   // shade down on the upper so she still reads as having two sides to her.
   usaaf: [P.alloy, P.alloyLo],
+  // The Fleet Air Arm: sea greys over sky.
+  faa: [P.faaTop, P.faaBottom],
+  // The Soviet Navy's air arm: olive green over pale blue.
+  vvs: [P.vvsTop, P.vvsBottom],
+  // The Regia Aeronautica's: blue-grey over light blue-grey.
+  rai: [P.raiTop, P.raiBottom],
 };
 
 /**
@@ -1659,6 +1682,33 @@ function insignia(p, x, y, z, r, up = true, fit = null) {
 }
 
 /**
+ * The Soviet red star: a plain five-pointed star in red with a thin white
+ * edge, and no disc under it -- so it is laid straight on the skin.
+ */
+function redStar(p, x, y, z, r, up = true, fit = null) {
+  const m = decal(p, x, y, z, faceDir(up, x), [], fit);
+  m.userData.sag = skinSag(m, r, fit || p);
+  m.userData.radius = r;
+  conformPoly(m, M.star, starPts(r), 0.013, m.userData.sag, r);
+  conformPoly(m, P.vvsRed, starPts(r * 0.86), 0.019, m.userData.sag, r);
+  return m;
+}
+
+/**
+ * The Regia Aeronautica's wing marking: the fasces, a bundle of rods drawn in
+ * black, on a white disc in a black ring.
+ */
+function fasci(p, x, y, z, r, up = true, fit = null) {
+  const m = decal(p, x, y, z, faceDir(up, x), [[r, P.panelBlack], [r * 0.84, M.star]], fit);
+  const rect = (a, b, o = 0) => [[-a + o, -b], [a + o, -b], [a + o, b], [-a + o, b]];
+  // The rods along her length and the axe-head out of one side of them.
+  conformPoly(m, P.panelBlack, rect(r * 0.12, r * 0.62), 0.026, m.userData.sag, m.userData.radius);
+  conformPoly(m, P.panelBlack, rect(r * 0.14, r * 0.13, r * 0.2).map(([a, b]) => [a, b + r * 0.42]),
+    0.026, m.userData.sag, m.userData.radius);
+  return m;
+}
+
+/**
  * The US national insignia from the autumn of 1943: the star on its blue
  * disc, a white bar out of either side of it and a blue border round the
  * whole. The bars lie along the span on a wing and along her length on a
@@ -1915,6 +1965,13 @@ function mainGear(p, s, x, z, len, r, rake = 0.12) {
  * `[span, length]` in metres over her as built (spread, airscrew included)
  * and as she was.
  */
+// Her span and length as the KOR-1 is built (see kor1), before trueSize brings her to the
+// eleven metres and eight and two-thirds she was.
+const KOR1_SPAN = 11.06;
+const KOR1_LEN = 9.24;
+const RO43_SPAN = 11.60;
+const RO43_LEN = 9.77;
+
 const TRUE_SIZE = {
   wildcat: [[11.28, 9.25], [11.58, 8.76]],
   dauntless: [[12.43, 10.15], [12.66, 10.09]],
@@ -1926,6 +1983,10 @@ const TRUE_SIZE = {
   // she is: a Jake the right length is two Jakes standing in each other.
   jake: [[15.16, 9.64], [14.50, 9.64]],
   loire: [[16.00, 11.53], [16.00, 11.30]],
+  walrus: [[14.00, 11.30], [13.97, 11.45]],
+  kor1: [[KOR1_SPAN, KOR1_LEN], [11.00, 8.67]],
+  // As the Ro.43 is built (see ro43), and as she was: 11.57 m and 9.71 m.
+  ro43: [[RO43_SPAN, RO43_LEN], [11.57, 9.71]],
 };
 
 function trueSize(p, kind) {
@@ -3024,13 +3085,15 @@ function loire(g, x, y, z, ry, opts = {}) {
   // radiator under its nose, and the airscrew on its tail -- a pusher, turning
   // aft of the wing's trailing edge.
   const NY = WY + 0.92;
+  // Tail first, the way airframe lofts a body: listed nose first, it came out
+  // inside out.
   airframe(p, TOP, [
-    { z: 1.75, w: 0.20, h: 0.22, y: NY },
-    { z: 1.40, w: 0.54, h: 0.62, y: NY },
-    { z: 0.50, w: 0.66, h: 0.76, y: NY },
-    { z: -0.70, w: 0.64, h: 0.72, y: NY },
-    { z: -1.55, w: 0.46, h: 0.50, y: NY },
     { z: -1.95, w: 0.24, h: 0.26, y: NY },
+    { z: -1.55, w: 0.46, h: 0.50, y: NY },
+    { z: -0.70, w: 0.64, h: 0.72, y: NY },
+    { z: 0.50, w: 0.66, h: 0.76, y: NY },
+    { z: 1.40, w: 0.54, h: 0.62, y: NY },
+    { z: 1.75, w: 0.20, h: 0.22, y: NY },
   ], { flat: 0.05, e: 0.9, mBot: TOP });
   box(p, M.gunDark, 0.42, 0.28, 0.70, 0, NY - 0.42, 0.85);
   for (const sx of [-1, 1]) {
@@ -3063,6 +3126,451 @@ function loire(g, x, y, z, ry, opts = {}) {
   for (const s of [-1, 1]) strut(p, TOP, [s * 0.16, 1.10, -4.70], [s * 1.30, 1.34, -4.95], 0.03);
   aerial(p, 0, WY + 0.15, -0.95, 0.55, tail.finTop, TOP);
   trueSize(p, 'loire');
+  return p;
+}
+
+/**
+ * A Supermarine Walrus: the Fleet Air Arm's catapult amphibian, the
+ * "Shagbat", and what every British battleship and cruiser of the war carried.
+ *
+ * A biplane boat: a single-step hull of a flying boat with the lower wing
+ * set on its shoulders, the upper wing on struts over it, and her one Pegasus
+ * in a nacelle hung under the centre of the upper wing, driving a four-bladed
+ * pusher airscrew aft of it -- set so far back that her pilot sat under the
+ * leading edge, ahead of the disc, and her gunners had a cockpit in the bow
+ * and another abaft the wing. A float under each lower wingtip, a high
+ * tailplane braced to her fin, and fourteen metres of span: slow, stressed for
+ * the catapult, and craned back aboard off the water.
+ */
+function walrus(g, x, y, z, ry, opts = {}) {
+  const [TOP, BOT] = paint('faa');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+
+  // The hull: a deep boat, fine at the bow, a hard chine carrying her beam, the
+  // step under the wing and a long run up aft to her tail. Stations aft to
+  // forward, [z, half beam, keel, chine, deck, crown].
+  seaFloat(p, TOP, BOT, [
+    [-5.75, 0.10, 1.02, 1.10, 1.30, 0.04],
+    [-4.70, 0.28, 0.74, 0.90, 1.34, 0.08],
+    [-3.40, 0.50, 0.46, 0.66, 1.42, 0.12],
+    [-2.00, 0.70, 0.24, 0.46, 1.52, 0.16],
+    [-0.70, 0.82, 0.10, 0.32, 1.62, 0.20],
+    [-0.68, 0.82, 0.00, 0.24, 1.62, 0.20],
+    [0.90, 0.84, 0.00, 0.22, 1.66, 0.22],
+    [2.40, 0.78, 0.04, 0.26, 1.66, 0.22],
+    [3.70, 0.62, 0.14, 0.36, 1.62, 0.20],
+    [4.70, 0.40, 0.32, 0.54, 1.52, 0.14],
+    [5.40, 0.12, 0.64, 0.80, 1.38, 0.06],
+  ]);
+  // The bow cockpit with its Vickers on a ring, and the mooring hatch ahead of it.
+  cyl(p, M.cave, 0.34, 0.34, 0.06, 0, 1.82, 3.85, 14);
+  cyl(p, M.gunDark, 0.38, 0.38, 0.05, 0, 1.86, 3.85, 14);
+  const bowGun = cyl(p, M.gunDark, 0.034, 0.034, 0.80, 0, 2.12, 4.20, 6);
+  bowGun.rotation.x = 1.16;
+  box(p, M.gunDark, 0.42, 0.04, 0.42, 0, 1.58, 4.85);
+  // Her pilot under the leading edge of the upper wing, in the enclosed
+  // cockpit, and the after gunner's open position abaft the wing.
+  greenhouse(p, 0.98, 0.58, 1.80, 1.15, 2.75, 4);
+  cyl(p, M.cave, 0.34, 0.34, 0.06, 0, 1.52, -2.30, 14);
+  cyl(p, M.gunDark, 0.38, 0.38, 0.05, 0, 1.56, -2.30, 14);
+  const aftGun = cyl(p, M.gunDark, 0.034, 0.034, 0.80, 0.06, 1.80, -2.62, 6);
+  aftGun.rotation.x = -1.20;
+  // Her roundels on the hull, abaft the wing.
+  roundel(p, 0.72, 1.18, -3.20, 0.36, false);
+  roundel(p, -0.72, 1.18, -3.20, 0.36, false);
+
+  // The lower wing, on the hull's shoulders, and the upper wing on its struts
+  // over it -- the same span, a little ahead of it, and no dihedral to speak of.
+  const LY = 1.30;
+  const UY = 3.42;
+  for (const s of [-1, 1]) {
+    const lo = new THREE.Group();
+    lo.position.set(s * 0.78, LY, 0.95);
+    lo.rotation.z = s * 0.045;
+    p.add(lo);
+    const lw = wing(lo, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 6.20, rootC: 1.85, tipC: 1.70,
+      sweep: 0.05, thick: 0.13, camber: 0.03, rootCap: false,
+    });
+    ctrlSurface(lo, TOP, lw, 0.55, 0.95);
+    roundel(lo, s * 4.90, -0.12, -0.70, 0.62, 'down');
+    // The wingtip float, on its struts under the tip.
+    const ft = new THREE.Group();
+    ft.position.set(s * 5.05, -0.98, -0.20);
+    lo.add(ft);
+    seaFloat(ft, TOP, BOT, [
+      [-0.80, 0.06, 0.24, 0.28, 0.40, 0.02],
+      [-0.36, 0.16, 0.12, 0.20, 0.38, 0.03],
+      [0.30, 0.18, 0.05, 0.15, 0.38, 0.03],
+      [0.82, 0.14, 0.12, 0.21, 0.40, 0.03],
+      [1.12, 0.04, 0.24, 0.29, 0.42, 0.02],
+    ]);
+    strut(lo, TOP, [s * 5.05, -0.60, 0.25], [s * 4.95, -0.05, 0.10], 0.04);
+    strut(lo, TOP, [s * 5.05, -0.60, -0.60], [s * 4.95, -0.05, -0.95], 0.04);
+
+    const up = new THREE.Group();
+    up.position.set(s * 0.65, UY, 1.25);
+    p.add(up);
+    const uw = wing(up, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 6.35, rootC: 1.95, tipC: 1.80,
+      sweep: 0.05, thick: 0.13, camber: 0.032, rootCap: false,
+    });
+    ctrlSurface(up, TOP, uw, 0.55, 0.95);
+    roundel(up, s * 4.90, 0.13, -0.80, 0.70);
+    // The interplane struts: an N-strut out at three-fifths of the span, and
+    // the flying and landing wires criss-crossing the bay inboard of it.
+    for (const sx of [3.55]) {
+      const xl = s * (0.78 + sx), xu = s * (0.65 + sx + 0.10);
+      strut(p, TOP, [xl, LY + 0.25, 0.75], [xu, UY - 0.02, 1.05], 0.05);
+      strut(p, TOP, [xl, LY + 0.25, -0.55], [xu, UY - 0.02, -0.30], 0.05);
+      strut(p, TOP, [xl, LY + 0.25, 0.75], [xu, UY - 0.02, -0.30], 0.03);
+      strut(p, M.wire, [s * 1.0, LY + 0.15, 0.40], [xu, UY - 0.02, 0.40], 0.014, 4);
+      strut(p, M.wire, [xl, LY + 0.20, 0.40], [s * 0.9, UY - 0.06, 0.40], 0.014, 4);
+    }
+  }
+  // The upper centre section, between the two panels.
+  box(p, TOP, 1.30, 0.24, 1.95, 0, UY + 0.02, 0.28);
+
+  // The engine: a Pegasus in a long nacelle under the centre section, on its
+  // struts down to the hull, with the airscrew on the back of it.
+  const NY = UY - 0.62;
+  // Tail first, the way airframe lofts a body: listed nose first, it came out
+  // inside out.
+  airframe(p, TOP, [
+    { z: -1.60, w: 0.24, h: 0.24, y: NY },
+    { z: -1.35, w: 0.50, h: 0.50, y: NY },
+    { z: -0.70, w: 0.92, h: 0.88, y: NY },
+    { z: 0.20, w: 1.12, h: 1.06, y: NY },
+    { z: 0.95, w: 1.05, h: 1.00, y: NY },
+    { z: 1.25, w: 0.34, h: 0.36, y: NY },
+  ], { flat: 0.05, e: 0.95, mBot: TOP });
+  for (const sx of [-1, 1]) {
+    for (const zz of [0.70, -0.60]) strut(p, TOP, [sx * 0.34, NY - 0.32, zz], [sx * 0.62, 1.78, zz + 0.05], 0.05);
+  }
+  const disc = new THREE.Group();
+  disc.position.set(0, NY, -1.70);
+  disc.rotation.y = Math.PI;
+  disc.userData.dynamic = true;
+  p.add(disc);
+  p.userData.prop = disc;
+  disc.userData.isProp = true;
+  animPart(p, 'prop', disc, { axis: 'z', spin: true });
+  cyl(disc, M.prop, 0.06, 0.22, 0.42, 0, 0, 0.18, 12).rotation.x = Math.PI / 2;
+  for (let i = 0; i < 4; i++) {
+    const bl = new THREE.Group();
+    bl.rotation.z = (i / 4) * Math.PI * 2 + 0.4;
+    disc.add(bl);
+    propBlade(bl, M.prop, 1.48, 0.24, 0.16, 0.55, 1.20);
+  }
+
+  // Her tail: the fin on the end of the hull, the tailplane set high on it and
+  // braced, and the fin flash -- red, white and blue -- on its sides.
+  const tail = empennage(p, 1.75, 1.45, 4.60, 1.10, 1.32, -5.00);
+  for (let i = 0; i < 3; i++) {
+    box(p, [P.rafRed, M.star, P.rafBlue][i], 0.17, 0.62, 0.22, 0, 1.78, -4.72 - i * 0.22);
+  }
+  for (const s of [-1, 1]) strut(p, TOP, [s * 0.14, 1.16, -4.75], [s * 1.25, 1.36, -5.00], 0.03);
+  aerial(p, 0, UY + 0.13, -0.60, 0.50, tail.finTop, TOP);
+  trueSize(p, 'walrus');
+  return p;
+}
+
+// ------------------------------------------------------- the Soviet one --
+
+/**
+ * A Beriev KOR-1 (Be-2): the Soviet Navy's shipboard scout of the late
+ * thirties, and what a Sovetsky Soyuz would have carried on her stern
+ * catapult.
+ *
+ * A two-seat biplane on a single big float, with a little float under each
+ * lower wingtip: an M-25 radial of seven hundred horsepower in a long-chord
+ * cowl, the pilot in an open cockpit under the trailing edge of the upper
+ * wing and the observer behind him with a ShKAS on a ring. She is a slow,
+ * stout, wire-braced thing, made to be thrown off a catapult and craned back
+ * aboard out of a swell.
+ */
+function kor1(g, x, y, z, ry, opts = {}) {
+  const [TOP, BOT] = paint('vvs');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  const cl = (zz) => 2.25 + 0.030 * zz;
+
+  // The fuselage: deep and slab-sided, tapering to the tail.
+  airframe(p, TOP, [
+    { z: -4.70, w: 0.14, h: 0.42, y: cl(-4.70) + 0.24 },
+    { z: -3.80, w: 0.40, h: 0.70, y: cl(-3.80) + 0.16 },
+    { z: -2.60, w: 0.64, h: 0.96, y: cl(-2.60) + 0.08 },
+    { z: -1.30, w: 0.84, h: 1.12, y: cl(-1.30) + 0.03 },
+    { z: 0.00, w: 0.92, h: 1.18, y: cl(0.00) },
+    { z: 1.20, w: 0.92, h: 1.16, y: cl(1.20) },
+    { z: 2.20, w: 0.88, h: 1.10, y: cl(2.20) },
+    { z: 2.90, w: 0.84, h: 1.06, y: cl(2.90) },
+  ], { flat: 0.18, e: 0.90, mBot: BOT });
+  radial(p, 0.60, cl(3.25), 3.20, 2.90, 2, !!opts.spin);
+  // Her fixed ShKAS, firing through the airscrew from the top of the cowl.
+  box(p, P.cave, 0.12, 0.09, 0.90, 0.16, cl(2.6) + 0.52, 2.55);
+  arm(cyl(p, P.gunDark, 0.03, 0.03, 0.50, 0.16, cl(3.1) + 0.53, 3.10, 6), 0.26)
+    .rotation.x = Math.PI / 2;
+
+  // Two open cockpits: the pilot's under the trailing edge of the upper wing
+  // behind a little windscreen, and the observer's abaft it with his ring.
+  const lip = (zz) => cl(zz) + 0.56;
+  box(p, P.cave, 0.56, 0.10, 0.86, 0, lip(-0.05), -0.05);
+  const ws = box(p, P.glass, 0.52, 0.26, 0.05, 0, lip(0.42) + 0.12, 0.42);
+  ws.rotation.x = -0.35;
+  box(p, P.cave, 0.56, 0.10, 0.80, 0, lip(-1.45) - 0.03, -1.45);
+  const ringY = lip(-1.45) + 0.02;
+  cyl(p, P.gunDark, 0.36, 0.36, 0.05, 0, ringY, -1.45, 14);
+  const mg = cyl(p, P.gunDark, 0.035, 0.035, 0.86, 0.06, ringY + 0.24, -1.78, 6);
+  mg.rotation.x = -1.18;
+
+  // The lower wing, on the bottom of the fuselage, and the upper wing on its
+  // cabane over it, staggered a little ahead. Both of a span, near enough.
+  const LY = cl(0.4) - 0.40;
+  const UY = cl(0.6) + 1.42;
+  for (const s of [-1, 1]) {
+    const lo = new THREE.Group();
+    lo.position.set(s * 0.40, LY, 0.45);
+    lo.rotation.z = s * 0.04;
+    p.add(lo);
+    const lw = wing(lo, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 4.95, rootC: 1.55, tipC: 1.40,
+      sweep: 0.04, thick: 0.13, camber: 0.03, rootCap: false,
+    });
+    ctrlSurface(lo, TOP, lw, 0.55, 0.95);
+    redStar(lo, s * 3.70, -0.12, -0.55, 0.52, 'down');
+    // The wingtip float on its struts under the tip.
+    const ft = new THREE.Group();
+    ft.position.set(s * 4.35, -0.86, -0.25);
+    lo.add(ft);
+    seaFloat(ft, TOP, BOT, [
+      [-0.70, 0.06, 0.24, 0.28, 0.40, 0.02],
+      [-0.32, 0.15, 0.12, 0.20, 0.38, 0.03],
+      [0.28, 0.17, 0.05, 0.15, 0.38, 0.03],
+      [0.74, 0.13, 0.12, 0.21, 0.40, 0.03],
+      [1.02, 0.04, 0.24, 0.29, 0.42, 0.02],
+    ]);
+    strut(lo, TOP, [s * 4.35, -0.52, 0.15], [s * 4.25, -0.03, 0.00], 0.04);
+    strut(lo, TOP, [s * 4.35, -0.52, -0.55], [s * 4.25, -0.03, -0.80], 0.04);
+
+    const up = new THREE.Group();
+    up.position.set(s * 0.55, UY, 0.95);
+    p.add(up);
+    const uw = wing(up, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 4.98, rootC: 1.60, tipC: 1.45,
+      sweep: 0.04, thick: 0.12, camber: 0.032, rootCap: false,
+    });
+    ctrlSurface(up, TOP, uw, 0.55, 0.95);
+    redStar(up, s * 3.70, 0.12, -0.65, 0.55);
+
+    // The interplane N-strut, out at seven-tenths of the span, and the
+    // flying and landing wires across the bay inboard of it.
+    const xo = 3.55;
+    const yl = LY + (0.40 + xo) * 0.04 + 0.04;
+    const xl = s * (0.40 + xo), xu = s * (0.55 + xo);
+    strut(p, TOP, [xl, yl, 0.30], [xu, UY - 0.03, 0.80], 0.045);
+    strut(p, TOP, [xl, yl, -0.85], [xu, UY - 0.03, -0.35], 0.045);
+    strut(p, TOP, [xl, yl, 0.30], [xu, UY - 0.03, -0.35], 0.03);
+    strut(p, M.wire, [s * 0.60, LY + 0.08, 0.10], [xu, UY - 0.03, 0.20], 0.012, 4);
+    strut(p, M.wire, [xl, yl, 0.10], [s * 0.70, UY - 0.04, 0.20], 0.012, 4);
+    // The cabane: two pairs of struts from the top of the fuselage to the
+    // centre section.
+    strut(p, TOP, [s * 0.30, cl(1.1) + 0.50, 1.10], [s * 0.45, UY - 0.03, 1.10], 0.04);
+    strut(p, TOP, [s * 0.30, cl(0.0) + 0.52, 0.05], [s * 0.45, UY - 0.03, 0.15], 0.04);
+  }
+  // The upper centre section, between the two panels.
+  box(p, TOP, 1.14, 0.18, 1.58, 0, UY + 0.02, 0.15);
+  redStar(p, 0.46, cl(-2.6) + 0.05, -2.60, 0.34, false);
+  redStar(p, -0.46, cl(-2.6) + 0.05, -2.60, 0.34, false);
+
+  // The tail: fin, rudder and a braced tailplane on the top of the fuselage.
+  const tail = empennage(p, 1.30, 1.10, 3.40, 0.90, cl(-4.2) + 0.22, -4.05);
+  for (const s of [-1, 1]) {
+    strut(p, TOP, [s * 0.10, cl(-4.2) - 0.05, -4.10], [s * 1.10, cl(-4.2) + 0.24, -4.25], 0.025);
+  }
+
+  // The main float: a single heavy pylon under the wing and two pairs of
+  // struts either side to the fuselage.
+  if (opts.floats !== false) {
+    const fl = new THREE.Group();
+    fl.position.set(0, 0, 0.30);
+    p.add(fl);
+    seaFloat(fl, TOP, BOT, [
+      [-3.70, 0.15, 0.70, 0.80, 0.98, 0.03],
+      [-2.60, 0.38, 0.45, 0.60, 0.94, 0.05],
+      [-1.30, 0.52, 0.26, 0.46, 0.92, 0.06],
+      [-0.30, 0.56, 0.20, 0.42, 0.92, 0.07],
+      [-0.28, 0.56, 0.00, 0.38, 0.92, 0.07],
+      [0.95, 0.56, 0.02, 0.38, 0.94, 0.07],
+      [2.10, 0.48, 0.16, 0.44, 0.96, 0.06],
+      [3.00, 0.30, 0.38, 0.60, 0.98, 0.05],
+      [3.65, 0.08, 0.66, 0.76, 1.00, 0.03],
+    ]);
+    const bot = cl(0.5) - 0.56;
+    for (let i = 0; i < 5; i++) {
+      const u = i / 4;
+      box(p, TOP, 0.28 - u * 0.06, 0.20, 1.50 - u * 0.25, 0, bot - u * 0.62, 0.70 + u * 0.10);
+    }
+    for (const s of [-1, 1]) {
+      strut(p, TOP, [0, 1.00, 2.10], [s * 0.40, cl(1.9) - 0.52, 1.90], 0.05);
+      strut(p, TOP, [0, 1.00, -1.00], [s * 0.40, cl(-1.1) - 0.52, -1.10], 0.05);
+    }
+  }
+  aerial(p, 0, UY + 0.11, 0.40, 0.40, tail.finTop, TOP);
+  trueSize(p, 'kor1');
+  return p;
+}
+
+/**
+ * The Regia Marina's battleship scout: an IMAM Ro.43, a two-seat biplane on a
+ * single big float with a little float under each lower wingtip. A Piaggio
+ * P.XR radial of seven hundred horsepower in a close cowl, an upper wing of
+ * more span than the lower and a gull at its roots where it meets the top of
+ * the fuselage, the pilot under its trailing edge and the observer behind him
+ * with a Breda-SAFAT on a pillar. Shot off the catapult on a battleship's
+ * quarterdeck and craned back aboard after.
+ */
+function ro43(g, x, y, z, ry, opts = {}) {
+  const [TOP, BOT] = paint('rai');
+  const p = new THREE.Group();
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  const cl = (zz) => 2.25 + 0.028 * zz;
+
+  // The fuselage: slim and deep, tapering to a high tail.
+  airframe(p, TOP, [
+    { z: -5.00, w: 0.12, h: 0.40, y: cl(-5.00) + 0.28 },
+    { z: -4.00, w: 0.38, h: 0.66, y: cl(-4.00) + 0.18 },
+    { z: -2.70, w: 0.62, h: 0.92, y: cl(-2.70) + 0.08 },
+    { z: -1.30, w: 0.82, h: 1.08, y: cl(-1.30) + 0.03 },
+    { z: 0.00, w: 0.90, h: 1.12, y: cl(0.00) },
+    { z: 1.30, w: 0.92, h: 1.10, y: cl(1.30) },
+    { z: 2.30, w: 0.96, h: 1.06, y: cl(2.30) },
+    { z: 3.00, w: 0.98, h: 1.04, y: cl(3.00) },
+  ], { flat: 0.12, e: 0.92, mBot: BOT });
+  radial(p, 0.62, cl(3.35), 3.30, 2.90, 2, !!opts.spin);
+  // Her fixed Breda-SAFAT, firing through the airscrew from the top of the cowl.
+  box(p, P.cave, 0.12, 0.09, 0.80, 0.18, cl(2.7) + 0.50, 2.65);
+  arm(cyl(p, P.gunDark, 0.03, 0.03, 0.46, 0.18, cl(3.15) + 0.51, 3.15, 6), 0.24)
+    .rotation.x = Math.PI / 2;
+
+  // The two cockpits: the pilot's under the trailing edge of the upper wing,
+  // the observer's abaft it with his gun on its pillar.
+  const lip = (zz) => cl(zz) + 0.54;
+  box(p, P.cave, 0.56, 0.10, 0.90, 0, lip(-0.10), -0.10);
+  const ws = box(p, P.glass, 0.50, 0.26, 0.05, 0, lip(0.40) + 0.12, 0.40);
+  ws.rotation.x = -0.35;
+  box(p, P.cave, 0.54, 0.10, 0.84, 0, lip(-1.55) - 0.03, -1.55);
+  const ringY = lip(-1.55) + 0.02;
+  cyl(p, P.gunDark, 0.05, 0.05, 0.30, 0, ringY + 0.10, -1.60, 6);
+  const mg = cyl(p, P.gunDark, 0.035, 0.035, 0.80, 0.0, ringY + 0.30, -1.92, 6);
+  mg.rotation.x = -1.20;
+
+  // The lower wing, shorter, on the bottom of the fuselage; the upper wing
+  // over it on a gull at its roots, staggered ahead and wider.
+  const LY = cl(0.4) - 0.40;
+  const UY = cl(0.6) + 1.30;
+  for (const s of [-1, 1]) {
+    const lo = new THREE.Group();
+    lo.position.set(s * 0.40, LY, 0.25);
+    lo.rotation.z = s * 0.05;
+    p.add(lo);
+    const lw = wing(lo, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 4.30, rootC: 1.40, tipC: 1.20,
+      sweep: 0.03, thick: 0.12, camber: 0.03, rootCap: false,
+    });
+    ctrlSurface(lo, TOP, lw, 0.50, 0.95);
+    fasci(lo, s * 3.20, -0.12, -0.50, 0.46, 'down');
+    // The wingtip float on its struts under the tip.
+    const ft = new THREE.Group();
+    ft.position.set(s * 3.85, -0.84, -0.25);
+    lo.add(ft);
+    seaFloat(ft, TOP, BOT, [
+      [-0.66, 0.06, 0.22, 0.26, 0.38, 0.02],
+      [-0.30, 0.14, 0.11, 0.19, 0.36, 0.03],
+      [0.26, 0.16, 0.05, 0.14, 0.36, 0.03],
+      [0.70, 0.12, 0.11, 0.20, 0.38, 0.03],
+      [0.96, 0.04, 0.22, 0.27, 0.40, 0.02],
+    ]);
+    strut(lo, TOP, [s * 3.85, -0.50, 0.15], [s * 3.75, -0.03, 0.00], 0.04);
+    strut(lo, TOP, [s * 3.85, -0.50, -0.55], [s * 3.75, -0.03, -0.75], 0.04);
+
+    // The gull: the root of the upper wing stepping up off the top of the
+    // fuselage to the panel, which then runs out level.
+    const gull = new THREE.Group();
+    gull.position.set(s * 0.40, cl(0.8) + 0.52, 0.80);
+    gull.rotation.z = s * 0.62;
+    p.add(gull);
+    wing(gull, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 1.05, rootC: 1.55, tipC: 1.55,
+      sweep: 0, thick: 0.12, camber: 0.03, rootCap: false,
+    });
+    const up = new THREE.Group();
+    up.position.set(s * 1.25, UY, 0.80);
+    p.add(up);
+    const uw = wing(up, TOP, BOT, {
+      side: s, x: 0, y: 0, z: 0, span: 4.55, rootC: 1.55, tipC: 1.35,
+      sweep: 0.03, thick: 0.12, camber: 0.032, rootCap: false,
+    });
+    ctrlSurface(up, TOP, uw, 0.55, 0.95);
+    fasci(up, s * 3.30, 0.12, -0.60, 0.50);
+
+    // The interplane struts, out near the tip of the lower wing, and the
+    // wires across the bay inboard of them.
+    const xo = 3.15;
+    const yl = LY + (0.40 + xo) * 0.05 + 0.04;
+    const xl = s * (0.40 + xo), xu = s * (1.25 + xo - 0.55);
+    strut(p, TOP, [xl, yl, 0.15], [xu, UY - 0.03, 0.65], 0.045);
+    strut(p, TOP, [xl, yl, -0.85], [xu, UY - 0.03, -0.45], 0.045);
+    strut(p, M.wire, [s * 0.60, LY + 0.08, 0.10], [xu, UY - 0.03, 0.10], 0.012, 4);
+    strut(p, M.wire, [xl, yl, 0.10], [s * 1.30, UY - 0.04, 0.10], 0.012, 4);
+  }
+
+  // The tail: fin, rudder and a braced tailplane, and the white cross of
+  // Savoy on her rudder.
+  const tail = empennage(p, 1.35, 1.10, 3.40, 0.90, cl(-4.4) + 0.24, -4.30);
+  for (const s of [-1, 1]) {
+    strut(p, TOP, [s * 0.10, cl(-4.4) - 0.05, -4.35], [s * 1.10, cl(-4.4) + 0.26, -4.50], 0.025);
+  }
+  const ry0 = cl(-4.4) + 0.24 + 0.80;
+  box(p, M.star, 0.05, 0.95, 0.16, 0, ry0, -4.85);
+  box(p, M.star, 0.05, 0.16, 0.60, 0, ry0 + 0.12, -4.85);
+
+  // The main float: on a pylon under the fuselage and a pair of struts
+  // either side out to it.
+  if (opts.floats !== false) {
+    const fl = new THREE.Group();
+    fl.position.set(0, 0, 0.30);
+    p.add(fl);
+    seaFloat(fl, TOP, BOT, [
+      [-3.80, 0.15, 0.70, 0.80, 0.98, 0.03],
+      [-2.70, 0.38, 0.45, 0.60, 0.94, 0.05],
+      [-1.30, 0.52, 0.26, 0.46, 0.92, 0.06],
+      [-0.30, 0.56, 0.20, 0.42, 0.92, 0.07],
+      [-0.28, 0.56, 0.00, 0.38, 0.92, 0.07],
+      [0.95, 0.56, 0.02, 0.38, 0.94, 0.07],
+      [2.10, 0.48, 0.16, 0.44, 0.96, 0.06],
+      [3.00, 0.30, 0.38, 0.60, 0.98, 0.05],
+      [3.70, 0.08, 0.66, 0.76, 1.00, 0.03],
+    ]);
+    const bot = cl(0.5) - 0.56;
+    for (let i = 0; i < 5; i++) {
+      const u = i / 4;
+      box(p, TOP, 0.26 - u * 0.06, 0.20, 1.40 - u * 0.25, 0, bot - u * 0.62, 0.60 + u * 0.10);
+    }
+    for (const s of [-1, 1]) {
+      strut(p, TOP, [0, 1.00, 2.10], [s * 0.42, cl(1.9) - 0.52, 1.90], 0.05);
+      strut(p, TOP, [0, 1.00, -1.00], [s * 0.42, cl(-1.1) - 0.52, -1.10], 0.05);
+    }
+  }
+  aerial(p, 0, UY + 0.11, 0.40, 0.40, tail.finTop, TOP);
+  trueSize(p, 'ro43');
   return p;
 }
 
@@ -3534,6 +4042,47 @@ function tbf(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
   g.add(p);
   if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
   if (p.userData.bay) p.userData.bay(0);
+  p.userData.wings = null;
+  return p;
+}
+
+/**
+ * A TBD-1 Devastator, off the owner's sculpt: the Navy's first monoplane
+ * torpedo bomber, the Mark 13 slung under her belly, the gunner's thirty at
+ * the back of her long greenhouse, legs that swing aft and leave the wheels
+ * half out of her wing, and outer panels that fold straight up. Called the way
+ * `tbf` is: `spin` is taken and ignored.
+ */
+function tbd(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
+  const p = devastatorModel({ lod: !!opts.lod, folded });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  if (p.userData.gear) p.userData.gear(opts.gear === false ? 1 : 0);
+  p.userData.wings = null;
+  return p;
+}
+
+/**
+ * A B-25 Mitchell, off the owner's Hornet: the Army's medium bomber, too big
+ * to land on a carrier and flown off one anyway. She does not fold, and
+ * `folded` and `spin` are taken and ignored; `opts.gear === false` has her
+ * legs up.
+ */
+function mitchell(g, x, y, z, ry, folded = false, opts = {}) {
+  const p = b25Model({ solidGlass: opts.solidGlass });
+  // Her bombs: five-hundred-pounders, racked in her bay over where the model
+  // says they leave her. Inside her, out of sight until they go; and what
+  // falls when she lets one go is one of them.
+  const store = new THREE.Group();
+  store.position.set(B25.bay[0], B25.bay[1] + 0.32, B25.bay[2]);
+  p.add(store);
+  bomb(store, 1.45, 0.18);
+  animPart(p, 'store', store, { fall: true });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  p.userData.gear(opts.gear === false ? 1 : 0);
   p.userData.wings = null;
   return p;
 }
@@ -4695,6 +5244,59 @@ const HEAVY = {
     mastH: 0.90,
   },
 
+  // The Superfortress: a long round tube with a glazed bullet of a nose and no
+  // step in it at all, a wing of enormous span and narrow chord, four big
+  // radials, and a fin that is a Fortress's grown up. She is drawn off the
+  // owner's model (b29Model.js) once that is in; this is her stand-in until it
+  // is, and the figures every other screen reads -- her turrets, where each
+  // one is and what it bears on, her bay -- are hers, off that model.
+  silverplate: {
+    id: 'silverplate', paint: 'usaaf', mark: 'star', markR: 0.80, markZ: -10.2,
+    cl: 0.00, e: 1.00, flat: 0.00,
+    body: {
+      z0: -19.60, z1: 10.70, w: 2.90, h: 2.90, n: 22,
+      full0: 0.30, full1: 0.86, tailW: 0.30, tailH: 0.42,
+      noseW: 0.62, noseH: 0.62, noseP: 2.4, tailUp: 0.70,
+    },
+    span: 43.05, wingY: -0.30, wingZ: 0.40, rootC: 5.60, tipC: 1.80,
+    sweep: 2.40, dihedral: 0.070, thick: 0.150,
+    engine: { kind: 'radial', r: 0.80, prop: 5.05, blades: 4, back: 4.4 },
+    nacelles: [
+      { x: 4.31, fwd: 3.80, dy: 0.28, leg: true },
+      { x: 9.49, fwd: 3.40, dy: 0.64, back: 3.2 },
+    ],
+    fins: 1, finH: 5.30, finC: 5.80, fillet: 4.20,
+    tpY: 0.30, tpZ: -16.80, tpSpan: 15.20, tpC: 3.40,
+    glazeNose: 8.80,
+    // Her five gun positions, where the model has them. The four barbettes of
+    // the General Electric central fire control -- two over her and two under,
+    // each trained from a sighting blister by a man who could hand it to the
+    // next -- and the tail, which had its own gunner and a narrow cone.
+    turrets: [
+      { name: 'upper', z: 6.30, y: 1.55, r: 0.60, guns: 4, cal: 0.050, len: 1.25,
+        spread: 0.18, arc: 180, up: 85, down: 2 },
+      { name: 'lower', z: 5.60, y: -1.58, r: 0.55, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.24, arc: 180, up: 2, down: 85 },
+      { name: 'aftupper', z: -7.40, y: 1.55, r: 0.58, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.24, arc: 180, up: 85, down: 2 },
+      { name: 'aftlower', z: -13.00, y: -0.31, r: 0.55, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.24, back: true, arc: 180, up: 2, down: 85 },
+      { name: 'tail', z: -19.20, y: 1.04, r: 0.50, guns: 2, cal: 0.050, len: 1.10,
+        spread: 0.22, back: true, arc: 30, up: 30, down: 30 },
+    ],
+    inside: {
+      floor: -0.90, z0: -18.0, z1: 9.60, ribs: 1.30, catwalk: 0.34,
+      deckZ: 7.60, pilotX: -0.48, pedX: 0.48, engineer: 0.00,
+      aimerZ: 9.60, aimerY: -0.80,
+      navZ: 6.20, navX: -0.52, radioZ: 5.20, radioX: 0.52,
+      spars: [1.60, -2.20], trackZ: -9.00,
+      bulkheads: [5.60, -3.60, -15.0],
+    },
+    // The forward bay, rebuilt for the one weapon and nothing else.
+    bay: { z: 2.69, len: 3.94, wide: 2.24, deep: 1.70, n: 1, bombLen: 3.25, bombR: 0.76 },
+    mastH: 1.10,
+  },
+
   // The one with no step in front of the pilots: the whole nose is glass, and
   // the gondola under it is where the ventral gunner lay.
   heinkel: {
@@ -4820,7 +5422,7 @@ const HEAVY = {
 };
 
 /** The kinds this file can build, in the order the bomber yard steps them. */
-const HEAVY_KINDS = ['lancaster', 'fortress', 'heinkel', 'junkers', 'betty'];
+const HEAVY_KINDS = ['lancaster', 'fortress', 'silverplate', 'heinkel', 'junkers', 'betty'];
 
 /**
  * One heavy bomber, by name, in her own group with the origin under her.
@@ -4828,8 +5430,13 @@ const HEAVY_KINDS = ['lancaster', 'fortress', 'heinkel', 'junkers', 'betty'];
  * She comes in flight trim, which is the only trim there is for one of these.
  */
 function heavyBomber(kind) {
+  // The Superfortress is the owner's model rather than one of these lofts,
+  // once it is in. Until it is she is the loft, and says so (`stub`), so
+  // anything that keeps a model of her can ask again.
+  if (kind === 'silverplate' && b29Ready()) return b29Bomber();
   const g = new THREE.Group();
   const s = HEAVY[kind] || HEAVY.lancaster;
+  if (kind === 'silverplate') g.userData.stub = true;
   const p = heavy(g, 0, 0, 0, 0, s);
   // Her skin, the same flush-riveted alloy under paint every other machine in
   // this file wears. Done here rather than by the caller because a bomber is
@@ -4882,10 +5489,35 @@ function heavyBomber(kind) {
   return g;
 }
 
+/**
+ * The Superfortress off the owner's model, wrapped the way every heavy here
+ * is: her airscrews, her bay doors and her weapon where the bomber yard and
+ * the battle look for them, and a cutaway that leaves her as she is -- the
+ * model has no inside to show.
+ */
+function b29Bomber() {
+  const g = new THREE.Group();
+  const p = b29Model(HEAVY.silverplate.turrets);
+  g.add(p);
+  g.userData.plane = p;
+  g.userData.props = p.userData.props;
+  g.userData.rack = p.userData.rack;
+  g.userData.parts = p.userData.parts;
+  g.userData.turrets = p.userData.turrets;
+  g.userData.bomb = p.userData.bomb;
+  g.userData.skin = [];
+  g.userData.cutaway = () => {};
+  g.userData.kind = 'silverplate';
+  // Her doors open and her weapon goes, in battle as well as in the yard:
+  // see Heavies.batch.
+  g.userData.liftTrims = true;
+  return g;
+}
+
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
-export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf };
+export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

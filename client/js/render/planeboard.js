@@ -24,12 +24,12 @@ import * as THREE from '../../../vendor/three.module.js';
 import { BoardRenderer } from './boardgl.js';
 import { PARTS } from '../../../shared/airframe.js';
 import {
-  wildcat, avenger, arado, kingfisher, besson, loire,
-  zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, heavyBomber, HEAVY_KINDS,
+  wildcat, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43,
+  zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, heavyBomber, HEAVY_KINDS,
 } from './planekit.js';
 
 const BUILD = {
-  wildcat, dauntless: sbd, avenger: tbf, arado, kingfisher, besson, loire,
+  wildcat, dauntless: sbd, avenger: tbf, devastator: tbd, arado, kingfisher, besson, loire, walrus, kor1, ro43,
   zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat,
 };
 
@@ -171,8 +171,9 @@ export class PlaneBoard {
     } else {
       const f = BUILD[kind] || BUILD.wildcat;
       // In flight trim: wheels up, wings spread, nothing hanging off her.
-      if (kind === 'avenger') f(holder, 0, 0, 0, 0, false, false, { gear: false });
-      else if (kind === 'kingfisher' || kind === 'besson' || kind === 'loire') f(holder, 0, 0, 0, 0, {});
+      if (kind === 'avenger' || kind === 'devastator') f(holder, 0, 0, 0, 0, false, false, { gear: false });
+      else if (kind === 'kingfisher' || kind === 'besson' || kind === 'loire'
+        || kind === 'walrus' || kind === 'kor1' || kind === 'ro43') f(holder, 0, 0, 0, 0, {});
       else f(holder, 0, 0, 0, 0, false, { gear: false });
     }
     holder.updateMatrixWorld(true);

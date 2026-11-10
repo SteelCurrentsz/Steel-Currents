@@ -1,6 +1,6 @@
 // Headless checks for the simulation: ballistics, armour, torpedoes, bots.
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import {
   generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt, WEATHERS, WEATHER,
@@ -34,11 +34,11 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER, mortarFlight,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
-import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine } from '../shared/sim.js';
 import {
-  normaliseAirGroup, defaultAirGroup, launchStrike, launchOrder, gunRear, steerToWaypoint, steerToward,
+  normaliseAirGroup, defaultAirGroup, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, runwayLength, takeoffRoll, deckRunFate, resolveShellHit, buoyancy, launchOffset, gunLimits,
@@ -57,7 +57,7 @@ import {
   Pilot, AERO, HEAVY_AERO, alphaFor, flightAttitude, weathercock,
   rollRate, rollTau, pitchTau, instruct,
 } from '../client/js/render/aero.js';
-import { twoFingerGesture } from '../client/js/touch.js';
+import { twoFingerGesture, TouchControls } from '../client/js/touch.js';
 import { startManeuver, flyManeuver, pathOf } from '../shared/pilot.js';
 import { suiseiGeometries, SUISEI, SUISEI_SEGS, SUISEI_PARTS } from '../client/js/render/suiseiModel.js';
 import { Bombs, bombScale } from '../client/js/render/ordnance.js';
@@ -86,10 +86,11 @@ import { silhouette } from '../client/js/silhouette.js';
 import { MARK_KIND, ROOMS } from '../client/js/render/damageboard.js';
 import { Flames } from '../client/js/render/flames.js';
 import {
-  buildSpee, speeParts, sheer as speeSheer, shellAt as speeShellAt,
-  zAt as speeZAt, keelY as speeKeelY,
-} from '../client/js/render/spee.js';
-import { speeSurfaceY } from '../client/js/render/speeHull.js';
+  buildSpee, buildScheer, panzerschiffParts, deckOver as speeSheer, shellAt as speeShellAt,
+  zAt as speeZAt, keelY as speeKeelY, LOA as LOA_SCHEER, CAT as SCHEER_CAT,
+} from '../client/js/render/scheer.js';
+import { scheerSurfaceY as speeSurfaceY, MOUNT_SEATS as SCHEER_SEATS } from '../client/js/render/scheerHull.js';
+const speeParts = () => panzerschiffParts('spee');
 import { buildYamato, yamatoParts, LINES as yamatoLines }
   from '../client/js/render/yamato.js';
 
@@ -134,6 +135,58 @@ import {
 } from '../client/js/render/fuso.js';
 import { fusoSurfaceY, MOUNT_SEATS as FUSO_SEATS, gunPiece as fusoGunPiece } from '../client/js/render/fusoHull.js';
 import {
+  buildHood, shellAt as hoodShellAt, keelY as hoodKeel, deckOver as hoodSheer, zAt as hoodZAt, LOA as HOOD_LOA,
+} from '../client/js/render/hood.js';
+import { hoodSurfaceY, MOUNT_SEATS as HOOD_SEATS, gunPiece as hoodGunPiece } from '../client/js/render/hoodHull.js';
+import {
+  buildKgv, shellAt as kgvShellAt, keelY as kgvKeel, deckOver as kgvSheer, zAt as kgvZAt, LOA as KGV_LOA,
+  CAT_Z as KGV_CAT_Z, CAT_Y as KGV_CAT_Y,
+} from '../client/js/render/kgv.js';
+import { kgvSurfaceY, MOUNT_SEATS as KGV_SEATS, gunPiece as kgvGunPiece } from '../client/js/render/kgvHull.js';
+import {
+  buildSoyuz, shellAt as soyuzShellAt, keelY as soyuzKeel, deckOver as soyuzSheer, zAt as soyuzZAt, LOA as LOA_SOYUZ,
+} from '../client/js/render/soyuz.js';
+import { soyuzSurfaceY, MOUNT_SEATS as SOYUZ_SEATS } from '../client/js/render/soyuzHull.js';
+import {
+  buildHagen, shellAt as hagenShellAt, keelY as hagenKeel, deckOver as hagenSheer, zAt as hagenZAt,
+} from '../client/js/render/hagen.js';
+import { hagenSurfaceY, MOUNT_SEATS as HAGEN_SEATS, buildHagenHull, hagenMaterials } from '../client/js/render/hagenHull.js';
+import {
+  buildMorosini, shellAt as morosiniShellAt, keelY as morosiniKeel, deckOver as morosiniSheer, zAt as morosiniZAt,
+  LOA as LOA_MOROSINI,
+} from '../client/js/render/morosini.js';
+import { morosiniSurfaceY, MOUNT_SEATS as MOROSINI_SEATS } from '../client/js/render/morosiniHull.js';
+import {
+  buildLeviathan, shellAt as leviathanShellAt, keelY as leviathanKeel, deckOver as leviathanSheer, zAt as leviathanZAt,
+} from '../client/js/render/leviathan.js';
+import { leviathanSurfaceY, MOUNT_SEATS as LEVIATHAN_SEATS } from '../client/js/render/leviathanHull.js';
+import {
+  buildTiconderoga, shellAt as ticonderogaShellAt, keelY as ticonderogaKeel, deckOver as ticonderogaSheer, zAt as ticonderogaZAt,
+} from '../client/js/render/ticonderoga.js';
+import { ticonderogaSurfaceY, MOUNT_SEATS as TICONDEROGA_SEATS } from '../client/js/render/ticonderogaHull.js';
+import {
+  buildGuangzhou, shellAt as guangzhouShellAt, keelY as guangzhouKeel, deckOver as guangzhouSheer, zAt as guangzhouZAt,
+} from '../client/js/render/guangzhou.js';
+import { guangzhouSurfaceY, MOUNT_SEATS as GUANGZHOU_SEATS } from '../client/js/render/guangzhouHull.js';
+import { buildBurke } from '../client/js/render/burke.js';
+import { buildSovremenny } from '../client/js/render/sovremenny.js';
+import { buildMutsu } from '../client/js/render/mutsu.js';
+import { mutsuSurfaceY, MOUNT_SEATS as MUTSU_SEATS } from '../client/js/render/mutsuHull.js';
+import { sovremennySurfaceY, MOUNT_SEATS as SOV_SEATS } from '../client/js/render/sovremennyHull.js';
+import { burkeSurfaceY, MOUNT_SEATS as BURKE_SEATS } from '../client/js/render/burkeHull.js';
+import {
+  buildTillman, shellAt as tillmanShellAt, keelY as tillmanKeel, deckOver as tillmanSheer, zAt as tillmanZAt,
+  LOA as LOA_TILLMAN,
+} from '../client/js/render/tillman.js';
+import { tillmanSurfaceY, MOUNT_SEATS as TILLMAN_SEATS } from '../client/js/render/tillmanHull.js';
+import { ADS_REQUIRED, premiumUnlocked } from '../client/js/premium.js';
+import { buildMissouri } from '../client/js/render/missouri.js';
+import { missouriSurfaceY, MOUNT_SEATS as MISSOURI_SEATS } from '../client/js/render/missouriHull.js';
+import {
+  fireMissile, retargetMissile, normaliseVls, defaultVls, setVlsLoad, setAegisAuto, vlsCells, vlsKinds, MISSILE_CODE,
+  samKinds,
+} from '../shared/sim.js';
+import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
 } from '../client/js/render/kongo.js';
@@ -177,9 +230,18 @@ import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinano
 import {
   buildGrafZeppelin, stepLifts as grafZeppelinLifts, FD_FWD as GZ_FD_FWD, FD_AFT as GZ_FD_AFT, LIFTS as GZ_LIFTS,
 } from '../client/js/render/grafzeppelin.js';
+import {
+  buildShokaku, stepLifts as shokakuLifts, FD_FWD as SK_FD_FWD, FD_AFT as SK_FD_AFT, LIFTS as SK_LIFTS,
+  HANGAR_U as SK_HANGAR_U, HANGAR_L as SK_HANGAR_L, hangarSpots as shokakuHangarSpots, MOUNT_SEATS as SHOKAKU_SEATS,
+  shokakuSurfaceY,
+} from '../client/js/render/shokaku.js';
+import {
+  buildHornet, stepLifts as hornetLifts, FD_FWD as HN_FD_FWD, FD_AFT as HN_FD_AFT, LIFTS as HN_LIFTS,
+  HANGAR as HN_HANGAR, hangarSpots as hornetHangarSpots, MOUNT_SEATS as HORNET_SEATS, hornetSurfaceY,
+  DECKLOAD as HN_DECKLOAD, B25_COUNT, b25Taxi as hnB25Taxi, b25Spot as hnB25Spot, B25_LANE as HN_B25_LANE,
+} from '../client/js/render/hornet.js';
 import { Audio as AudioClass, audio as theAudio } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
-import { VOICE_LINES } from '../client/js/render/voices.data.js';
 import { Input } from '../client/js/input.js';
 import { pixelRadius } from '../client/js/render/pixelcull.js';
 import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween, standInTown } from '../client/js/game.js';
@@ -195,7 +257,7 @@ import {
   flightState, partHit,
 } from '../shared/airframe.js';
 import {
-  arado, kingfisher, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
+  arado, kingfisher, walrus, kor1, ro43, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
   b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
   bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d, hellcat as pkHellcat, sbd as pkSbd, tbf as pkTbf,
@@ -307,7 +369,9 @@ function shellRuler(group) {
     return hi < lo ? null : { lo, hi };
   };
 }
-import { angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, makeRng } from '../shared/math.js';
+import {
+  angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, KNOTS, makeRng, worldToLocal,
+} from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import {
   Ocean, AMP_SCALE, WAKE_GLSL as OCEAN_WAKE_GLSL, heldTo, MAX_HULLS, HOLD_MARGIN,
@@ -316,7 +380,7 @@ import {
   Breakers, hullPlan, planAt, holdStrength, FLOAT_Y, SHEET, DROP,
 } from '../client/js/render/breakers.js';
 import { Wake, WakeField, waveReach } from '../client/js/render/wakefield.js';
-import { ShipView } from '../client/js/render/scene.js';
+import { ShipView, BattleScene } from '../client/js/render/scene.js';
 import { torpedoGeometry, TORPEDO_KINDS, Torpedoes } from '../client/js/render/torpedo.js';
 import { Seakeeping, rollPeriod, rollHeed, pitchPeriod, pitchHeed, heaveHeed }
   from '../client/js/render/seakeeping.js';
@@ -363,12 +427,14 @@ import {
 } from '../client/js/render/surcouf.js';
 import { Room } from '../server/room.js';
 import { setGroup, membersOf, vectorFlight, wingLeader, fleetCourse } from '../shared/groups.js';
-import { crewBattle } from '../server/setup.js';
+import { crewBattle, wingOf as setupWingOf } from '../server/setup.js';
 import {
   cityPlan, wallAt, worksFloor, stageOf, STAGE, standingHeight, inFootprint, SURF, worldToCity,
   applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
   worksTargets, worksTarget, townTargetId, wallTargetId, wallHp, WALL_SCARS,
 } from '../shared/works.js';
+import { packData } from '../build/pack-data.mjs';
+import { gunzip, unpack } from '../client/js/unpack.js';
 // The sculpted ships are fetched on demand in the browser; here, all of them up front.
 await loadShips();
 
@@ -836,94 +902,16 @@ check('the guns and the tubes on the models actually train', () => {
   }
 });
 
-check('every gun on the Graf Spee trains inside its stops and fires across its arc', () => {
-  // Her arcs are surveyed off the model she is drawn with (see
-  // build/survey-spee-arcs.mjs), so each one is the whole of what that gun can
-  // be laid through and nothing it cannot. Taken over by hand and laid round
-  // her a bearing at a time, every turret, fifteen and bank of tubes fires on
-  // every bearing well inside its arc and on none outside it.
-  const cls = SHIP_CLASSES.spee;
-  const world = generateWorld(4242, 'open_ocean');
-  world.islands = [];
-  const fresh = () => {
-    const state = createState(world, { mode: 'deathmatch' });
-    const v = addShip(state, { name: 'V', classId: 'spee', team: 0, index: 0 });
-    const foe = addShip(state, { name: 'F', classId: 'hipper', team: 1, index: 0 });
-    v.x = 0; v.z = 0; v.heading = 0; v.notch = 1;
-    foe.x = 30000; foe.z = 30000;
-    return { state, v };
-  };
-  const RAD = Math.PI / 180;
-  const batteries = [
-    ['main', cls.turrets, 12000, (v) => v.turrets],
-    ['sec', cls.secondary.mounts, 7000, (v) => v.secMounts],
-    ['torp', cls.torpedoes.mounts, 3000, (v) => v.torpMounts],
-  ];
-  const wrong = [];
-  for (const [k, specs, range] of batteries) {
-    for (let i = 0; i < specs.length; i++) {
-      const spec = specs[i];
-      for (let b = -165; b <= 180; b += 15) {
-        const off = Math.abs(angleDelta(spec.angle, b * RAD));
-        // A few degrees either side of a stop is left alone: that is where a
-        // bearing is inside or out by rounding.
-        if (Math.abs(off - spec.arc) < 5 * RAD) continue;
-        const { state, v } = fresh();
-        manGun(v, { k, i });
-        layGun(v, { x: Math.sin(b * RAD) * range, z: Math.cos(b * RAD) * range });
-        for (let t = 0; t < 30 / DT; t++) step(state, DT);
-        const fired = shootGun(state, v) > 0;
-        if (fired !== off < spec.arc) {
-          wrong.push(`${k} ${i} ${fired ? 'fired' : 'would not fire'} on ${b} degrees`);
-        }
-      }
-    }
-  }
-  assert.equal(wrong.length, 0, `${wrong.length} wrong: ${wrong.slice(0, 6).join(', ')}`);
+check('every gun on the Graf Spee trains inside its stops and fires only where her fire clears her', () => {
+  // Her arcs are surveyed off the model she is drawn with -- the Admiral
+  // Scheer's, with only her own guns on it (build/survey-arcs.mjs).
+  surveyedArcsHold('spee');
+});
 
-  // A turret goes round the long way rather than through her own bridge.
-  // Anton laid a hundred and thirty degrees to port and then ordered to a
-  // hundred and thirty to starboard trains back through her bow.
-  const { state, v } = fresh();
-  manGun(v, { k: 'main', i: 0 });
-  layGun(v, { x: Math.sin(130 * RAD) * 12000, z: Math.cos(130 * RAD) * 12000 });
-  for (let t = 0; t < 30 / DT; t++) step(state, DT);
-  assert.ok(Math.abs(angleDelta(v.turrets[0].angle, 130 * RAD)) < 0.02, 'Anton never got to port');
-  layGun(v, { x: Math.sin(-130 * RAD) * 12000, z: Math.cos(-130 * RAD) * 12000 });
-  let widest = 0;
-  let nearest = Infinity;
-  for (let t = 0; t < 40 / DT; t++) {
-    step(state, DT);
-    const off = Math.abs(angleDelta(cls.turrets[0].angle, v.turrets[0].angle));
-    widest = Math.max(widest, off);
-    nearest = Math.min(nearest, off);
-  }
-  assert.ok(widest <= cls.turrets[0].arc + 0.01,
-    `Anton trained ${(widest / RAD).toFixed(0)} degrees off her bow, through her stops`);
-  assert.ok(nearest < 0.1, 'Anton did not come back round through her bow');
-  assert.ok(Math.abs(angleDelta(v.turrets[0].angle, -130 * RAD)) < 0.02,
-    'Anton never got to starboard');
-
-  // And her flak, which the scene lays rather than the simulation: whatever
-  // bearing the aeroplane is on, every mounting stays inside its own arc all
-  // the way there.
-  const view = new ShipView({ add() {}, remove() {} }, 'spee', 0, false);
-  const specs = lightMounts(cls);
-  let outside = null;
-  for (let b = 0; b < 360 && !outside; b += 30) {
-    const plane = [{ tm: 1, x: Math.sin(b * RAD) * 1500, y: 700, z: Math.cos(b * RAD) * 1500 }];
-    for (let t = 0; t < 120 && !outside; t++) {
-      view.layMounts(null, null, null, plane, 1 / 30);
-      view.aaMounts.forEach((m, i) => {
-        const off = Math.abs(angleDelta(specs[i].angle, m.rotation.y));
-        if (off > specs[i].arc + 1e-6 && !outside) {
-          outside = `flak mounting ${i} laid ${(off / RAD).toFixed(0)} degrees off the middle of `
-            + `a ${(specs[i].arc / RAD).toFixed(0)}-degree arc, following an aeroplane on ${b}`;
-        }
-      });
-    }
-  }
-  assert.equal(outside, null, outside);
+check('every gun on the Admiral Scheer trains inside its stops and fires only where her fire clears her', () => {
+  // And her sister's, with all her flak on it: the twins on her turret roofs
+  // going round with their turrets.
+  surveyedArcsHold('scheer');
 });
 
 /**
@@ -1395,7 +1383,7 @@ check('every catapult hands her scout over where and the way the plot has her, a
     ['baltimore', buildBaltimore], ['massachusetts', buildMassachusetts],
     ['musashi', buildMusashi], ['fuso', buildFuso], ['kongo', buildKongo],
     ['bismarck', buildBismarck], ['richelieu', buildRichelieu],
-    ['hipper', buildHipper], ['spee', buildSpee],
+    ['hipper', buildHipper], ['spee', buildSpee], ['scheer', buildScheer], ['soyuz', () => buildSoyuz().group],
   ];
   const fwd = new THREE.Vector3();
   for (const [id, build] of ships) {
@@ -1757,10 +1745,10 @@ check('the Musashi is commissioned after her sister', () => {
   assert.equal(SHIP_ORDER[i + 1], 'musashi', `after the Yamato comes ${SHIP_ORDER[i + 1]}`);
 });
 
-check('the Kongo is commissioned before the Fuso, after the Iowa', () => {
+check('the Kongo is commissioned before the Fuso, after the Missouri', () => {
   const i = SHIP_ORDER.indexOf('kongo');
   assert.ok(i >= 0, 'the Kongo is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'iowa', `before the Kongo comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 1], 'missouri', `before the Kongo comes ${SHIP_ORDER[i - 1]}`);
   assert.equal(SHIP_ORDER[i + 1], 'fuso', `after the Kongo comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.kongo;
   assert.equal(cls.fullName, 'IJN Kongo');
@@ -2183,11 +2171,11 @@ check("the Matsu trains her tubes out and throws her fish over her side, where t
   });
 });
 
-check('the Yukikaze is commissioned after the Matsu, before the Cleveland', () => {
+check('the Yukikaze is commissioned after the Matsu, before the Guangzhou', () => {
   const i = SHIP_ORDER.indexOf('yukikaze');
   assert.ok(i >= 0, 'the Yukikaze is not in the yard');
   assert.equal(SHIP_ORDER[i - 1], 'matsu', `before the Yukikaze comes ${SHIP_ORDER[i - 1]}`);
-  assert.equal(SHIP_ORDER[i + 1], 'cleveland', `after the Yukikaze comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'guangzhou', `after the Yukikaze comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.yukikaze;
   assert.equal(cls.fullName, 'IJN Yukikaze');
   assert.equal(cls.type, 'DD');
@@ -2416,11 +2404,13 @@ check("the Yukikaze trains both banks out and throws their fish over her side, w
   });
 });
 
-check('the Fuso is commissioned before the Yamato, after the Kongo', () => {
+check('the Fuso is commissioned before the Mutsu, after the Kongo', () => {
   const i = SHIP_ORDER.indexOf('fuso');
   assert.ok(i >= 0, 'the Fuso is not in the yard');
   assert.equal(SHIP_ORDER[i - 1], 'kongo', `before the Fuso comes ${SHIP_ORDER[i - 1]}`);
-  assert.equal(SHIP_ORDER[i + 1], 'yamato', `after the Fuso comes ${SHIP_ORDER[i + 1]}`);
+  // And the Mutsu between her and the Yamato.
+  assert.equal(SHIP_ORDER[i + 1], 'mutsu', `after the Fuso comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'yamato', `after the Mutsu comes ${SHIP_ORDER[i + 2]}`);
   const cls = SHIP_CLASSES.fuso;
   assert.equal(cls.fullName, 'IJN Fuso');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -2619,14 +2609,2491 @@ check('the Fuso trains her catapults out over her quarters and shoots on the sim
   assert.notEqual(shots[0], shots[1], 'she shot both Jakes off the same catapult');
 });
 
-check('the KMS Bismarck is commissioned before her sister, and her sister before the Rodney', () => {
-  // The two met on the morning of 27 May 1941. She comes into the yard with
-  // her sister Tirpitz immediately behind her, and then the battleship that
-  // closed her to three miles.
+check('the Hood is commissioned after the Sovetsky Soyuz, and the King George V after her, before the Rodney', () => {
+  const i = SHIP_ORDER.indexOf('hood');
+  assert.ok(i >= 0, 'the Hood is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'soyuz', `before the Hood comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'kgv', `after the Hood comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 2]}`);
+  const cls = SHIP_CLASSES.hood;
+  assert.equal(cls.fullName, 'HMS Hood');
+  assert.equal(cls.nation, 'gbr');
+  assert.equal(cls.turrets.reduce((n, t) => n + t.guns, 0), 8, 'she does not carry eight 15-inch');
+});
+
+check('a ship drawn as a stand-in is built again as herself once her hull is in, unless she is marked', () => {
+  // A battle joined before a hull came down draws her as the hull generated
+  // off her class. Once hers is in she is built again -- but a stand-in
+  // something has happened to keeps it.
+  const host = {
+    shipViews: new Map(), scene: { add() {}, remove() {} }, ocean: null, q: {}, wakes: null, wreck: null,
+    renderer: null, lampHaze: null,
+  };
+  const get = () => BattleScene.prototype.getShipView.call(host, 7, 'hood', 0, false);
+  host.removeShipView = BattleScene.prototype.removeShipView;
+  const first = get();
+  assert.equal(get(), first, 'a ship drawn as herself is built again every frame');
+  first.standIn = true;
+  first.watchForMarks();
+  const second = get();
+  assert.notEqual(second, first, 'a stand-in is not built again as herself once her hull is in');
+  assert.ok(!second.standIn, 'she is still taken for a stand-in once built as herself');
+  second.standIn = true;
+  second.watchForMarks();
+  second.dropMount('aa', 0);
+  assert.ok(second.marked, 'a mounting shot off a stand-in does not mark her');
+  assert.equal(get(), second, 'a stand-in with a mounting shot away is built again, losing it');
+});
+
+check("the Hood's bridge is whole at its foot, where the gun on her shelter deck was cut out", () => {
+  // The 5.5-inch the sculpt cast on her shelter deck was cut out of it with
+  // its barrel, which runs on past the after corner of her bridge; one box
+  // over both had the foot of the bridge's wall off with it, and the sea
+  // showed through her there. A ray in from either side, at the corner, from
+  // the shelter deck up past the gun's height, meets her wall well out.
+  const built = buildHood();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && o.userData.mergeKey !== 'in') meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const open = [];
+  for (const side of [1, -1]) {
+    for (let z = 21.0; z <= 21.55; z += 0.1) {
+      for (let y = 10.5; y <= 12.5; y += 0.25) {
+        ray.set(new THREE.Vector3(side * 20, y, z), new THREE.Vector3(-side, 0, 0));
+        ray.far = 20;
+        const h = ray.intersectObjects(meshes, false)[0];
+        if (!h || side * h.point.x < 7.5) open.push(`${side > 0 ? 'port' : 'stbd'} ${y.toFixed(2)} m up at ${z.toFixed(2)}`);
+      }
+    }
+  }
+  assert.ok(!open.length, `her bridge is open at its foot: ${open.slice(0, 6).join('; ')}`);
+});
+
+check("the Hood's funnels are whole, side and top", () => {
+  // Fired at from all round, at every height from her shelter deck up to the
+  // lip, each funnel has to stop the shot at its own plating, not let it
+  // through to see the inside of its far side (which is not drawn).
+  const built = buildHood();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  const holes = [];
+  for (const f of [{ z: 14.29, a: 3.77, c: 4.63 }, { z: -4.43, a: 3.77, c: 4.56 }]) {
+    for (let y = 13; y <= 23.95; y += 0.15) {
+      for (let k = 0; k < 120; k++) {
+        const th = (2 * Math.PI * k) / 120, ex = f.a * Math.cos(th), ez = f.c * Math.sin(th);
+        ray.set(new THREE.Vector3(ex * 1.6, y, f.z + ez * 1.6), new THREE.Vector3(-ex, 0, -ez).normalize());
+        ray.far = 12;
+        const hit = ray.intersectObjects(meshes, false)[0];
+        const r = hit ? Math.hypot(hit.point.x / f.a, (hit.point.z - f.z) / f.c) : 0;
+        if (r < 0.85) holes.push(`funnel at ${f.z} y ${y.toFixed(2)} bearing ${(th * 180 / Math.PI).toFixed(0)}`);
+      }
+    }
+  }
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her funnels: ${holes[0]}`);
+});
+
+check("the Hood's shell has no holes in it", () => {
+  // Her sides fired at from abeam at every height her own lines say she has
+  // a side at, right up under her deck edge, have to stop at her near side --
+  // not go in through it to the far side's inside; a ray dropped anywhere on
+  // her decks -- laid again over the sculpt's -- has to land on something;
+  // and a ray sent up from under her keel has to hit her bottom.
+  const built = buildHood();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = hoodSheer(t);
+    const ys = [];
+    for (let y = hoodKeel(t) + 0.3; y <= top - 0.4; y += 0.6) ys.push(y);
+    ys.push(top - 0.2, top - 0.08);
+    for (const y of ys) {
+      const w = hoodShellAt(t, y);
+      if (w < 0.35) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, hoodZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        // Down at her bilge her lines are only a guide to where she turns in.
+        const near = y > hoodKeel(t) + 1.5;
+        if (!hit || (near && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 2000, `only ${tested} stations of plating were tested`);
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+  const bare = [];
+  for (let i = 1; i < 240; i++) {
+    const t = -0.96 + (1.92 * i) / 240;
+    const w = hoodShellAt(t, hoodSheer(t) - 0.8);
+    for (const u of [0, 0.4, 0.75, -0.4, -0.75]) {
+      if (Math.abs(u) * w < 0.1) continue;
+      ray.set(new THREE.Vector3(u * w * 0.95, 140, hoodZAt(t)), new THREE.Vector3(0, -1, 0));
+      if (!ray.intersectObjects(meshes, false).length) bare.push(`${(u * w).toFixed(1)}, ${hoodZAt(t).toFixed(0)}`);
+    }
+  }
+  assert.equal(bare.length, 0, `${bare.length} hole(s) in her deck: ${bare[0]}`);
+  const open = [];
+  for (let t = -0.9; t <= 0.9; t += 0.01) {
+    const k = hoodKeel(t);
+    if (k > -2) continue;
+    const w = hoodShellAt(t, k * 0.4);
+    for (const u of [0, 0.5, -0.5, 0.85, -0.85]) {
+      ray.set(new THREE.Vector3(u * w, -70, hoodZAt(t)), new THREE.Vector3(0, 1, 0));
+      if (!ray.intersectObjects(meshes, false).length) open.push(`t ${t.toFixed(2)}`);
+    }
+  }
+  assert.equal(open.length, 0, `${open.length} hole(s) in her bottom: ${open[0]}`);
+});
+
+check("the Hood's deck is smooth, and nothing of the sculpt's stands on it", () => {
+  // Her forecastle deck is laid level across her and along her own sheer:
+  // on her open deck forward of her superstructure, clear of her barbettes,
+  // every point across her at a station is at the one height to a hand.
+  const lumps = [];
+  const clear = (x, z) => HOOD_SEATS.turrets.every((t) => Math.hypot(x - t.x, z - t.z) > 5.6);
+  for (let z = 54; z < 118; z += 1) {
+    const w = hoodShellAt((2 * z) / HOOD_LOA, hoodSheer((2 * z) / HOOD_LOA) - 0.8);
+    const ys = [];
+    for (const u of [-0.8, -0.5, -0.2, 0, 0.2, 0.5, 0.8]) {
+      const x = u * w;
+      if (!clear(x, z)) continue;
+      const y = hoodSurfaceY(x, z);
+      if (y > -50) ys.push([x, y]);
+    }
+    if (ys.length < 2) continue;
+    const lo = Math.min(...ys.map(([, y]) => y)), hi = Math.max(...ys.map(([, y]) => y));
+    if (hi - lo > 0.12) lumps.push(`at ${z}: ${(hi - lo).toFixed(2)} m between ${ys.map(([x, y]) => `${x.toFixed(1)}:${y.toFixed(2)}`).join(' ')}`);
+  }
+  assert.equal(lumps.length, 0, `${lumps.length} lump(s) on her forecastle deck, ${lumps[0]}`);
+  // Her quarterdeck abaft Y, the same.
+  for (let z = -128; z < -99; z += 1) {
+    const ys = [-3, 0, 3].map((x) => hoodSurfaceY(x, z)).filter((y) => y > -50);
+    assert.ok(Math.max(...ys) - Math.min(...ys) < 0.12, `a lump on her quarterdeck at ${z}`);
+  }
+});
+
+check('the Hood carries the guns she carried, each where it can be trained from', () => {
+  const cls = SHIP_CLASSES.hood;
+  assert.equal(cls.turrets.length, 4, 'she carries four turrets');
+  cls.turrets.forEach((t, i) => {
+    assert.ok(Math.abs(angleDelta(t.rest ?? t.angle, i < 2 ? 0 : Math.PI)) < 0.05, `${t.name} does not face ${i < 2 ? 'forward' : 'aft'}`);
+  });
+  // B superfires over A and X over Y: the upper turret's barrels clear the
+  // lower one's roof.
+  const roof = hoodGunPiece('main').roof;
+  const [A, B, X, Y] = HOOD_SEATS.turrets;
+  const trunnion = hoodGunPiece('main').trunnion[1];
+  assert.ok(B.seat + trunnion > A.seat + roof - 0.3, 'B fires into A');
+  assert.ok(X.seat + trunnion > Y.seat + roof - 0.3, 'X fires into Y');
+  // Six 5.5-inch a side.
+  const sec = cls.secondary.mounts;
+  assert.equal(sec.length, 12, 'she carries twelve 5.5-inch');
+  for (const sgn of [-1, 1]) assert.equal(sec.filter((m) => Math.sign(m.x) === sgn).length, 6, 'six 5.5-inch a side');
+  const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
+  const near = solveBallistic(cls.secondary, 3000, 10).elev;
+  for (const m of sec) {
+    const beam = (Math.sign(m.x) * Math.PI) / 2;
+    assert.ok(fires(m, beam, near), `the 5.5-inch at ${m.x}, ${m.z} cannot fire on her beam`);
+  }
+  // Her pom-poms: a pair abreast her bridge, a pair abreast her mainmast,
+  // a pair abreast each funnel at the edge of her shelter deck, and one on
+  // her centreline on her after deck, firing aft and abeam.
+  const pp = cls.aa.guns[0].mounts;
+  assert.equal(pp.length, 9, 'she carries nine quadruple pom-poms');
+  const aft = pp.filter((m) => m.x === 0);
+  assert.equal(aft.length, 1, 'she has no pom-pom on her centreline');
+  assert.ok(aft[0].z < -50 && aft[0].arc > 2.5, 'her centreline pom-pom is not on her after deck, or cannot train');
+  // Her tubes are her two submerged ones, in her bow under the water, each
+  // firing out off her bow; none stands on her deck.
+  assert.ok(cls.torpedoes.inHull, 'her tubes are not in her hull');
+  assert.equal(cls.torpedoes.mounts.length, 2, 'she carries two submerged tubes');
+  for (const m of cls.torpedoes.mounts) {
+    assert.equal(m.tubes, 1, 'a submerged tube is a single');
+    assert.ok(m.my < -2, `the tube at ${m.x}, ${m.z} is not under the water`);
+    assert.ok(m.z > HOOD_SEATS.turrets[0].z + 9, `the tube at ${m.x}, ${m.z} is not forward of A`);
+    assert.ok(Math.abs(m.angle) < 0.4 && Math.sign(m.angle) === Math.sign(m.x), `the tube at ${m.x}, ${m.z} does not fire out off her bow`);
+  }
+  // One of her 5.5-inch each side stands on her shelter deck, the rest on
+  // her forecastle deck.
+  const up = HOOD_SEATS.secondary.filter((s) => s.y > HOOD_SEATS.decks.forecastle + 1);
+  assert.equal(up.length, 1, 'one 5.5-inch a side on her shelter deck');
+  // No light gun stands where a turret's gunhouse swings.
+  for (const t of cls.turrets) {
+    for (const m of [...sec, ...cls.aa.guns[0].mounts]) {
+      assert.ok(Math.hypot(m.x - t.x, m.z - t.z) > 9, `the mounting at ${m.x}, ${m.z} stands where ${t.name} trains`);
+    }
+  }
+  surveyedArcsHold('hood');
+});
+
+check("the Hood's guns are the owner's, cut clean", () => {
+  // The 15-inch has no rocket launcher on its roof: nothing of it stands
+  // more than a rangefinder's height over its roof plates. The 5.5-inch has
+  // no disc under it, the pom-pom no ring: each stands no wider than its own
+  // shield or platform.
+  const main = hoodGunPiece('main');
+  main.house.computeBoundingBox();
+  assert.ok(main.house.boundingBox.max.y < 3.9, `the 15-inch stands ${main.house.boundingBox.max.y.toFixed(2)} m high`);
+  assert.ok(main.muzzles[0][2] > 11, 'the 15-inch barrels are too short');
+  const sec = hoodGunPiece('sec');
+  sec.house.computeBoundingBox();
+  const sb = sec.house.boundingBox;
+  assert.ok(sb.max.x - sb.min.x < 3.2 && sb.min.y > -0.01, 'the 5.5-inch still stands on its disc');
+  const pp = hoodGunPiece('pompom');
+  pp.house.computeBoundingBox();
+  const pb = pp.house.boundingBox;
+  assert.ok(pb.min.y > -0.01 && pb.max.x - pb.min.x < 4.2, 'the pom-pom still floats over its ring');
+});
+
+check('a layer standing at a Hood gun looks out over it, round its arc and nowhere else', () => {
+  const { b, cls } = layerLooksOut('hood');
+  for (const [kind, specs] of [['main', cls.turrets], ['sec', cls.secondary.mounts]]) {
+    specs.forEach((spec, i) => {
+      b.gun = { kind, id: i, spec };
+      const start = b.gunStartBearing();
+      assert.ok(Math.abs(angleDelta(spec.angle, start)) <= spec.arc && layFloor(spec.mask, start) < 0.1,
+        `${kind} ${i} is taken laid on ${((start * 180) / Math.PI).toFixed(0)} degrees, where it cannot fire`);
+    });
+  }
+});
+
+check('the KMS Hagen is commissioned after the Scharnhorst, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('hagen');
+  assert.ok(i >= 0, 'the Hagen is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'scharnhorst', `before the Hagen comes ${SHIP_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.hagen;
+  assert.equal(cls.fullName, 'KMS Hagen');
+  assert.equal(cls.typeName, 'Battlecruiser');
+  assert.equal(cls.nation, 'ger');
+  // Her main battery the 30.5 cm SK C/39, her secondary 12.8 cm.
+  assert.equal(cls.gun.caliber, 305);
+  assert.match(cls.gun.name, /SK C\/39/);
+  assert.equal(cls.secondary.caliber, 128);
+  assert.equal(cls.datasheet.secondary.caliber, 128);
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['Anton', 'Bruno', 'Caesar']);
+  assert.ok(cls.turrets[0].z > 0 && cls.turrets[1].z > 0 && cls.turrets[2].z < 0, 'two turrets forward and one aft');
+  assert.equal(cls.torpedoes.mounts.length, 2, 'her two banks of tubes');
+  const built = buildHagen();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  assert.equal(typeof built.group.userData.fireTubes, 'function', 'her tubes cannot fire');
+  // Every mounting stands where the model stood it, on her.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(HAGEN_SEATS)) {
+    for (const st of list) {
+      const top = hagenSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+    }
+  }
+});
+
+check("the Hagen's shell has no holes in it", () => {
+  const built = buildHagen();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = hagenSheer(t);
+    for (let y = hagenKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = hagenShellAt(t, y);
+      if (w < 0.35) continue;
+      if (hagenZAt(t) < -88 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, hagenZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > hagenKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1500, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+// Her hull as the model has it, on its own; and what is hit first along a
+// ray: where, its paint, whether it is her planking, and whether the ray met
+// the face from its front.
+function hagenHullOnly() {
+  const g = new THREE.Group();
+  buildHagenHull(g);
+  g.updateMatrixWorld(true);
+  return g;
+}
+function hagenHullHit(g, from, dir) {
+  const hit = new THREE.Raycaster(from, dir).intersectObjects(g.children, false)[0];
+  if (!hit) return null;
+  const col = hit.object.geometry.getAttribute('color');
+  const c = [col.getX(hit.face.a), col.getY(hit.face.a), col.getZ(hit.face.a)];
+  const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+  const sheet = hit.object.material === hagenMaterials().sheet;
+  return { p: hit.point, c, deck: hit.object.material === hagenMaterials().deck, front: sheet || n.dot(dir) < 0 };
+}
+
+check('the Hagen is painted the same on both sides of her centreline', () => {
+  const built = hagenHullOnly();
+  const down = new THREE.Vector3(0, -1, 0);
+  let tested = 0;
+  const odd = [];
+  for (let z = -124; z <= 124; z += 1) {
+    for (let x = 0.75; x <= 15; x += 0.5) {
+      const a = hagenHullHit(built, new THREE.Vector3(x, 60, z), down);
+      const b = hagenHullHit(built, new THREE.Vector3(-x, 60, z), down);
+      if (!a || !b || Math.abs(a.p.y - b.p.y) > 0.3) continue;
+      tested++;
+      const d = Math.hypot(a.c[0] - b.c[0], a.c[1] - b.c[1], a.c[2] - b.c[2]);
+      if (d > 0.06 || a.deck !== b.deck) odd.push(`x ${x} z ${z}: ${a.c.map((v) => v.toFixed(2))} ${a.deck ? 'deck' : ''} / ${b.c.map((v) => v.toFixed(2))} ${b.deck ? 'deck' : ''}`);
+    }
+  }
+  assert.ok(tested > 5000, `only ${tested} points of her decks and roofs were tested`);
+  // Her fittings are not all placed alike either side -- a crane, a ladder, a
+  // hatch -- and fall either side of a line in her palette here and there; her
+  // paint as the atlas gave it differed at one point in seven.
+  assert.ok(odd.length < tested * 0.06, `${odd.length} of ${tested} points are painted differently either side of her centreline: ${odd.slice(0, 3).join('; ')}`);
+});
+
+check("the Hagen's stern quarters are her side's own plating, flush and painted as her side", () => {
+  const built = hagenHullOnly();
+  const odd = [];
+  let tested = 0;
+  for (let z = -125; z <= -105; z += 0.25) {
+    for (let y = 0.6; y <= 6; y += 0.2) {
+      const hits = [1, -1].map((sd) => hagenHullHit(built, new THREE.Vector3(sd * 40, y, z), new THREE.Vector3(-sd, 0, 0)));
+      if (!hits[0] || !hits[1]) continue;
+      tested++;
+      // Her side, from outside it: plating seen from the front, the grey of
+      // the rest of her side, and as far out on one side as on the other.
+      for (const [i, h] of hits.entries()) {
+        if (!h.front) odd.push(`${i ? 'port' : 'starboard'} y ${y.toFixed(1)} z ${z}: the inside of her plating`);
+      }
+      if (Math.abs(hits[0].p.x + hits[1].p.x) > 0.15) odd.push(`y ${y.toFixed(1)} z ${z}: her side ${hits[0].p.x.toFixed(2)} to starboard, ${(-hits[1].p.x).toFixed(2)} to port`);
+      const d = Math.hypot(...hits[0].c.map((v, k) => v - hits[1].c[k]));
+      if (d > 0.06) odd.push(`y ${y.toFixed(1)} z ${z}: painted ${hits[0].c.map((v) => v.toFixed(2))} / ${hits[1].c.map((v) => v.toFixed(2))}`);
+    }
+  }
+  assert.ok(tested > 1500, `only ${tested} points of her stern quarters were tested`);
+  assert.ok(odd.length <= 4, `${odd.length} faults in her stern quarters: ${odd.slice(0, 3).join('; ')}`);
+});
+
+check('the Credits screen credits the model the Hagen is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const menu = html.slice(html.indexOf('data-action="options"'), html.indexOf('data-action="account"'));
+  assert.ok(menu.includes('data-action="credits"'), 'there is no Credits button under Options / Help');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('The Third Reich Navy large cruiser HAGEN'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/oHuvB') && screen.includes('全斗焕')
+    && screen.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
+});
+
+check('the RN Morosini is commissioned before the Richelieu, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('morosini');
+  assert.ok(i >= 0, 'the Morosini is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'richelieu', `after the Morosini comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.morosini;
+  assert.equal(cls.fullName, 'RN Morosini');
+  assert.equal(cls.type, 'BB', 'she is not a battleship');
+  assert.equal(cls.nation, 'ita');
+  // 457 mm main guns, 135 mm and 90 mm secondaries.
+  assert.equal(cls.gun.caliber, 457);
+  assert.equal(cls.secondary.caliber, 135);
+  assert.equal(cls.datasheet.secondary.caliber, 135);
+  assert.ok(cls.aa.guns.some((g) => g.caliber === 90 && g.role === 'dp'), 'she has no 90 mm');
+  assert.ok(cls.datasheet.tertiary.some((g) => g.caliber === 90), 'her datasheet has no 90 mm');
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'X', 'Y']);
+  assert.equal(cls.turrets.reduce((n, t) => n + t.guns, 0), 8);
+  const built = buildMorosini();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every mounting stands where the model stood it, on her.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(MOROSINI_SEATS)) {
+    for (const st of list) {
+      const top = morosiniSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+    }
+  }
+});
+
+check("the Morosini's shell has no holes in it", () => {
+  const built = buildMorosini();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = morosiniSheer(t);
+    for (let y = morosiniKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = morosiniShellAt(t, y);
+      if (w < 0.35) continue;
+      if (morosiniZAt(t) < -70 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, morosiniZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > morosiniKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1200, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Morosini is drawn from, after the Hagen', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('Italian Battleship Francesco Morosini');
+  assert.ok(at >= 0, 'the model is not credited');
+  assert.ok(at > screen.indexOf('The Third Reich Navy large cruiser HAGEN'), 'the Morosini is not credited below the Hagen');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/osPxN') && credit.includes('全斗焕')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
+});
+
+check('the HMS Leviathan is commissioned after the USS Ticonderoga, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('leviathan');
+  assert.ok(i >= 0, 'the Leviathan is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'ticonderoga', `before the Leviathan comes ${SHIP_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.leviathan;
+  assert.equal(cls.fullName, 'HMS Leviathan');
+  assert.equal(cls.type, 'CA', 'she is not a heavy cruiser');
+  assert.equal(cls.nation, 'gbr');
+  // 8 in in quadruple turrets on a ten-second reload.
+  assert.equal(cls.gun.caliber, 203);
+  assert.equal(cls.gun.reload, 10);
+  assert.ok(cls.turrets.every((t) => t.guns === 4), 'her turrets are not quadruples');
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'X', 'Y']);
+  // 6 in dual-purpose twins on a five-second reload.
+  assert.equal(cls.secondary.caliber, 152);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.equal(cls.secondary.reload, 5);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 2), 'her 6 in are not twins');
+  // 76 mm dual-purpose singles on a one-second reload.
+  const lights = cls.aa.guns.filter((g) => g.caliber === 76);
+  assert.equal(lights.length, 1, 'she has no 76 mm');
+  assert.equal(lights[0].role, 'dp');
+  assert.equal(lights[0].reload, 1);
+  assert.ok(lights[0].mounts.every((m) => m.guns === 1), 'her 76 mm are not singles');
+  // And her yard sheet calls them dual-purpose, not AA.
+  const sheet = armsSheet(cls);
+  assert.ok(sheet.some((r) => r[0] === 'Eight 76mm DP'), `her sheet reads ${sheet.map((r) => r[0]).join(', ')}`);
+  assert.ok(!sheet.some((r) => /76mm AA/.test(r[0])), 'her sheet still calls her 76 mm AA');
+  // Seven inches of belt.
+  assert.equal(cls.armor.belt, 178);
+  // Her two quadruple banks of 21 in tubes, one a side, the model's own.
+  assert.ok(cls.torpedoes, 'she has no torpedoes');
+  assert.equal(cls.torpedoes.caliber, 533);
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => m.tubes), [4, 4]);
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => Math.sign(m.x)).sort(), [-1, 1]);
+  const built = buildLeviathan();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.torpMounts.length, 2);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(LEVIATHAN_SEATS)) {
+    for (const st of list) {
+      const top = leviathanSurfaceY(st.x, st.z);
+      // Her tubes stand in bays under her upper deck: what they stand on is
+      // the floor of the bay, under them.
+      const deck = top > st.y + 3 || kind === 'tubes' ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+    }
+  }
+});
+
+check("the Leviathan's shell has no holes in it", () => {
+  const built = buildLeviathan();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = leviathanSheer(t);
+    for (let y = leviathanKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = leviathanShellAt(t, y);
+      if (w < 0.35) continue;
+      if (leviathanZAt(t) < -70 && y < -3) continue;
+      // Her propeller guards, the model's bars out over her screws at her
+      // waterline: her lines are measured out to them, a metre and a half
+      // outboard of the plating a ray meets there.
+      if (leviathanZAt(t) < -76 && leviathanZAt(t) > -86 && y < 2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, leviathanZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > leviathanKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1200, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Leviathan is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('British Super Heavy Cruiser Leviathan</a>');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/pwCxw') && credit.includes('全斗焕')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
+    'the credit is not as its licence asks');
+});
+
+check('the KMS Admiral Scheer is commissioned after the Admiral Graf Spee, armed as her model is', () => {
+  const i = SHIP_ORDER.indexOf('scheer');
+  assert.ok(i >= 0, 'the Admiral Scheer is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'spee', `before the Admiral Scheer comes ${SHIP_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.scheer;
+  assert.equal(cls.fullName, 'KMS Admiral Scheer');
+  assert.equal(cls.type, 'CA', 'she is not a heavy cruiser');
+  assert.equal(cls.nation, 'ger');
+  // Two triple 28 cm, eight single 15 cm, two quadruple banks of tubes.
+  assert.equal(cls.gun.caliber, 283);
+  assert.deepEqual(cls.turrets.map((t) => [t.name, t.guns]), [['Anton', 3], ['Bruno', 3]]);
+  assert.equal(cls.secondary.caliber, 150);
+  assert.equal(cls.secondary.mounts.length, 8);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 1), 'her 15 cm are not singles');
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => m.tubes), [4, 4]);
+  // And every gun of her flak the model carries.
+  const flak = (cal) => cls.aa.guns.filter((g) => g.caliber === cal).flatMap((g) => g.mounts);
+  assert.equal(flak(105).length, 3, 'she has not three 10.5 cm twins');
+  assert.ok(flak(105).every((m) => m.guns === 2));
+  assert.equal(flak(37).length, 8, 'she has not eight 3.7 cm twins');
+  assert.equal(flak(37).filter((m) => m.turret).length, 4, 'her turret roofs carry no 3.7 cm');
+  assert.equal(flak(40).length, 2, 'she has not her two 4 cm');
+  assert.equal(flak(20).filter((m) => m.guns === 4).length, 16, 'she has not her sixteen 2 cm quadruples');
+  assert.equal(flak(20).filter((m) => m.guns === 1).length, 6, 'she has not her six 2 cm singles');
+  // And her catapult and her Arados.
+  assert.ok(cls.planes && cls.planes.catapult && cls.planes.type === 'arado', 'she carries no Arado to throw off');
+  assert.equal(cls.datasheet.aircraft, cls.planes.squadrons * cls.planes.perSquadron);
+  const built = buildScheer();
+  assert.equal(built.turrets.length, 2);
+  assert.equal(built.secMounts.length, 8);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  // The twins on her turret roofs ride round with their turrets.
+  const riders = built.aaMounts.filter((m) => m.userData.ride);
+  assert.equal(riders.length, 4, `${riders.length} of her guns ride on her turrets`);
+  assert.deepEqual([...new Set(riders.map((m) => m.userData.ride.turret.userData.name))].sort(), ['Anton', 'Bruno']);
+  // Every mounting of hers stands on her deck.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(SCHEER_SEATS)) {
+    // Her roof twins stand on her turrets, which train.
+    if (kind === 'twin') continue;
+    for (const st of list) {
+      const top = speeSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+    }
+  }
+});
+
+check("a twin on the Admiral Scheer's turret roof goes round with its turret", () => {
+  const view = new ShipView({ add() {}, remove() {} }, 'scheer', 0, false);
+  const rider = view.aaMounts.find((m) => m.userData.ride && m.userData.ride.turret.userData.name === 'Anton');
+  assert.ok(rider, 'nothing rides on Anton');
+  const anton = rider.userData.ride.turret;
+  view.layMounts(null, null, null, [], 1 / 30);
+  const before = rider.position.clone();
+  const r0 = Math.hypot(before.x - anton.position.x, before.z - anton.position.z);
+  anton.rotation.y = Math.PI / 2;
+  view.layMounts(null, null, null, [], 1 / 30);
+  const after = rider.position.clone();
+  assert.ok(after.distanceTo(before) > 2, 'the twin stayed where it was when Anton trained');
+  assert.ok(Math.abs(Math.hypot(after.x - anton.position.x, after.z - anton.position.z) - r0) < 0.05,
+    'the twin left the roof it stands on');
+});
+
+check("the Admiral Graf Spee is the Scheer's model, without the flak the Scheer was given after her", () => {
+  const spee = SHIP_CLASSES.spee;
+  const scheer = SHIP_CLASSES.scheer;
+  // The same hull, the same main and secondary batteries, the same tubes.
+  assert.deepEqual(spee.hull, scheer.hull);
+  assert.deepEqual(spee.turrets.map((t) => [t.x, t.z]), scheer.turrets.map((t) => [t.x, t.z]));
+  assert.deepEqual(spee.secondary.mounts.map((m) => [m.x, m.z]), scheer.secondary.mounts.map((m) => [m.x, m.z]));
+  assert.deepEqual(spee.torpedoes.mounts.map((m) => [m.x, m.z]), scheer.torpedoes.mounts.map((m) => [m.x, m.z]));
+  // Every gun of her flak is one the Scheer's model has, and she has far fewer.
+  const at = (cls) => lightMounts(cls).map((m) => `${m.x},${m.z}`);
+  const hers = at(spee);
+  const sisters = new Set(at(scheer));
+  for (const k of hers) assert.ok(sisters.has(k), `the Graf Spee has a gun at ${k} the model does not`);
+  assert.ok(hers.length < sisters.size / 2, `she has ${hers.length} light mountings against the Scheer's ${sisters.size}`);
+  // None of the Scheer's later flak: no quadruples, no 4 cm, nothing on her
+  // turret roofs.
+  const guns = spee.aa.guns.flatMap((g) => g.mounts.map((m) => ({ g, m })));
+  assert.ok(!guns.some(({ m }) => m.guns === 4), 'she carries the Scheer\'s 2 cm quadruples');
+  assert.ok(!guns.some(({ g }) => g.caliber === 40), 'she carries the Scheer\'s 4 cm');
+  assert.ok(!guns.some(({ m }) => m.turret), 'she carries the Scheer\'s turret-roof twins');
+  // And they are not drawn on her either: a ray dropped where a quadruple's
+  // tub stands on the Scheer meets her deck on the Graf Spee.
+  const top = (build, x, z) => {
+    const g = build().group;
+    g.updateMatrixWorld(true);
+    const meshes = [];
+    g.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+    const rc = new THREE.Raycaster(new THREE.Vector3(x, 40, z), new THREE.Vector3(0, -1, 0));
+    const hit = rc.intersectObjects(meshes, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  const quad = scheer.aa.guns.find((g) => g.piece === 'quad').mounts[0];
+  const q = SCHEER_SEATS.quad.find((s) => Math.hypot(s.x - quad.x, s.z - quad.z) < 0.6);
+  assert.ok(top(buildScheer, q.x, q.z) > q.y + 1, 'the Scheer\'s quadruple is not drawn on her');
+  assert.ok(top(buildSpee, q.x, q.z) < q.y + 0.5, 'the Graf Spee is drawn with the Scheer\'s quadruple on her');
+});
+
+for (const [id, build] of [['scheer', () => buildScheer()], ['spee', () => buildSpee()]]) {
+  check(`the ${SHIP_CLASSES[id].name} throws an Arado off her catapult over her port side, on the simulation's clock`, () => {
+    // The girder the model drew on its turntable abaft her funnel, stowed
+    // trained out to port: a car on it with an Arado, trained on round, run
+    // down it and thrown off over her port side on the tick the simulation
+    // puts her flight on the plot.
+    const cls = SHIP_CLASSES[id];
+    const P = cls.planes;
+    const g = build().group;
+    const deck = g.userData.deck;
+    assert.ok(deck, 'she has no catapult');
+    assert.equal(deck.cats.length, 1, `she has ${deck.cats.length} cars on her catapult`);
+    const [c] = deck.cats;
+    g.userData.step(0);
+    g.updateMatrixWorld(true);
+    const p = c.group.position;
+    assert.ok(Math.abs(p.z - SCHEER_CAT.z) < 0.01 && p.z < 0 && p.z > cls.turrets[1].z,
+      `her catapult stands at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}, not abaft her funnel`);
+    // The Arado stands on her car clear of her deck.
+    const box = new THREE.Box3().setFromObject(c.plane);
+    assert.ok(box.min.y > SCHEER_CAT.y + 1, 'her Arado stands in her deck');
+    for (let n = 0; n < 2; n++) {
+      const t0 = n * 100;
+      g.userData.launch(t0);
+      let away = null;
+      for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+        g.userData.step(t);
+        g.updateMatrixWorld(true);
+        if (deck.airborne && away === null) away = t - t0;
+      }
+      assert.ok(away !== null && Math.abs(away - P.deckRun) < 0.2,
+        `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${P.deckRun}s on the plot`);
+      const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+      const off = launchOffset(cls, 1);
+      const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+      assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+        `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+        + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+      assert.ok(end.x > 50, 'the shot did not leave her over her port side');
+      assert.ok(Math.abs(end.y - P.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
+      g.userData.recover();
+      g.userData.step(t0 + 60);
+      assert.ok(!c.gone && c.plane.visible, 'she never got her Arado back');
+      assert.ok(Math.abs(c.car.position.z - deck.rig.A) < 1e-6, 'her car was not run back to the breech');
+      assert.ok(Math.abs(c.group.rotation.y - SCHEER_CAT.base) < 1e-6, 'her catapult was not trained back in');
+    }
+  });
+
+  check(`the ${SHIP_CLASSES[id].name} launches her Arados, and nothing flies before she has shot one off`, () => {
+    const state = createState(generateWorld(7723, 'open_ocean'), { mode: 'deathmatch' });
+    const ship = addShip(state, { name: SHIP_CLASSES[id].name, classId: id, team: 0, index: 0 });
+    ship.aimX = ship.x + 4000;
+    ship.aimZ = ship.z + 4000;
+    assert.ok(launchStrike(state, ship), 'she would not launch at all');
+    assert.equal(state.planes.length, 0, 'an aeroplane appeared before the shot');
+    const run = SHIP_CLASSES[id].planes.deckRun;
+    for (let i = 0; i < Math.ceil((run - 0.5) / DT); i++) step(state, DT);
+    assert.equal(state.planes.length, 0, 'she flew one off early');
+    for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
+    assert.ok(state.planes.length > 0, 'nothing left the catapult at all');
+    assert.ok(state.planes.every((q) => q.type === 'arado'), 'what left her catapult was not an Arado');
+  });
+}
+
+check("the Panzerschiffe's shell has no holes in it", () => {
+  const built = buildScheer();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = speeSheer(t);
+    for (let y = speeKeelY(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = speeShellAt(t, y);
+      if (w < 0.35) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, speeZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > speeKeelY(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Admiral Scheer and the Graf Spee are drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('The Third Reich Navy large cruiser ADM. SCHEER');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/oHuvq'), 'the credit does not link the model');
+  assert.ok(credit.includes('全斗焕') && credit.includes('http://creativecommons.org/licenses/by/4.0/')
+    && credit.includes('Creative Commons Attribution'), 'the credit is not as its licence asks');
+});
+
+check('the USS Ticonderoga is commissioned after the USS Baltimore and before the HMS Leviathan, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('ticonderoga');
+  assert.ok(i >= 0, 'the Ticonderoga is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'baltimore', `before the Ticonderoga comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'leviathan', `after the Ticonderoga comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.ticonderoga;
+  assert.equal(cls.fullName, 'USS Ticonderoga');
+  assert.equal(cls.type, 'CL', 'she is not a light cruiser');
+  assert.equal(cls.nation, 'usa');
+  // Single-barrelled Mk 71 203 mm guns.
+  assert.equal(cls.gun.caliber, 203);
+  assert.match(cls.gun.name, /Mk 71/);
+  assert.equal(cls.turrets.length, 6);
+  assert.ok(cls.turrets.every((t) => t.guns === 1), 'a Mk 71 of hers has more than one barrel');
+  // Her secondary: 76 mm singles, the Leviathan's gun.
+  const lev = SHIP_CLASSES.leviathan.aa.guns.find((g) => g.caliber === 76);
+  assert.equal(cls.secondary.caliber, 76);
+  assert.equal(cls.secondary.role, lev.role);
+  assert.equal(cls.secondary.reload, lev.reload);
+  assert.equal(cls.secondary.range, lev.range);
+  assert.deepEqual(cls.secondary.elev, lev.elev);
+  assert.equal(cls.secondary.name, lev.name);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 1), 'her 76 mm are not singles');
+  // One Phalanx.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.equal(ciws[0].mounts.length, 1, 'she does not carry one Phalanx');
+  // A torpedo launcher a side: quintuples, as her model draws them, each
+  // tube with its own lane.
+  assert.equal(cls.torpedoes.mounts.length, 2);
+  assert.ok(cls.torpedoes.mounts.every((m) => m.tubes === 5 && m.launch.lanes.length === 5), 'a launcher of hers is not a quintuple');
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => Math.sign(m.x)).sort(), [-1, 1], 'her launchers are not one a side');
+  const built = buildTiconderoga();
+  assert.equal(built.turrets.length, 6);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  // Every mounting stands where the model stood it, on her.
+  for (const [kind, list] of Object.entries(TICONDEROGA_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, ticonderogaSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check("the Ticonderoga's shell has no holes in it", () => {
+  const built = buildTiconderoga();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  // A few centimetres off the cuts her build makes across her underwater
+  // body every two metres.
+  for (let t = -0.95 + 0.0009; t <= 0.95; t += 0.01) {
+    const top = ticonderogaSheer(t);
+    for (let y = ticonderogaKeel(t) + 0.3; y <= top - 0.4; y += 0.6) {
+      const w = ticonderogaShellAt(t, y);
+      if (w < 0.35) continue;
+      if (ticonderogaZAt(t) < -66 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, ticonderogaZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > ticonderogaKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check("the Ticonderoga's Phalanx fires on what comes at her", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: 'ticonderoga', team: 1, index: 0 });
+  a.x = 0; a.z = -6000; a.heading = Math.PI / 2;
+  b.x = 0; b.z = 6000; b.heading = Math.PI / 2;
+  let fired = 0, ciws = 0, down = 0;
+  for (let t = 0; t < 120 * 30; t++) {
+    b.spottedBy = [true, true];
+    if (fired < 4 && fireMissile(state, a, 'harpoon', b.id)) fired++;
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'ciws') ciws++;
+      if (e.e === 'mslDown' && e.why === 'ciws') down++;
+    }
+    if (!b.alive) break;
+  }
+  assert.equal(fired, 4);
+  assert.ok(ciws > 0, 'her Phalanx never fired');
+  assert.ok(down >= 1, 'her Phalanx brought down none of four Harpoons');
+});
+
+check('the CNS Guangzhou is commissioned after the IJN Yukikaze and before the RF Sovremenny, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('guangzhou');
+  assert.ok(i >= 0, 'the Guangzhou is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'yukikaze', `before the Guangzhou comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'sovremenny', `after the Guangzhou comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.guangzhou;
+  assert.equal(cls.fullName, 'CNS Guangzhou');
+  assert.equal(cls.type, 'DD', 'she is not a destroyer');
+  assert.equal(cls.nation, 'chn');
+  // Twin AK-130s, 130 mm, for surface fire only.
+  assert.equal(cls.gun.caliber, 130);
+  assert.match(cls.gun.name, /AK-130/);
+  assert.equal(cls.gun.role, 'surface');
+  assert.ok(cls.turrets.every((t) => t.guns === 2), 'an AK-130 of hers is not a twin');
+  // Two PJ-26 76 mm dual-purpose singles.
+  assert.equal(cls.secondary.caliber, 76);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.equal(cls.secondary.mounts.length, 2);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 1), 'her 76 mm are not singles');
+  // Four AK-630s, which stop missiles as a Phalanx does.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.match(ciws[0].name, /AK-630/);
+  assert.equal(ciws[0].mounts.length, 4, 'she does not carry four AK-630s');
+  // Four RBU-1200s, two forward and two aft, 250 mm.
+  assert.equal(cls.rbu.caliber, 250);
+  assert.equal(cls.rbu.mounts.length, 4);
+  assert.equal(cls.rbu.mounts.filter((m) => m.z > 0).length, 2, 'she does not carry two RBUs forward');
+  assert.equal(cls.rbu.mounts.filter((m) => m.z < 0).length, 2, 'she does not carry two RBUs aft');
+  // Six homing torpedoes, three a side.
+  assert.equal(cls.torpedoes.mounts.length, 6);
+  assert.ok(cls.torpedoes.homing, 'her torpedoes do not home');
+  assert.equal(cls.torpedoes.mounts.filter((m) => m.x > 0).length, 3);
+  assert.equal(cls.torpedoes.mounts.filter((m) => m.x < 0).length, 3);
+  const built = buildGuangzhou();
+  assert.equal(built.turrets.length, 2);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 6);
+  assert.equal(built.rbuMounts.length, 4);
+  // Every mounting stands where the model stood it, on her.
+  for (const [kind, list] of Object.entries(GUANGZHOU_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, guangzhouSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check("the Guangzhou's shell has no holes in it", () => {
+  const built = buildGuangzhou();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95 + 0.0009; t <= 0.95; t += 0.01) {
+    const top = guangzhouSheer(t);
+    for (let y = guangzhouKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
+      const w = guangzhouShellAt(t, y);
+      if (w < 0.35) continue;
+      if (guangzhouZAt(t) < -60 && y < -2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, guangzhouZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > guangzhouKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 500, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the USS Arleigh Burke is commissioned after the Sovremenny, in the Modern yard, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('burke');
+  assert.ok(i >= 0, 'the Burke is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'sovremenny', `before the Burke comes ${SHIP_ORDER[i - 1]}`);
+  const m = MODERN_ORDER.indexOf('burke');
+  assert.ok(m > 0 && MODERN_ORDER[m - 1] === 'sovremenny', 'she is not in the Modern yard after the Sovremenny');
+  assert.ok(!WWII_ORDER.includes('burke'), 'she is in the Second World War yard');
+  const cls = SHIP_CLASSES.burke;
+  assert.equal(cls.fullName, 'USS Arleigh Burke (DDG-51)');
+  assert.equal(cls.type, 'DD');
+  assert.equal(cls.nation, 'usa');
+  // One single 5-inch, for surface fire.
+  assert.equal(cls.turrets.length, 1);
+  assert.equal(cls.turrets[0].guns, 1);
+  assert.equal(cls.gun.caliber, 127);
+  assert.equal(cls.gun.role, 'surface');
+  // Two Phalanx.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.equal(ciws[0].mounts.length, 2);
+  // Two 25 mm Mk 38s, dual-purpose.
+  assert.equal(cls.secondary.caliber, 25);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.equal(cls.secondary.mounts.length, 2);
+  // Two Mk 32 triples of homing torpedoes.
+  assert.equal(cls.torpedoes.mounts.length, 2);
+  assert.ok(cls.torpedoes.mounts.every((t) => t.tubes === 3));
+  assert.ok(cls.torpedoes.homing, 'her torpedoes do not home');
+  // Harpoons, and ninety Mk 41 cells for everything else.
+  const K = cls.missiles.kinds;
+  for (const k of ['sm2', 'sm2er', 'sm3', 'tomahawk', 'asroc', 'harpoon']) assert.ok(K[k], `she carries no ${k}`);
+  assert.equal(vlsCells(cls), 90, 'she has not ninety cells');
+  assert.equal(cls.missiles.vls.cells.filter((c) => c[2] > 0).length, 29, 'her forward launcher is not 29 cells');
+  assert.equal(cls.missiles.vls.cells.filter((c) => c[2] < 0).length, 61, 'her after launcher is not 61 cells');
+  assert.deepEqual(vlsKinds(cls), ['sm2', 'sm2er', 'sm3', 'tomahawk', 'asroc']);
+  assert.equal(K.harpoon.launch, 'tube');
+  assert.equal(Object.values(defaultVls(cls)).reduce((a, b) => a + b, 0), 90, 'she does not sail with her cells full');
+  const built = buildBurke();
+  assert.equal(built.turrets.length, 1);
+  assert.equal(built.secMounts.length, 2);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  for (const [kind, list] of Object.entries(BURKE_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, burkeSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check('the Credits screen credits the model the Arleigh Burke is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/o7TNV') && screen.includes('Yi Tsung Lee'), 'the credit is not as its licence asks');
+});
+
+check('the RF Sovremenny is commissioned before the Arleigh Burke, in the Modern yard, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('sovremenny');
+  assert.ok(i >= 0, 'the Sovremenny is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'burke', `after the Sovremenny comes ${SHIP_ORDER[i + 1]}`);
+  const m = MODERN_ORDER.indexOf('sovremenny');
+  assert.ok(m >= 0 && MODERN_ORDER[m + 1] === 'burke', 'she is not in the Modern yard before the Arleigh Burke');
+  assert.ok(!WWII_ORDER.includes('sovremenny'), 'she is in the Second World War yard');
+  const cls = SHIP_CLASSES.sovremenny;
+  assert.equal(cls.fullName, 'RF Sovremenny');
+  assert.equal(cls.type, 'DD');
+  // Two twin AK-130s, 130 mm, for surface fire.
+  assert.equal(cls.turrets.length, 2);
+  assert.ok(cls.turrets.every((t) => t.guns === 2), 'an AK-130 of hers is not a twin');
+  assert.equal(cls.gun.caliber, 130);
+  assert.match(cls.gun.name, /AK-130/);
+  assert.equal(cls.gun.role, 'surface');
+  // Four AK-630s, which stop missiles.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.match(ciws[0].name, /AK-630/);
+  assert.equal(ciws[0].mounts.length, 4);
+  // Eight Sunburns, four a side, and Uragans off two single-arm launchers.
+  const K = cls.missiles.kinds;
+  assert.match(K.sunburn.name, /Sunburn/);
+  assert.equal(K.sunburn.rounds, 8);
+  assert.equal(K.sunburn.role, 'surface');
+  assert.equal(cls.missiles.tubes.length, 8);
+  assert.equal(cls.missiles.tubes.filter((t) => t[0] > 0).length, 4, 'she has not four canisters a side');
+  assert.match(K.uragan.name, /Uragan/);
+  assert.equal(K.uragan.role, 'sam');
+  assert.equal(K.uragan.launch, 'rail');
+  assert.equal(cls.missiles.rails.length, 2, 'she has not two Uragan launchers');
+  assert.deepEqual(samKinds(cls), ['uragan']);
+  // Two twin 533 mm tubes of TEST-71ME homing torpedoes, eight fish in all.
+  assert.equal(cls.torpedoes.caliber, 533);
+  assert.match(cls.torpedoes.name, /TEST-71ME/);
+  assert.ok(cls.torpedoes.homing, 'her torpedoes do not home');
+  assert.equal(cls.torpedoes.mounts.reduce((n, t) => n + t.tubes, 0), 4);
+  assert.equal(cls.datasheet.torpedoesCarried, 8);
+  // Two RBU-1000s, six 300 mm barrels each.
+  assert.equal(cls.rbu.name, 'RBU-1000');
+  assert.equal(cls.rbu.caliber, 300);
+  assert.equal(cls.rbu.tubes, 6);
+  assert.equal(cls.rbu.mounts.length, 2);
+  const built = buildSovremenny();
+  assert.equal(built.turrets.length, 2);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 2);
+  assert.equal(built.rbuMounts.length, 2);
+  for (const [kind, list] of Object.entries(SOV_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, sovremennySurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+  // Her tubes stand on her waist deck, not in the air or inside her.
+  for (const m of built.torpMounts) {
+    assert.ok(m.position.y > 3.5 && m.position.y < 6, `a bank of tubes stands ${m.position.y.toFixed(2)} m up`);
+  }
+});
+
+check('the Credits screen credits the model the Sovremenny is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('Sovremenny-class destroyer'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/pBN6X') && screen.includes('SB-129'), 'the credit is not as its licence asks');
+});
+
+check('the IJN Mutsu is commissioned after the Fuso, in the Second World War yard, armed as she was built', () => {
+  const i = SHIP_ORDER.indexOf('mutsu');
+  assert.ok(i >= 0, 'the Mutsu is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'fuso', `before the Mutsu comes ${SHIP_ORDER[i - 1]}`);
+  const w = WWII_ORDER.indexOf('mutsu');
+  assert.ok(w > 0 && WWII_ORDER[w - 1] === 'fuso', 'she is not in the Second World War yard after the Fuso');
+  assert.ok(!MODERN_ORDER.includes('mutsu'), 'she is in the Modern yard');
+  const cls = SHIP_CLASSES.mutsu;
+  assert.equal(cls.fullName, 'IJN Mutsu');
+  assert.equal(cls.type, 'BB');
+  assert.equal(cls.nation, 'jpn');
+  // Eight 41 cm in four twins, two forward and two aft.
+  assert.equal(cls.turrets.length, 4);
+  assert.ok(cls.turrets.every((t) => t.guns === 2), 'a turret of hers is not a twin');
+  assert.equal(cls.turrets.filter((t) => t.z > 0).length, 2, 'she has not two turrets forward');
+  assert.equal(cls.gun.caliber, 410);
+  // Twenty 14 cm in casemates, ten a side.
+  assert.equal(cls.secondary.caliber, 140);
+  assert.equal(cls.secondary.mounts.length, 20);
+  assert.equal(cls.secondary.mounts.filter((m) => m.x < 0).length, 10, 'she has not ten casemates a side');
+  // Four 12.7 cm twins and two twin 40 mm.
+  const [dp, pom] = cls.aa.guns;
+  assert.equal(dp.caliber, 127);
+  assert.equal(dp.mounts.length, 4);
+  assert.equal(pom.caliber, 40);
+  assert.equal(pom.mounts.length, 2);
+  const built = buildMutsu();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.secMounts.length, 20);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 0);
+  assert.ok(Math.abs(built.length - 215.8) < 0.01, `she is ${built.length} m long`);
+  // Every mounting of hers stands on her, not in the air.
+  for (const [kind, list] of Object.entries(MUTSU_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, mutsuSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check('every gun on the Mutsu trains inside its stops and fires only where her fire clears her', () => {
+  const cls = SHIP_CLASSES.mutsu;
+  const close = solveBallistic(cls.gun, 2500, 12).elev;
+  const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
+  const [no1, no2, no3, no4] = cls.turrets;
+  // Her pagoda is abaft No.2 and her mainmast forward of No.3: the forward
+  // pair do not fire dead astern, nor the after pair dead ahead.
+  for (const t of [no1, no2]) assert.ok(!fires(t, Math.PI, cls.gun.elev.max), `${t.name} fires dead astern through her`);
+  for (const t of [no3, no4]) assert.ok(!fires(t, 0, cls.gun.elev.max), `${t.name} fires dead ahead through her`);
+  // And every one of them bears on either beam.
+  for (const t of cls.turrets) {
+    for (const b of [Math.PI / 2, -Math.PI / 2]) {
+      assert.ok(fires(t, b, close), `${t.name} cannot fire on her ${b > 0 ? 'port' : 'starboard'} beam`);
+    }
+  }
+  // A casemate gun fires out of its own side and never across her.
+  for (const m of cls.secondary.mounts) {
+    assert.ok(Math.sign(m.angle) === Math.sign(m.x) && m.arc < Math.PI / 2 + 0.2,
+      `the 14 cm at ${m.x}, ${m.z} trains across her deck`);
+  }
+  surveyedArcsHold('mutsu');
+});
+
+check('the Credits screen credits the model the Mutsu is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('Japanese Battleship Mutsu'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/ptQvY') && screen.includes('kriss50'), 'the credit is not as its licence asks');
+});
+
+check("the Sovremenny's Sunburns go forward out of their canisters, at ships", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(state, { name: 'S', classId: 'sovremenny', team: 0, index: 0 });
+  const c = addShip(state, { name: 'C', classId: 'cleveland', team: 1, index: 0 });
+  s.x = 0; s.z = 0; s.heading = 0; c.x = 3000; c.z = 12000; c.heading = Math.PI / 2;
+  const hp0 = c.hp;
+  let fired = 0, hits = 0;
+  for (let t = 0; t < 90 * 30; t++) {
+    if (fired < 2) {
+      const m = fireMissile(state, s, 'sunburn', c.id);
+      if (m) {
+        fired++;
+        // Off a canister that points forward, cocked up, on her side the
+        // target is on.
+        assert.ok(Math.abs(m.aboard.bearing) < 0.01, 'a Sunburn left her canister not pointing forward');
+        assert.ok(m.aboard.elev > 0.2 && m.aboard.elev < 0.35, 'a Sunburn left her canister not cocked up');
+        assert.ok(m.aboard.lx > 0, 'a Sunburn went from the far side of her');
+      }
+    }
+    for (const e of step(state, 1 / 30)) if (e.e === 'mslHit') hits++;
+  }
+  assert.equal(fired, 2);
+  assert.equal(s.missiles.left.sunburn, 6);
+  assert.ok(hits > 0 && c.hp < hp0, 'her Sunburns hit nothing');
+});
+
+check("the Sovremenny's Uragans go up off their arms at missiles coming at her, and are held when told to", () => {
+  const run = (auto) => {
+    const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+    const s = addShip(state, { name: 'S', classId: 'sovremenny', team: 0, index: 0 });
+    const b = addShip(state, { name: 'B', classId: 'burke', team: 1, index: 0 });
+    s.x = 0; s.z = 0; b.x = 0; b.z = 20000; b.missiles.auto = false;
+    setAegisAuto(s, auto);
+    let fired = 0, up = 0, sam = 0;
+    for (let t = 0; t < 90 * 30; t++) {
+      if (fired < 4 && t % 60 === 0 && fireMissile(state, b, 'harpoon', s.id)) fired++;
+      for (const e of step(state, 1 / 30)) {
+        if (e.e === 'mslOrder' && e.k === 'uragan') up++;
+        if (e.e === 'mslDown' && e.why === 'sam') sam++;
+      }
+    }
+    return { up, sam, wire: shipSnapshot(s, true, state).ma, left: s.missiles.left.uragan };
+  };
+  const on = run(true);
+  assert.ok(on.up > 0, 'she put up no Uragan at the Harpoons');
+  assert.ok(on.sam > 0, 'her Uragans brought nothing down');
+  assert.equal(on.left, 48 - on.up, 'her launchers did not take their Uragans from her magazine');
+  assert.equal(on.wire, 1, 'the wire does not say her fire control is on');
+  const off = run(false);
+  assert.equal(off.up, 0, 'her fire control fired with the switch held');
+  assert.equal(off.wire, 0);
+});
+
+check("the Sovremenny's homing torpedoes run down a submarine as well as a ship", () => {
+  for (const [what, depth] of [['u48', 30], ['fletcher', 0]]) {
+    const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+    const s = addShip(state, { name: 'S', classId: 'sovremenny', team: 0, index: 0 });
+    const u = addShip(state, { name: 'U', classId: what, team: 1, index: 0 });
+    s.x = 0; s.z = 0; s.heading = 0; u.x = 300; u.z = 3000; u.heading = Math.PI / 2;
+    const hp0 = u.hp;
+    let hits = 0;
+    for (let t = 0; t < 260 * 30; t++) {
+      u.depth = depth; u.speed = 0; s.speed = 0; s.aimX = u.x; s.aimZ = u.z;
+      if (t % 30 === 0) fireTorpedoes(state, s);
+      for (const e of step(state, 1 / 30)) if (e.e === 'torpHit' && e.victim === u.id) hits++;
+      if (!u.alive) break;
+    }
+    assert.ok(hits > 0, `her torpedoes never hit the ${what}`);
+    assert.ok(!u.alive || u.hp < hp0, `her torpedoes did the ${what} no harm`);
+  }
+});
+
+check("the Sovremenny's RBU-1000s break up torpedoes running at her", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const g = addShip(state, { name: 'G', classId: 'sovremenny', team: 1, index: 0 });
+  a.x = 0; a.z = 0; g.x = 0; g.z = 2000; g.heading = Math.PI / 2;
+  let rbu = 0, kills = 0, launched = 0;
+  for (let t = 0; t < 180 * 30; t++) {
+    a.aimX = g.x; a.aimZ = g.z; a.heading = Math.PI / 2;
+    if (t % 30 === 0) launched += fireTorpedoes(state, a);
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'rbu' && e.t === 'torp') rbu++;
+      if (e.e === 'torpKill') kills++;
+    }
+    if (!g.alive) break;
+  }
+  assert.ok(launched > 0, 'the Fletcher put no fish in the water');
+  assert.ok(rbu > 0, 'her RBUs never fired at a torpedo');
+  assert.ok(kills > 0, 'her RBUs broke up no torpedo');
+});
+
+check('every ship with rocket launchers can have one taken over, laid by hand and fired on the trigger', () => {
+  const ships = Object.values(SHIP_CLASSES).filter((c) => c.rbu);
+  assert.ok(ships.length >= 2, 'fewer than two classes carry rocket launchers');
+  for (const cls of ships) {
+    // The arsenal row is one a captain can press to stand at.
+    const row = arsenal(cls).find((r) => r.band === 'ASW rockets');
+    assert.ok(row && row.specs.length === cls.rbu.mounts.length, `the ${cls.name} lists no ASW rocket row`);
+    cls.rbu.mounts.forEach((spec, i) => {
+      const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+      const s = addShip(state, { name: 'S', classId: cls.id, team: 0, index: 0 });
+      const f = addShip(state, { name: 'F', classId: 'fletcher', team: 1, index: 0 });
+      s.x = 0; s.z = 0; s.heading = 0; s.speed = 0;
+      // On the beam the launcher bears on, inside its reach, and well off its
+      // stowed bearing.
+      const side = Math.sin(spec.angle) >= 0 ? 1 : -1;
+      const at = { x: s.x + spec.x + side * cls.rbu.range * 0.7, z: s.z + spec.z };
+      f.x = at.x; f.z = at.z + 3000; f.heading = 0; f.speed = 0;
+      manGun(s, { k: 'rbu', i });
+      assert.deepEqual(s.manned, { k: 'rbu', i }, `the ${cls.name}'s RBU ${i + 1} cannot be taken over`);
+      layGun(s, { x: at.x, z: at.z, y: 0 });
+      // Not fired until the trigger is pulled, though there is nothing for
+      // her own fire control to throw at either.
+      const before = [];
+      for (let t = 0; t < 10 * 30; t++) for (const e of step(state, 1 / 30)) if (e.e === 'rbu' && e.m === i) before.push(e);
+      assert.equal(before.length, 0, `the ${cls.name}'s manned RBU fired on its own`);
+      assert.ok(Math.abs(angleDelta(s.rbuMounts[i].angle, Math.atan2(at.x - spec.x, at.z - spec.z))) < 0.1,
+        `the ${cls.name}'s RBU ${i + 1} did not train onto where it was laid`);
+      assert.ok(shootGun(state, s) > 0, `the ${cls.name}'s RBU ${i + 1} did not fire on the trigger`);
+      step(state, 1 / 30);
+      assert.ok(shipSnapshot(s, true, state).rr[i] > 0, 'the wire does not carry the launcher reloading');
+      // And handed back, her fire control has it again.
+      manGun(s, { k: null });
+      assert.equal(s.manned, null);
+    });
+  }
+});
+
+check("a VLS is loaded as her captain asks, and never with more than her cells hold", () => {
+  const cls = SHIP_CLASSES.burke;
+  assert.deepEqual(normaliseVls(cls, { sm2: 40, tomahawk: 50, asroc: 20, bogus: 9 }),
+    { sm2: 40, sm2er: 0, sm3: 0, tomahawk: 50, asroc: 0 }, 'an overfull loading was not cut back');
+  assert.deepEqual(normaliseVls(cls, { sm2: -3, asroc: 2.7 }), { sm2: 0, sm2er: 0, sm3: 0, tomahawk: 0, asroc: 2 });
+  assert.deepEqual(normaliseVls(SHIP_CLASSES.missouri, { tomahawk: 90 }), {}, 'the Missouri has a VLS');
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'burke', team: 0, index: 0, vls: { sm2: 60, tomahawk: 30 } });
+  assert.equal(a.missiles.left.sm2, 60);
+  assert.equal(a.missiles.left.tomahawk, 30);
+  assert.equal(a.missiles.left.asroc, 0);
+  assert.equal(a.missiles.left.harpoon, 8, 'her Harpoons went into the VLS loading');
+  assert.equal(a.missiles.cells.filter((c) => c === 'sm2').length, 60);
+  assert.equal(fireMissile(state, a, 'asroc', 0), null, 'an ASROC went out of an empty magazine');
+  setVlsLoad(a, cls, { asroc: 90 });
+  assert.equal(a.missiles.left.asroc, 90);
+  // The Missouri sails as she always has, whatever is asked.
+  const mo = addShip(state, { name: 'M', classId: 'missouri', team: 1, index: 0, vls: { sm2: 60 } });
+  assert.equal(mo.missiles.left.tomahawk, 32);
+  // The yard's loading rides the sortie request onto her side's ships.
+  const room = new Room({ name: 't', mode: 'deathmatch', mapId: 'open_ocean',
+    seed: 4242, half: 14000, private: true, autoStart: false });
+  clearInterval(room.timer);
+  const player = { id: 'p', name: 'Captain', team: 0, send() {} };
+  crewBattle(room, { vls: { sm3: 10, asroc: 80 } }, (at) => {
+    const res = room.join(player, { name: 'Captain', classId: 'burke', team: 0, at });
+    return res.error ? { error: res.error } : { team: player.team };
+  }, { allies: 0, enemies: 0, guns: 0 });
+  const own = room.state.ships.find((q) => q.playerId === 'p');
+  assert.equal(own.missiles.left.asroc, 80, 'the loading chosen in the yard did not sail');
+  assert.equal(own.missiles.left.sm3, 10);
+  assert.equal(own.missiles.left.sm2, 0);
+  // And her own bridge is told what is left of each, in her datasheet's order.
+  const snap = shipSnapshot(own, true, room.state);
+  assert.deepEqual(snap.mq, Object.keys(cls.missiles.kinds).map((k) => own.missiles.left[k]));
+  assert.equal(snap.ma, 1, 'the wire does not say her Aegis is free to fire');
+});
+
+/** A Burke and one enemy, `gap` apart, both in sight; what comes of `act` each tick. */
+function burkeTrial({ mine = 'burke', enemy, gap = 12000, secs = 120, act = () => {}, vls = null }) {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: mine, team: 0, index: 0, vls });
+  const b = addShip(state, { name: 'B', classId: enemy, team: 1, index: 0 });
+  a.x = 0; a.z = -gap / 2; a.heading = Math.PI / 2;
+  b.x = 0; b.z = gap / 2; b.heading = Math.PI / 2;
+  const ev = {};
+  for (let t = 0; t < secs * 30; t++) {
+    a.spottedBy = [true, true]; b.spottedBy = [true, true];
+    act(state, a, b);
+    for (const e of step(state, 1 / 30)) {
+      const k = e.why ? `${e.e}:${e.why}` : e.e;
+      ev[k] = (ev[k] || 0) + 1;
+    }
+  }
+  return { state, a, b, ev };
+}
+
+check("the Burke's Aegis puts Standards up into missiles coming at her, and holds them when told to", () => {
+  let n = 0;
+  const salvo = (state, a, b) => { if (n < 6 && fireMissile(state, a, 'tomahawk', b.id)) n++; };
+  const r = burkeTrial({ mine: 'missouri', enemy: 'burke', act: salvo });
+  assert.ok((r.ev.samBurst || 0) >= 4, `her Standards burst only ${r.ev.samBurst || 0} times`);
+  assert.ok((r.ev['mslDown:sam'] || 0) >= 4, `her Standards brought down only ${r.ev['mslDown:sam'] || 0} of six`);
+  assert.ok(!r.ev.mslHit, 'a Tomahawk got through to her');
+  // Held, her Aegis puts nothing up; her Phalanx are left to it.
+  n = 0;
+  const held = burkeTrial({ mine: 'missouri', enemy: 'burke', act: (state, a, b) => { setAegisAuto(b, false); salvo(state, a, b); } });
+  assert.ok(!held.ev.samBurst, 'her Aegis fired while it was held');
+  assert.equal(held.b.missiles.left.sm2, SHIP_CLASSES.burke.missiles.kinds.sm2.rounds);
+});
+
+check("the Burke's Standards bring down aircraft, and an SM-3 is for missiles only", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'C', classId: 'enterprise', team: 1, index: 0 });
+  const a = addShip(state, { name: 'A', classId: 'burke', team: 0, index: 0, vls: { sm3: 20 } });
+  c.x = 0; c.z = 15000; a.x = 0; a.z = 0;
+  c.aimX = 0; c.aimZ = 0;
+  assert.ok(launchStrike(state, c));
+  let down = 0, burst = 0;
+  for (let t = 0; t < 200 * 30; t++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'samBurst') burst++;
+      if (e.e === 'planeDown' && e.why === 'sam') down++;
+    }
+  }
+  assert.equal(burst, 0, 'an SM-3 went at an aeroplane');
+  // Loaded with Standards she shoots the strike down.
+  const s2 = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const c2 = addShip(s2, { name: 'C', classId: 'enterprise', team: 1, index: 0 });
+  const a2 = addShip(s2, { name: 'A', classId: 'burke', team: 0, index: 0 });
+  c2.x = 0; c2.z = 15000; a2.x = 0; a2.z = 0;
+  c2.aimX = 0; c2.aimZ = 0;
+  assert.ok(launchStrike(s2, c2));
+  for (let t = 0; t < 200 * 30; t++) {
+    for (const s of s2.ships) s.spottedBy = [true, true];
+    for (const e of step(s2, 1 / 30)) if (e.e === 'planeDown' && e.why === 'sam') down++;
+  }
+  assert.ok(down >= 4, `her Standards brought down only ${down} aircraft`);
+  void a;
+});
+
+check("the Burke's ASROC flies out to a submarine and drops a homing torpedo on her", () => {
+  let n = 0;
+  const r = burkeTrial({ enemy: 'u48', gap: 9000, act: (state, a, b) => {
+    b.depth = 30;
+    if (n < 2 && fireMissile(state, a, 'asroc', b.id)) n++;
+  } });
+  assert.equal(n, 2, 'her ASROC would not go');
+  assert.equal(r.ev.asrocDrop, 2, 'an ASROC never let its torpedo go');
+  assert.ok((r.ev.torpHit || 0) >= 1, 'no torpedo it dropped found the boat');
+  assert.ok(r.b.hp < r.b.maxHp, 'the boat took nothing');
+});
+
+check("the Burke's Tomahawks go up out of her cells and her Harpoons out of their canisters, at ships", () => {
+  let t = 0, h = 0;
+  const r = burkeTrial({ enemy: 'iowa', act: (state, a, b) => {
+    if (t < 3 && fireMissile(state, a, 'tomahawk', b.id)) t++;
+    if (h < 3 && fireMissile(state, a, 'harpoon', b.id)) h++;
+  } });
+  assert.equal(t, 3); assert.equal(h, 3);
+  assert.ok((r.ev.mslHit || 0) >= 4, `only ${r.ev.mslHit || 0} of six found an Iowa`);
+  assert.equal(r.a.missiles.left.tomahawk, SHIP_CLASSES.burke.missiles.kinds.tomahawk.rounds - 3);
+  assert.equal(r.a.missiles.left.harpoon, 5);
+  assert.equal(MISSILE_CODE.tomahawk, 't');
+  assert.equal(MISSILE_CODE.harpoon, 'h');
+});
+
+check('the arsenal lists every missile the Burke carries, her VLS by what is in her cells', () => {
+  const rows = arsenal(SHIP_CLASSES.burke).filter((w) => w.band === 'Missiles');
+  assert.deepEqual(rows.map((w) => w.missile), Object.keys(SHIP_CLASSES.burke.missiles.kinds));
+  assert.deepEqual(rows.map((w) => w.slot), rows.map((_, i) => i));
+  assert.equal(rows.find((w) => w.missile === 'sm2').role, 'aa');
+  assert.equal(rows.find((w) => w.missile === 'asroc').role, 'sub');
+  assert.equal(rows.find((w) => w.missile === 'harpoon').mounts, 2, 'her Harpoons are not in two quadruple canisters');
+});
+
+check("the Guangzhou's AK-630s fire on missiles coming at her", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: 'guangzhou', team: 1, index: 0 });
+  a.x = 0; a.z = -6000; a.heading = Math.PI / 2;
+  b.x = 0; b.z = 6000; b.heading = Math.PI / 2;
+  let fired = 0, ciws = 0, down = 0;
+  for (let t = 0; t < 120 * 30; t++) {
+    b.spottedBy = [true, true];
+    if (fired < 4 && fireMissile(state, a, 'harpoon', b.id)) fired++;
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'ciws') ciws++;
+      if (e.e === 'mslDown' && e.why === 'ciws') down++;
+    }
+    if (!b.alive) break;
+  }
+  assert.equal(fired, 4);
+  assert.ok(ciws > 0, 'her AK-630s never fired');
+  assert.ok(down >= 1, 'her AK-630s brought down none of four Harpoons');
+});
+
+check("the Guangzhou's RBU-1200s break up torpedoes running at her", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 1, index: 0 });
+  a.x = 0; a.z = 0; g.x = 0; g.z = 2000; g.heading = Math.PI / 2;
+  let rbu = 0, kills = 0, launched = 0;
+  for (let t = 0; t < 180 * 30; t++) {
+    a.aimX = g.x; a.aimZ = g.z; a.heading = Math.PI / 2;
+    if (t % 30 === 0) launched += fireTorpedoes(state, a);
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'rbu' && e.t === 'torp') rbu++;
+      if (e.e === 'torpKill') kills++;
+    }
+    if (!g.alive) break;
+  }
+  assert.ok(launched > 0, 'the Fletcher put no fish in the water');
+  assert.ok(rbu > 0, 'her RBUs never fired at a torpedo');
+  assert.ok(kills > 0, 'her RBUs broke up no torpedo');
+});
+
+check("the Guangzhou's RBU-1200s go after a submerged boat her sonar holds", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 0, index: 0 });
+  const u = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+  g.x = 0; g.z = 0; g.heading = 0; g.speed = 0;
+  u.x = 0; u.z = 800; u.heading = Math.PI / 2;
+  u.depth = 30;
+  const hp0 = u.hp;
+  let rbu = 0;
+  for (let t = 0; t < 60 * 30; t++) {
+    u.depth = 30; u.speed = 0;
+    for (const e of step(state, 1 / 30)) if (e.e === 'rbu' && e.t === 'sub') rbu++;
+    if (!u.alive) break;
+  }
+  assert.ok(rbu > 0, 'her RBUs never fired at the boat');
+  assert.ok(!u.alive || u.hp < hp0, 'her RBUs did the boat no harm');
+});
+
+check("the Guangzhou's RBU-1200s train round onto a boat, and the wire says where", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 0, index: 0 });
+  const u = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+  // Broad on her starboard bow: the forward launchers, stowed facing ahead,
+  // have to come round to it.
+  g.x = 0; g.z = 0; g.heading = 0; g.speed = 0;
+  u.x = 600; u.z = 500; u.heading = 0; u.depth = 30;
+  const rest = g.rbuMounts.map((m) => m.angle);
+  let fired = null;
+  for (let t = 0; t < 30 * 30 && fired === null; t++) {
+    u.depth = 30; u.speed = 0;
+    for (const e of step(state, 1 / 30)) if (e.e === 'rbu' && fired === null) fired = e;
+  }
+  assert.ok(fired, 'her RBUs never fired at the boat');
+  const m = g.rbuMounts[fired.m];
+  assert.ok(Math.abs(m.angle - rest[fired.m]) > 0.4, 'the launcher fired without training off its stowed bearing');
+  assert.ok(m.elev > 0.05, 'the launcher fired with its tubes down');
+  const s = shipSnapshot(g, false, state);
+  assert.equal(s.rt.length, 4);
+  assert.equal(s.rl.length, 4);
+  assert.ok(Math.abs(s.rt[fired.m] - m.angle) < 0.01, 'the wire does not say where the launcher is trained');
+});
+
+check("the Guangzhou's RBU-1200s go for a torpedo before a ship close aboard", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 1, index: 0 });
+  // The Fletcher trains her tubes and fires with the Guangzhou out past the
+  // RBUs' reach, on a track that runs through where she is then brought:
+  // well inside it, the Fletcher and her fish both there to be thrown at.
+  a.x = 0; a.z = 0; g.x = 0; g.z = 2000; g.heading = Math.PI / 2; g.speed = 0;
+  let launched = 0;
+  for (let t = 0; t < 60 * 30 && !launched; t++) {
+    a.aimX = 0; a.aimZ = 2000; a.heading = Math.PI / 2; a.speed = 0;
+    if (t % 30 === 0) launched += fireTorpedoes(state, a);
+    step(state, 1 / 30);
+  }
+  assert.ok(launched > 0, 'the Fletcher put no fish in the water');
+  g.z = 900;
+  const first = [];
+  for (let t = 0; t < 120 * 30; t++) {
+    a.speed = 0;
+    for (const e of step(state, 1 / 30)) if (e.e === 'rbu') first.push(e.t);
+    if (first.length || !g.alive) break;
+  }
+  assert.ok(first.length, 'her RBUs never fired');
+  assert.equal(first[0], 'torp', `her RBUs fired first at a ${first[0]}, not the torpedoes running at her`);
+});
+
+check("the Guangzhou's homing torpedoes turn onto a ship they were not aimed straight at", () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const g = addShip(state, { name: 'G', classId: 'guangzhou', team: 0, index: 0 });
+  const c = addShip(state, { name: 'C', classId: 'cleveland', team: 1, index: 0 });
+  g.x = 0; g.z = 0; g.heading = 0; c.x = 1500; c.z = 4000; c.heading = Math.PI / 2;
+  let hits = 0, launched = 0;
+  for (let t = 0; t < 200 * 30; t++) {
+    g.aimX = c.x; g.aimZ = c.z;
+    if (t % 30 === 0) launched += fireTorpedoes(state, g);
+    for (const e of step(state, 1 / 30)) if (e.e === 'torpHit' && e.victim === c.id) hits++;
+    if (!c.alive) break;
+  }
+  assert.ok(launched > 0, 'her tubes fired nothing');
+  assert.ok(hits > 0, 'none of her homing torpedoes found the Cleveland');
+});
+
+check('the Credits screen credits the model the Guangzhou is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('"<a href="https://skfb.ly/oFMxF" target="_blank" rel="noopener">Chinese PLANavy Guangzhou Ship（中国人民解放军海军广州舰）</a>"');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(at, screen.indexOf('</p>', at));
+  assert.ok(credit.includes('by 全斗焕 is licensed under') && credit.includes('http://creativecommons.org/licenses/by/4.0/')
+    && credit.includes('Creative Commons Attribution'), 'the credit is not as its licence asks');
+});
+
+check('the Credits screen credits the model the Ticonderoga is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('"<a href="https://skfb.ly/oHFAG" target="_blank" rel="noopener">US CLAA Ticonderoga</a>"');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(at, screen.indexOf('</p>', at));
+  assert.ok(credit.includes('by 全斗焕 is licensed under') && credit.includes('http://creativecommons.org/licenses/by/4.0/')
+    && credit.includes('Creative Commons Attribution'), 'the credit is not as its licence asks');
+});
+
+check('the RF Sovetsky Soyuz is commissioned after the KMS Tirpitz, armed as she was designed', () => {
+  const i = SHIP_ORDER.indexOf('soyuz');
+  assert.ok(i >= 0, 'the Sovetsky Soyuz is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'tirpitz', `before the Sovetsky Soyuz comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'hood', `after the Sovetsky Soyuz comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.soyuz;
+  assert.equal(cls.fullName, 'RF Sovetsky Soyuz');
+  assert.equal(cls.type, 'BB');
+  // Three 406 mm triples, A and B forward and C aft; six 152 mm twins, three
+  // a side; her 100 mm twins and her 37 mm; no tubes.
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3, 3], 'she does not carry three triples');
+  assert.ok(cls.turrets[0].z > 0 && cls.turrets[1].z > 0 && cls.turrets[2].z < 0, 'she does not carry two triples forward and one aft');
+  assert.equal(cls.gun.caliber, 406);
+  assert.equal(cls.secondary.mounts.length, 6, 'she does not carry six 152 mm twins');
+  for (const sgn of [-1, 1]) assert.equal(cls.secondary.mounts.filter((m) => Math.sign(m.x) === sgn).length, 3, 'three 152 mm a side');
+  assert.equal(cls.torpedoes, null, 'she carried no torpedo tubes');
+  // And the 37 mm twins in their round shields, four a side, two on her tower
+  // and two on her after superstructure.
+  const tubs = cls.aa.guns.find((g) => g.piece === 'tub');
+  assert.ok(tubs && tubs.mounts.length === 8, 'she does not carry her eight shielded 37 mm twins');
+  for (const sgn of [-1, 1]) assert.equal(tubs.mounts.filter((m) => Math.sign(m.x) === sgn).length, 4, 'four shielded twins a side');
+  assert.equal(tubs.mounts.filter((m) => m.z > 0).length, 4, 'two a side on her tower');
+  const built = buildSoyuz();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, 6);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every mounting stands where the model stood it, on her deck. Her height
+  // map is the top of her, and a shield on the flank of her tower stands
+  // under the bridge wing over it: there, what it stands on is found by
+  // looking straight down from its seat.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(SOYUZ_SEATS)) {
+    for (const st of list) {
+      const top = soyuzSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+      assert.ok(top <= st.y + 3 || deck > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands on nothing`);
+    }
+  }
+});
+
+check("the Sovetsky Soyuz's shell has no holes in it", () => {
+  // Her sides fired at from abeam at every height her own lines say she has a
+  // side at, a ray dropped anywhere on her deck, and a ray sent up from under
+  // her keel all meet her plating.
+  const built = buildSoyuz();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = soyuzSheer(t);
+    const ys = [];
+    for (let y = soyuzKeel(t) + 0.3; y <= top - 0.4; y += 0.6) ys.push(y);
+    for (const y of ys) {
+      const w = soyuzShellAt(t, y);
+      if (w < 0.35) continue;
+      // Under her quarters her lines run out along her wing shafts, which
+      // leave her side well forward of their screws: there the sea runs
+      // between them and her.
+      if (soyuzZAt(t) < -88 && y < -4) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, soyuzZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > soyuzKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 2000, `only ${tested} stations of plating were tested`);
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+  const bare = [];
+  for (let i = 1; i < 240; i++) {
+    const t = -0.96 + (1.92 * i) / 240;
+    const w = soyuzShellAt(t, soyuzSheer(t) - 0.8);
+    for (const u of [0, 0.4, 0.75, -0.4, -0.75]) {
+      if (Math.abs(u) * w < 0.1) continue;
+      ray.set(new THREE.Vector3(u * w * 0.95, 140, soyuzZAt(t)), new THREE.Vector3(0, -1, 0));
+      if (!ray.intersectObjects(meshes, false).length) bare.push(`${(u * w).toFixed(1)}, ${soyuzZAt(t).toFixed(0)}`);
+    }
+  }
+  assert.equal(bare.length, 0, `${bare.length} hole(s) in her deck: ${bare[0]}`);
+  const open = [];
+  for (let t = -0.9; t <= 0.9; t += 0.01) {
+    const k = soyuzKeel(t);
+    if (k > -2) continue;
+    const w = soyuzShellAt(t, k * 0.4);
+    for (const u of [0, 0.5, -0.5, 0.85, -0.85]) {
+      ray.set(new THREE.Vector3(u * w, -70, soyuzZAt(t)), new THREE.Vector3(0, 1, 0));
+      if (!ray.intersectObjects(meshes, false).length) open.push(`t ${t.toFixed(2)}`);
+    }
+  }
+  assert.equal(open.length, 0, `${open.length} hole(s) in her bottom: ${open[0]}`);
+});
+
+check("the Sovetsky Soyuz's insides and armour are inside her, and her three screws turn", () => {
+  const built = buildSoyuz();
+  built.group.updateMatrixWorld(true);
+  const plating = [], inside = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh) return;
+    if (o.userData.inside || o.userData.mergeKey === 'in') inside.push(o); else plating.push(o);
+  });
+  assert.ok(inside.length > 0, 'she has no insides');
+  const ray = new THREE.Raycaster();
+  const out = [];
+  for (let z = -120; z <= 120; z += 2) {
+    for (const [o, d] of [[[60, 2, z], [-1, 0, 0]], [[-60, 2, z], [1, 0, 0]], [[0, -60, z], [0, 1, 0]], [[4, -60, z], [0, 1, 0]], [[-4, -60, z], [0, 1, 0]]]) {
+      ray.set(new THREE.Vector3(...o), new THREE.Vector3(...d));
+      const a = ray.intersectObjects(plating, false)[0], b = ray.intersectObjects(inside, false)[0];
+      if (b && (!a || b.distance < a.distance - 0.05)) out.push(`${o.join(',')}`);
+    }
+  }
+  assert.equal(out.length, 0, `her insides stand out of her at ${out.slice(0, 4).join('; ')}`);
+  let screws = 0;
+  built.group.traverse((o) => { if (o.userData.screw) screws++; });
+  assert.equal(screws, 3, 'she does not have three screws');
+});
+
+check('the King George V is commissioned after the Hood and before the Rodney, armed as she was in 1945', () => {
+  const i = SHIP_ORDER.indexOf('kgv');
+  assert.ok(i >= 0, 'the King George V is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'hood', `before the King George V comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.kgv;
+  assert.equal(cls.fullName, 'HMS King George V');
+  assert.equal(cls.nation, 'gbr');
+  assert.equal(cls.type, 'BB');
+  // Two quadruple 14-inch and a twin; eight twin 5.25-inch, four a side;
+  // four to six octuple pom-poms; two quadruple Bofors, on her quarterdeck
+  // (the pair once on her forecastle between A and B taken off); thirty-six
+  // Oerlikons.
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [4, 2, 4], 'she does not carry A and Y quadruple and B twin');
+  assert.equal(cls.secondary.mounts.length, 8, 'she does not carry eight 5.25-inch twins');
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 2), 'a 5.25-inch is not a twin');
+  for (const sgn of [-1, 1]) assert.equal(cls.secondary.mounts.filter((m) => Math.sign(m.x) === sgn).length, 4, 'four 5.25-inch a side');
+  assert.equal(cls.secondary.role, 'dp', 'her 5.25-inch are not dual-purpose');
+  const [pp, bf, oe] = cls.aa.guns;
+  assert.ok(pp.mounts.length >= 4 && pp.mounts.length <= 6 && pp.mounts.every((m) => m.guns === 8), 'she does not carry four to six octuple pom-poms');
+  assert.equal(bf.mounts.length, 2, 'she does not carry two quadruple Bofors');
+  assert.ok(bf.mounts.every((m) => m.z < -60), 'a Bofors stands anywhere but her quarterdeck');
+  assert.ok(bf.mounts.every((m) => m.guns === 4), 'a Bofors is not a quadruple');
+  assert.equal(oe.mounts.reduce((n, m) => n + m.guns, 0), 36, 'she does not carry thirty-six Oerlikons');
+  assert.equal(cls.torpedoes, null, 'she carried no torpedo tubes');
+  const built = buildKgv();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, 8);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+});
+
+check("the King George V's shell has no holes in it", () => {
+  // Her sides fired at from abeam at every height her own lines say she has
+  // a side at, right up under her deck edge, have to stop at her near side;
+  // a ray dropped anywhere on her deck -- laid again over the sculpt's -- has
+  // to land on something; and a ray sent up from under her keel has to hit
+  // her bottom. Under her stern her lines run out along her bossings, and
+  // abaft their brackets the sea runs between them and her: there a ray at a
+  // bossing's height may go on in to her skeg.
+  const built = buildKgv();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = kgvSheer(t);
+    const ys = [];
+    for (let y = kgvKeel(t) + 0.3; y <= top - 0.4; y += 0.6) ys.push(y);
+    ys.push(top - 0.2, top - 0.08);
+    for (const y of ys) {
+      const w = kgvShellAt(t, y);
+      if (w < 0.35) continue;
+      if (kgvZAt(t) < -86 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, kgvZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        const near = y > kgvKeel(t) + 1.5;
+        if (!hit || (near && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 2000, `only ${tested} stations of plating were tested`);
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+  const bare = [];
+  for (let i = 1; i < 240; i++) {
+    const t = -0.96 + (1.92 * i) / 240;
+    const w = kgvShellAt(t, kgvSheer(t) - 0.8);
+    for (const u of [0, 0.4, 0.75, -0.4, -0.75]) {
+      if (Math.abs(u) * w < 0.1) continue;
+      ray.set(new THREE.Vector3(u * w * 0.95, 140, kgvZAt(t)), new THREE.Vector3(0, -1, 0));
+      if (!ray.intersectObjects(meshes, false).length) bare.push(`${(u * w).toFixed(1)}, ${kgvZAt(t).toFixed(0)}`);
+    }
+  }
+  assert.equal(bare.length, 0, `${bare.length} hole(s) in her deck: ${bare[0]}`);
+  const open = [];
+  for (let t = -0.9; t <= 0.9; t += 0.01) {
+    const k = kgvKeel(t);
+    if (k > -2) continue;
+    const w = kgvShellAt(t, k * 0.4);
+    for (const u of [0, 0.5, -0.5, 0.85, -0.85]) {
+      ray.set(new THREE.Vector3(u * w, -70, kgvZAt(t)), new THREE.Vector3(0, 1, 0));
+      if (!ray.intersectObjects(meshes, false).length) open.push(`t ${t.toFixed(2)}`);
+    }
+  }
+  assert.equal(open.length, 0, `${open.length} hole(s) in her bottom: ${open[0]}`);
+});
+
+check("the King George V's insides, armour and screws are inside her", () => {
+  // Her interior and armour are fitted under her own plating: nothing of
+  // them stands out of her side or her bottom where a ray from outside would
+  // meet it before her plating. And her four screws turn.
+  const built = buildKgv();
+  built.group.updateMatrixWorld(true);
+  const plating = [], inside = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh) return;
+    if (o.userData.inside || o.userData.mergeKey === 'in') inside.push(o); else plating.push(o);
+  });
+  assert.ok(inside.length > 0, 'she has no insides');
+  const ray = new THREE.Raycaster();
+  const out = [];
+  for (let z = -100; z <= 100; z += 2) {
+    for (const [o, d] of [[[60, 2, z], [-1, 0, 0]], [[-60, 2, z], [1, 0, 0]], [[0, -60, z], [0, 1, 0]], [[4, -60, z], [0, 1, 0]], [[-4, -60, z], [0, 1, 0]]]) {
+      ray.set(new THREE.Vector3(...o), new THREE.Vector3(...d));
+      const a = ray.intersectObjects(plating, false)[0], b = ray.intersectObjects(inside, false)[0];
+      if (b && (!a || b.distance < a.distance - 0.05)) out.push(`${o.join(',')}`);
+    }
+  }
+  assert.equal(out.length, 0, `her insides stand out of her at ${out.slice(0, 4).join('; ')}`);
+  let screws = 0;
+  built.group.traverse((o) => { if (o.userData.screw) screws++; });
+  assert.equal(screws, 4, 'she does not have four screws');
+});
+
+check("the King George V throws a Walrus off either beam from her cross-deck catapult, on the simulation's clock", () => {
+  // The fixed D-III between her funnels: one girder athwart her, a car either
+  // side of her centreline with a Walrus on it facing out over her side, each
+  // thrown off its own end. Nothing trains. The Walrus leaves the beam her
+  // car was on, on the tick the simulation puts her flight on the plot.
+  const P = SHIP_CLASSES.kgv.planes;
+  assert.ok(P && P.catapult && P.type === 'walrus', 'she carries no Walrus to throw off');
+  assert.equal(SHIP_CLASSES.kgv.datasheet.aircraft, P.squadrons * P.perSquadron,
+    'her sheet and her air group disagree on how many Walruses she carries');
+  const g = buildKgv().group;
+  const deck = g.userData.deck;
+  const cats = deck.cats;
+  assert.equal(cats.length, 2, `she has ${cats.length} cars on her catapult`);
+  g.userData.step(0);
+  const athwart = () => cats.every((c) => Math.abs(Math.abs(c.group.rotation.y) - Math.PI / 2) < 1e-6);
+  assert.ok(athwart(), 'her catapult does not lie athwart her');
+  assert.notEqual(Math.sign(cats[0].group.rotation.y), Math.sign(cats[1].group.rotation.y),
+    'both her cars face out over the same side');
+  // In the middle of her: between her funnels, and on the girder the sculpt drew.
+  const [fore, aft] = SHIP_CLASSES.kgv.hull.funnels.map((f) => f[1]).sort((a, b) => b - a);
+  for (const c of cats) {
+    const p = c.group.position;
+    assert.ok(Math.abs(p.x) < 0.01 && p.z < fore && p.z > aft,
+      `a car runs from ${p.x.toFixed(1)}, ${p.z.toFixed(1)}, not her centreline between her funnels`);
+    const t = (2 * p.z) / KGV_LOA;
+    const edge = kgvShellAt(t, kgvSheer(t) - 0.5);
+    const end = Math.abs(p.x + Math.sin(c.group.rotation.y) * deck.rig.FRONT);
+    assert.ok(end < edge, `her girder reaches ${end.toFixed(1)} m out, over her side at ${edge.toFixed(1)}`);
+    assert.ok(Math.abs(kgvSurfaceY(6, p.z) - KGV_CAT_Y) < 0.6 || kgvSurfaceY(12, p.z) < KGV_CAT_Y,
+      'her cars ride on nothing');
+  }
+  // The two Walruses tail to tail, clear of each other over her centreline;
+  // and nothing of the Walrus the sculpt sat on the girder is left standing
+  // in them.
+  g.updateMatrixWorld(true);
+  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane));
+  assert.ok(!boxes[0].intersectsBox(boxes[1]), 'her two Walruses stand in each other');
+  for (const x of [-4, -2, 2, 4]) {
+    for (const z of [KGV_CAT_Z - 5, KGV_CAT_Z + 5]) {
+      assert.ok(kgvSurfaceY(x, z) < KGV_CAT_Y + 0.3,
+        `the sculpt's Walrus still stands ${kgvSurfaceY(x, z).toFixed(1)} m up at ${x}, ${z.toFixed(1)}`);
+    }
+  }
+  const shots = [];
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    const live = deck.live;
+    let away = null;
+    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+      assert.ok(athwart(), 'her catapult trained, and it is a fixed one');
+      if (deck.airborne && away === null) away = t - t0;
+    }
+    assert.ok(away !== null && Math.abs(away - P.deckRun) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${P.deckRun}s on the plot`);
+    assert.ok(deck.endMatrix, 'nothing latched where the shot left her');
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    const off = launchOffset(SHIP_CLASSES.kgv, n === 0 ? -1 : 1);
+    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+    assert.ok(Math.sign(end.x) === Math.sign(Math.sin(live.group.rotation.y)),
+      'the Walrus went off the other beam from the one her car faced');
+    assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+      `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    assert.ok(Math.abs(end.y - P.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
+    shots.push(live);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
+    for (const c of cats) assert.ok(!c.gone && c.plane.visible, 'she never got her Walrus back');
+  }
+  assert.notEqual(shots[0], shots[1], 'she shot both Walruses off the same end of her catapult');
+});
+
+check("the Sovetsky Soyuz throws a KOR-1 off her stern catapult, on the simulation's clock", () => {
+  // The girder the model drew on her quarterdeck, fore and aft on her
+  // centreline abaft No.3 turret: a car on it with a KOR-1 facing aft, run
+  // down it and thrown off over her stern on the tick the simulation puts her
+  // flight on the plot.
+  const P = SHIP_CLASSES.soyuz.planes;
+  assert.ok(P && P.catapult && P.type === 'kor1', 'she carries no KOR-1 to throw off');
+  assert.equal(SHIP_CLASSES.soyuz.datasheet.aircraft, P.squadrons * P.perSquadron,
+    'her sheet and her air group disagree on how many scouts she carries');
+  const g = buildSoyuz().group;
+  const deck = g.userData.deck;
+  assert.ok(deck, 'she has no catapult');
+  assert.equal(deck.cats.length, 1, `she has ${deck.cats.length} cars on her catapult`);
+  const [c] = deck.cats;
+  g.userData.step(0);
+  g.updateMatrixWorld(true);
+  const p = c.group.position;
+  const cTurret = SHIP_CLASSES.soyuz.turrets.find((t) => t.name === 'C');
+  assert.ok(Math.abs(p.x) < 0.01 && p.z < cTurret.z - 20 && p.z > -LOA_SOYUZ / 2,
+    `her car runs from ${p.x.toFixed(1)}, ${p.z.toFixed(1)}, not her quarterdeck abaft No.3`);
+  assert.ok(Math.abs(Math.abs(c.group.rotation.y) - Math.PI) < 1e-6, 'her catapult does not face astern');
+  // The scout stands on her car clear of her deck and of No.3's barrels.
+  const box = new THREE.Box3().setFromObject(c.plane);
+  assert.ok(box.min.y > soyuzSurfaceY(6, p.z) + 3, 'her KOR-1 stands in her deck');
+  assert.ok(box.max.z < cTurret.z - 15, 'her KOR-1 stands in No.3 turret');
+  const shots = [];
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    let away = null;
+    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+      if (deck.airborne && away === null) away = t - t0;
+    }
+    assert.ok(away !== null && Math.abs(away - P.deckRun) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${P.deckRun}s on the plot`);
+    assert.ok(deck.endMatrix, 'nothing latched where the shot left her');
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    for (const side of [-1, 1]) {
+      const off = launchOffset(SHIP_CLASSES.soyuz, side);
+      const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+      assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+        `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+        + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    }
+    assert.ok(end.z < -LOA_SOYUZ / 2, 'the shot did not leave her over her stern');
+    assert.ok(Math.abs(end.y - P.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
+    shots.push(end.z);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
+    assert.ok(!c.gone && c.plane.visible, 'she never got her KOR-1 back');
+    assert.ok(Math.abs(c.car.position.z - deck.rig.A) < 1e-6, 'her car was not run back to the breech');
+  }
+});
+
+check('USS Tillman Modernized is in the Premium Equipment store and not the yard, armed as the owner asked', () => {
+  assert.ok(!SHIP_ORDER.includes('tillman'), 'the Tillman is in the yard\'s list');
+  assert.ok(PREMIUM_ORDER.includes('tillman'), 'the Tillman is not in the store');
+  assert.ok(PLAYABLE.includes('tillman'), 'a fleet cannot have the Tillman in it');
+  const cls = SHIP_CLASSES.tillman;
+  assert.equal(cls.fullName, 'USS Tillman Modernized');
+  assert.equal(cls.type, 'BB', 'she is not a battleship');
+  assert.equal(cls.nation, 'usa');
+  assert.ok(cls.premium, 'she is not marked premium');
+  // Four quadruple turrets of 24-inch, thirty seconds a round, a wide pattern; better 5-inch than the fleet's; 40 mm and 20 mm.
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'X', 'Y']);
+  assert.ok(cls.turrets.every((t) => t.guns === 4), 'a turret of hers is not a quadruple');
+  assert.equal(cls.gun.caliber, 610);
+  assert.equal(cls.gun.reload, 30);
+  assert.ok(cls.gun.sigma < SHIP_CLASSES.iowa.gun.sigma, 'her main battery is not more dispersed than an Iowa\'s');
+  assert.equal(cls.secondary.caliber, 127);
+  assert.ok(cls.secondary.reload < SHIP_CLASSES.iowa.secondary.reload, 'her 5-inch loads no quicker than an Iowa\'s');
+  assert.ok(cls.secondary.sigma > SHIP_CLASSES.iowa.secondary.sigma, 'her 5-inch shoot no closer than an Iowa\'s');
+  assert.ok(cls.aa.guns.some((g) => g.caliber === 40), 'she has no Bofors');
+  assert.ok(cls.aa.guns.some((g) => g.caliber === 20), 'she has no Oerlikons');
+  assert.ok(cls.planes && cls.planes.catapult, 'she has no catapult');
+  assert.equal(Math.round(cls.maxSpeed / KNOTS), 26);
+  assert.equal(Math.round(cls.armor.belt / 25.4), 13, 'her belt is not thirteen inches');
+  assert.equal(cls.datasheet.displacement, 115000);
+  const built = buildTillman();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every mounting stands where the model stood it, on her.
+  built.group.updateMatrixWorld(true);
+  const decks = [];
+  built.group.traverse((o) => {
+    if (!o.isMesh || o.userData.inside) return;
+    for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) return;
+    decks.push(o);
+  });
+  const down = new THREE.Raycaster();
+  const under = (x, y, z) => {
+    down.set(new THREE.Vector3(x, y + 0.3, z), new THREE.Vector3(0, -1, 0));
+    down.far = 3;
+    const hit = down.intersectObjects(decks, false)[0];
+    return hit ? hit.point.y : -99;
+  };
+  for (const [kind, list] of Object.entries(TILLMAN_SEATS)) {
+    for (const st of list) {
+      const top = tillmanSurfaceY(st.x, st.z);
+      const deck = top > st.y + 3 ? under(st.x, st.y, st.z) : top;
+      assert.ok(Math.abs(deck - st.y) < 1.5 || deck < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${deck}`);
+    }
+  }
+});
+
+check('USS Missouri (BB-63) 1991 is commissioned after the Iowa, armed as she was in the Gulf', () => {
+  const i = SHIP_ORDER.indexOf('missouri');
+  assert.ok(i >= 0, 'the Missouri is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'iowa', `before the Missouri comes ${SHIP_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.missouri;
+  assert.equal(cls.fullName, 'USS Missouri (BB-63) 1991');
+  assert.equal(cls.nation, 'usa');
+  assert.equal(cls.turrets.length, 3);
+  assert.ok(cls.turrets.every((t) => t.guns === 3), 'a turret of hers is not a triple');
+  assert.equal(cls.gun.caliber, 406);
+  assert.equal(cls.secondary.mounts.length, 6);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 2), 'a 5-inch mount of hers is not a twin');
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.equal(ciws[0].mounts.length, 4, 'she does not carry four Phalanx');
+  assert.ok(!cls.aa.guns.some((g) => g.caliber === 40), 'her Bofors were landed');
+  assert.equal(cls.missiles.kinds.tomahawk.rounds, 32);
+  assert.equal(cls.missiles.kinds.harpoon.rounds, 16);
+  assert.equal(cls.missiles.boxes.length, 8, 'she does not have eight box launchers');
+  assert.equal(cls.missiles.tubes.length, 16, 'she does not have sixteen Harpoon canisters');
+  const built = buildMissouri();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, 6);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.group.userData.launchers.length, 8);
+  // Every mounting stands where the model stood it, on her: a turret on the
+  // ring of its barbette, which is open in the middle.
+  for (const [kind, list] of Object.entries(MISSOURI_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 6; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, missouriSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check('the Credits screen credits the model the Missouri is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('USS Missouri (BB-63) 1991'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/oHyvM') && screen.includes('全斗焕')
+    && screen.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
+});
+
+/** A Missouri and one enemy, `gap` apart, the enemy in sight; what her missiles do to her. */
+function missileTrial(enemy, kind, n, { gap = 12000, both = false, secs = 120 } = {}) {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: enemy, team: 1, index: 0 });
+  a.x = 0; a.z = -gap / 2; a.heading = Math.PI / 2;
+  b.x = 0; b.z = gap / 2; b.heading = Math.PI / 2;
+  const out = { fired: 0, hits: 0, down: {}, launched: 0, ciws: 0, hp0: b.hp, b, a, state };
+  for (let t = 0; t < secs * 30; t++) {
+    b.spottedBy = [true, true];
+    if (out.fired < n) {
+      if (fireMissile(state, a, kind, b.id)) out.fired++;
+      if (both && out.fired < n && fireMissile(state, a, 'harpoon', b.id)) out.fired++;
+    }
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'mslHit') out.hits++;
+      if (e.e === 'mslDown') out.down[e.why] = (out.down[e.why] || 0) + 1;
+      if (e.e === 'mslLaunch') out.launched++;
+      if (e.e === 'ciws') out.ciws++;
+    }
+    if (!b.alive) break;
+  }
+  return out;
+}
+
+check('a Tomahawk raises its box, flies itself onto the ship it is laid on and comes down on her', () => {
+  const r = missileTrial('iowa', 'tomahawk', 4);
+  assert.equal(r.fired, 4);
+  assert.equal(r.launched, 4, 'they never left their boxes');
+  assert.ok(r.a.missiles.boxes.some((b) => b.left < 4), 'no box was used');
+  assert.ok(r.hits >= 3, `only ${r.hits} of four found an Iowa, whose guns were never made to stop them`);
+  assert.ok(r.b.hp < r.hp0, 'she took nothing from them');
+  assert.equal(r.a.missiles.left.tomahawk, 28);
+});
+
+check('a Harpoon skims the sea into her side; both missiles are for ships only', () => {
+  const r = missileTrial('fletcher', 'harpoon', 3);
+  assert.ok(r.hits >= 2, `only ${r.hits} Harpoons of three found a Fletcher`);
+  for (const K of Object.values(SHIP_CLASSES.missouri.missiles.kinds)) assert.ok(K.cruise < 60, 'a missile cruises up among the aeroplanes');
+  // Given nothing to go for -- no enemy in sight -- none goes.
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  assert.equal(fireMissile(state, a, 'tomahawk', 0), null, 'a missile went with no ship to go for');
+});
+
+check('the guns of the war almost never bring a missile down; a Phalanx does', () => {
+  // A whole salvo into a Yamato's flak, and into a Missouri's Phalanx.
+  const flak = missileTrial('yamato', 'tomahawk', 8);
+  assert.ok((flak.down.flak || 0) <= 2, `${flak.down.flak} of eight came down in a Yamato's flak`);
+  const ciws = missileTrial('missouri', 'harpoon', 6);
+  assert.ok(ciws.ciws > 0, 'her Phalanx never fired');
+  assert.ok((ciws.down.ciws || 0) >= 4, `her Phalanx brought down only ${ciws.down.ciws || 0} of six`);
+});
+
+check('a missile in the air can be laid on another ship by the captain who fired it, and by nobody else', () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'missouri', team: 0, index: 0 });
+  const o = addShip(state, { name: 'O', classId: 'iowa', team: 0, index: 1 });
+  const b = addShip(state, { name: 'B', classId: 'iowa', team: 1, index: 0 });
+  const c = addShip(state, { name: 'C', classId: 'fletcher', team: 1, index: 1 });
+  for (const s of [b, c]) s.spottedBy = [true, true];
+  const m = fireMissile(state, a, 'harpoon', b.id);
+  assert.ok(m, 'no missile went');
+  assert.equal(m.target, b.id);
+  assert.ok(!retargetMissile(state, o, m.id, c.id), 'another ship laid her missile');
+  assert.ok(retargetMissile(state, a, m.id, c.id), 'she could not lay her own missile on another ship');
+  assert.equal(m.target, c.id);
+  assert.ok(!retargetMissile(state, a, m.id, o.id), 'she laid her missile on a ship of her own side');
+});
+
+check("the Tillman's shell has no holes in it", () => {
+  const built = buildTillman();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  // Every station a few centimetres off the cuts her build makes across her
+  // underwater body every two metres: on a 300 m hull the test's own step
+  // falls on them, and a ray laid exactly along a cut runs down the seam.
+  for (let t = -0.95 + 0.0009; t <= 0.95; t += 0.01) {
+    const top = tillmanSheer(t);
+    const ys = [];
+    for (let y = tillmanKeel(t) + 0.3; y <= top - 0.4; y += 0.6) ys.push(y);
+    for (const y of ys) {
+      const w = tillmanShellAt(t, y);
+      if (w < 0.35) continue;
+      if (tillmanZAt(t) < -105 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        // A ray is a line: one laid exactly along the edge between two of
+        // her plates, or the hairline where two meet without sharing their
+        // points, goes through -- a hole is one that a ray three centimetres
+        // either side of it goes through as well.
+        const through = [-0.03, 0, 0.03].every((dy) => {
+          ray.set(new THREE.Vector3(side * 80, y + dy, tillmanZAt(t)), new THREE.Vector3(-side, 0, 0));
+          const hit = ray.intersectObjects(meshes, false)[0];
+          // Over her bilge, two and a half metres of the keel: her bilge keels
+          // stand out from a tight turn there and are what her lines read.
+          return !hit || (y > tillmanKeel(t) + 2.5 && side * hit.point.x < w - 1.5);
+        });
+        if (through) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  // And just over her waterline, every quarter metre along her new bottom's
+  // length: there her side's plating stops and her bottom's skin starts, two
+  // edges the decimator once slid apart, leaving a notch a metre long.
+  for (let z = -99; z <= 140; z += 0.25) {
+    const t = (2 * z) / LOA_TILLMAN;
+    for (const y of [0.2, 0.4]) {
+      const w = tillmanShellAt(t, y);
+      if (w < 2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        const through = [-0.03, 0, 0.03].every((dy) => {
+          ray.set(new THREE.Vector3(side * 80, y + dy, z), new THREE.Vector3(-side, 0, 0));
+          const hit = ray.intersectObjects(meshes, false)[0];
+          return !hit || side * hit.point.x < w - 1.5;
+        });
+        if (through) holes.push(`z ${z.toFixed(2)} y ${y} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 3000, `only ${tested} stations of plating were tested`);
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes.slice(0, 4).join('; ')}`);
+});
+
+check('the Tillman\'s bottom is one skin from her skegs to her forefoot, with nothing of her insides under it', () => {
+  // The model draws her in four sections whose bottoms neither meet nor
+  // match: a step and a crack at every join, and her chain lockers hanging
+  // out under her amidships. Seen from under her, every ray up into her
+  // bottom meets her plating first, and it lies smooth along her.
+  const built = buildTillman();
+  built.group.updateMatrixWorld(true);
+  const all = [];
+  built.group.traverse((o) => { if (o.isMesh) all.push(o); });
+  const isInside = (o) => { for (let q = o; q; q = q.parent) if (q.userData.inside) return true; return false; };
+  const ray = new THREE.Raycaster();
+  const bad = [];
+  let steps = 0, tested = 0;
+  for (const x of [-12, -6, 0, 6, 12]) {
+    let last = null;
+    for (let z = -95.3; z <= 125; z += 1) {
+      if (tillmanShellAt((2 * z) / 300, -6) < Math.abs(x) + 1.5) { last = null; continue; }
+      ray.set(new THREE.Vector3(x, -40, z), new THREE.Vector3(0, 1, 0));
+      const hit = ray.intersectObjects(all, false)[0];
+      tested++;
+      if (!hit || isInside(hit.object)) { bad.push(`x ${x} z ${z.toFixed(1)}: ${hit ? 'her insides' : 'nothing'}`); last = null; continue; }
+      if (last !== null && Math.abs(hit.point.y - last) > 0.6) steps++;
+      last = hit.point.y;
+    }
+  }
+  assert.ok(tested > 800, `only ${tested} rays were tested`);
+  assert.deepEqual(bad, [], `her bottom shows: ${bad.slice(0, 4).join('; ')}`);
+  assert.ok(steps === 0, `${steps} step(s) in her bottom along her`);
+});
+
+check('the Credits screen credits the model the Tillman is drawn from, after the Morosini', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('US Super Battleship Rhodeisland');
+  assert.ok(at >= 0, 'the model is not credited');
+  assert.ok(at > screen.indexOf('Italian Battleship Francesco Morosini'), 'the Tillman is not credited below the Morosini');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/oHGQz') && credit.includes('全斗焕')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'), 'the credit is not as its licence asks');
+});
+
+check('Premium Equipment, Ships has a screen, and the Tillman is free to sail while ads are off', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(html.includes('id="screen-premium-ships"'), 'there is no Premium Ships screen');
+  assert.ok(html.includes('data-premium="ships"'), 'the store has no Ships department');
+  assert.equal(ADS_REQUIRED, false, 'premium hulls are locked behind ads already');
+  assert.ok(premiumUnlocked('tillman'), 'the Tillman is locked');
+});
+
+check('USS Tillman throws a Kingfisher off a catapult trained out over her quarter, on the simulation\'s clock', () => {
+  const cls = SHIP_CLASSES.tillman;
+  const P = cls.planes;
+  assert.ok(P && P.catapult && P.type === 'kingfisher', 'she carries no Kingfisher to throw off');
+  assert.equal(cls.datasheet.aircraft, P.squadrons * P.perSquadron,
+    'her sheet and her air group disagree on how many scouts she carries');
+  const g = buildTillman().group;
+  const deck = g.userData.deck;
+  assert.ok(deck, 'she has no catapult');
+  assert.equal(deck.cats.length, 2, `she has ${deck.cats.length} catapults`);
+  const yTurret = cls.turrets.find((t) => t.name === 'Y');
+  for (const c of deck.cats) {
+    assert.ok(c.group.position.z < yTurret.z - 40, 'a catapult of hers is not on her quarterdeck abaft Y');
+  }
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    let away = null;
+    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+      if (deck.airborne && away === null) away = t - t0;
+    }
+    assert.ok(away !== null && Math.abs(away - P.deckRun) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${P.deckRun}s on the plot`);
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    const off = launchOffset(cls, n ? -1 : 1);
+    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+    assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+      `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    assert.ok(Math.abs(end.y - P.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
+  }
+});
+
+check("the RN Morosini throws a Ro.43 off her stern catapult, on the simulation's clock", () => {
+  // The girder the model drew on her quarterdeck, fixed on her centreline
+  // abaft No.4 turret: a car on it with a Ro.43 facing aft, run down it and
+  // thrown off over her stern on the tick the simulation puts her flight on
+  // the plot.
+  const cls = SHIP_CLASSES.morosini;
+  const P = cls.planes;
+  assert.ok(P && P.catapult && P.type === 'ro43', 'she carries no Ro.43 to throw off');
+  assert.equal(cls.datasheet.aircraft, P.squadrons * P.perSquadron,
+    'her sheet and her air group disagree on how many scouts she carries');
+  const g = buildMorosini().group;
+  const deck = g.userData.deck;
+  assert.ok(deck, 'she has no catapult');
+  assert.equal(deck.cats.length, 1, `she has ${deck.cats.length} cars on her catapult`);
+  const [c] = deck.cats;
+  g.userData.step(0);
+  g.updateMatrixWorld(true);
+  const p = c.group.position;
+  const yTurret = cls.turrets.find((t) => t.name === 'Y');
+  assert.ok(Math.abs(p.x) < 0.01 && p.z < yTurret.z - 20 && p.z > -LOA_MOROSINI / 2,
+    `her car runs from ${p.x.toFixed(1)}, ${p.z.toFixed(1)}, not her quarterdeck abaft No.4`);
+  assert.ok(Math.abs(Math.abs(c.group.rotation.y) - Math.PI) < 1e-6, 'her catapult does not face astern');
+  // The scout stands on her car clear of her deck and of No.4's barrels.
+  const box = new THREE.Box3().setFromObject(c.plane);
+  assert.ok(box.min.y > morosiniSurfaceY(6, p.z) + 1.5, 'her Ro.43 stands in her deck');
+  assert.ok(box.max.z < yTurret.z - 18, 'her Ro.43 stands in No.4 turret');
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    let away = null;
+    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+      if (deck.airborne && away === null) away = t - t0;
+    }
+    assert.ok(away !== null && Math.abs(away - P.deckRun) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${P.deckRun}s on the plot`);
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    const off = launchOffset(cls, 1);
+    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+    assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+      `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    assert.ok(end.z < -LOA_MOROSINI / 2, 'the shot did not leave her over her stern');
+    assert.ok(Math.abs(end.y - P.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
+    assert.ok(!c.gone && c.plane.visible, 'she never got her Ro.43 back');
+    assert.ok(Math.abs(c.car.position.z - deck.rig.A) < 1e-6, 'her car was not run back to the breech');
+  }
+});
+
+check('the RN Morosini launches her Ro.43s, and nothing flies before she has shot one off', () => {
+  const state = createState(generateWorld(7722, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'RN Morosini', classId: 'morosini', team: 0, index: 0 });
+  ship.aimX = ship.x + 4000;
+  ship.aimZ = ship.z + 4000;
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(state.planes.length, 0, 'an aeroplane appeared before the shot');
+  const run = SHIP_CLASSES.morosini.planes.deckRun;
+  for (let i = 0; i < Math.ceil((run - 0.5) / DT); i++) step(state, DT);
+  assert.equal(state.planes.length, 0, 'she flew one off early');
+  for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
+  assert.ok(state.planes.length > 0, 'nothing left the catapult at all');
+  assert.ok(state.planes.every((p) => p.type === 'ro43'), 'what left her catapult was not a Ro.43');
+});
+
+check('the Sovetsky Soyuz launches her KOR-1s, and nothing flies before she has shot it off', () => {
+  const state = createState(generateWorld(7721, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Sovetsky Soyuz', classId: 'soyuz', team: 0, index: 0 });
+  ship.aimX = ship.x + 4000;
+  ship.aimZ = ship.z + 4000;
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(state.planes.length, 0, 'an aeroplane appeared before the shot');
+  const run = SHIP_CLASSES.soyuz.planes.deckRun;
+  for (let i = 0; i < Math.ceil((run - 0.5) / DT); i++) step(state, DT);
+  assert.equal(state.planes.length, 0, 'she flew one off early');
+  for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
+  assert.ok(state.planes.length > 0, 'nothing left the catapult at all');
+  assert.ok(state.planes.every((p) => p.type === 'kor1'), 'what left her catapult was not a KOR-1');
+});
+
+check('the King George V launches her Walruses, and nothing flies before she has shot it off', () => {
+  const state = createState(generateWorld(7720, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'King George V', classId: 'kgv', team: 0, index: 0 });
+  ship.aimX = ship.x + 4000;
+  ship.aimZ = ship.z + 4000;
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(state.planes.length, 0, 'an aeroplane appeared before the shot');
+  const run = SHIP_CLASSES.kgv.planes.deckRun;
+  for (let i = 0; i < Math.ceil((run - 0.5) / DT); i++) step(state, DT);
+  assert.equal(state.planes.length, 0, 'she flew one off early');
+  for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
+  assert.ok(state.planes.length > 0, 'nothing left the catapult at all');
+  assert.ok(state.planes.every((p) => p.type === 'walrus'), 'what left her catapult was not a Walrus');
+});
+
+check('the King George V carries her guns where they can be trained from', () => {
+  const cls = SHIP_CLASSES.kgv;
+  const [A, B, Y] = KGV_SEATS.turrets;
+  // A and B face forward, Y aft; B superfires over A: its barrels clear A's roof.
+  assert.ok(Math.abs(angleDelta(A.rest, 0)) < 0.05 && Math.abs(angleDelta(B.rest, 0)) < 0.05, 'A and B do not face forward');
+  assert.ok(Math.abs(angleDelta(Y.rest, Math.PI)) < 0.05, 'Y does not face aft');
+  assert.ok(B.seat + kgvGunPiece('mainB').trunnion[1] > A.seat + kgvGunPiece('mainA').roof - 0.3, 'B fires into A');
+  // Each gun as the owner sculpted it: the quadruples carry four barrels, the
+  // twins two, and every barrel is long enough to be the gun it is.
+  assert.equal(kgvGunPiece('mainA').muzzles.length, 4);
+  assert.equal(kgvGunPiece('mainB').muzzles.length, 2);
+  assert.equal(kgvGunPiece('mainY').muzzles.length, 4);
+  assert.ok(kgvGunPiece('mainA').muzzles[0][2] > 12, 'the 14-inch barrels are too short');
+  assert.equal(kgvGunPiece('sec').muzzles.length, 2);
+  assert.equal(kgvGunPiece('pompom').muzzles.length, 8);
+  assert.equal(kgvGunPiece('bofors').muzzles.length, 4);
+  assert.equal(kgvGunPiece('oerlikon').muzzles.length, 1);
+  // Every one of her 5.25-inch can fire on its own beam.
+  const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
+  const near = solveBallistic(cls.secondary, 5000, 10).elev;
+  for (const m of cls.secondary.mounts) {
+    assert.ok(fires(m, (Math.sign(m.x) * Math.PI) / 2, near), `the 5.25-inch at ${m.x}, ${m.z} cannot fire on her beam`);
+  }
+  // Every gun stands on her: on her deck or her superstructure, not in the air
+  // or under it.
+  for (const list of [KGV_SEATS.secondary, KGV_SEATS.pompom, KGV_SEATS.bofors, KGV_SEATS.oerlikon]) {
+    for (const s of list) {
+      // One on a turret's roof stands on the roof, a hand off the plate.
+      if (s.turret) {
+        const t = KGV_SEATS.turrets.find((q) => q.name === s.turret);
+        const roof = kgvGunPiece(`main${t.name}`).roof;
+        assert.ok(s.y - t.seat > 2.5 && s.y - t.seat <= roof + 0.01,
+          `the Oerlikon on ${t.name} stands ${(s.y - t.seat).toFixed(2)} m over its seat, its roof is ${roof}`);
+        assert.ok(Math.hypot(s.lx, s.lz) < t.r - 1.0, `the Oerlikon on ${t.name} is off the edge of its roof`);
+        continue;
+      }
+      const y = kgvSurfaceY(s.x, s.z);
+      assert.ok(Math.abs(y - s.y) < 1.2, `the mounting at ${s.x}, ${s.z} stands at ${s.y}, her surface there is ${y}`);
+    }
+  }
+  // No light gun stands where a turret's gunhouse swings -- unless it stands
+  // over the roof of it, as her after pom-pom does on the platform the after
+  // superstructure carries out over Y.
+  const seats = [...KGV_SEATS.secondary, ...KGV_SEATS.pompom, ...KGV_SEATS.bofors, ...KGV_SEATS.oerlikon];
+  for (const t of KGV_SEATS.turrets) {
+    const roof = t.seat + kgvGunPiece(`main${t.name}`).roof;
+    for (const m of [...cls.secondary.mounts, ...lightMounts(cls)]) {
+      if (m.turret) continue;
+      const seat = seats.find((q) => Math.hypot(Math.abs(q.x) - Math.abs(m.x), q.z - m.z) < 0.6);
+      if (seat && seat.y > roof) continue;
+      assert.ok(Math.hypot(m.x - t.x, m.z - t.z) > t.r + 3, `the mounting at ${m.x}, ${m.z} stands where ${t.name} trains`);
+    }
+  }
+  // Her Oerlikons all round her: most of them up on her bridge and her
+  // superstructure, some on her forecastle and her quarterdeck, and on the
+  // roofs of her turrets.
+  const oer = cls.aa.guns.find((q) => q.caliber === 20).mounts;
+  assert.equal(oer.length, 36, `she carries ${oer.length} Oerlikons`);
+  assert.ok(oer.filter((m) => m.turret).length >= 6, 'she carries no Oerlikons on her turrets');
+  const up = oer.filter((m) => !m.turret && m.my > 11);
+  assert.ok(up.length >= 12, `only ${up.length} of her Oerlikons are up on her superstructure`);
+  assert.ok(up.some((m) => m.z > 10) && up.some((m) => m.z < -20), 'her superstructure carries Oerlikons only at one end');
+  for (const [lo, hi, where] of [[60, 120, 'forecastle'], [-120, -40, 'quarterdeck']]) {
+    assert.ok(oer.filter((m) => !m.turret && m.my < 11 && m.z >= lo && m.z < hi).length >= 4, `she has hardly an Oerlikon on her ${where}`);
+  }
+  surveyedArcsHold('kgv');
+});
+
+check('a layer standing at a King George V gun looks out over it, round its arc and nowhere else', () => {
+  const { b, cls } = layerLooksOut('kgv');
+  for (const [kind, specs] of [['main', cls.turrets], ['sec', cls.secondary.mounts]]) {
+    specs.forEach((spec, i) => {
+      b.gun = { kind, id: i, spec };
+      const start = b.gunStartBearing();
+      assert.ok(Math.abs(angleDelta(spec.angle, start)) <= spec.arc && layFloor(spec.mask, start) < 0.1,
+        `${kind} ${i} is taken laid on ${((start * 180) / Math.PI).toFixed(0)} degrees, where it cannot fire`);
+    });
+  }
+});
+
+check('the KMS Bismarck is commissioned before her sister, and her sister before the Sovetsky Soyuz, the Hood, the King George V and the Rodney', () => {
+  // She comes into the yard with her sister Tirpitz immediately behind her,
+  // then the Sovetsky Soyuz, then the Hood she sank in the Denmark Strait on
+  // 24 May 1941, and then the two battleships that closed her three days
+  // later.
   const i = SHIP_ORDER.indexOf('bismarck');
   assert.ok(i >= 0, 'the Bismarck is not in the yard');
   assert.equal(SHIP_ORDER[i + 1], 'tirpitz', `after the Bismarck comes ${SHIP_ORDER[i + 1]}`);
-  assert.equal(SHIP_ORDER[i + 2], 'rodney', `after the Tirpitz comes ${SHIP_ORDER[i + 2]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'soyuz', `after the Tirpitz comes ${SHIP_ORDER[i + 2]}`);
+  assert.equal(SHIP_ORDER[i + 3], 'hood', `after the Sovetsky Soyuz comes ${SHIP_ORDER[i + 3]}`);
+  assert.equal(SHIP_ORDER[i + 4], 'kgv', `after the Hood comes ${SHIP_ORDER[i + 4]}`);
+  assert.equal(SHIP_ORDER[i + 5], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 5]}`);
   const cls = SHIP_CLASSES.bismarck;
   assert.equal(cls.fullName, 'KMS Bismarck');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -3193,12 +5660,14 @@ check('the Tirpitz is built the same on both sides', () => {
   bismarckBuiltAlike('tirpitz');
 });
 
-check('the KMS Scharnhorst is commissioned before the Bismarck', () => {
+check('the KMS Scharnhorst is commissioned before the Bismarck, with the Hagen between them', () => {
   // The first of the Kriegsmarine's new battleships to commission, two years
-  // before the Bismarck: she comes into the yard immediately ahead of her.
+  // before the Bismarck: she comes into the yard ahead of her, and the
+  // battlecruiser Hagen immediately after her.
   const i = SHIP_ORDER.indexOf('scharnhorst');
   assert.ok(i >= 0, 'the Scharnhorst is not in the yard');
-  assert.equal(SHIP_ORDER[i + 1], 'bismarck', `after the Scharnhorst comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'hagen', `after the Scharnhorst comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'bismarck', `after the Hagen comes ${SHIP_ORDER[i + 2]}`);
   const cls = SHIP_CLASSES.scharnhorst;
   assert.equal(cls.fullName, 'KMS Scharnhorst');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -3403,7 +5872,8 @@ check('the FS Richelieu is commissioned before the Scharnhorst, and she before t
   const i = SHIP_ORDER.indexOf('richelieu');
   assert.ok(i >= 0, 'the Richelieu is not in the yard');
   assert.equal(SHIP_ORDER[i + 1], 'scharnhorst', `after the Richelieu comes ${SHIP_ORDER[i + 1]}`);
-  assert.equal(SHIP_ORDER[i + 2], 'bismarck', `after the Scharnhorst comes ${SHIP_ORDER[i + 2]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'hagen', `after the Scharnhorst comes ${SHIP_ORDER[i + 2]}`);
+  assert.equal(SHIP_ORDER[i + 3], 'bismarck', `after the Hagen comes ${SHIP_ORDER[i + 3]}`);
   const cls = SHIP_CLASSES.richelieu;
   assert.equal(cls.fullName, 'FS Richelieu');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -3828,9 +6298,9 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
   // every ship swung in bearing and nothing ever looked up, so a light battery
   // engaging a dive bomber directly overhead pointed its guns at the horizon
   // and the aeroplane fell out of a clear sky.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     // A ship stripped to her hull while she is rebuilt has no battery to lay.
     if (BARE_HULL.has(id)) continue;
     const b = buildShip(id);
@@ -4022,9 +6492,9 @@ check('a shell leaves the muzzle it was fired from', () => {
   // compares.
   const V = new THREE.Vector3();
   const O = new THREE.Vector3();
-  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const cls = SHIP_CLASSES[id];
     const b = buildShip(id);
     b.group.updateMatrixWorld(true);
@@ -4070,9 +6540,9 @@ check('her screws turn, and each shaft the way it is handed', () => {
   // Every ship in the game had her screws modelled and every one of them was
   // welded into the hull: four bronze propellers standing dead still under a
   // battleship making thirty-three knots.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const cls = SHIP_CLASSES[id];
     const view = new ShipView({ add() {}, remove() {} }, id, 0, false);
     assert.ok(view.screws.length >= 2,
@@ -9196,16 +11666,16 @@ function buildPlane(kind, opts = {}) {
   const g = new THREE.Group();
   const f = {
     wildcat: pkWildcat, dauntless: pkDauntless, avenger: pkAvenger, arado,
-    kingfisher, zero: pkZero, suisei: pkSuisei, b5n: pkB5n, jake: pkJake,
+    kingfisher, walrus, kor1, ro43, zero: pkZero, suisei: pkSuisei, b5n: pkB5n, jake: pkJake,
   }[kind];
   if (kind === 'avenger') f(g, 0, 0, 0, 0, false, false, opts);
-  else if (kind === 'kingfisher') f(g, 0, 0, 0, 0, opts);
+  else if (kind === 'kingfisher' || kind === 'walrus' || kind === 'kor1' || kind === 'ro43') f(g, 0, 0, 0, 0, opts);
   else f(g, 0, 0, 0, 0, false, opts);
   g.updateMatrixWorld(true);
   return g;
 }
 
-const PLANE_KINDS = ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
+const PLANE_KINDS = ['wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher', 'walrus', 'kor1', 'ro43',
   'zero', 'suisei', 'b5n', 'jake'];
 
 check('nothing on an aeroplane is hanging in the air on its own', () => {
@@ -10103,6 +12573,31 @@ check('a strike is not flown at a target under her own bows', () => {
   assert.ok(launchStrike(state, ship), 'she would not launch at a proper range');
 });
 
+check('an order to launch puts an aircraft up whenever one is ready, wherever her guns are laid', () => {
+  // The key used to do nothing at all whenever she was laid on nothing in
+  // reach: no target picked, the cursor alongside her, a foe beyond her
+  // aircraft's range. Every ship that carries aircraft, every one of those --
+  // and one laid on a point far beyond her aircraft's range sends them there.
+  for (const id of SHIP_ORDER) {
+    const cls = SHIP_CLASSES[id];
+    if (!cls.planes) continue;
+    for (const foe of [null, 6000, cls.planes.strikeRange * 2, 300]) {
+      const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+      const s = addShip(st, { name: 'A', classId: id, team: 0, index: 0 });
+      if (foe) { const e = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 }); e.x = s.x + foe; e.z = s.z; }
+      s.aimX = s.x + 50; s.aimZ = s.z;
+      strikeAim(st, s);
+      assert.ok(launchStrike(st, s), `the ${id} with a foe at ${foe} would not launch`);
+    }
+    const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'A', classId: id, team: 0, index: 0 });
+    s.aimX = s.x + cls.planes.strikeRange * 3; s.aimZ = s.z;
+    strikeAim(st, s);
+    assert.equal(s.aimX, s.x + cls.planes.strikeRange * 3, `the ${id}'s aim was pulled in`);
+    assert.ok(launchStrike(st, s), `the ${id} would not launch at three times her aircraft's range`);
+  }
+});
+
 check('nothing but the launching aircraft is ever on the runway', () => {
   // A lift at the top is part of the flight deck, so an aeroplane parked on one
   // is an aeroplane on the runway. Only the after lift carries one, and it is
@@ -10994,8 +13489,20 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // from all of them by a fraction of a degree. The pair of 2 cm on her
     // forecastle take him inside their own reach, and her bridge's twins
     // take him once he is up off the water.
-    const blindAhead = cls.id === 'rodney' || cls.id === 'scharnhorst';
-    if (blindAhead) {
+    //
+    // And the Ticonderoga: her three Mk 71s step up her forecastle to her
+    // bridge, and her forward 76 mm and her Phalanx stand abreast and abaft
+    // the highest of them, so the wave tops dead ahead are under all three
+    // gunhouses from where they stand (measured off her model). She takes a
+    // low aeroplane over her bow from a kilometre in, and one up off the water
+    // further out, with half her battery.
+    const blindAhead = cls.id === 'rodney' || cls.id === 'scharnhorst' || cls.id === 'ticonderoga';
+    if (cls.id === 'ticonderoga') {
+      assert.ok(aaBearing(cls, ship, 0, 1000, LOW).barrels > 0,
+        'the Ticonderoga cannot shoot at an aeroplane low over her bow even close in');
+      assert.ok(aaBearing(cls, ship, 0, R, 400).barrels >= aaBarrels(cls) / 2,
+        'the Ticonderoga cannot shoot at an aeroplane high over her bow');
+    } else if (blindAhead) {
       assert.ok(aaBearing(cls, ship, 0, 1500, LOW).barrels > 0,
         `${cls.id} cannot shoot at an aeroplane low over her bow even close in`);
       assert.ok(aaBearing(cls, ship, 0, R, 400).barrels >= 8,
@@ -11183,13 +13690,20 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     }
     // Her main battery, her light battery, and her tubes if she has any, all
     // reach the list -- and the barrel counts match her datasheet.
-    const light = rows.filter((w) => w.role === 'aa');
+    // A light battery may be dual-purpose throughout -- the Leviathan's is all
+    // 76 mm DP -- and is no less an anti-aircraft battery for it.
+    const light = rows.filter((w) => w.band === 'Light battery' && (w.role === 'aa' || w.role === 'dp'));
     assert.ok(light.length > 0, `${cls.id} has no anti-aircraft guns listed`);
     for (const t of cls.datasheet.tertiary || []) {
       // A calibre she carries in more than one kind of mounting -- the
       // Yukikaze's 25 mm, triples and singles -- is listed a row to a kind,
       // and her sheet counts the barrels of all of them.
-      const of = rows.filter((w) => w.caliber === t.caliber);
+      // Two different weapons of one bore -- the King George V's 2-pdr
+      // pom-poms and her Bofors are both 40 mm -- each have their own row on
+      // her sheet, told apart by the label.
+      const twin = (cls.datasheet.tertiary || []).filter((o) => o.caliber === t.caliber).length > 1;
+      const of = rows.filter((w) => w.caliber === t.caliber
+        && (!twin || w.name.includes(t.label)));
       assert.ok(of.length, `${cls.id} carries ${t.label} on her sheet and none in the arsenal`);
       const barrels = of.reduce((n, w) => n + w.barrels, 0);
       assert.equal(barrels, t.barrels,
@@ -11202,6 +13716,19 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
   // to drop them on.
   const dc = arsenal(SHIP_CLASSES.fletcher).find((w) => w.role === 'sub');
   assert.ok(dc && dc.barrels > 0, 'her depth charge gear is not in the arsenal');
+});
+
+check('the arsenal lists the Missouri\'s Tomahawks and Harpoons, and only on a ship that carries them', () => {
+  const rows = arsenal(SHIP_CLASSES.missouri).filter((w) => w.band === 'Missiles');
+  assert.deepEqual(rows.map((w) => w.missile), ['tomahawk', 'harpoon']);
+  const [t, h] = rows;
+  assert.equal(t.barrels, 32, 'thirty-two Tomahawks');
+  assert.equal(t.mounts, 8, 'in eight box launchers');
+  assert.equal(h.barrels, 16, 'sixteen Harpoons');
+  assert.equal(h.mounts, 4, 'in four quadruple canisters');
+  for (const w of rows) assert.equal(w.role, 'surface', `${w.name} is for ships only`);
+  assert.ok(/Tomahawk/.test(t.name) && /Harpoon/.test(h.name));
+  assert.ok(!arsenal(SHIP_CLASSES.iowa).some((w) => w.missile), 'the Iowa lists missiles she does not carry');
 });
 
 check('the arsenal offers AP and HE on her guns, and not on her tubes or light guns', () => {
@@ -12787,9 +15314,9 @@ check('every ship has an inside, and it is inside her', () => {
   // Fitted to her own lines is the thing that has to be checked: an interior
   // built to the wrong beam sticks out through the plating, and what you get
   // is a boiler hanging in the air alongside an undamaged ship.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
     const inside = built.group.children.filter((c) => c.isMesh
@@ -13094,7 +15621,7 @@ check('the deck hands her over where and how she left it', () => {
   // flies is where the deck left her -- on both carriers, for all three of
   // the types each of them flies.
   for (const [id, build] of [['enterprise', buildEnterprise], ['shinano', buildShinano],
-    ['grafzeppelin', buildGrafZeppelin]]) {
+    ['grafzeppelin', buildGrafZeppelin], ['shokaku', buildShokaku], ['hornet', buildHornet]]) {
     const d = build().group.userData.deck;
     const P = SHIP_CLASSES[id].planes;
     for (const role of ['fighter', 'dive', 'torpedo']) {
@@ -13533,8 +16060,8 @@ check('a hole is only a hole, and she can be holed anywhere on her', () => {
   // Only a torpedo opens her now, and what it leaves is the opening: the
   // plating taken out of her and nothing put round it -- no collar of torn
   // metal stood off the mouth of it, and no soot on her paint.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso',
-    'scharnhorst', 'bismarck', 'tirpitz', 'richelieu']) {
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso',
+    'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu']) {
     const built = buildShip(id);
     const cls = SHIP_CLASSES[id];
     const plating = new Plating(built.group);
@@ -13571,8 +16098,8 @@ check('the damage board is drawn on her own lines, not on a box', () => {
   // to do with the shape of the part that was hit. Her lines are measured off
   // the buffers she is drawn with instead, so the sea in her is the shape of
   // the inside of the ship.
-  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'yamato', 'takao', 'rodney',
-    'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu']) {
+  for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'yamato', 'takao', 'hood', 'kgv', 'rodney',
+    'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'mutsu', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu']) {
     const g = buildShip(id).group;
     g.updateMatrixWorld(true);
     const lines = measureLines(g);
@@ -13612,8 +16139,15 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // So is the Kongo's: the bulges she was given when she was rebuilt are
     // carried down to her bilge in the sculpt, and her section is fullest a
     // few metres under her waterline and still nearly as full at her bilge.
-    const box = id === 'musashi' || id === 'yamato' ? 0.97 : id === 'bismarck' || id === 'tirpitz' ? 0.995
-      : id === 'richelieu' || id === 'kongo' ? 0.975 : 0.92;
+    //
+    // And the Sovetsky Soyuz's: the owner's model of her carries her side
+    // out to its full breadth five metres under her waterline, over her
+    // underwater protection, and her section is nearly as full at her bilge.
+    //
+    // And the Mutsu's: the model carries her side plumb down nearly to her
+    // flat bottom, and she is as full at her bilge as the Kongo.
+    const box = id === 'musashi' || id === 'yamato' ? 0.97 : id === 'bismarck' || id === 'tirpitz' || id === 'soyuz' ? 0.995
+      : id === 'richelieu' || id === 'kongo' || id === 'mutsu' ? 0.975 : 0.92;
     assert.ok(deep < mid * box,
       `${id} has no turn of bilge: her section is a box`);
 
@@ -13650,9 +16184,10 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // bulge is widest three metres under her waterline, and the same goes for
     // the Fuso's blisters, which top out at her waterline, and the Kongo's
     // bulges, which are fullest three metres under it, and the Scharnhorst's
-    // side, which is widest four or five metres under hers.)
+    // side, which is widest four or five metres under hers, and the Mutsu's,
+    // which the model carries out as far under her waterline as at it.)
     if (id === 'bismarck' || id === 'tirpitz' || id === 'richelieu' || id === 'fuso' || id === 'kongo'
-      || id === 'scharnhorst') {
+      || id === 'scharnhorst' || id === 'soyuz' || id === 'mutsu') {
       let side = 0;
       for (let j = 0; j <= 10; j++) {
         side = Math.max(side, halfBeamAt(lines, -half * 0.2 + (half * 0.4 * j) / 10, waterTop(lines, 0.5)));
@@ -13687,11 +16222,14 @@ check('the wire says where the water is running, and which way', () => {
   // Two call-aways and the pumps are going. With the hole shored down to
   // almost nothing they beat it, and the stream on the board runs the other
   // way -- which is the only visible difference the second call-away makes.
+  // Not at once: the pumps take PUMP_SPIN seconds to come up to speed.
   useRepair(state, a);
   a.repairCd = 0;
   useRepair(state, a);
   a.sections.fwd.holeS = 0.02;
   for (let i = 0; i < 30 * 5; i++) step(state, DT);
+  assert.ok(a.pumping > 0 && a.pumping < 0.5, `her pumps are at ${a.pumping} five seconds after the call-away`);
+  for (let i = 0; i < 30 * 40; i++) step(state, DT);
   const pumped = shipSnapshot(a, true);
   assert.ok(pumped.fw[fwd] < 0,
     `the pumps are winning and the wire says ${pumped.fw[fwd]}`);
@@ -14348,7 +16886,10 @@ check('nothing on a bomber is hanging in the air on its own', () => {
       bb.expandByScalar(GAP / 2);
       boxes.push(bb);
     });
-    assert.ok(boxes.length > 120, `${kind} is drawn with only ${boxes.length} pieces`);
+    // Built of a hundred and more parts off the toolkit -- or, for the B-29,
+    // the owner's model in the handful of pieces of her that move.
+    const least = g.userData.plane?.userData.sculpt ? 8 : 120;
+    assert.ok(boxes.length > least, `${kind} is drawn with only ${boxes.length} pieces`);
     const up = boxes.map((_, i) => i);
     const find = (i) => { while (up[i] !== i) { up[i] = up[up[i]]; i = up[i]; } return i; };
     for (let i = 0; i < boxes.length; i++) {
@@ -14468,6 +17009,9 @@ check('the inside of her is modelled, and drawn only when her skin is off', () =
   for (const kind of HEAVY_KINDS) {
     const g = heavyBomber(kind);
     const p = g.userData.plane;
+    // The B-29 is the owner's model, which is her outside and nothing else:
+    // there is no structure in it to show, and her cutaway leaves her as she is.
+    if (p.userData.sculpt) continue;
     const IN = p.userData.insideGroup;
     assert.ok(IN, `${kind} has nothing inside her`);
     let pieces = 0;
@@ -14658,10 +17202,6 @@ check('the game plays with no connection: every battle is hosted on the device',
   assert.ok(!/fetch\(/.test(main), 'the game still asks a server for something');
   assert.ok(!/Not connected to the battle service/.test(main),
     'a battle still refuses to start without the battle service');
-  // And nothing it plays with is left to be fetched in the middle of a
-  // battle: the voices are asked for as the game starts.
-  const bank = readFileSync(new URL('../client/js/render/voicebank.js', import.meta.url), 'utf8');
-  assert.ok(/^loadVoiceLines\(\);$/m.test(bank), 'the voices are fetched mid-battle');
   // Nothing anywhere in the client reaches off the device for an asset.
   for (const f of readdirSync(new URL('../client/js/', import.meta.url))) {
     if (!f.endsWith('.js')) continue;
@@ -15018,110 +17558,15 @@ check('a ship going down is heard creaking, now and then, and not once she is go
   assert.ok(a.shipVoices.has(7), 'a ship steaming past the camera is not heard');
 });
 
-check('the bridge gives its orders in its own navy, one at a time', () => {
-  // Every navy afloat in the game has its officers' voices, every order.
-  for (const [id, cls] of Object.entries(SHIP_CLASSES)) {
-    const set = VOICE_LINES[cls.nation];
-    assert.ok(set, `${id}: no voice for the ${cls.nation} navy`);
-    for (const k of ['main', 'sec', 'torp', 'aa', 'dc']) {
-      assert.ok(set[k] && set[k].length > 4000, `${id}: the ${cls.nation} bridge has no "${k}" order`);
-    }
-  }
-  // MP3 in each: a frame sync or an ID3 tag at the head of it.
-  const head = Buffer.from(VOICE_LINES.jpn.main, 'base64');
-  assert.ok(head.slice(0, 3).toString() === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0), 'a voice line is not an MP3');
-
-  const said = [];
-  const a = new AudioClass();
-  const ctx = { currentTime: 0 };
-  a.ctx = ctx; a.ensure = () => ctx;
-  a.orderBuffer = (navy, key) => { said.push(`${navy}:${key}`); return new Promise(() => {}); };
-  const at = (t, ...args) => { ctx.currentTime = t; a.speakingUntil = Math.min(a.speakingUntil, t); a.order(...args); };
-  at(0, 'main', 'jpn');
-  at(0.1, 'main', 'jpn');          // the same word, twice in a breath
-  at(40, 'main', 'jpn');           // the next time the battle gives it
-  at(41, 'torp', 'ger', true);
-  at(42, 'aa', 'gbr', false);
-  at(43, 'dc', 'fra');
-  at(44, 'sec', 'italy');          // a navy with no voice of its own
-  assert.deepEqual(said, ['jpn:main', 'jpn:main', 'ger:torps', 'gbr:aa', 'fra:dc', 'usa:sec']);
-  // And a second word while he is still on the first waits for him.
-  said.length = 0;
-  a.speakingUntil = 100; ctx.currentTime = 90; a.order('torp', 'usa');
-  assert.deepEqual(said, [], 'two orders at once');
-  assert.equal(a.orderQueue.length, 1, 'the second order was dropped rather than kept for after');
-  clearTimeout(a.orderTimer); a.orderTimer = null;
-  a.speakingUntil = 0; ctx.currentTime = 91; a.nextOrder();
-  assert.deepEqual(said, ['usa:torp'], 'the waiting order was not said when he was free');
-});
-
-check('the lookout reports an enemy coming into sight, with her bearing, and not the ones in sight at the start', () => {
-  const heard = [];
-  const was = theAudio.say;
-  theAudio.say = (line, nation, o = {}) => heard.push([line, nation, o.digits]);
-  try {
-    const b = Object.create(Battle.prototype);
-    b.team = 0; b.shipId = 1; b.cls = { nation: 'jpn' }; b.watchSent = 0;
-    const me = { i: 1, tm: 0, a: 1, x: 0, z: 0 };
-    const foe = (i, x, z) => ({ i, tm: 1, a: 1, x, z });
-    b.ownSnap = me;
-    // In sight when the battle opened: nobody reports her.
-    b.lookouts({ time: 0, ships: [me, foe(2, 0, 9000)] });
-    b.lookouts({ time: 1, ships: [me, foe(2, 0, 9000)] });
-    assert.deepEqual(heard, [], 'a ship in sight from the start was reported');
-    // A new one, due east.
-    b.lookouts({ time: 5, ships: [me, foe(2, 0, 9000), foe(3, 8000, 0)] });
-    assert.deepEqual(heard, [['spotted', 'jpn', '090']]);
-    // Still in sight: not again.
-    b.lookouts({ time: 6, ships: [me, foe(2, 0, 9000), foe(3, 8000, 0)] });
-    assert.equal(heard.length, 1);
-    // Lost for a while and found again, south-west: reported again.
-    for (let t = 7; t < 80; t += 5) b.lookouts({ time: t, ships: [me, foe(2, 0, 9000)] });
-    b.lookouts({ time: 80, ships: [me, foe(2, 0, 9000), foe(3, -5000, -5000)] });
-    assert.deepEqual(heard[1], ['spotted', 'jpn', '225']);
-    // Two at once: the nearer is the one called.
-    b.lookouts({ time: 81, ships: [me, foe(2, 0, 9000), foe(3, -5000, -5000), foe(4, 0, -20000), foe(5, 3000, 3000)] });
-    assert.deepEqual(heard[2], ['spotted', 'jpn', '045']);
-    // Our own side is never reported.
-    b.lookouts({ time: 82, ships: [me, { i: 9, tm: 0, a: 1, x: 100, z: 100 }] });
-    assert.equal(heard.length, 3);
-  } finally { theAudio.say = was; }
-});
-
-check('the bridge reports what has happened to her, in her own navy, and reads a bearing out', () => {
-  // Every navy has every report and every figure of a bearing.
-  const reports = ['abandon', 'lastShell', 'spotted', 'torpPort', 'torpStbd', 'breach', 'seal'];
-  for (const navy of ['usa', 'gbr', 'ger', 'fra', 'jpn']) {
-    for (const k of [...reports, 'd0', 'd1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9']) {
-      assert.ok(VOICE_LINES[navy][k] && VOICE_LINES[navy][k].length > 800, `the ${navy} bridge has no "${k}"`);
-    }
-  }
-  const said = [];
-  const a = new AudioClass();
-  const ctx = { currentTime: 0 };
-  a.ctx = ctx; a.ensure = () => ctx;
-  a.orderBuffer = (navy, key) => { said.push(`${navy}:${key}`); return new Promise(() => {}); };
-  // "Enemy spotted, bearing zero-four-five": the line, then each figure.
-  a.say('spotted', 'ger', { digits: '045' });
-  assert.deepEqual(said, ['ger:spotted', 'ger:d0', 'ger:d4', 'ger:d5']);
-  // A report waiting on him outlasts an order, and goes ahead of one.
-  said.length = 0;
-  a.speakingUntil = 10; ctx.currentTime = 5;
-  a.say('main', 'usa');
-  a.say('torpStbd', 'usa');
-  assert.equal(a.orderQueue[0].order, 'torpStbd', 'an order was put ahead of a torpedo hit');
-  clearTimeout(a.orderTimer); a.orderTimer = null;
-  a.speakingUntil = 0; ctx.currentTime = 11; a.nextOrder();
-  assert.deepEqual(said, ['usa:torpStbd']);
-  // Six seconds on, the order is stale and is not said; a report would be.
-  a.orderQueue = [{ order: 'main', nation: 'usa', at: 5, tag: 'main' }, { order: 'breach', nation: 'usa', at: 5, tag: 'breach' }];
-  said.length = 0; ctx.currentTime = 11; a.speakingUntil = 0;
-  a.nextOrder(); clearTimeout(a.orderTimer); a.orderTimer = null; a.speakingUntil = 0; a.nextOrder();
-  clearTimeout(a.orderTimer); a.orderTimer = null;
-  assert.deepEqual(said, ['usa:breach'], 'a stale order was said, or a fresh report was not');
-  // And a line nobody wrote is not said at all.
-  said.length = 0; a.speakingUntil = 0; a.say('sing', 'usa');
-  assert.deepEqual(said, []);
+check('no voice is heard on the bridge: the game has no voice lines', () => {
+  const audio = readFileSync(new URL('../client/js/audio.js', import.meta.url), 'utf8');
+  const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(!existsSync(new URL('../client/js/render/voices.data.js', import.meta.url)), 'the recorded voices are still in the game');
+  assert.ok(!existsSync(new URL('../client/js/render/voicebank.js', import.meta.url)), 'the voices are still fetched');
+  assert.ok(!/voicebank|loadVoiceLines|\bsay\(|readyOrders/.test(audio), 'the bridge still speaks');
+  assert.ok(!/audio\.(say|order|readyOrders)\(/.test(game), 'the battle still calls for a voice');
+  assert.ok(!/opt-voices/.test(html), 'Settings still offers the voices');
 });
 
 check('the word is given a second before every salvo', () => {
@@ -15189,9 +17634,9 @@ check('every ship is built out of pieces that can be found again', () => {
   // no funnel any more, only triangles. She is still welded, and every mesh
   // that went in now leaves a note saying which vertices and which triangles
   // used to be it -- so a funnel is still a funnel afterwards.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     const f = new Fittings(built.group);
     assert.ok(f.pieces.length > 400,
@@ -15760,7 +18205,7 @@ check('her upperworks have an inside, with a bridge in it', () => {
   // of her sheer forward, which passed this only while she was drawn half
   // again her size.
   for (const id of ['fletcher', 'u48', 'cleveland', 'hipper', 'iowa', 'spee',
-    'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu']) {
+    'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu']) {
     const built = buildShip(id);
     const lines = built.group.userData.lines;
     const deck = lines.sheer(0);
@@ -15794,12 +18239,12 @@ check('the battle ends with a way home, and nobody is sent home', () => {
   assert.ok(!/onExit/.test(end), 'the end of the battle still leaves it by itself');
 
   // The key itself: bottom left, out of the way of the three keys along the
-  // bottom of the glass, and it says where it goes.
+  // bottom of the glass, and it says where it goes. It is on the glass the
+  // whole battle; the page starts it hidden and the HUD puts it up.
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   const key = html.match(/<button[^>]*id="btn-port"[^>]*>([^<]*)</);
   assert.ok(key, 'there is no way home on the glass at all');
   assert.equal(key[1].trim(), 'Back To Port', `the key says "${key[1].trim()}"`);
-  assert.ok(/hidden/.test(key[0]), 'the way home is showing before the battle is over');
   const css = readFileSync(new URL('../client/css/style.css', import.meta.url), 'utf8');
   const rule = css.slice(css.indexOf('.port-key'), css.indexOf('.port-key') + 700);
   assert.ok(/left:/.test(rule) && /bottom:/.test(rule),
@@ -15809,17 +18254,37 @@ check('the battle ends with a way home, and nobody is sent home', () => {
   // And it is wired to the same door the sinking overlay uses, so pressing it
   // is what takes her home -- nothing else does.
   const hudSrc = readFileSync(new URL('../client/js/hud.js', import.meta.url), 'utf8');
-  assert.ok(/el\.port[\s\S]{0,120}onclick = onLeave/.test(hudSrc),
+  assert.ok(/el\.port = \$\('btn-port'\)[\s\S]{0,900}onLeave\(\)/.test(hudSrc),
     'the way home is not connected to anything');
 
-  // The switch itself, on a HUD with nothing else on it.
-  const el = { port: { hidden: true } };
-  const hud = Object.create(Hud.prototype);
-  hud.el = el;
-  hud.showPortKey(true);
-  assert.equal(el.port.hidden, false, 'the way home never appeared');
-  hud.showPortKey(false);
-  assert.equal(el.port.hidden, true, 'the way home never goes away again');
+  // Pressed mid-battle it asks again, and a second press leaves; once the
+  // battle is decided, one press does.
+  const g = globalThis;
+  const was = { $: g.document };
+  const port = { hidden: true, textContent: '', classList: { add() {}, remove() {} } };
+  g.document = { getElementById: (id) => (id === 'btn-port' ? port : null) };
+  let left = 0;
+  try {
+    const hud = Object.create(Hud.prototype);
+    hud.el = {};
+    const src = hudSrc.slice(hudSrc.indexOf("this.el.port = $('btn-port');"));
+    const body = src.slice(0, src.indexOf('\n    }\n') + 6);
+    // eslint-disable-next-line no-new-func
+    new Function('$', 'onLeave', 'performance', 'setTimeout', 'clearTimeout', body)
+      .call(hud, (id) => g.document.getElementById(id), () => { left++; }, { now: () => 1000 }, () => 0, () => {});
+    assert.equal(port.hidden, false, 'the way home is not on the glass during the battle');
+    port.onclick();
+    assert.equal(left, 0, 'one press mid-battle took her out of it');
+    assert.match(port.textContent, /Leave/i, 'the key does not ask again');
+    port.onclick();
+    assert.equal(left, 1, 'a second press did not take her home');
+    hud.showPortKey(true);
+    port.onclick();
+    assert.equal(left, 2, 'once the battle is over one press does not take her home');
+    assert.equal(port.hidden, false);
+  } finally {
+    g.document = was.$;
+  }
 });
 
 check('a shell breaks what it hit, and not the far end of the ship', () => {
@@ -16042,9 +18507,9 @@ check('the battle being over does not take the sea away', () => {
 check('the arsenal says what the gun will go through, and shows where it is', () => {
   // Two things a gunnery officer needs off a weapon list and could not get:
   // what it will penetrate, and which lumps of the ship in front of him it is.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const rows = arsenal(SHIP_CLASSES[id]);
     assert.ok(rows.length, `${id} carries nothing at all`);
     for (const w of rows) {
@@ -16981,9 +19446,9 @@ check('you cannot see straight through a gunhouse', () => {
   // to meet her roof, not her turntable a gunhouse's height further down; and
   // a ray fired at her from either beam has to meet the near side, not the
   // inside of the far one.
-  for (const id of ['spee', 'hipper', 'cleveland', 'fletcher', 'u48', 'iowa', 'yamato',
-    'takao', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['spee', 'scheer', 'hipper', 'cleveland', 'fletcher', 'u48', 'iowa', 'yamato',
+    'takao', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'musashi', 'kongo', 'matsu', 'yukikaze', 'fuso', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const rc = new THREE.Raycaster();
@@ -17033,15 +19498,23 @@ check('the Graf Spee is built the same on both sides', () => {
   // the one fault you cannot see from the side you built it on.
   //
   // Most of what is bolted to her now is her hull itself -- the reference
-  // sculpt, in length-wise slices (see speeHull.js) -- and every slice stands
+  // sculpt, in length-wise slices (see scheerHull.js) -- and every slice stands
   // on her centreline, so the pairing below has little of hers to pair. The
   // sculpt is checked the way a sculpt can be: each slice of her is as wide to
   // port as to starboard, to within a hand's breadth or so, which is what the
   // flak sponsons and her hawse pipes leave between the two sides of a real
   // ship and a great deal less than a hull built crooked or mirrored.
-  const slices = speeParts().filter((p) => p.from === 'hullModel');
+  // The model's degaussing cable, run along her deck edge where the war put
+  // it, packs as slices of its own with no height to them; it is not her hull.
+  const slices = speeParts().filter((p) => p.from === 'hullModel' && p.max[1] - p.min[1] > 0.05);
   assert.ok(slices.length >= 40, `only ${slices.length} slices of her hull were found`);
-  for (const p of slices) {
+  // She is packed in three surfaces -- plating, planking, and plates seen
+  // from both sides -- and a plate can be one surface to port and another to
+  // starboard, so what is compared is the whole of her section at a station:
+  // every slice that runs along any of the same stretch of her.
+  for (const q of slices) {
+    const at = slices.filter((r) => r.min[2] <= q.max[2] + 0.5 && r.max[2] >= q.min[2] - 0.5);
+    const p = { min: [Math.min(...at.map((r) => r.min[0])), 0, q.min[2]], max: [Math.max(...at.map((r) => r.max[0])), 0, q.max[2]] };
     const off = (p.min[0] + p.max[0]) / 2;
     assert.ok(Math.abs(off) < 0.3,
       `her hull at station ${((p.min[2] + p.max[2]) / 2).toFixed(0)} is `
@@ -17053,7 +19526,8 @@ check('the Graf Spee is built the same on both sides', () => {
     // lands at a different station on each side of her because the bank it is
     // bolted to has been swung. What is checked here is what is bolted to the
     // ship, and every one of those is compared.
-    if (p.moving) return false;
+    // Her hull is checked slice by slice above.
+    if (p.moving || p.from === 'hullModel') return false;
     const [w, h, d] = p.size;
     // Half a metre in its longest dimension is the cut, not half a cubic
     // metre: a guard rail, a ladder stringer and a stanchion are all slivers
@@ -17077,7 +19551,9 @@ check('the Graf Spee is built the same on both sides', () => {
         + `z ${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
     }
   }
-  assert.ok(parts.length > 50, `only ${parts.length} pieces of her were compared`);
+  // All of her but her armour is the model now, checked slice by slice above;
+  // what is built on her is what is left to pair.
+  assert.ok(parts.length > 0, 'nothing built on her was compared');
   assert.equal(lone.length, 0,
     `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
 });
@@ -17127,9 +19603,10 @@ check('every deckhouse on the Graf Spee has sides and a roof', () => {
     return hit ? hit.point.y : -999;
   });
   const seen = shoot();
+  const was = new Map([...mats].map((m) => [m, m.side]));
   for (const m of mats) m.side = THREE.DoubleSide;
   const there = shoot();
-  for (const m of mats) m.side = THREE.FrontSide;
+  for (const m of mats) m.side = was.get(m);
   spots.forEach(([what], i) => {
     assert.ok(seen[i] > -900, `nothing at all over ${what}`);
     assert.ok(there[i] - seen[i] < 0.5,
@@ -17218,7 +19695,7 @@ check("the Graf Spee's shell has no holes in it", () => {
   // there. A ray dropped anywhere on her deck has to land on something, and
   // one sent up from under her keel has to hit her bottom.
   //
-  // Her hull is the reference sculpt now (see speeHull.js), not a shape lofted
+  // Her hull is the reference sculpt now (see scheerHull.js), not a shape lofted
   // through `sheer`/`shellAt`, and its decks stand a metre and a half or two
   // below the sheer those formulas give: a ray fired at the old sheer line
   // goes over her deck, not through a hole in her. So her side is swept up to
@@ -17396,9 +19873,9 @@ check('every deckhouse in the fleet has sides and a roof', () => {
   // Rays are dropped on her the length of her superstructure and the two
   // answers -- as the renderer sees her, and with both faces of everything
   // turned on -- have to agree.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore', 'massachusetts', 'spee',
-    'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'mutsu', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'spee',
+    'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const targets = [];
@@ -17426,9 +19903,13 @@ check('every deckhouse in the fleet has sides and a roof', () => {
       return hit ? hit.point.y : -999;
     });
     const seen = shoot();
+    // And put back what each was: a material drawn double-sided on purpose
+    // (the sheets of a sculpt) and left front-sided shows every later check
+    // the inside of the ship.
+    const was = new Map([...mats].map((m) => [m, m.side]));
     for (const m of mats) m.side = THREE.DoubleSide;
     const there = shoot();
-    for (const m of mats) m.side = THREE.FrontSide;
+    for (const m of mats) m.side = was.get(m);
     spots.forEach(([x, z], i) => {
       assert.ok(seen[i] > -900,
         `nothing at all over the ${id} at x ${x.toFixed(0)}, z ${z.toFixed(0)}`);
@@ -17811,6 +20292,583 @@ check("the Graf Zeppelin's lifts run, and her deck is flush while anything is on
   assert.equal(deck.launchAt, null, 'she was left with a launch still running');
 });
 
+check('the Shokaku is commissioned before the Shinano, with seventy-two Zeros, Suiseis and B5Ns', () => {
+  const i = SHIP_ORDER.indexOf('shokaku');
+  assert.ok(i > 0, 'she is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'shinano', `after the Shokaku comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.shokaku;
+  assert.equal(cls.fullName, 'IJN Shokaku');
+  assert.equal(cls.type, 'CV');
+  assert.equal(cls.nation, 'jpn');
+  assert.deepEqual(cls.planes.types, { fighter: 'zero', dive: 'suisei', torpedo: 'b5n' });
+  assert.equal(cls.planes.group.total, 72);
+  const g = defaultAirGroup(cls);
+  assert.equal(g.fighters + g.dive + g.torpedo, 72, 'her default group is not seventy-two');
+  assert.ok(g.fighters > 0 && g.dive > 0 && g.torpedo > 0, 'her default group leaves a type out');
+  for (const k of ['zero', 'suisei', 'b5n']) assert.ok(AERO[k], `there is no ${k} to fly`);
+  assert.notEqual(silhouette('shokaku'), silhouette('fletcher'), 'she is drawn as a destroyer in the yard');
+});
+
+check('the Shokaku has every gun her model has, standing where the model stood it', () => {
+  const cls = SHIP_CLASSES.shokaku;
+  const built = buildShokaku();
+  built.group.updateMatrixWorld(true);
+  assert.equal(built.turrets.length, 8, `she has ${built.turrets.length} 10 cm twins`);
+  assert.equal(cls.gun.caliber, 100);
+  const p = new THREE.Vector3();
+  built.turrets.forEach((m, i) => {
+    const s = cls.turrets[i];
+    m.getWorldPosition(p);
+    assert.ok(Math.abs(p.x - s.x) < 0.6 && Math.abs(p.z - s.z) < 0.6, `${s.name} stands at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+    // In her side, under her deck edge, firing outboard on its own side.
+    assert.ok(p.y < built.flightDeckY, `${s.name} stands on her flight deck`);
+    assert.equal(Math.sign(s.angle), Math.sign(s.x), `${s.name} is laid across her`);
+  });
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(cls.aa.guns.find((g) => g.caliber === 40).mounts.length, 20);
+  assert.equal(cls.aa.guns.find((g) => g.caliber === 25).mounts.length, 30);
+  for (const [kind, list] of Object.entries(SHOKAKU_SEATS)) {
+    for (const st of list) {
+      const top = shokakuSurfaceY(st.x, st.z);
+      assert.ok(top > -50, `her ${kind} at ${st.x}, ${st.z} stands off her`);
+    }
+  }
+  surveyedArcsHold('shokaku');
+});
+
+check("the Shokaku's runway is flat and clear from end to end", () => {
+  // The model had a deck park of jets on her flight deck; they are gone, and
+  // dropped on from above down the length of her flat deck and across the
+  // lane an aeroplane runs down, the first thing met is her deck.
+  const built = buildShokaku();
+  const FD = built.flightDeckY;
+  for (const l of built.lifts) l.group.position.y = FD;
+  built.group.updateMatrixWorld(true);
+  built.group.userData.deckPlane.visible = false;
+  const rc = new THREE.Raycaster();
+  const meshes = [];
+  const shown = (o) => { for (let n = o; n; n = n.parent) if (n.visible === false) return false; return true; };
+  built.group.traverse((o) => { if (o.isMesh && shown(o)) meshes.push(o); });
+  let shots = 0;
+  for (let z = SK_FD_AFT + 12; z <= SK_FD_FWD - 3; z += 1.5) {
+    for (let x = -7.5; x <= 7.5; x += 1.25) {
+      const l = SK_LIFTS.find((c) => Math.abs(z - c.z) < c.hd + 0.3);
+      if (l && (Math.abs(Math.abs(x) - l.hw) < 0.4 || Math.abs(Math.abs(z - l.z) - l.hd) < 0.4
+        || Math.abs(Math.abs(z - l.z) - (l.hd - l.ch)) < 0.6)) continue;
+      rc.set(new THREE.Vector3(x, FD + 30, z), new THREE.Vector3(0, -1, 0));
+      rc.far = 40;
+      const hits = rc.intersectObjects(meshes, false);
+      assert.ok(hits.length, `nothing under her runway at ${x}, ${z}`);
+      const y = hits[0].point.y;
+      // Her wires and her markings stand a hand over it, and no more.
+      assert.ok(y > FD - 0.05 && y < FD + 0.25, `her runway is at ${y.toFixed(2)} m at ${x}, ${z}, not ${FD}`);
+      shots++;
+    }
+  }
+  assert.ok(shots > 1000, `only ${shots} shots at her runway`);
+  // And each lift well is a hole down to her upper hangar while its lift is down.
+  for (const l of built.lifts) l.group.position.y = SK_HANGAR_U;
+  built.group.updateMatrixWorld(true);
+  for (const l of SK_LIFTS) {
+    rc.set(new THREE.Vector3(0, FD + 30, l.z), new THREE.Vector3(0, -1, 0));
+    const hit = rc.intersectObjects(meshes, false)[0];
+    assert.ok(hit && Math.abs(hit.point.y - SK_HANGAR_U) < 0.3, `the lift well at ${l.z} is decked over: ${hit && hit.point.y}`);
+  }
+});
+
+check("the Shokaku's lifts run between her flight deck and her hangar, and her deck is flush while anything is on it", () => {
+  const built = buildShokaku();
+  const lifts = built.lifts;
+  assert.equal(lifts.length, 3, `she has ${lifts.length} lifts`);
+  const FD = built.flightDeckY;
+  const seen = lifts.map(() => []);
+  for (let t = 0; t < 90; t += 0.5) {
+    shokakuLifts(lifts, t);
+    lifts.forEach((l, i) => seen[i].push(l.group.position.y));
+  }
+  lifts.forEach((l, i) => {
+    const ys = seen[i];
+    assert.ok(new Set(ys.map((y) => Math.round(y * 4))).size > 3, `her lift ${i} never moved`);
+    assert.ok(Math.max(...ys) <= FD + 0.01, `her lift ${i} rose over her deck`);
+    // All the way down to her upper hangar deck, and no further.
+    assert.ok(Math.abs(Math.min(...ys) - SK_HANGAR_U) < 0.3, `her lift ${i} stops at ${Math.min(...ys)}, not her hangar deck`);
+  });
+  // Down there the lift opens into the hangar: nothing stands across from a
+  // lift that is down to the hangar beside it, at the height of an aeroplane.
+  built.group.updateMatrixWorld(true);
+  for (const l of lifts) l.group.position.y = SK_HANGAR_U;
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const rc = new THREE.Raycaster();
+  for (const l of SK_LIFTS) {
+    for (const dir of [1, -1]) {
+      rc.set(new THREE.Vector3(0, SK_HANGAR_U + 2.2, l.z), new THREE.Vector3(0, 0, dir));
+      rc.far = l.hd + 1.5;
+      const hit = rc.intersectObjects(meshes, false).find((h) => !built.group.userData.deckPlane.getObjectById(h.object.id));
+      assert.ok(!hit, `the lift at ${l.z} is boxed in at ${hit && hit.point.z.toFixed(1)}: an aeroplane cannot be wheeled off it`);
+    }
+  }
+  const deck = built.group.userData.deck;
+  const aft = lifts[lifts.length - 1];
+  built.group.userData.launch(200, 'torpedo');
+  let fetched = false;
+  let off = false;
+  for (let t = 200; t < 226; t += 0.25) {
+    built.group.userData.step(t);
+    if (aft.group.position.y < FD - 1.0) fetched = true;
+    if (deck.airborne) off = true;
+    if (t < 202) continue;
+    for (const l of lifts) {
+      if (l === aft && t < 206) continue;
+      assert.ok(l.group.position.y > FD - 0.4,
+        `a lift was ${(FD - l.group.position.y).toFixed(2)} m down the well ${(t - 200).toFixed(1)} s into a launch`);
+    }
+  }
+  assert.ok(fetched, 'her after lift never went down to fetch the aircraft up');
+  assert.ok(off, 'the Kate never left her deck');
+  built.group.userData.stow();
+  assert.equal(deck.launchAt, null, 'she was left with a launch still running');
+});
+
+check("the Shokaku's two hangars have her air group struck below in them, none through another or her side", () => {
+  const spots = shokakuHangarSpots();
+  const upper = spots.filter((s) => s.y === SK_HANGAR_U), lower = spots.filter((s) => s.y === SK_HANGAR_L);
+  assert.ok(upper.length >= 15 && lower.length >= 15, `${upper.length} struck below in her upper hangar, ${lower.length} in her lower`);
+  for (const k of ['fighter', 'dive', 'torpedo']) assert.ok(spots.some((s) => s.kind === k), `none of her ${k}s are struck below`);
+  // Clear of her lift wells in the upper hangar, where the lifts come down.
+  for (const s of upper) {
+    for (const l of SK_LIFTS) assert.ok(Math.abs(s.z - l.z) > l.hd + 4, `a ${s.kind} is parked in the lift well at ${l.z}`);
+  }
+  // And none of them standing in another: no two closer than their spans let them.
+  const half = { fighter: 5.5, dive: 5.75, torpedo: 3.8 };
+  for (let i = 0; i < spots.length; i++) {
+    for (let j = i + 1; j < spots.length; j++) {
+      const a = spots[i], b = spots[j];
+      if (a.y !== b.y) continue;
+      const apart = Math.abs(a.x - b.x) >= half[a.kind] + half[b.kind] - 0.2 || Math.abs(a.z - b.z) >= 6.5;
+      assert.ok(apart, `a ${a.kind} at ${a.x}, ${a.z} stands in a ${b.kind} at ${b.x}, ${b.z}`);
+    }
+  }
+});
+
+check('the Hornet is commissioned before the Enterprise, with ninety-seven Hellcats, Dauntlesses and Devastators', () => {
+  const i = SHIP_ORDER.indexOf('hornet');
+  assert.ok(i > 0, 'she is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'enterprise', `after the Hornet comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.hornet;
+  assert.equal(cls.fullName, 'USS Hornet CV-8');
+  assert.equal(cls.type, 'CV');
+  assert.equal(cls.nation, 'usa');
+  // The Enterprise's fighter and dive bomber, and the Devastator her Torpedo
+  // Eight flew.
+  assert.deepEqual(cls.planes.types, { fighter: 'hellcat', dive: 'dauntless', torpedo: 'devastator' });
+  assert.equal(cls.planes.types.fighter, SHIP_CLASSES.enterprise.planes.types.fighter);
+  assert.equal(cls.planes.types.dive, SHIP_CLASSES.enterprise.planes.types.dive);
+  assert.equal(cls.planes.group.total, 97);
+  const g = defaultAirGroup(cls);
+  assert.equal(g.fighters + g.dive + g.torpedo, 97, 'her default group is not ninety-seven');
+  assert.ok(g.fighters > 0 && g.dive > 0 && g.torpedo > 0, 'her default group leaves a type out');
+  // And on top of those, sixteen B-25s on her deck.
+  assert.equal(cls.planes.deckload.count, 16);
+  assert.equal(cls.planes.deckload.type, 'mitchell');
+  for (const k of ['hellcat', 'dauntless', 'devastator', 'mitchell']) assert.ok(AERO[k], `there is no ${k} to fly`);
+  assert.notEqual(silhouette('hornet'), silhouette('fletcher'), 'she is drawn as a destroyer in the yard');
+  // Her model is credited as its licence asks.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const at = html.indexOf('U.S. Navy Aircraft Carrier USS Hornet(CV-8)');
+  assert.ok(at >= 0, 'her model is not on the Credits screen');
+  const credit = html.slice(html.lastIndexOf('<p class="credit">', at), html.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/o6M9r'), 'the credit does not link the model');
+  assert.ok(credit.includes('全斗焕'), 'the credit does not name its author');
+  assert.ok(credit.includes('http://creativecommons.org/licenses/by/4.0/') && credit.includes('Creative Commons Attribution'),
+    'the credit is not as its licence asks');
+});
+
+check('the Hornet has every gun her model has, standing where the model stood it', () => {
+  const cls = SHIP_CLASSES.hornet;
+  const built = buildHornet();
+  built.group.updateMatrixWorld(true);
+  assert.equal(built.turrets.length, 8, `she has ${built.turrets.length} 5"/38s`);
+  const p = new THREE.Vector3();
+  built.turrets.forEach((m, i) => {
+    const s = cls.turrets[i];
+    m.getWorldPosition(p);
+    assert.ok(Math.abs(p.x - s.x) < 0.6 && Math.abs(p.z - s.z) < 0.6, `${s.name} stands at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+    assert.ok(p.y < built.flightDeckY, `${s.name} stands on her flight deck`);
+    assert.equal(Math.sign(s.angle), Math.sign(s.x), `${s.name} is laid across her`);
+  });
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  const n40 = cls.aa.guns.filter((g) => g.caliber === 40).reduce((n, g) => n + g.mounts.length, 0);
+  assert.equal(n40, 14);
+  assert.equal(cls.aa.guns.find((g) => g.caliber === 20).mounts.length, 50);
+  for (const [kind, list] of Object.entries(HORNET_SEATS)) {
+    for (const st of list) assert.ok(hornetSurfaceY(st.x, st.z) > -50, `her ${kind} at ${st.x}, ${st.z} stands off her`);
+  }
+});
+
+check("the Hornet's runway is flat from end to end, with her B-25s ranged on it aft", () => {
+  const built = buildHornet();
+  const FD = built.flightDeckY;
+  for (const l of built.lifts) l.group.position.y = FD;
+  built.group.updateMatrixWorld(true);
+  built.group.userData.deckPlane.visible = false;
+  // Sixteen of them, every one on her deck and on her flight deck's height.
+  const b25s = built.group.userData.b25s;
+  assert.equal(b25s.length, 16);
+  for (const h of b25s) h.visible = false;
+  const rc = new THREE.Raycaster();
+  const meshes = [];
+  const shown = (o) => { for (let n = o; n; n = n.parent) if (n.visible === false) return false; return true; };
+  built.group.traverse((o) => { if (o.isMesh && shown(o)) meshes.push(o); });
+  let shots = 0;
+  for (let z = HN_FD_AFT + 12; z <= HN_FD_FWD - 6; z += 1.5) {
+    for (let x = -7.5; x <= 7.5; x += 1.25) {
+      const l = HN_LIFTS.find((c) => Math.abs(z - c.z) < c.hd + 0.3);
+      if (l && (Math.abs(Math.abs(x) - l.hw) < 0.4 || Math.abs(Math.abs(z - l.z) - l.hd) < 0.4
+        || Math.abs(Math.abs(z - l.z) - (l.hd - l.ch)) < 0.6)) continue;
+      // From just over a B-25's fin: her island's platforms overhang the
+      // edge of her deck nine metres up, and her aircraft go under them.
+      rc.set(new THREE.Vector3(x, FD + 6, z), new THREE.Vector3(0, -1, 0));
+      rc.far = 16;
+      const hits = rc.intersectObjects(meshes, false);
+      assert.ok(hits.length, `nothing under her runway at ${x}, ${z}`);
+      const y = hits[0].point.y;
+      assert.ok(y > FD - 0.05 && y < FD + 0.25, `her runway is at ${y.toFixed(2)} m at ${x}, ${z}, not ${FD}`);
+      shots++;
+    }
+  }
+  assert.ok(shots > 1000, `only ${shots} shots at her runway`);
+  // The B-25s: on her deck, aft of her island, the first with a hundred and
+  // thirty metres of deck ahead of her, none of them standing in another.
+  assert.equal(HN_DECKLOAD.length, B25_COUNT);
+  assert.ok(HN_FD_FWD - hnB25Spot(0) >= 130, `the first B-25 has ${(HN_FD_FWD - hnB25Spot(0)).toFixed(0)} m of deck`);
+  for (const d of HN_DECKLOAD) {
+    assert.ok(d.z > HN_FD_AFT + 4 && d.z < 0, `a B-25 is ranged at ${d.z}`);
+    assert.ok(hornetSurfaceY(d.x, d.z) > FD - 1.2, `a B-25 at ${d.x}, ${d.z} is not on her deck`);
+  }
+  // None of them in another, off her own skin: what each covers of the deck
+  // in quarter-metre squares, and how high, and no square two of them share
+  // at heights that meet.
+  const C = 0.25;
+  const local = b25Footprint(b25s[0]);
+  const at = (h, d) => {
+    const m = new Map();
+    const cs = Math.cos(d.yaw), sn = Math.sin(d.yaw);
+    for (const [lx, lz, lo, hi] of local) {
+      const k = Math.round((d.x + lx * cs + lz * sn) / C) * 8192 + Math.round((d.z - lx * sn + lz * cs) / C);
+      const e = m.get(k);
+      if (!e) m.set(k, [lo, hi]); else { e[0] = Math.min(e[0], lo); e[1] = Math.max(e[1], hi); }
+    }
+    return m;
+  };
+  const meet = (A, B) => { for (const [k, e] of B) { const f = A.get(k); if (f && e[0] < f[1] && f[0] < e[1]) return true; } return false; };
+  const parked = HN_DECKLOAD.map((d, i) => at(b25s[i], d));
+  for (let i = 0; i < parked.length; i++) {
+    for (let j = i + 1; j < parked.length; j++) assert.ok(!meet(parked[i], parked[j]), `B-25s ${i} and ${j} are ranged one in the other`);
+  }
+  // Nor in the way of one that goes before her, on her taxi onto the line or
+  // her run down it: steered, her nose along her path, as hornet.js stepDeck
+  // has her -- and she ends that taxi on the line, pointing down it.
+  for (let i = 0; i < HN_DECKLOAD.length - 1; i++) {
+    const taxi = hnB25Taxi(i);
+    const start = taxi.pose(0), end = taxi.pose(1);
+    assert.ok(Math.hypot(start.x - HN_DECKLOAD[i].x, start.z - HN_DECKLOAD[i].z) < 0.01 && Math.abs(start.yaw - HN_DECKLOAD[i].yaw) < 0.01,
+      `B-25 ${i} does not start her taxi where she is ranged`);
+    assert.ok(Math.abs(end.x - HN_B25_LANE) < 0.01 && Math.abs(end.z - hnB25Spot(i)) < 0.01 && Math.abs(end.yaw) < 0.01,
+      `B-25 ${i} ends her taxi at ${end.x.toFixed(2)}, ${end.z.toFixed(2)}, not on the line`);
+    let last = start;
+    for (let u = 0.02; u <= 1.0001; u += 0.02) {
+      const pose = taxi.pose(u);
+      // Her nose along her path: she taxis, she does not crab.
+      const step = Math.hypot(pose.x - last.x, pose.z - last.z);
+      if (step > 0.05) {
+        const way = Math.atan2(pose.x - last.x, pose.z - last.z);
+        assert.ok(Math.abs(way - pose.yaw) < 0.12, `B-25 ${i} goes sideways on her taxi at ${pose.x.toFixed(1)}, ${pose.z.toFixed(1)}`);
+      }
+      last = pose;
+      const S = at(null, pose);
+      for (let j = i + 1; j < parked.length; j++) assert.ok(!meet(parked[j], S), `B-25 ${i} taxis through ${j}`);
+    }
+    for (let z = hnB25Spot(i); z < HN_FD_FWD; z += 1) {
+      const S = at(null, { x: HN_B25_LANE, z, yaw: 0 });
+      for (let j = i + 1; j < parked.length; j++) assert.ok(!meet(parked[j], S), `B-25 ${i} runs through ${j}`);
+    }
+  }
+});
+
+/** What a B-25 covers of the deck, in her own frame: quarter-metre squares and how high she is in each. */
+function b25Footprint(holder) {
+  const p = holder.children[0];
+  p.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(p.matrixWorld).invert();
+  const C = 0.25, cells = new Map();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), v = new THREE.Vector3();
+  const m = new THREE.Matrix4();
+  p.traverse((o) => {
+    if (!o.isMesh) return;
+    m.multiplyMatrices(inv, o.matrixWorld);
+    const pos = o.geometry.attributes.position, idx = o.geometry.index;
+    const n = idx ? idx.count : pos.count;
+    for (let t = 0; t < n; t += 3) {
+      const ii = [0, 1, 2].map((k) => (idx ? idx.getX(t + k) : t + k));
+      a.fromBufferAttribute(pos, ii[0]).applyMatrix4(m);
+      b.fromBufferAttribute(pos, ii[1]).applyMatrix4(m);
+      c.fromBufferAttribute(pos, ii[2]).applyMatrix4(m);
+      const s = Math.max(1, Math.ceil(Math.max(a.distanceTo(b), b.distanceTo(c), a.distanceTo(c)) / 0.15));
+      for (let i = 0; i <= s; i++) for (let j = 0; j <= s - i; j++) {
+        v.copy(a).multiplyScalar(1 - (i + j) / s).addScaledVector(b, i / s).addScaledVector(c, j / s);
+        const k = Math.round(v.x / C) * 8192 + Math.round(v.z / C);
+        const e = cells.get(k);
+        if (!e) cells.set(k, [v.y, v.y]); else { e[0] = Math.min(e[0], v.y); e[1] = Math.max(e[1], v.y); }
+      }
+    }
+  });
+  return [...cells].map(([k, e]) => { const I = Math.round(k / 8192); return [I * C, (k - I * 8192) * C, e[0], e[1]]; });
+}
+
+check("the Hornet's B-25s go off her deck in turn, and her lifts stay flush until the last has gone", () => {
+  const built = buildHornet();
+  const FD = built.flightDeckY;
+  const deck = built.group.userData.deck;
+  const b25s = built.group.userData.b25s;
+  built.group.userData.deckload(16);
+  assert.ok(b25s.every((h) => h.visible), 'a B-25 is missing from her deck');
+  // While they are on her deck nothing moves under them.
+  for (let t = 0; t < 90; t += 0.5) {
+    built.group.userData.step(t);
+    for (const l of built.lifts) assert.ok(l.group.position.y > FD - 0.05, `a lift went down under her B-25s at ${t} s`);
+  }
+  // The first goes: she is lifted off where she was ranged and flown off by
+  // the deck, and is not still drawn standing there.
+  // Where the deck hands each of them to the simulation is where the
+  // simulation takes her up.
+  const DL = SHIP_CLASSES.hornet.planes.deckload;
+  for (let i = 0; i < 16; i++) {
+    built.group.userData.launch(0, 'level', 24.5, 'mitchell', i);
+    const e = deck.endPose;
+    assert.ok(Math.abs(DL.runOut[i] - e.z) < 6 && Math.abs(DL.runHeight[i] - e.y) < 1.5,
+      `B-25 ${i} is off the deck at ${e.z.toFixed(1)}, ${e.y.toFixed(1)} and the simulation has her at ${DL.runOut[i]}, ${DL.runHeight[i]}`);
+  }
+  built.group.userData.deckload(16);
+  built.group.userData.launch(100, 'level', 24.5, 'mitchell', 0);
+  assert.equal(deck.plane.role, 'mitchell', 'the deck sent something else');
+  assert.ok(!b25s[0].visible, 'the first B-25 is still parked while she runs');
+  let off = false, maxZ = -Infinity;
+  for (let t = 100; t < 130; t += 0.25) {
+    built.group.userData.step(t);
+    if (!deck.airborne) maxZ = Math.max(maxZ, deck.plane.group.position.z);
+    if (deck.airborne) off = true;
+  }
+  assert.ok(off, 'the B-25 never left her deck');
+  assert.ok(maxZ > HN_FD_FWD, `she went no further than ${maxZ.toFixed(0)} m up her deck`);
+  // Off the wire: fifteen left, and they are the fifteen at the back.
+  built.group.userData.deckload(15);
+  assert.ok(!b25s[0].visible && b25s.slice(1).every((h) => h.visible), 'the wrong B-25s are on her deck');
+  built.group.userData.deckload(0);
+  assert.ok(b25s.every((h) => !h.visible), 'B-25s are still on her deck with none left');
+  // And with none left her lifts work again.
+  built.group.userData.stow();
+  let moved = false;
+  for (let t = 200; t < 300; t += 0.5) {
+    built.group.userData.step(t);
+    if (built.lifts.some((l) => l.group.position.y < FD - 1)) moved = true;
+  }
+  assert.ok(moved, 'her lifts never moved once her deck was clear');
+});
+
+check('the Hornet flies all sixteen B-25s off before anything comes up a lift, and they do not come back', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Hornet', classId: 'hornet', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  ship.x = 0; ship.z = 0; ship.heading = 0;
+  foe.x = 0; foe.z = 9000;
+  assert.equal(ship.deckload, 16, 'she sailed without her B-25s');
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  const launches = [];
+  const off = [];
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  assert.equal(ship.launching.flights.length, 16, 'the strike is not her sixteen B-25s');
+  assert.ok(ship.launching.flights.every((f) => f.type === 'mitchell' && f.role === 'level'), 'something else was ranged');
+  let gone = 0, trapped = 0, ownBefore = 0;
+  for (let i = 0; i < 30 * 520; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    foe.hp = SHIP_CLASSES.fletcher.hp; foe.alive = true;
+    for (const e of step(state, 1 / 30)) {
+      if (e.e === 'launch' && e.ship === ship.id) launches.push(e);
+      if (e.e === 'flownOff') gone++;
+      if (e.e === 'trap' && e.ship === ship.id && e.k === 'mitchell') trapped++;
+    }
+    for (const p of state.planes) {
+      if (p.owner !== ship.id) continue;
+      if (p.type === 'mitchell' && !off.includes(p.id)) off.push(p.id);
+      if (p.type !== 'mitchell' && ship.deckload > 0) ownBefore++;
+    }
+    // Ask for another strike all the way through: none of hers may go while
+    // any of the B-25s is still on the deck.
+    if (i % 90 === 0) launchStrike(state, ship);
+  }
+  assert.equal(off.length, 16, `${off.length} B-25s got off her deck`);
+  assert.equal(ship.deckload, 0, `${ship.deckload} are still on her deck`);
+  assert.equal(ownBefore, 0, 'one of her own aircraft flew while B-25s were still on her deck');
+  // Each launch event of the deckload says which of them it is, from the front.
+  const dl = launches.filter((e) => e.k === 'mitchell');
+  assert.ok(dl.length >= 16, `only ${dl.length} B-25 launches`);
+  assert.deepEqual(dl.slice(0, 16).map((e) => e.n), [...Array(16).keys()], 'they did not go from the front');
+  // And once they are gone, her own air group flies.
+  assert.ok(state.planes.some((p) => p.owner === ship.id && p.type !== 'mitchell'), 'her own aircraft never flew after them');
+  assert.equal(trapped, 0, 'a B-25 landed on her');
+  assert.ok(gone > 0, 'no B-25 flew on out of the battle');
+  const sq = ship.squadrons.find((s) => s.deckload);
+  assert.ok(sq && (sq.state === 'spent' || sq.state === 'flying'), `the deckload squadron is ${sq && sq.state}`);
+});
+
+
+check("the Hornet's B-25s are part of her air group, as many of them as her captain sails with", () => {
+  const cls = SHIP_CLASSES.hornet;
+  // Nothing asked for: all sixteen, over and above her hangar.
+  assert.deepEqual(defaultAirGroup(cls), { ...cls.planes.group.default, deckload: 16 });
+  assert.equal(normaliseAirGroup(cls, { fighters: 32, dive: 45, torpedo: 20 }).deckload, 16);
+  // Any number from none to sixteen, and nonsense landed on something legal.
+  assert.equal(normaliseAirGroup(cls, { fighters: 32, dive: 45, torpedo: 20, deckload: 5 }).deckload, 5);
+  assert.equal(normaliseAirGroup(cls, { fighters: 32, dive: 45, torpedo: 20, deckload: 40 }).deckload, 16);
+  assert.equal(normaliseAirGroup(cls, { fighters: 32, dive: 45, torpedo: 20, deckload: -3 }).deckload, 0);
+  // They are on her deck, not in her hangar: the hangar is still ninety-seven.
+  const g = normaliseAirGroup(cls, { fighters: 97, dive: 0, torpedo: 0, deckload: 16 });
+  assert.equal(g.fighters + g.dive + g.torpedo, 97);
+  // And none of it on any carrier that has no deckload.
+  assert.equal(normaliseAirGroup(SHIP_CLASSES.enterprise, { fighters: 30, dive: 30, torpedo: 20, deckload: 9 }).deckload, undefined);
+
+  // She sails with what she was given: five, the last five of the range, and
+  // they are the ones that go.
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Hornet', classId: 'hornet', team: 0, index: 0,
+    airGroup: { fighters: 32, dive: 45, torpedo: 20, deckload: 5 } });
+  assert.equal(ship.deckload, 5);
+  ship.aimX = 0; ship.aimZ = 9000;
+  assert.ok(launchStrike(state, ship), 'she would not launch');
+  assert.equal(ship.launching.flights.length, 5, 'she did not range the five she sailed with');
+  const ev = state.events.find((e) => e.e === 'launch' && e.ship === ship.id);
+  assert.equal(ev.k, 'mitchell');
+  assert.equal(ev.n, 11, 'the first of five is not the first of the five on her deck');
+  // With none, her own air group goes first.
+  const bare = addShip(state, { name: 'Hornet 2', classId: 'hornet', team: 0, index: 1,
+    airGroup: { fighters: 32, dive: 45, torpedo: 20, deckload: 0 } });
+  assert.equal(bare.deckload, 0);
+  assert.equal(bare.squadrons.find((q) => q.deckload).state, 'spent');
+  bare.aimX = 0; bare.aimZ = 9000;
+  assert.ok(launchStrike(state, bare), 'with no B-25s she would not launch her own');
+  assert.ok(bare.launching.flights.every((f) => f.type !== 'mitchell'), 'a B-25 she was not given was ranged');
+  // The server keeps the number on the way in.
+  assert.equal(setupWingOf({ fighters: 1, dive: 2, torpedo: 3, deckload: 7 }).deckload, 7);
+});
+
+check("each of the Hornet's B-25s carries her bombs to the target and lets them go", () => {
+  const cls = SHIP_CLASSES.hornet;
+  assert.ok(cls.planes.deckload.bombs >= 4, 'a B-25 goes with fewer than four bombs');
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Hornet', classId: 'hornet', team: 0, index: 0,
+    airGroup: { fighters: 32, dive: 45, torpedo: 20, deckload: 4 } });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  ship.x = 0; ship.z = 0; ship.heading = 0;
+  foe.x = 0; foe.z = 6000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  assert.ok(launchStrike(state, ship));
+  const mitchells = new Set();
+  const loads = new Map();
+  let bombs = 0;
+  for (let i = 0; i < 30 * 420; i++) {
+    for (const s of state.ships) s.spottedBy = [true, true];
+    foe.hp = SHIP_CLASSES.fletcher.hp; foe.alive = true;
+    for (const p of state.planes) {
+      if (p.owner === ship.id && p.type === 'mitchell') {
+        mitchells.add(p.id);
+        if (!loads.has(p.id)) loads.set(p.id, p.bomb);
+      }
+    }
+    for (const e of step(state, 1 / 30)) if (e.e === 'bomb' && mitchells.has(e.i)) bombs++;
+  }
+  assert.equal(mitchells.size, 4, `${mitchells.size} B-25s flew`);
+  for (const [id, n] of loads) assert.equal(n, cls.planes.deckload.bombs, `B-25 ${id} took off with ${n} bombs`);
+  assert.ok(bombs >= 8, `the B-25s let go of only ${bombs} bombs`);
+  // And what falls is her own bomb, off the rack in her bay.
+  flightModels();
+  const st = storeOf('mitchell');
+  assert.ok(st && st.geo, 'a B-25 has no bomb of her own to drop');
+  assert.ok(st.len > 1.2 && st.len < 1.8, `her bomb is ${st.len.toFixed(2)} m long`);
+});
+
+check("a B-25 flown by hand lets her bombs go when her pilot says so", () => {
+  const cls = SHIP_CLASSES.hornet;
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Hornet', classId: 'hornet', team: 0, index: 0,
+    airGroup: { fighters: 32, dive: 45, torpedo: 20, deckload: 1 } });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  ship.x = 0; ship.z = 0; ship.heading = 0;
+  foe.x = 0; foe.z = 9000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  assert.ok(launchStrike(state, ship));
+  let p = null;
+  for (let i = 0; i < 30 * 120 && !p; i++) {
+    step(state, 1 / 30);
+    p = state.planes.find((q) => q.owner === ship.id && q.type === 'mitchell' && (q.y ?? 0) > 60);
+  }
+  assert.ok(p, 'the B-25 never got into the air');
+  // Taken by her pilot, and put over the target.
+  assert.ok(flyPlane(state, ship, { i: p.id, x: p.x, z: p.z, h: 0, y: p.y }), 'her captain could not take her');
+  p.x = foe.x; p.z = foe.z - 300;
+  state.events.length = 0;
+  assert.ok(dropOrdnance(state, ship, p.id), 'the simulation would not let her drop');
+  const bombs = state.events.filter((e) => e.e === 'bomb' && e.i === p.id);
+  assert.equal(bombs.length, cls.planes.deckload.bombs, `${bombs.length} bombs left her`);
+  // And the cockpit has a drop key for her: her role is on the rack table.
+  const src = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  const table = src.slice(src.indexOf('const LOAD = {'), src.indexOf('};', src.indexOf('const LOAD = {')));
+  assert.match(table, /\n\s*level:\s*\{[^}]*key: 'BOMBS'/, 'a B-25 in the cockpit has no bombs to drop');
+});
+
+check("the Hornet's island is whole, and nothing shows through her under her flight deck", () => {
+  const built = buildHornet();
+  const FD = built.flightDeckY;
+  for (const l of built.lifts) l.group.position.y = FD;
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const rc = new THREE.Raycaster();
+  // Her island's port face, from her deck up to her bridge, the length of it:
+  // fired at from over her runway, every ray stops at it, inboard of her side.
+  let n = 0;
+  for (let z = -6; z <= 32; z += 1) {
+    for (let y = FD + 1.5; y <= FD + 6.5; y += 1) {
+      rc.set(new THREE.Vector3(0, y, z), new THREE.Vector3(-1, 0, 0));
+      const h = rc.intersectObjects(meshes, false);
+      assert.ok(h.length && h[0].point.x > -14.5, `her island is open at ${z}, ${y.toFixed(1)}`);
+      n++;
+    }
+  }
+  assert.ok(n > 200);
+  // And under her flight deck, between her hangar's deckhead and the deck,
+  // the cracks in her plating have bulkheads behind them.
+  for (const [s, z, y] of [[1, 26.8, 14.5], [1, 26.6, 15.0], [-1, 32.8, 13.0]]) {
+    for (let dz = -0.3; dz <= 0.3; dz += 0.1) for (let dy = -0.3; dy <= 0.3; dy += 0.1) {
+      rc.set(new THREE.Vector3(s * 80, y + dy, z + dz), new THREE.Vector3(-s, 0, 0));
+      assert.ok(rc.intersectObjects(meshes, false).length, `daylight through her at ${(z + dz).toFixed(1)}, ${(y + dy).toFixed(1)}`);
+    }
+  }
+});
+
+check('the Credits screen credits the model the Shokaku is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('IJN CV SHOUKAKU 1960');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/o6w8T'), 'the credit does not link the model');
+  assert.ok(credit.includes('全斗焕'), 'the credit does not name its author');
+  assert.ok(credit.includes('http://creativecommons.org/licenses/by/4.0/') && credit.includes('Creative Commons Attribution'),
+    'the credit is not as its licence asks');
+});
+
 check('the Graf Spee is built where her own plan puts everything', () => {
   // Her December 1939 plan carries a metre scale along her length, so every
   // station on this ship is a number read off a drawing rather than a guess.
@@ -17895,7 +20953,9 @@ check('nothing on the Graf Spee stands in mid-air or over her side', () => {
     const t = Math.max(-1, Math.min(1, z / half));
     // Outboard: her deck edge at that station, with an allowance for the
     // sponsons and the boat davits that are meant to overhang.
-    const wide = speeShellAt(t, speeSheer(t));
+    // Read half a metre under the deck over her insides: at the deck itself
+    // her measured lines run out to nothing.
+    const wide = speeShellAt(t, speeSheer(t) - 0.5);
     const out = Math.max(Math.abs(p.min[0]), Math.abs(p.max[0]));
     // A gun trained out over the side is a gun trained out over the side:
     // that is what a beam mounting is for, and the muzzle of a fifteen abreast
@@ -17903,12 +20963,16 @@ check('nothing on the Graf Spee stands in mid-air or over her side', () => {
     // Only what is bolted down has to stay aboard.
     //
     // Bar one thing, and it is under water: the sculpt her hull is drawn
-    // from (see speeHull.js) carries her wing screws, and their blades stand
+    // from (see scheerHull.js) carries her wing screws, and their blades stand
     // six metres out from her centreline at frame -0.86, where the line
     // `shellAt` tapers her run to three -- which is where a wing screw is on
     // any ship, out past the narrow run of her stern and inside the counter
     // over it.
-    if (!p.moving && out > wide + 2.6 && !(p.from === 'hullModel' && t < -0.8)) {
+    // Nor her degaussing cable, a flat ribbon along her deck edge, which is
+    // out at the edge of her forecastle where `shellAt` reads her a deck
+    // lower and narrower.
+    const cable = p.from === 'hullModel' && p.max[1] - p.min[1] < 0.05;
+    if (!p.moving && !cable && out > wide + 2.6 && !(p.from === 'hullModel' && t < -0.8)) {
       over.push(`${p.from} out to ${out.toFixed(1)} m where she is ${wide.toFixed(1)}`);
     }
     // In the air: nothing of hers should have its feet above the highest thing
@@ -18560,6 +21624,51 @@ check('a raked mounting stops firing, and its crew get it back', () => {
   const later = aaBearing(cls, bb, at.x, at.z, at.y);
   assert.equal(later.barrels, before.barrels,
     'three quarters of a minute on and her mountings are still not back');
+});
+
+check('a finger whose lift was never heard does not leave the camera only zooming', () => {
+  // The look pad keeps the fingers it thinks are down. One it never heard
+  // come off the glass made every drag after it two-fingered: a pinch, so the
+  // camera zoomed and would not turn. A first finger down -- the primary one,
+  // with no other on the glass -- starts the pad afresh.
+  const had = { window: globalThis.window, document: globalThis.document };
+  globalThis.window = { addEventListener() {} };
+  globalThis.document = { addEventListener() {}, hidden: false };
+  try {
+    const on = {};
+    const zone = {
+      addEventListener: (t, f) => { on[t] = f; },
+      setPointerCapture() {}, releasePointerCapture() {},
+    };
+    let look = 0, wheel = 0;
+    const input = { addLook: (dx, dy) => { look += Math.abs(dx) + Math.abs(dy); }, addPan() {},
+      emit: (t) => { if (t === 'wheel') wheel++; } };
+    const tc = Object.create(TouchControls.prototype);
+    tc.input = input;
+    tc.bindLook(zone);
+    const ev = (id, x, y, primary) => ({ pointerId: id, clientX: x, clientY: y, isPrimary: primary, preventDefault() {} });
+    // A finger down and never up: its lift was lost.
+    on.pointerdown(ev(1, 100, 100, true));
+    // Then a fresh finger on the glass, dragged across it.
+    on.pointerdown(ev(2, 300, 300, true));
+    for (let i = 1; i <= 10; i++) on.pointermove(ev(2, 300 + i * 12, 300, true));
+    assert.ok(look > 100, `the drag turned the camera by only ${look} px`);
+    assert.equal(wheel, 0, 'a one-fingered drag zoomed the camera');
+    // A real second finger still pinches.
+    on.pointerdown(ev(3, 500, 300, false));
+    for (let i = 1; i <= 6; i++) on.pointermove(ev(3, 500 + i * 15, 300, false));
+    assert.ok(wheel > 0, 'two fingers spreading no longer zoom');
+    // And taking the pad away under a finger forgets it.
+    tc.root = { hidden: false };
+    tc.hide();
+    look = 0; wheel = 0;
+    on.pointerdown(ev(4, 200, 200, false));
+    for (let i = 1; i <= 6; i++) on.pointermove(ev(4, 200 + i * 12, 200, false));
+    assert.ok(look > 50 && wheel === 0, 'a finger left on the pad when it was hidden still made drags pinch');
+  } finally {
+    globalThis.window = had.window;
+    globalThis.document = had.document;
+  }
 });
 
 check('zooming while you are watching somebody does not let go of her', () => {
@@ -20750,6 +23859,53 @@ check('the Surcouf fights with the battery she actually carried', () => {
   }
 });
 
+check('the King George V has no slot through her behind her second 5.25-inch', () => {
+  // The cut that took the sculpt's raised drum off her second pair of
+  // 5.25-inch took her side with it, from the drum aft to the block abreast
+  // her fore funnel: a slot from her deck to her shelter deck, and a ray
+  // into it came out of her far side. Every ray at her there, either side,
+  // has to meet her within her beam.
+  const built = buildShip('kgv');
+  built.group.updateMatrixWorld(true);
+  const solid = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.dynamic) solid.push(o); });
+  const rc = new THREE.Raycaster();
+  const through = [];
+  for (const side of [1, -1]) {
+    for (let y = 8.5; y <= 15.5; y += 0.25) {
+      for (let z = -1.7; z <= 5; z += 0.1) {
+        rc.set(new THREE.Vector3(side * 40, y, z), new THREE.Vector3(-side, 0, 0));
+        const h = rc.intersectObjects(solid, false)[0];
+        if (!h || side * h.point.x < 5) through.push(`${side > 0 ? 'starboard' : 'port'} ${y.toFixed(2)} m up at z ${z.toFixed(1)}`);
+      }
+    }
+  }
+  assert.equal(through.length, 0, `${through.length} rays go into her there, first ${through[0]}`);
+});
+
+check('the published build\'s packed ship data opens to exactly what was packed', () => {
+  // build/pack-data.mjs gzips every long string of a data file into one, and
+  // client/js/unpack.js opens it again in the browser: what the game is handed
+  // has to be, string for string, what the data file said.
+  for (const f of ['scheerHull.data.js', 'zeroModel.data.js', 'soyuzHull.data.js']) {
+    const src = readFileSync(new URL(`../client/js/render/${f}`, import.meta.url), 'utf8');
+    const packed = packData(src);
+    assert.ok(packed.length < src.length * 0.9, `${f} packs to no smaller than it was`);
+    const payload = packed.match(/await unpack\("([^"]+)"\)/)[1];
+    const strings = [...src.matchAll(/"([A-Za-z0-9+/=]{256,})"/g)].map((m) => m[1]);
+    // By hand, as a browser without DecompressionStream opens it.
+    assert.deepEqual(new TextDecoder().decode(gunzip(Buffer.from(payload, 'base64'))).split(','), strings,
+      `${f} does not open by hand to what was packed`);
+    // And what is left of the module refers to them in order.
+    const refs = [...packed.matchAll(/__z\[(\d+)\]/g)].map((m) => +m[1]);
+    assert.deepEqual(refs, strings.map((_, i) => i), `${f} does not refer to its strings in order`);
+  }
+  // What has nothing long in it goes as it is.
+  const small = 'export const A = [1, 2, 3];\n';
+  assert.equal(packData(small), small, 'a data file with nothing long in it was packed anyway');
+  assert.equal(typeof unpack, 'function');
+});
+
 check('from outside her you never see her insides', () => {
   // The one thing a hull has to do. Everything about a ship's interior is
   // invisible if her plating is closed and glaring if it is not: a slab of
@@ -20767,9 +23923,9 @@ check('from outside her you never see her insides', () => {
   // So the test is the symptom: stand off her, look at her from every bearing
   // and every height her hull occupies, and the first thing the eye meets must
   // be the ship and not the inside of the ship.
-  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'rodney', 'baltimore',
-    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin']) {
+  for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
+    'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
     built.group.updateMatrixWorld(true);
     const L = SHIP_CLASSES[id].hull.length;
@@ -22363,6 +25519,61 @@ check('damage control parties: three in the smallest ship, eight in the biggest,
   assert.equal(snap.pa[0][0], 'pump');
 });
 
+check('her integrity is every way she is hurt, never mends to a hundred, and at nought she goes down', () => {
+  // Structure, flooding, fire and weapons, added up into one number out of a
+  // hundred that goes over the wire to her own bridge.
+  const { state, a } = duel('cleveland', 'iowa');
+  step(state, DT);
+  assert.equal(shipSnapshot(a, true).ig, 1000, 'a sound ship is not at a hundred per cent');
+  damageShip(state, a, null, a.maxHp * 0.3, 'shell', 'mid');
+  step(state, DT);
+  const hurt = a.integrity;
+  assert.ok(hurt < 0.9, `thirty per cent of her structure gone and her integrity is ${hurt}`);
+  // A fire in her takes more off it.
+  a.sections.fwd.fire = 0.8;
+  step(state, DT);
+  assert.ok(a.integrity < hurt, 'a fire made no difference to her integrity');
+  // Mended right back, every compartment and every fire: not a hundred.
+  for (const k of SECTIONS) { const c = a.sections[k.k]; c.hp = c.max; c.fire = 0; }
+  a.hp = a.maxHp;
+  step(state, DT);
+  assert.ok(a.integrity < 0.99 && a.integrity > hurt,
+    `mended, her integrity is ${a.integrity}: it should come back, but not all the way`);
+  assert.ok(shipSnapshot(a, true).igc < 1000, 'the wire does not say how far she can be mended');
+  // And run down to nothing, she starts going down -- not blown up, not gone.
+  damageShip(state, a, null, a.maxHp * 0.93, 'shell', 'mid');
+  for (const k of SECTIONS) a.sections[k.k].fire = 1;
+  for (const t of a.turrets) t.hurt = 3;
+  step(state, DT);
+  assert.ok(a.sinking && a.alive, `at ${a.integrity} integrity she is not going down`);
+});
+
+check('a ship that is saved comes back up gradually, not in one tick', () => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const her = addShip(st, { name: 'H', classId: 'cleveland', team: 0, index: 0 });
+  openHull(st, her, 'mid', 1.5, 1, 3);
+  for (let i = 0; i < 30 * 15; i++) step(st, DT);
+  startSinking(st, her, 'flooding');
+  her.parties.forEach((_, i) => setParty(her, i, 'pump'));
+  let saved = false;
+  let worst = 0;
+  let prev = her.sink;
+  let deepest = 0;
+  for (let i = 0; i < 30 * 400; i++) {
+    const ev = step(st, DT);
+    worst = Math.max(worst, Math.abs(her.sink - prev));
+    prev = her.sink;
+    deepest = Math.max(deepest, her.sink);
+    if (ev.some((e) => e.e === 'saved' && e.ship === her.id)) saved = true;
+  }
+  assert.ok(saved && !her.sinking && her.alive, 'she was not saved');
+  assert.ok(deepest > 0.3, `she never went down far enough to see her come back (${deepest.toFixed(2)} m)`);
+  assert.ok(worst < 0.03, `she came up ${worst.toFixed(2)} m in one tick`);
+  assert.ok(her.sink < 0.15, `she is still ${her.sink.toFixed(2)} m down long after she was saved`);
+});
+
 check('a ship going down from flooding can be saved by her parties, and steams on', () => {
   // Holed low down on one side in three compartments, the way a torpedo
   // spread leaves her: she lists, the sea comes over her deck edge, she goes.
@@ -22899,6 +26110,98 @@ check('a dive bomber puts her brakes out, rolls over, pulls through on her back 
   assert.ok(done, 'she never pulled out and climbed away');
   // And the client is told the brakes and her attitude all the way down.
   assert.ok(sawWire, 'the dive went out on the wire without her brakes or her pitch');
+});
+
+check('a dive bomber rolls in with one smooth barrel roll, all the way round', () => {
+  // She used to go over on her back at a fixed rate, hang there while she
+  // pulled, and roll back the way she came. Now it is one roll, eased in and
+  // out, all the way round to upright, with the nose down by the end of it.
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = ship.x + 9000; foe.z = ship.z + 3000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  let id = null, prev = 0, turned = 0, first = null, lastStep = null, worst = 0, path = null;
+  for (let i = 0; i < 400 / DT; i++) {
+    step(state, DT);
+    const p = id ? state.planes.find((q) => q.id === id) : state.planes.find((q) => q.role === 'dive' && q.dv === 'roll');
+    if (!p) { if (id) break; continue; }
+    if (p.dv !== 'roll') { if (id) { path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0)); break; } continue; }
+    id = p.id;
+    const d = angleDelta(prev, p.show || 0);
+    if (first === null) first = Math.abs(d);
+    lastStep = Math.abs(d);
+    worst = Math.max(worst, Math.abs(d));
+    turned += d;
+    prev = p.show || 0;
+  }
+  assert.ok(id, 'no dive bomber ever rolled in');
+  assert.ok(Math.abs(Math.abs(turned) - 2 * Math.PI) < 0.05,
+    `she rolled ${(turned * 57.3).toFixed(0)} degrees, not once all the way round`);
+  // Eased at both ends, and never a lurch in between.
+  assert.ok(first < 0.01 && lastStep < 0.01, `her roll started at ${first} and stopped at ${lastStep} a tick`);
+  assert.ok(worst < 0.12, `her roll jumped ${(worst * 57.3).toFixed(1)} degrees in a tick`);
+  assert.ok(path !== null && path < -0.85, `she came out of the roll ${path === null ? 'never' : (-path * 57.3).toFixed(0)} degrees down`);
+});
+
+check('a dive bomber\'s bomb comes down on the ship, where she will be when it lands', () => {
+  // A bomb takes seconds to fall and a destroyer at speed is fifty metres on
+  // by then. Hits used to be sent at the middle of her as she was at the
+  // release, so they came down in her wake, and misses went anything up to
+  // a quarter of a mile off.
+  //
+  // Four bombs is a small sample, and which way each aeroplane weaves on her
+  // run is set off her number -- and the numbers run on through every check
+  // before this one, so the same strike came down with no hit at all one run
+  // in several. So it is flown in four seas, and every bomb of all four is
+  // held to where it fell.
+  const cls = SHIP_CLASSES.fletcher;
+  const L = cls.hull.length / 2, B = cls.hull.beam / 2;
+  let landed = 0, hits = 0;
+  for (const seed of [11, 29, 47, 63]) {
+    const state = createState(generateWorld(seed, 'open_ocean'), { mode: 'deathmatch' });
+    const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+    const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+    foe.x = ship.x + 9000; foe.z = ship.z + 3000;
+    ship.aimX = foe.x; ship.aimZ = foe.z;
+    ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+    assert.ok(launchStrike(state, ship), 'she would not launch at all');
+    const falling = [];
+    let t = 0, way = 0;
+    for (let i = 0; i < 400 / DT; i++) {
+      foe.notch = 4;
+      foe.rudderCmd = 0.2;
+      for (const s of state.ships) s.spottedBy = [true, true];
+      for (const ev of step(state, DT)) {
+        if (ev.e !== 'bomb') continue;
+        const p = state.planes.find((q) => q.id === ev.i);
+        const h = p.y - 12, down = Math.max(0, -p.vy);
+        falling.push({ at: t + (-down + Math.sqrt(down * down + 2 * 9.80665 * h)) / 9.80665, ev });
+      }
+      t += DT;
+      for (const b of falling) {
+        if (b.done || t < b.at) continue;
+        b.done = true;
+        landed++;
+        way = Math.max(way, foe.speed);
+        const l = worldToLocal(b.ev.tx - foe.x, b.ev.tz - foe.z, foe.heading);
+        const onHer = Math.abs(l.x) <= B + 1 && Math.abs(l.z) <= L + 1;
+        if (b.ev.hit) {
+          hits++;
+          assert.ok(onHer, `a hit came down ${l.x.toFixed(0)} m across and ${l.z.toFixed(0)} m along her`);
+        } else {
+          assert.ok(!onHer, 'a miss came down on her deck');
+          assert.ok(Math.abs(l.x) < B + 50 && Math.abs(l.z) < L + 50,
+            `a miss went in ${l.x.toFixed(0)} m across and ${l.z.toFixed(0)} m along her`);
+        }
+      }
+    }
+    assert.ok(way > 8, 'the target was not under way when the bombs came down');
+  }
+  assert.ok(landed >= 4, `only ${landed} bombs came down`);
+  assert.ok(hits > 0, 'not one bomb hit her');
 });
 
 check('dive brakes hold a dive bomber to an aimable speed, and do nothing on a fighter', () => {
@@ -23604,6 +26907,12 @@ function homeFlight(seed, classId = 'enterprise') {
   const foe = addShip(st, { name: 'F', classId: 'fletcher', team: 1, index: 0 });
   foe.x = 9000; foe.z = 9000;
   cv.aimX = cv.x + 2500; cv.aimZ = cv.z + 2500;
+  // A deckload goes first and never comes back (the Hornet's B-25s): it is
+  // her own air group that comes home, so the deck is cleared of it here.
+  if (cv.deckload) {
+    cv.deckload = 0;
+    for (const q of cv.squadrons) if (q.deckload) q.state = 'spent';
+  }
   assert.ok(launchStrike(st, cv), 'she would not launch');
   for (let i = 0; i < 30 * 60 && !st.planes.length; i++) step(st, DT);
   const p = st.planes[0];
@@ -23624,7 +26933,7 @@ function onDeckFrame(cv, x, z) {
   return { along: dx * fx + dz * fz, across: dx * fz - dz * fx };
 }
 
-for (const classId of ['enterprise', 'shinano', 'grafzeppelin']) {
+for (const classId of ['enterprise', 'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
   check(`an aeroplane home to the ${classId} lines up astern and lands on her deck`, () => {
     // She used to fly to within three hundred metres of the ship from
     // wherever she was and vanish. She comes up the wake now: round onto the
@@ -25106,6 +28415,259 @@ check('a battery laid on a point puts its rounds down on the point, on the sea o
   const mean = fell.reduce((m, f) => ({ x: m.x + f.x / fell.length, z: m.z + f.z / fell.length }), { x: 0, z: 0 });
   const miss = Math.hypot(mean.x - px, mean.z - pz);
   assert.ok(miss < 250, `the fall of shot was ${miss.toFixed(0)} m off the point`);
+});
+
+
+// ---------------------------------------------------------------------------
+// The B-29 Silverplate and her one weapon
+// ---------------------------------------------------------------------------
+const { nukeBlast } = await import('../shared/sim.js');
+const { NUKE, nukeFront, waveHeight } = await import('../shared/nuke.js');
+const { getClass } = await import('../shared/ships.js');
+const { b29Ready } = await import('../client/js/render/b29Model.js');
+
+check('the B-29 Silverplate comes on after the B-17 and carries one 9,700 lb atomic bomb', () => {
+  const at = BOMBER_ORDER.indexOf('silverplate');
+  assert.ok(at > 0, 'the Silverplate is not in the bomber yard');
+  assert.equal(BOMBER_ORDER[at - 1], 'fortress', 'she does not come on straight after the B-17');
+  const b = BOMBERS.silverplate;
+  assert.equal(b.payload, 9700, `she carries ${b.payload} lb`);
+  assert.ok(b.atomic, 'her bomb is not an atomic bomb');
+  assert.ok(/9,700 lb/.test(b.load), `her load reads "${b.load}"`);
+  // Five gun positions, each where her model has it, and a turret spec for
+  // each so a gunner can go to it.
+  assert.equal(b.posts.length, 5, `she has ${b.posts.length} gun positions`);
+  assert.equal(b.postAt.length, b.posts.length, 'a gun position with nowhere on her to be');
+  for (const name of b.posts) {
+    assert.ok(HEAVY.silverplate.turrets.some((t) => t.name === name), `no turret on her for her ${name} position`);
+  }
+  assert.ok(HEAVY_AERO.silverplate, 'she has no flight model');
+  assert.ok(Math.abs(HEAVY_AERO.silverplate.span - b.span) < 0.02, 'she flies on a different span from the one on her sheet');
+});
+
+/** A Silverplate formation sent at a ship lying still, and what it does. */
+function atomicRun(classId = 'iowa', seed = 3301) {
+  const world = generateWorld(seed, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const ship = addShip(st, { name: 'Target', classId, team: 0, index: 0 });
+  ship.x = 0; ship.z = 0; ship.speed = 0; ship.heading = 0;
+  // Something of her own side in the formation's way, well out of the blast.
+  const far = addShip(st, { name: 'Picket', classId: 'fletcher', team: 0, index: 1 });
+  far.x = 9000; far.z = -9000;
+  const bm = addBomber(st, { bomberId: 'silverplate', team: 1, x: 0, z: 9000, heading: Math.PI });
+  return { st, ship, far, bm };
+}
+
+check('a Silverplate opens her doors, lets go of her one bomb and it goes off on the target', () => pinned(() => {
+  const { st, ship, far, bm } = atomicRun();
+  assert.equal(bm.loads, 1, 'a Silverplate formation went up with more than one weapon');
+  let bomb = null;
+  let doorsFirst = false;
+  let burst = null;
+  let away = 0;
+  let gone = null;
+  for (let i = 0; i < 30 * 240 && !burst; i++) {
+    const was = st.shells.find((q) => q.atomic);
+    if (!bomb && bm.doors) doorsFirst = true;
+    for (const e of step(st, DT)) {
+      if (e.e === 'nuke') burst = e;
+      if (e.e === 'nukeAway') away++;
+    }
+    const now = st.shells.find((q) => q.atomic);
+    if (now && !bomb) {
+      bomb = now;
+      assert.ok(doorsFirst, 'the bomb went out of a shut bay');
+    }
+    // Once it is falling it is never taken out of the air by anything but
+    // its own burst: nothing shoots an atomic bomb down.
+    if (was && !now && !burst) gone = i;
+  }
+  assert.ok(bomb, 'she never let it go');
+  assert.equal(away, 1, `${away} atomic bombs left her bay`);
+  assert.equal(gone, null, 'the bomb vanished in the air before it went off');
+  assert.ok(burst, 'it never went off');
+  assert.equal(st.shells.filter((q) => q.atomic).length, 0, 'a second bomb is still falling');
+  assert.equal(bm.loads, 0, 'she still has a weapon aboard after letting it go');
+  assert.ok(Math.hypot(burst.x - ship.x, burst.z - ship.z) < 500,
+    `it went off ${Math.round(Math.hypot(burst.x - ship.x, burst.z - ship.z))} m from the ship it was aimed at`);
+  // Let the shock run out.
+  for (let i = 0; i < 30 * 12; i++) step(st, DT);
+  assert.ok(!ship.alive || ship.hp <= 0, `the ship under it is still afloat with ${Math.round(ship.hp)} of her`);
+  assert.ok(far.alive && far.hp > 0.95 * getClass('fletcher').hp, 'a ship thirteen kilometres off was hurt by it');
+  // And the formation got away: the turn after release took her far enough.
+  assert.ok(bm.alive, 'the B-29 that dropped it was destroyed by its own bomb');
+}));
+
+check('flak, fighters and a Phalanx cannot touch an atomic bomb on its way down', () => pinned(() => {
+  const world = generateWorld(77, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const mo = addShip(st, { name: 'Missouri', classId: 'missouri', team: 0, index: 0 });
+  mo.x = 0; mo.z = 0;
+  // Dropped straight onto her from a formation already over her.
+  st.shells.push({
+    id: 999001, owner: 0, bomber: 0, team: 1, x: 0, y: 1000, z: 0, vx: 0, vy: 0, vz: 0, g: 9.81,
+    caliber: 1520, atomic: 1, bomb: { bombDamage: 1, bombPen: 1, bombBore: 1, bombFire: 0 }, life: 0, type: 'he',
+  });
+  let at = null;
+  for (let i = 0; i < 30 * 30 && !at; i++) {
+    for (const e of step(st, DT)) if (e.e === 'nuke') at = { e, t: st.t };
+    if (!at) assert.ok(st.shells.some((q) => q.id === 999001), 'the bomb was taken out of the air');
+  }
+  assert.ok(at, 'it never arrived');
+  assert.ok(at.t > 12 && at.t < 16, `a bomb from a thousand metres took ${at.t.toFixed(1)} s to fall`);
+}));
+
+check('the shock goes out where nukeFront has it, and wrecks by distance', () => {
+  const world = generateWorld(91, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const at = [500, 1800, 3400, 7000];
+  const ships = at.map((d, i) => {
+    // One side, so nothing but the bomb is shooting at them.
+    const s = addShip(st, { name: `S${i}`, classId: 'baltimore', team: 0, index: i });
+    s.x = d; s.z = 0; s.speed = 0; s.heading = 0;
+    return s;
+  });
+  const hp0 = ships.map((s) => s.hp);
+  nukeBlast(st, 0, 0, 0, null);
+  const hitAt = new Map();
+  for (let i = 0; i < 30 * 20; i++) {
+    for (const e of step(st, DT)) if (e.e === 'nukeHit' && !hitAt.has(e.ship)) hitAt.set(e.ship, st.t);
+  }
+  // Struck when the front gets there, not before: on both sides alike.
+  for (const [k, s] of ships.entries()) {
+    const d = at[k] - getClass('baltimore').hull.beam / 2;
+    void s;
+    if (d >= NUKE.reach) {
+      assert.ok(!hitAt.has(s.id), `a ship ${at[k]} m off was struck`);
+      continue;
+    }
+    const due = -NUKE.tau * Math.log(1 - d / NUKE.reach);
+    assert.ok(hitAt.has(s.id), `the ship ${at[k]} m off was never struck`);
+    assert.ok(Math.abs(hitAt.get(s.id) - due) < 0.4,
+      `the ship ${at[k]} m off was struck at ${hitAt.get(s.id).toFixed(2)} s, the front got there at ${due.toFixed(2)} s`);
+    assert.ok(nukeFront(due) > d - 1, 'nukeFront and the strike disagree');
+  }
+  assert.ok(!ships[0].alive || ships[0].hp <= 0, 'a ship five hundred metres off survived it');
+  const lost = ships.map((s, k) => 1 - Math.max(0, s.hp) / hp0[k]);
+  assert.ok(lost[1] > lost[2] && lost[2] > 0, `the harm does not fall away with distance: ${lost.map((x) => x.toFixed(2))}`);
+  assert.ok(lost[3] < 0.01, `a ship seven kilometres off lost ${(lost[3] * 100).toFixed(1)}% of her`);
+});
+
+check('after the flash and the shock comes the wave: slower, big close in, and no tsunami', () => {
+  const world = generateWorld(92, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  // A destroyer outside the blast, where only the water reaches her.
+  const dd = addShip(st, { name: 'Tin can', classId: 'fletcher', team: 0, index: 0 });
+  dd.x = 4800; dd.z = 0; dd.speed = 0; dd.heading = 0;
+  const hp0 = dd.hp;
+  nukeBlast(st, 0, 0, 0, null);
+  let shock = null, wave = null, rolled = 0;
+  for (let i = 0; i < 30 * 160 && !wave; i++) {
+    for (const e of step(st, DT)) {
+      if (e.ship !== dd.id) continue;
+      if (e.e === 'nukeHit' && shock === null) shock = st.t;
+      if (e.e === 'nukeWave') wave = { t: st.t, h: e.h };
+    }
+    rolled = Math.max(rolled, Math.abs(dd.rock || 0));
+  }
+  assert.equal(shock, null, 'the shock reached a ship outside its reach');
+  assert.ok(wave, 'the wave never reached her');
+  const d = 4800 - getClass('fletcher').hull.beam / 2;
+  const due = -NUKE.waveTau * Math.log(1 - d / NUKE.waveReach);
+  assert.ok(Math.abs(wave.t - due) < 0.5, `the wave got to her at ${wave.t.toFixed(1)} s, it was due at ${due.toFixed(1)} s`);
+  // Slower than the shock by a long way: the shock is across that distance
+  // in a few seconds, the sea takes the better part of two minutes.
+  assert.ok(wave.t > 20 * NUKE.tau, 'the wave came at the speed of the shock');
+  // A heavy sea, not a wall a hundred metres high, and lower the further out.
+  assert.ok(wave.h >= 3 && wave.h <= 15, `a ${wave.h} m sea at nearly five kilometres`);
+  assert.ok(waveHeight(500) > waveHeight(3000) && waveHeight(3000) > waveHeight(6000));
+  assert.ok(waveHeight(0) < 30, `the wave stands ${waveHeight(0).toFixed(0)} m at the burst`);
+  for (let i = 0; i < 30 * 6; i++) { step(st, DT); rolled = Math.max(rolled, Math.abs(dd.rock || 0)); }
+  assert.ok(rolled > 0.02, `it rolled her ${rolled.toFixed(3)} rad`);
+  assert.ok(dd.alive && dd.hp > hp0 * 0.9, 'a five-metre sea sank a destroyer');
+  for (let i = 0; i < 30 * 40; i++) step(st, DT);
+  assert.equal(st.nukes.length, 0, 'the burst is still being stepped long after it is done');
+});
+
+check("a Silverplate's gunners fight her five positions at the fighters on her", () => pinned(() => {
+  const world = generateWorld(4104, 'open_ocean');
+  const st = createState(world, { mode: 'deathmatch' });
+  const cv = addShip(st, { name: 'Big E', classId: 'enterprise', team: 0, index: 0,
+    airGroup: { fighter: 8, dive: 0, torpedo: 0 } });
+  cv.x = 0; cv.z = 0;
+  const bm = addBomber(st, { bomberId: 'silverplate', team: 1, x: 0, z: 6000 });
+  assert.deepEqual(bm.posts.map((g) => g.name), BOMBERS.silverplate.posts);
+  launchStrike(st, cv);
+  const fired = new Set();
+  let shots = 0;
+  for (let i = 0; i < 20000 && bm.alive; i++) {
+    bm.spottedBy = [true, true];
+    for (const e of step(st, DT)) if (e.e === 'heavyGun' && e.i === bm.id) { fired.add(e.k); shots++; }
+  }
+  assert.ok(shots > 0, "her gunners never fired at the fighters on her");
+  assert.ok(fired.size >= 3, `only ${fired.size} of her five positions ever fired`);
+  // And a man at one of her turrets fights it: the tail, laid astern.
+  const st2 = createState(world, { mode: 'deathmatch' });
+  const own = addShip(st2, { name: 'Own', classId: 'iowa', team: 1, index: 0 });
+  const bm2 = addBomber(st2, { bomberId: 'silverplate', team: 1, x: 0, z: 0, heading: 0 });
+  assert.ok(gunTurret(st2, own, bm2.id, Math.PI, 0.5, 0.3, 'tail'), 'her tail gunner could not fire');
+  // The positions bear where her barbettes do: over her for the uppers,
+  // under her for the lowers.
+  const posts = BOMBERS.silverplate.posts;
+  for (const [k, p] of BOMBERS.silverplate.postAt.entries()) {
+    if (/upper/.test(posts[k])) assert.ok(p[0] > 1, `her ${posts[k]} is not on her back`);
+    if (/lower/.test(posts[k])) assert.ok(p[0] < 0, `her ${posts[k]} is not under her`);
+  }
+}));
+
+check('the wire carries the atomic bomb and the open bay', () => {
+  const { st, bm } = atomicRun('iowa', 812);
+  let saw = { nk: false, d: false };
+  for (let i = 0; i < 30 * 240 && !saw.nk; i++) {
+    step(st, DT);
+    const snap = buildSnapshot(st, 1, -1, 0, true);
+    const me = (snap.bombers || []).find((q) => q.i === bm.id);
+    if (me && me.d) saw.d = true;
+    if ((snap.shells || []).some((q) => q.nk)) saw.nk = true;
+  }
+  assert.ok(saw.d, 'her doors were never reported open');
+  assert.ok(saw.nk, 'the bomb never went out on the wire as an atomic bomb');
+  const room = readFileSync(new URL('../server/room.js', import.meta.url), 'utf8');
+  assert.ok(/ev\.e === 'nuke'/.test(room), 'an atomic burst is not sent to everyone');
+});
+
+check("the owner's B-29 is built with turning airscrews, swinging doors and the bomb in her bay", () => {
+  assert.ok(b29Ready(), 'her model is not in');
+  const g = heavyBomber('silverplate');
+  assert.ok(!g.userData.stub, 'she is still the stand-in');
+  assert.equal(g.userData.props.length, 4, `she has ${g.userData.props.length} airscrews`);
+  const doors = g.userData.parts.filter((q) => q.name === 'bayPort' || q.name === 'bayStbd');
+  assert.equal(doors.length, 2, 'her bay has not got two doors');
+  assert.equal(g.userData.rack.length, 1, 'there is not one weapon in her bay');
+  assert.ok(g.userData.liftTrims, 'the battle will not open her doors');
+  // Opening a door swings its lower edge down and out, not up into her.
+  for (const d of doors) {
+    const box0 = new THREE.Box3().setFromObject(d.node);
+    d.node.rotation.z = d.open;
+    d.node.updateMatrixWorld(true);
+    const box1 = new THREE.Box3().setFromObject(d.node);
+    assert.ok(box1.min.y < box0.min.y - 0.4, `her ${d.name} door does not swing down`);
+    d.node.rotation.z = 0;
+  }
+  // The weapon is about the size of the one she carried: five feet across and
+  // ten or eleven long.
+  const bb = new THREE.Box3().setFromObject(g.userData.rack[0]);
+  const size = bb.getSize(new THREE.Vector3());
+  assert.ok(size.z > 3 && size.z < 3.8 && size.x > 1.3 && size.x < 1.7, `the bomb is ${size.toArray().map((v) => v.toFixed(2))}`);
+  // And she is her real size.
+  const all = new THREE.Box3().setFromObject(g);
+  const dim = all.getSize(new THREE.Vector3());
+  assert.ok(Math.abs(dim.x - 43.05) < 0.6, `she is ${dim.x.toFixed(2)} m across`);
+  assert.ok(Math.abs(dim.z - 30.18) < 0.8, `she is ${dim.z.toFixed(2)} m long`);
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

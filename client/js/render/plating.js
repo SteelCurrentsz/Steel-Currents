@@ -983,7 +983,7 @@ function refine(geo, area, cap) {
   // and frames showing through where the plating should have been.
   const u0 = geo.attributes.uv;
   // And her paint, for the one hull in the fleet that carries it per vertex
-  // (the Graf Spee's sculpt: see speeHull.js). Left behind, it is the uv
+  // (every sculpted hull: see scheerHull.js). Left behind, it is the uv
   // fault again in a different buffer -- shorter than the positions, so the
   // whole of her plating was dropped from the draw and she went into battle
   // as her frames and her machinery with nothing round them.

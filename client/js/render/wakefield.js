@@ -58,7 +58,7 @@ export const FAR_M = 16384;
 export const KELVIN = Math.tan((19.47 * Math.PI) / 180);
 
 // How far she runs between the points of her track, and how many are kept.
-export const STEP_M = 22;
+export const STEP_M = 28;
 export const POINTS = 64;
 // Vertices across the ribbon. It is a strip of parameter space, not a picture:
 // what is drawn into the map is worked out per texel in the fragment stage, so
@@ -66,7 +66,7 @@ export const POINTS = 64;
 // straight where it bends.
 const COLS = 9;
 /** How long a piece of wake stays on the water, in seconds. */
-export const LIFE = 120;
+export const LIFE = 150;
 // The longest track she keeps, measured from her stem. Her strip is faded out
 // toward this by distance, so its far end is soft and stays put rather than
 // stepping aft a whole piece of track every time she lets go of one.
@@ -223,7 +223,8 @@ void main() {
   float runS = max(run - uStern, 0.0);
   // Sublinear, because a wake broadens quickly just astern of the screws and
   // then hardly at all.
-  float openAft = pow(runS, 0.80) * 0.10;
+  float openAft = pow(runS, 0.80) * 0.15
+                + min(max(vAge - uStern / max(vSpeed, 2.0), 0.0), 140.0) * 0.10;
   // What the stem itself throws: a couple of feet of white at the bow,
   // standing well off her side by the time it is abreast of the bridge.
   float bowOut = min(run * 0.30, uBeam * 0.62);
@@ -261,7 +262,7 @@ void main() {
   // come up, and the bubbles thin out from the start rather than all at once
   // at the end. That is the whole look of an old wake: a long pale band with
   // no white left on it, fading into the sea.
-  float liveF = 1.0 - smoothstep(0.0, 0.42, ageF);
+  float liveF = 1.0 - smoothstep(0.0, 0.62, ageF);
   float liveA = pow(1.0 - smoothstep(0.02, 1.0, ageF), 1.6);
 
   // ---- the shape of the water ---------------------------------------------
@@ -309,7 +310,15 @@ void main() {
   // it on and dies there. It used to be measured from her stem, and slid
   // after her down the wake -- and jumped back twenty metres every time she
   // laid another piece of track.
-  vec2 wq = vec2(m * sgn, vOdo);
+  //
+  // Across her track, though, the water is not still: what she has thrown
+  // aside goes on spreading away from her, slowly, for as long as it lasts.
+  // The noise is read at a point that falls back toward her track as the
+  // water ages, so every patch and thread on it is carried outward at a
+  // walking pace -- the wash easing away from her rather than lying where
+  // she dropped it.
+  float outM = max(m - min(vAge, 140.0) * 0.55, 0.0);
+  vec2 wq = vec2(outM * sgn, vOdo);
   // The water does go on moving, slowly, on its own clock: the noise turns
   // over on the age of the water, so a patch changes shape as it dies rather
   // than sitting there like a transfer.
@@ -353,7 +362,7 @@ void main() {
              * (1.0 - smoothstep(uStern * 0.95, uStern * 1.45, run))
              * drive;
   float froth = fbm(vec2(wq.x * 0.06, wq.y * 0.05) + stir);
-  band *= smoothstep(0.25, 0.70, froth + 0.20);
+  band *= smoothstep(0.30, 0.74, froth + 0.12);
 
   // The wash off her screws. Nearly solid straight astern of the transom; a
   // few hundred metres back it has broken into threads drawn out along the
@@ -361,26 +370,44 @@ void main() {
   // pulls the foam into lines -- and patches; past that there is no white
   // left, only the pale band it was lying on.
   float streak = fbm(vec2(wq.x * 0.11, wq.y * 0.016) + stir);
-  float boil = 1.0 - smoothstep(2.0, 14.0, tSt);
-  float lo = 0.30 + 0.30 * smoothstep(0.0, 0.40, ageF);
-  float breakUp = smoothstep(lo, lo + 0.30, streak * 0.6 + clump * 0.4);
-  float core = inCore * behind * liveF * mix(breakUp * 0.60, 0.76, boil);
+  //
+  // The boil lasts: a big ship's screws churn the sea white for a good half
+  // minute astern of her, and the trail of broken water behind that is a
+  // long ragged road of foam -- marbled, not solid -- before it goes to
+  // threads and then to the pale band.
+  float boil = 1.0 - smoothstep(2.5, 13.0, tSt);
+  float lo = 0.26 + 0.30 * smoothstep(0.0, 0.50, ageF);
+  float breakUp = smoothstep(lo, lo + 0.28, streak * 0.6 + clump * 0.4);
+  float core = inCore * behind * liveF * mix(breakUp * 0.64, 0.80, boil);
+  // Under her counter itself the water is not broken, it is boiling: the
+  // screw race heaped up and thrown white, widest just abaft her transom.
+  float race = smoothstep(uStern * 0.88, uStern * 1.0, run)
+             * (1.0 - smoothstep(uStern * 1.05, uStern * 1.6, run))
+             * (1.0 - smoothstep(coreW * 0.35, coreW * 0.85, m)) * drive;
 
-  // And the crests of the diverging waves, where they are steep enough to
-  // break -- close in on her bow and nowhere else.
-  float lace = fbm(vec2(wq.x * 0.075, wq.y * 0.07) + stir * 2.0);
-  float steepD = abs(ampD) * kD;
-  float crest = smoothstep(0.015, 0.06, steepD)
-              * smoothstep(0.74, 0.99, sin(phD) * 0.5 + 0.5)
-              * smoothstep(0.40, 0.64, lace);
+  // No white on the crests of the diverging waves. It used to be put there,
+  // and from any height it was a row of evenly spaced white blobs standing
+  // off each side of her -- a second, dotted arrowhead ruled outside the
+  // wake. The diverging waves are still in the water, as shape; a real
+  // ship's are not breaking a hundred metres off her beam.
 
-  float foam = clamp(stem * 0.72 + band * 0.62 + core + crest * 0.45, 0.0, 0.86);
+  // The bow wave itself, where it curls over off her shoulder: a ridge of
+  // white standing just off her side over the forward third of her, broken
+  // up along its length the way a breaking crest is.
+  float curlM = spread * 1.02;
+  float curl = (1.0 - smoothstep(curlM * 0.16, curlM * 0.42, abs(m - curlM)))
+             * smoothstep(uStern * 0.02, uStern * 0.10, run)
+             * (1.0 - smoothstep(uStern * 0.35, uStern * 0.75, run))
+             * smoothstep(0.30, 0.62, froth + 0.12) * drive;
+
+  float foam = clamp(stem * 0.85 + band * 0.50 + core + race * 0.90 + curl * 0.62,
+                     0.0, 0.94);
 
   // ---- aeration -----------------------------------------------------------
   // The water her screws and her bow have been through, foam or no foam. It
   // is a little wider than the white on it, and it lasts the whole life of
   // the wake: the bubbles take minutes to come up.
-  float aer = inBand * behind * liveA * mix(0.70, 1.0, clump) * drive;
+  float aer = inBand * behind * liveA * mix(0.78, 1.0, clump) * drive;
   aer = max(aer, max(stem, band) * 0.55);
   // Anything white has bubbles under it.
   aer = max(aer, foam * 0.8);

@@ -4,9 +4,10 @@
 // out as the glb build/prepare-*-hull.mjs goes on from.
 //
 // Shared by build/rodney-source.mjs and build/baltimore-source.mjs. Only these
-// scripts want the decimator (and the Rodney's the image decoder too):
+// scripts want the decimator (and the Rodney's the image decoder too, and the
+// Hood's the Draco decoder, for the sculpts of hers that came compressed):
 //
-//   npm i --no-save meshoptimizer@0.22 sharp
+//   npm i --no-save meshoptimizer@0.22 sharp draco3d
 //
 // resolved from the repository, or from wherever SCULPT_TOOLS says they were
 // installed.
@@ -75,6 +76,109 @@ export function readSource(file) {
     out.jpg = bin.subarray(v.byteOffset || 0, (v.byteOffset || 0) + v.byteLength);
   }
   return out;
+}
+
+/**
+ * A sculpt that came compressed -- its buffers packed with meshopt
+ * (EXT_meshopt_compression, KHR_mesh_quantization) or its mesh with Draco
+ * (KHR_draco_mesh_compression), as the owner's HMS Hood sculpts did -- read
+ * out as readSource reads a plain one: positions and normals as floats, the
+ * triangles, and the node's scale and offset put on the positions so it is
+ * where the sculpt has it. Wants meshoptimizer for the one and draco3d for the
+ * other (npm i --no-save meshoptimizer@0.22 draco3d). A plain glb is read as
+ * readSource reads it.
+ */
+export async function readCompressed(file) {
+  const b = readFileSync(file);
+  const jl = b.readUInt32LE(12);
+  const j = JSON.parse(b.subarray(20, 20 + jl).toString());
+  const used = j.extensionsUsed || [];
+  if (!used.includes('EXT_meshopt_compression') && !used.includes('KHR_draco_mesh_compression')
+    && !used.includes('KHR_mesh_quantization')) return readSource(file);
+  const bin = b.subarray(20 + jl + 8);
+  let views = j.bufferViews.map((v) => bin.subarray(v.byteOffset || 0, (v.byteOffset || 0) + v.byteLength));
+  if (used.includes('EXT_meshopt_compression')) {
+    const { MeshoptDecoder } = require('meshoptimizer');
+    await MeshoptDecoder.ready;
+    views = j.bufferViews.map((v, i) => {
+      const e = v.extensions && v.extensions.EXT_meshopt_compression;
+      if (!e) return views[i];
+      const out = new Uint8Array(e.count * e.byteStride);
+      const src = bin.subarray(e.byteOffset || 0, (e.byteOffset || 0) + e.byteLength);
+      MeshoptDecoder.decodeGltfBuffer(out, e.count, e.byteStride, src, e.mode, e.filter);
+      return Buffer.from(out.buffer);
+    });
+  }
+  const prim = j.meshes[0].primitives[0];
+  let P, N, T;
+  const draco = prim.extensions && prim.extensions.KHR_draco_mesh_compression;
+  if (draco) {
+    const dm = await require('draco3d').createDecoderModule({});
+    const data = views[draco.bufferView];
+    const dec = new dm.Decoder();
+    const db = new dm.DecoderBuffer();
+    db.Init(new Int8Array(data.buffer, data.byteOffset, data.byteLength), data.byteLength);
+    const mesh = new dm.Mesh();
+    const st = dec.DecodeBufferToMesh(db, mesh);
+    if (!st.ok()) throw new Error(`${file}: ${st.error_msg()}`);
+    const nf = mesh.num_faces(), np = mesh.num_points();
+    T = new Array(nf * 3);
+    const ia = new dm.DracoInt32Array();
+    for (let f = 0; f < nf; f++) {
+      dec.GetFaceFromMesh(mesh, f, ia);
+      for (let k = 0; k < 3; k++) T[f * 3 + k] = ia.GetValue(k);
+    }
+    const attr = (id) => {
+      const fa = new dm.DracoFloat32Array();
+      dec.GetAttributeFloatForAllPoints(mesh, dec.GetAttributeByUniqueId(mesh, id), fa);
+      const o = new Array(np * 3);
+      for (let k = 0; k < np * 3; k++) o[k] = fa.GetValue(k);
+      return o;
+    };
+    P = attr(draco.attributes.POSITION);
+    N = attr(draco.attributes.NORMAL);
+  } else {
+    const KIND = {
+      5120: ['getInt8', 1, 127], 5121: ['getUint8', 1, 255], 5122: ['getInt16', 2, 32767],
+      5123: ['getUint16', 2, 65535], 5125: ['getUint32', 4, 1], 5126: ['getFloat32', 4, 1],
+    };
+    const acc = (i) => {
+      const a = j.accessors[i];
+      const v = j.bufferViews[a.bufferView];
+      const n = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }[a.type];
+      const [get, size, max] = KIND[a.componentType];
+      const buf = views[a.bufferView];
+      const e = v.extensions && v.extensions.EXT_meshopt_compression;
+      const stride = v.byteStride || (e && e.byteStride) || n * size;
+      const dv = new DataView(buf.buffer, buf.byteOffset + (a.byteOffset || 0));
+      const out = new Array(a.count * n);
+      for (let k = 0; k < a.count; k++) {
+        for (let c = 0; c < n; c++) {
+          const x = dv[get](k * stride + c * size, true);
+          out[k * n + c] = a.normalized ? Math.max(-1, x / max) : x;
+        }
+      }
+      return { out, n };
+    };
+    const pos = acc(prim.attributes.POSITION);
+    const nrm = acc(prim.attributes.NORMAL);
+    P = [];
+    N = [];
+    for (let k = 0; k < pos.out.length / pos.n; k++) {
+      P.push(pos.out[k * pos.n], pos.out[k * pos.n + 1], pos.out[k * pos.n + 2]);
+      const x = nrm.out[k * nrm.n], y = nrm.out[k * nrm.n + 1], z = nrm.out[k * nrm.n + 2];
+      const l = Math.hypot(x, y, z) || 1;
+      N.push(x / l, y / l, z / l);
+    }
+    T = acc(prim.indices).out;
+  }
+  // The node it hangs from: a scale and an offset, which is how a quantized
+  // sculpt is put back where it was.
+  const node = j.nodes.find((n) => n.mesh === 0) || {};
+  if (node.rotation && Math.abs(node.rotation[3]) < 0.99999) throw new Error(`${file}: its node is turned`);
+  const s = node.scale || [1, 1, 1], t = node.translation || [0, 0, 0];
+  for (let k = 0; k < P.length; k += 3) for (let c = 0; c < 3; c++) P[k + c] = P[k + c] * s[c] + t[c];
+  return { P, N, UV: null, T, jpg: null };
 }
 
 /**
@@ -234,17 +338,23 @@ export function weldByPaint(m) {
  * within anything of where the tube's were, and weighing them keeps the tube
  * round.
  */
-export function decimate(simplify, m, ratio, error, normalWeight = 0) {
+/**
+ * `flags` are meshoptimizer's simplifier flags: 'Prune' lets it take off
+ * small disconnected bits -- a rail, a cleat -- rather than crumple them into
+ * shards to keep them. `lock`, if given, is one byte a point: a point marked
+ * 1 stays where it is, and no edge is collapsed onto or off it.
+ */
+export function decimate(simplify, m, ratio, error, normalWeight = 0, flags = [], lock = null) {
   const idx = Uint32Array.from(m.T);
   const pos = Float32Array.from(m.P);
   const target = Math.floor((idx.length / 3) * ratio) * 3;
   let out, err;
-  if (normalWeight > 0) {
+  if (normalWeight > 0 || lock) {
     simplify.useExperimentalFeatures = true;
     [out, err] = simplify.simplifyWithAttributes(idx, pos, 3, Float32Array.from(m.N), 3,
-      [normalWeight, normalWeight, normalWeight], null, target, error, []);
+      [normalWeight, normalWeight, normalWeight], lock, target, error, flags);
   } else {
-    [out, err] = simplify.simplify(idx, pos, 3, target, error, []);
+    [out, err] = simplify.simplify(idx, pos, 3, target, error, flags);
   }
   // Only the points still used.
   const used = new Int32Array(m.P.length / 3).fill(-1);

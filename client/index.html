@@ -59,6 +59,7 @@
     <nav class="menu menu-right">
       <button class="menu-item" data-action="premium">Premium Equipment</button>
       <button class="menu-item" data-action="options">Options / Help</button>
+      <button class="menu-item" data-action="credits">Credits</button>
       <button class="menu-item" data-action="account">Account Settings</button>
     </nav>
   </div>
@@ -161,8 +162,8 @@
 </section>
 
 <!-- ======================= PREMIUM EQUIPMENT ======================= -->
-<!-- The three departments of the store. None is open yet: each is a door
-     with nothing behind it until the store is stocked. -->
+<!-- The three departments of the store. Ships is stocked; the other two are
+     doors with nothing behind them until they are. -->
 <section id="screen-premium" class="screen panel-screen">
   <div class="panel">
     <header class="panel-head">
@@ -181,6 +182,24 @@
     </div>
     <footer class="panel-foot">
       <button class="btn ghost" data-action="back">Back</button>
+    </footer>
+  </div>
+</section>
+
+<!-- ===================== PREMIUM EQUIPMENT: SHIPS ================== -->
+<!-- The store's hulls. Each opens in the yard, to be looked over and
+     commissioned into a fleet; see premium.js for what it takes to sail one. -->
+<section id="screen-premium-ships" class="screen panel-screen">
+  <div class="panel">
+    <header class="panel-head">
+      <h2>Premium Ships</h2>
+      <p>Hulls you will not find in the yard.</p>
+    </header>
+    <div class="panel-body">
+      <div class="premium-ships" id="premium-ships-list"></div>
+    </div>
+    <footer class="panel-foot">
+      <button class="btn ghost" id="premium-ships-back">Back</button>
     </footer>
   </div>
 </section>
@@ -362,7 +381,6 @@
         <label class="check"><input type="checkbox" id="opt-shadows" checked /> <span>Shadows</span></label>
         <label class="check"><input type="checkbox" id="opt-recoil" checked /> <span>Gunfire camera recoil</span></label>
         <label class="check"><input type="checkbox" id="opt-pencam" checked /> <span>Penetration camera</span></label>
-        <label class="check"><input type="checkbox" id="opt-voices" checked /> <span>Bridge voice orders</span></label>
         <label class="check"><input type="checkbox" id="opt-ff" /> <span>Friendly fire</span></label>
         <p class="help">Off by default. With it on, your own side's shells, torpedoes,
           depth charges, aircraft and rams hurt your own side, and the enemy's hurt
@@ -378,6 +396,68 @@
         <p class="help">You are only visible when spotted. Firing gives your
           position away; smoke and islands take it back.</p>
       </div>
+    </div>
+    <footer class="panel-foot">
+      <button class="btn ghost" data-action="back">Back</button>
+    </footer>
+  </div>
+</section>
+
+<!-- =========================== CREDITS =========================== -->
+<!-- The models other people made and let the game use, each credited as its
+     licence asks: title, link, author, and the licence it is under. -->
+<section id="screen-credits" class="screen panel-screen">
+  <div class="panel">
+    <header class="panel-head">
+      <h2>Credits</h2>
+      <p>Steel Currents v1.25</p>
+    </header>
+    <div class="panel-body credits">
+      <p class="credit">"<a href="https://skfb.ly/pPOwn" target="_blank" rel="noopener">B-29A-BN with Mk.6 ☢︎</a>"
+        by <a href="https://sketchfab.com/Jeyhun1985" target="_blank" rel="noopener">Jeyhun1985</a> is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oHuvB" target="_blank" rel="noopener">The Third Reich Navy large cruiser HAGEN</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/osPxN" target="_blank" rel="noopener">Italian Battleship Francesco Morosini</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oHGQz" target="_blank" rel="noopener">US Super Battleship Rhodeisland</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/o6w8T" target="_blank" rel="noopener">IJN CV SHOUKAKU 1960</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/o6M9r" target="_blank" rel="noopener">U.S. Navy Aircraft Carrier USS Hornet(CV-8)</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pwCxw" target="_blank" rel="noopener">British Super Heavy Cruiser Leviathan</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oHuvq" target="_blank" rel="noopener">The Third Reich Navy large cruiser ADM. SCHEER</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oHyvM" target="_blank" rel="noopener">USS Missouri (BB-63) 1991</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oHFAG" target="_blank" rel="noopener">US CLAA Ticonderoga</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oFMxF" target="_blank" rel="noopener">Chinese PLANavy Guangzhou Ship（中国人民解放军海军广州舰）</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/o7TNV" target="_blank" rel="noopener">1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.</a>"
+        by Yi Tsung Lee is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pBN6X" target="_blank" rel="noopener">Sovremenny-class destroyer</a>"
+        by SB-129 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptQuP" target="_blank" rel="noopener">Japanese Cruiser Atago</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptQvY" target="_blank" rel="noopener">Japanese Battleship Mutsu</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
     </div>
     <footer class="panel-foot">
       <button class="btn ghost" data-action="back">Back</button>
@@ -403,8 +483,9 @@
       <div class="spec-what" id="spec-what"></div>
       <div class="spec-sub" id="spec-sub"></div>
     </div>
-    <!-- No bar. What she is worth is what her compartments are worth, and that
-         is read off the damage board behind the wrench. -->
+    <!-- Her integrity: every way she has been hurt, added up. The pale end of
+         the track is what she can never be mended back to. Where the damage
+         is stays on the damage board behind the wrench. -->
     <!-- Walking about her in the human view: the stick moves you, a drag
          anywhere else turns your head. -->
     <div class="human-stick" id="human-stick" hidden>
@@ -412,11 +493,33 @@
     </div>
     <div class="ship-plate">
       <div class="name" id="own-name">—</div>
+      <div class="integrity" id="integrity" title="Integrity: structural, flooding, fire and weapon damage together">
+        <div class="integrity-head"><span>INTEGRITY</span><b id="integrity-pct">100%</b></div>
+        <div class="integrity-track">
+          <div class="integrity-lost" id="integrity-lost"></div>
+          <div class="integrity-fill" id="integrity-fill"></div>
+        </div>
+      </div>
       <div class="cond-row" id="cond-row"></div>
       <div class="status-row" id="status-row"></div>
     </div>
   </div>
 
+  <!-- The missile radar: only on a ship that carries missiles. A fire button
+       for each kind she carries and what is left of it (and, on a VLS ship,
+       her Aegis switch), the ship the next one goes for, and every one of
+       hers in the air on a scope round the one being ridden -- tap one on
+       the scope or in the list to ride it in. -->
+  <div class="msl-radar" id="msl-radar" hidden>
+    <div class="msl-head"><span>MISSILE RADAR</span><b id="msl-mode">OWN SHIP</b></div>
+    <canvas id="msl-scope" width="300" height="300"></canvas>
+    <div class="msl-target"><span>TGT</span><b id="msl-target">AUTO &middot; NEAREST</b>
+      <button type="button" id="msl-next" aria-label="Next target">&#9654;</button></div>
+    <div class="msl-fire" id="msl-fire">
+    </div>
+    <div class="msl-air" id="msl-air"></div>
+    <p class="msl-hint" id="msl-hint">Z Tomahawk &middot; V Harpoon &middot; N target &middot; J ride</p>
+  </div>
   <div class="hud-right" id="hud-right">
     <!-- The one way into the free camera. It used to start the moment anybody
          shift-dragged, which meant the camera wandered off its ship by
@@ -939,11 +1042,34 @@
       <span class="ag-n" id="ag-n-torpedo">4</span>
       <button class="ag-step" type="button" data-kind="torpedo" data-step="1" aria-label="More torpedo bombers">+</button>
     </div>
+    <!-- A deckload ranged over her flight deck, outside her hangar: the
+         Hornet's B-25s. Shown only for a carrier that has one. -->
+    <div class="ag-row" data-kind="deckload" id="ag-row-deckload" hidden>
+      <span class="ag-name">Deck bombers<em>B-25 Mitchell &mdash; bombs</em></span>
+      <button class="ag-step" type="button" data-kind="deckload" data-step="-1" aria-label="Fewer deck bombers">&minus;</button>
+      <span class="ag-n" id="ag-n-deckload">16</span>
+      <button class="ag-step" type="button" data-kind="deckload" data-step="1" aria-label="More deck bombers">+</button>
+    </div>
     <div class="ag-total" id="ag-total"><span>Embarked</span><span id="ag-total-n">12 / 12</span></div>
     <p class="ag-note" id="ag-note"></p>
     <div class="ag-actions">
       <button class="btn ghost" id="ag-reset" type="button">Default</button>
       <button class="btn" id="ag-done" type="button">Done</button>
+    </div>
+  </div>
+
+  <!-- How her vertical launchers are loaded: a row a missile, as many of
+       each as she likes, so long as they fit her cells. Shown only for a ship
+       with a VLS; the rows are built for her kinds when it opens. -->
+  <div class="airgroup" id="vlspanel" hidden>
+    <h3>VLS Loadout</h3>
+    <p class="ag-sub" id="vls-sub">Load her cells as you like.</p>
+    <div id="vls-rows"></div>
+    <div class="ag-total" id="vls-total"><span>Cells loaded</span><span id="vls-total-n">90 / 90</span></div>
+    <p class="ag-note" id="vls-note"></p>
+    <div class="ag-actions">
+      <button class="btn ghost" id="vls-reset" type="button">Default</button>
+      <button class="btn" id="vls-done" type="button">Done</button>
     </div>
   </div>
 
@@ -1031,6 +1157,19 @@
   <div class="rot-icon"></div>
   <p>Turn your device sideways</p>
   <span>Steel Currents needs the horizon across the screen.</span>
+</div>
+
+<!-- What the ship icon opens first: which era's hulls the shipyard shows. -->
+<div id="era-pick" class="era-pick" hidden role="dialog" aria-modal="true" aria-labelledby="era-title">
+  <div class="era-box">
+    <h3 id="era-title">Commission Vessel</h3>
+    <p class="era-sub">Which navy?</p>
+    <div class="era-choices">
+      <button class="btn era-btn" type="button" data-era="wwii">WWII<em>1939&ndash;1945</em></button>
+      <button class="btn era-btn" type="button" data-era="modern">Modern<em>Cold War&ndash;Missile Age</em></button>
+    </div>
+    <button class="btn ghost era-cancel" id="era-cancel" type="button">Cancel</button>
+  </div>
 </div>
 
 <div id="toast" class="toast"></div>

@@ -10,7 +10,7 @@
 // back on the spawn line and no artillery at all. One copy, and that cannot
 // happen again.
 
-import { normaliseAirGroup } from '../shared/sim.js';
+import { setAirGroup, setVlsLoad } from '../shared/sim.js';
 import { getClass } from '../shared/ships.js';
 import { isOpenSea } from '../shared/world.js';
 import { BOMBER_MAX } from '../shared/bombers.js';
@@ -37,7 +37,12 @@ export function berthsFrom(v, cap) {
 export function wingOf(v) {
   if (!v || typeof v !== 'object') return null;
   const ok = ['fighters', 'dive', 'torpedo'].every((k) => Number.isFinite(Number(v[k])));
-  return ok ? { fighters: Number(v.fighters), dive: Number(v.dive), torpedo: Number(v.torpedo) } : null;
+  if (!ok) return null;
+  const w = { fighters: Number(v.fighters), dive: Number(v.dive), torpedo: Number(v.torpedo) };
+  // And a deckload ranged over her flight deck, for the one carrier that has
+  // one -- the Hornet's B-25s.
+  if (v.deckload != null && Number.isFinite(Number(v.deckload))) w.deckload = Number(v.deckload);
+  return w;
 }
 
 /** The battery ids off the gun park, sanitised the same way. */
@@ -74,7 +79,14 @@ export function crewBattle(room, req, seat, limits = {}) {
     room.airGroup = { team, group: req.airGroup };
     for (const sh of room.state.ships) {
       if (sh.team !== team || !sh.squadrons || !sh.squadrons.length) continue;
-      sh.airGroup = normaliseAirGroup(getClass(sh.classId), req.airGroup);
+      setAirGroup(sh, getClass(sh.classId), req.airGroup);
+    }
+  }
+  // And how she loaded her side's vertical launchers, the same way.
+  if (req.vls && typeof req.vls === 'object') {
+    room.vlsLoad = { team, load: req.vls };
+    for (const sh of room.state.ships) {
+      if (sh.team === team) setVlsLoad(sh, getClass(sh.classId), req.vls);
     }
   }
   // And her own, if the briefing gave her hull one: every carrier in a fleet
@@ -82,7 +94,7 @@ export function crewBattle(room, req, seat, limits = {}) {
   if (wingOf(req.wing)) {
     for (const sh of room.state.ships) {
       if (sh.team !== team || sh.isBot || !sh.squadrons || !sh.squadrons.length) continue;
-      sh.airGroup = normaliseAirGroup(getClass(sh.classId), req.wing);
+      setAirGroup(sh, getClass(sh.classId), req.wing);
     }
   }
   const allyWings = Array.isArray(req.allyWings) ? req.allyWings : [];

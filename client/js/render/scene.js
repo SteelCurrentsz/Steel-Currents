@@ -4,13 +4,14 @@ import * as THREE from '../../../vendor/three.module.js';
 import { Ocean, OCEAN_PRESETS, WAVES } from './ocean.js';
 import { windAt } from '../../../shared/sea.js';
 import { Weather } from './weather.js';
-import { buildShip } from './ships.js';
+import { buildShip, shipReady } from './ships.js';
 import { buildBattery } from './battery.js';
 import { Effects } from './effects.js';
 import { Flames } from './flames.js';
 import { WorksView } from './works.js';
 import { Shells, Flak, Bombs } from './ordnance.js';
 import { Rockets } from './rockets.js';
+import { Missiles } from './missiles.js';
 import { Torpedoes } from './torpedo.js';
 import { DepthCharges } from './depthcharge.js';
 import { Mines } from './mines.js';
@@ -18,6 +19,7 @@ import { Flights } from './planes.js';
 import { Contrails, GunFlashes } from './airfx.js';
 import { SmokeScreens } from './smokescreen.js';
 import { Heavies } from './heavies.js';
+import { Nukes } from './nuke.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
@@ -49,9 +51,11 @@ import { clamp } from '../../../shared/math.js';
 
 const SKY = {
   night: { top: 0x050d1c, bottom: 0x1d3550 },
-  dawn: { top: 0x142b4f, bottom: 0xc98a5e },
-  dusk: { top: 0x1d2542, bottom: 0x8a5f50 },
-  day: { top: 0x2f6ea8, bottom: 0xa8cbe0 },
+  dawn: { top: 0x1a2738, bottom: 0x8d7262 },
+  dusk: { top: 0x1c2232, bottom: 0x6e5a54 },
+  // A wartime sky, not a holiday one: high haze and a lid of grey over the
+  // blue, so the noon sea is heavy and cold rather than bright.
+  day: { top: 0x3f5466, bottom: 0x96a2aa },
 };
 
 /**
@@ -671,6 +675,9 @@ function mountToWreck(m, frame = null) {
   };
 }
 
+/** How far a box launcher is raised to fire, in radians: see BOX_ELEV in sim.js. */
+const LAUNCHER_ELEV = 0.6;
+
 export class ShipView {
   constructor(scene, classId, team, isSelf, ocean = null, quality = undefined,
     wakes = null, wreck = null) {
@@ -697,6 +704,9 @@ export class ShipView {
       }
     }
     this.torpMounts = built.torpMounts || [];
+    // Her anti-submarine rocket launchers, if she has any: laid where the
+    // simulation last fired each (see holdRbu), stowed otherwise.
+    this.rbuMounts = built.rbuMounts || [];
     // The outer doors of a submarine's tubes, if she has any. Nothing else in
     // the game has them.
     this.tubeCaps = built.tubeCaps || null;
@@ -718,6 +728,14 @@ export class ShipView {
     this.sinking = 0;
     // Her own motion in the water, which is hers and not the sea's.
     this.sea = new Seakeeping(this.cls.hull);
+    // A hull whose sculpt had not come down when she was first drawn is the
+    // stand-in generated off her class (see buildModel). The battle swaps
+    // her for her own model once it lands (see Game), but only while there
+    // is nothing on the stand-in to lose: anything that marks her -- a hole,
+    // a scorch, a mounting shot away, her breaking up -- keeps her as she is.
+    this.standIn = !shipReady(classId);
+    this.marked = false;
+    if (this.standIn) this.watchForMarks();
     scene.add(this.group);
 
     const len = this.cls.hull.length;
@@ -1266,7 +1284,7 @@ export class ShipView {
    * through the other side (see lineInside).
    */
   opened(x, y, z, r, n = null) {
-    if (this.plating) lineInside(this.plating.parts);
+    if (this.plating) lineInside(this.plating.parts, this.holes ? this.holes.U : null);
   }
 
   /** A collision too light to open her: her plating scraped for `len` metres. */
@@ -1659,7 +1677,7 @@ export class ShipView {
    * past its loading angle unless it has something to shoot at. That is the
    * difference you watch, so the rates are the guns' own.
    */
-  layMounts(sec, secElev, torp, planes, dt, turretElev) {
+  layMounts(sec, secElev, torp, planes, dt, turretElev, rbu, rbuElev) {
     // The main battery's elevation. Her bearings are set from the wire in the
     // caller -- they always were -- and this is the other half of the same lay.
     if (turretElev) {
@@ -1689,7 +1707,41 @@ export class ShipView {
         layMount(this.torpMounts[i], torp[i], 0, 0.7 * dt, 0.7 * dt);
       }
     }
+    if (this.rbuMounts.length) {
+      const now = performance.now() / 1000;
+      this.rbuMounts.forEach((m, i) => {
+        if (m.userData.laid === false) return;
+        const hold = m.userData.hold;
+        const sector = m.userData.sector;
+        let want = sector ? sector.stow : (m.userData.rest || 0);
+        let up = 0;
+        // Trained where the simulation has it -- coming round onto a torpedo
+        // or a boat before it fires -- or, off an older snapshot that does not
+        // say, held on the bearing it last fired on.
+        if (rbu && Number.isFinite(rbu[i])) { want = rbu[i]; up = rbuElev ? rbuElev[i] || 0 : 0; }
+        else if (hold && hold.until > now) { want = hold.b - this.group.rotation.y; up = hold.up; }
+        if (sector) {
+          let o = want - sector.angle;
+          while (o > Math.PI) o -= Math.PI * 2;
+          while (o < -Math.PI) o += Math.PI * 2;
+          want = sector.angle + Math.max(-sector.arc, Math.min(sector.arc, o));
+        }
+        // A shade quicker than the launcher itself, so the drawing keeps up
+        // with the snapshots rather than lagging them round.
+        layMount(m, want, up, (m.userData.trainRate || 0.7) * 1.4 * dt, 0.7 * dt);
+      });
+    }
     if (!this.aaMounts.length) return;
+    // A light gun on a turret's roof goes round with the turret: it is put
+    // where its spot on the roof has trained to, and is laid in her frame
+    // like every other. (The King George V's Oerlikons on A, B and Y.)
+    for (const m of this.aaMounts) {
+      const ride = m.userData.ride;
+      if (!ride) continue;
+      const t = ride.turret;
+      const c = Math.cos(t.rotation.y), s = Math.sin(t.rotation.y);
+      m.position.set(t.position.x + ride.x * c + ride.z * s, t.position.y + ride.y, t.position.z - ride.x * s + ride.z * c);
+    }
     // The nearest aeroplane, in her own frame -- bearing, and how far up.
     let want = null;
     let up = null;
@@ -1788,6 +1840,37 @@ export class ShipView {
    * light battery is laid on when it fires, which the simulation says and the
    * nearest aeroplane does not.
    */
+  /**
+   * Her box launchers, raised and lowered as the wire has them: each box
+   * swung up about the hinge at its inboard end. `ml` is how far up each is,
+   * 0 stowed and 1 raised to fire.
+   */
+  layLaunchers(ml, dt) {
+    const L = this.group.userData.launchers;
+    if (!L || !ml) return;
+    for (let i = 0; i < L.length && i < ml.length; i++) {
+      const b = L[i];
+      // Eased between snapshots, so a box swings up rather than stepping.
+      b.raise += Math.max(-dt * 0.6, Math.min(dt * 0.6, ml[i] - b.raise));
+      b.lift.rotation.x = -b.raise * LAUNCHER_ELEV;
+    }
+  }
+
+  /** Where the outboard end of one of her raised boxes is, in the world. */
+  launcherMouth(i, out = new THREE.Vector3()) {
+    const b = this.group.userData.launchers?.[i];
+    if (!b) return null;
+    out.set(0, b.h * 0.6, b.len);
+    return b.lift.localToWorld(out);
+  }
+
+  /** Hold one of her rocket launchers on a world bearing and an elevation for `secs`. */
+  holdRbu(i, bearing, up, secs) {
+    const m = this.rbuMounts && this.rbuMounts[i];
+    if (!m || !Number.isFinite(bearing)) return;
+    m.userData.hold = { b: bearing, up: up || 0, until: performance.now() / 1000 + secs };
+  }
+
   holdLight(i, bearing, up, secs) {
     const m = this.aaMounts && this.aaMounts[i];
     if (!m || !Number.isFinite(bearing)) return;
@@ -1845,6 +1928,16 @@ export class ShipView {
       if (Math.abs(d) <= spread) hit.push(m);
     }
     return hit;
+  }
+
+  /** Whatever marks her from now on is noted in `marked` (see standIn). */
+  watchForMarks() {
+    for (const k of ['founder', 'breakHer', 'blowApart', 'blowOut', 'cutHer', 'stove', 'holeAt',
+      'scorchAt', 'scrapeAt', 'dropMount']) {
+      const f = this[k];
+      if (typeof f !== 'function') continue;
+      this[k] = (...a) => { this.marked = true; return f.apply(this, a); };
+    }
   }
 
   dispose(scene) {
@@ -2005,8 +2098,8 @@ export class BattleScene {
     // The sky term is held up more than the sun is: under cloud the light is
     // all sky and no sun, which is why an overcast day is flat rather than dark.
     this.scene.add(new THREE.HemisphereLight(
-      preset === 'day' ? 0xa8cee6 : preset === 'dusk' ? 0x7e8fb0 : 0x4a6c9c,
-      preset === 'day' ? 0x2c5a72 : 0x111a26,
+      preset === 'day' ? 0x9eacb7 : preset === 'dusk' ? 0x737d90 : 0x44597a,
+      preset === 'day' ? 0x25343f : 0x111a26,
       // Held up more than the sun, or a ship in a typhoon is a black shape
       // on a black sea; but it goes down with it.
       (preset === 'day' ? 1.0 : preset === 'dusk' ? 0.7 : 0.55) * (0.45 + 0.55 * wx.light)
@@ -2106,6 +2199,8 @@ export class BattleScene {
     this.shells = new Shells(this.scene, 900);
     // And the rockets, which are not shells: fins, a motor and a trail.
     this.rockets = new Rockets(this.scene, this.effects.trails, 240);
+    // And the guided missiles: a Tomahawk or a Harpoon, its flame and its trail.
+    this.missiles = new Missiles(this.scene, this.effects.trails);
     // The light battery's tracer and the black puffs it leaves behind.
     this.flak = new Flak(this.scene, 900);
     // What the dive bombers let go of, on the way down.
@@ -2134,6 +2229,9 @@ export class BattleScene {
     // And the heavy squadrons, which are nobody's carrier aircraft: their own
     // batch, their own models and their own spacing. See heavies.js.
     this.heavies = new Heavies(this.scene, 27);
+    // And an atomic bomb going off, which is nothing like anything else here.
+    // See nuke.js.
+    this.nukes = new Nukes(this.scene);
 
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the
@@ -2192,6 +2290,12 @@ export class BattleScene {
 
   getShipView(id, classId, team, isSelf) {
     let v = this.shipViews.get(id);
+    // Drawn as her stand-in, and her own model is in now: she is built again
+    // as herself, if nothing has happened to the stand-in worth keeping.
+    if (v && v.standIn && !v.marked && !v.sinking && !(v.sinkY > 0.3) && shipReady(classId)) {
+      this.removeShipView(id);
+      v = null;
+    }
     if (!v) {
       v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
         this.wakes, this.wreck);
@@ -2372,7 +2476,9 @@ export class BattleScene {
     this.wreck.update(dt);
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
+    this.nukes.update(dt, this.camera);
     this.torpedoes.update(dt, this.torpsNow || []);
+    this.missiles.update(this.missilesNow || [], dt);
     this.charges.update(dt, this.chargesNow || []);
     this.mines.update(dt, this.minesNow || []);
     this.weather.update(dt, eye);

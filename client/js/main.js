@@ -24,9 +24,11 @@ import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
 import * as account from './account.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
-import { SHIP_CLASSES, SHIP_ORDER } from '../../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, WWII_ORDER, MODERN_ORDER } from '../../shared/ships.js';
+import { ADS_REQUIRED, premiumUnlocked, unlockWithAd } from './premium.js';
+import { KNOTS } from '../../shared/math.js';
 import { MAP_PRESETS } from '../../shared/world.js';
-import { normaliseAirGroup } from '../../shared/sim.js';
+import { normaliseAirGroup, defaultAirGroup, normaliseVls, defaultVls, vlsKinds, vlsCells } from '../../shared/sim.js';
 
 /**
  * The loading screen.
@@ -258,7 +260,7 @@ let canvas = real.domElement;
 renderer.setClearColor(0x050c16);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.18;
+renderer.toneMappingExposure = 1.04;
 
 // Every battle is hosted here, in the tab: the simulation, the bot captains
 // and the room they fight in all run on this device, so the game plays with
@@ -283,7 +285,9 @@ function fleetOf(m) {
       && (m.enemies == null || m.enemies <= enemies.length);
     if (named) return [...new Set([m.classId, ...allies, ...enemies].filter(Boolean))];
   }
-  return SHIP_ORDER;
+  // Her own hull too, which may be one from the Premium Equipment store and
+  // so in no fleet a bot is drawn from.
+  return [...new Set([m.classId, ...SHIP_ORDER].filter(Boolean))];
 }
 /**
  * A page loaded before the game was last published asks for its ships by the
@@ -502,7 +506,7 @@ function rebuild() {
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['gate', 'account', 'title', 'premium', 'pvp', 'custom', 'options', 'fleet',
+const screens = ['gate', 'account', 'title', 'premium', 'premium-ships', 'pvp', 'custom', 'options', 'credits', 'fleet',
   'yard', 'guns', 'bombers', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
@@ -565,6 +569,7 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
       case 'arcade': briefing.setMode('arcade'); show('custom'); briefing.show(); break;
       case 'custom': briefing.setMode('custom'); show('custom'); briefing.show(); break;
       case 'options': show('options'); break;
+      case 'credits': show('credits'); break;
       case 'premium': show('premium'); break;
       case 'back': show('title'); break;
       case 'account': openAccount(); break;
@@ -701,7 +706,7 @@ const briefing = new Briefing({
   // The hull icons open the picker; choosing or cancelling returns to the chart.
   onOpenPicker: () => show('fleet'),
   onClosePicker: () => show('custom'),
-  onOpenYard: (side) => openYard(side),
+  onOpenYard: (side) => openEra(side),
   onOpenChart: (at) => openChart(at),
   onOpenGuns: (side) => openGuns(side),
   onOpenBombers: (side) => openBombers(side),
@@ -732,10 +737,24 @@ document.getElementById('deploy-close').onclick = () => { audio.click(); show('c
 // `refit` is set while the yard is open on one hull already in a fleet --
 // which side, and which of its hulls -- to change her air group and nothing
 // else; null while it is open to commission something new.
-const yardUi = { side: 'ally', index: 0, ag: null, refit: null };
+// `order` is the list the yard walks: the fleet's hulls, or the Premium
+// Equipment store's when it was opened from there (`from`: the screen it goes
+// back to).
+const yardUi = { side: 'ally', index: 0, ag: null, refit: null, order: SHIP_ORDER, from: null };
 
-function openYard(side) {
+/** The hull on the water, or the one `d` along the yard's list from her. */
+function yardShip(d = 0) {
+  const n = yardUi.order.length;
+  return yardUi.order[(((yardUi.index + d) % n) + n) % n];
+}
+
+function openYard(side, { order = SHIP_ORDER, at = null, from = null } = {}) {
   yardUi.side = side;
+  if (order !== yardUi.order || at !== null) {
+    yardUi.order = order;
+    yardUi.index = Math.max(0, at === null ? 0 : order.indexOf(at));
+  }
+  yardUi.from = from;
   if (!yard) {
     yard = new ShipyardScene(renderer);
     yard.resize(window.innerWidth, window.innerHeight);
@@ -749,11 +768,34 @@ function openYard(side) {
   renderYard();
 }
 
+// The ship icon asks first which navy to look at: the war's hulls or the
+// missile age's. The yard then walks that list alone.
+const ERA_ORDER = { wwii: WWII_ORDER, modern: MODERN_ORDER };
+const eraEl = document.getElementById('era-pick');
+let eraSide = 'ally';
+
+function openEra(side) {
+  eraSide = side;
+  eraEl.hidden = false;
+  eraEl.querySelector('[data-era]')?.focus();
+}
+function closeEra() { eraEl.hidden = true; }
+for (const b of eraEl.querySelectorAll('[data-era]')) {
+  b.onclick = () => {
+    audio.click();
+    closeEra();
+    openYard(eraSide, { order: ERA_ORDER[b.dataset.era] });
+  };
+}
+document.getElementById('era-cancel').onclick = () => { audio.click(); closeEra(); };
+eraEl.addEventListener('click', (e) => { if (e.target === eraEl) closeEra(); });
+
 function closeYard() {
   closeAirGroup();
+  closeVls();
   yardUi.refit = null;
   yard?.detach();
-  show('custom');
+  show(yardUi.from || 'custom');
 }
 
 /**
@@ -762,11 +804,11 @@ function closeYard() {
  */
 function openRefit(side, i) {
   const id = briefing.state[side === 'ally' ? 'allyFleet' : 'enemyFleet'][i];
-  const at = SHIP_ORDER.indexOf(id);
-  if (at < 0 || !SHIP_CLASSES[id]?.planes?.group) return;
+  const order = PREMIUM_ORDER.includes(id) ? PREMIUM_ORDER
+    : MODERN_ORDER.includes(id) ? MODERN_ORDER : WWII_ORDER;
+  if (!order.includes(id) || !SHIP_CLASSES[id]?.planes?.group) return;
   audio.click();
-  yardUi.index = at;
-  openYard(side);
+  openYard(side, { order, at: id });
   yardUi.refit = { side, i, id };
   renderYard();
   openAirGroup();
@@ -778,7 +820,11 @@ function sheet(el, heading, rows) {
     `<div class="yard-row${act ? ' act' : ''}"${act ? ` data-act="${act}"` : ''}>`
     + `<span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
   for (const row of el.querySelectorAll('.yard-row.act')) {
-    row.onclick = () => { audio.click(); if (row.dataset.act === 'airgroup') openAirGroup(); };
+    row.onclick = () => {
+      audio.click();
+      if (row.dataset.act === 'airgroup') openAirGroup();
+      if (row.dataset.act === 'vls') openVls();
+    };
   }
 }
 
@@ -797,8 +843,13 @@ function sheet(el, heading, rows) {
 const AG_KINDS = ['fighters', 'dive', 'torpedo'];
 
 function airGroupSpec() {
-  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const id = yardShip();
   return SHIP_CLASSES[id]?.planes?.group || null;
+}
+
+/** The deckload ranged over her flight deck, for a carrier that has one. */
+function deckloadSpec() {
+  return SHIP_CLASSES[yardShip()]?.planes?.deckload || null;
 }
 
 /**
@@ -818,7 +869,8 @@ function currentAirGroup(cls) {
 function openAirGroup() {
   const spec = airGroupSpec();
   if (!spec) return;
-  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  closeVls();
+  const id = yardShip();
   yardUi.ag = { ...currentAirGroup(SHIP_CLASSES[id]) };
   document.getElementById('airgroup').hidden = false;
   renderAirGroup();
@@ -838,11 +890,11 @@ function renderAirGroup() {
   document.getElementById('ag-sub').textContent =
     `${spec.total} aircraft in the hangar. Any mix you like, all of one kind or none of another.`;
   // What she actually flies in each role: a Shinano's fighters are Zeros.
-  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const id = yardShip();
   const types = SHIP_CLASSES[id]?.planes?.types || {};
   const NAMES = {
     zero: 'Zero', suisei: 'Suisei', b5n: 'B5N',
-    hellcat: 'Hellcat', wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger',
+    hellcat: 'Hellcat', wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger', devastator: 'Devastator',
     bf109: 'Bf-109', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
   };
   const ROLES = { fighters: ['fighter', 'Hellcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],
@@ -853,6 +905,11 @@ function renderAirGroup() {
     if (em) em.textContent = `${NAMES[types[role]] || fallback} \u2014 ${job}`;
   }
   for (const k of AG_KINDS) document.getElementById(`ag-n-${k}`).textContent = g[k];
+  // Her deckload, if she has one: on her flight deck, not in her hangar, so
+  // it is not counted against it.
+  const DL = deckloadSpec();
+  document.getElementById('ag-row-deckload').hidden = !DL;
+  if (DL) document.getElementById('ag-n-deckload').textContent = g.deckload ?? DL.count;
   document.getElementById('ag-total-n').textContent = `${total} / ${spec.total}`;
   document.getElementById('ag-total').classList.toggle('full', total === spec.total);
   // Every stepper says for itself whether it can be pressed, so a captain is
@@ -860,6 +917,11 @@ function renderAirGroup() {
   for (const btn of document.querySelectorAll('.ag-step')) {
     const k = btn.dataset.kind;
     const d = Number(btn.dataset.step);
+    if (k === 'deckload') {
+      const n = (g.deckload ?? 0) + d;
+      btn.disabled = !DL || n < 0 || n > DL.count;
+      continue;
+    }
     const n = g[k] + d;
     let ok = n >= spec.min[k] && n <= spec.max[k];
     if (ok && d > 0) ok = total < spec.total;
@@ -877,6 +939,14 @@ function stepAirGroup(kind, d) {
   const spec = airGroupSpec();
   const g = yardUi.ag;
   if (!spec || !g) return;
+  if (kind === 'deckload') {
+    const DL = deckloadSpec();
+    const n = (g.deckload ?? 0) + d;
+    if (!DL || n < 0 || n > DL.count) return;
+    g.deckload = n;
+    renderAirGroup();
+    return;
+  }
   const n = g[kind] + d;
   if (n < spec.min[kind] || n > spec.max[kind]) return;
   const total = AG_KINDS.reduce((a, k) => a + g[k], 0);
@@ -886,20 +956,110 @@ function stepAirGroup(kind, d) {
   renderAirGroup();
 }
 
+// ------------------------------------------------------------ VLS loadout --
+
+/**
+ * What her vertical launchers carry, and the panel that sets it.
+ *
+ * Every cell takes any of her VLS missiles, one to a cell: Standards for
+ * aircraft and missiles, SM-3s for missiles, Tomahawks for ships and ASROC
+ * for submarines. A captain loads as many of each as he likes, so long as the
+ * lot fits; a cell left empty is a cell that fires nothing. The choice is kept
+ * in settings and rides the sortie request, so the VLS ships on her side sail
+ * with it.
+ */
+function currentVls(cls) {
+  if (!cls || !vlsKinds(cls).length) return null;
+  return normaliseVls(cls, getSettings().vls || null);
+}
+
+function openVls() {
+  const cls = SHIP_CLASSES[yardShip()];
+  if (!cls || !vlsKinds(cls).length) return;
+  closeAirGroup();
+  yardUi.vls = { ...currentVls(cls) };
+  const K = cls.missiles.kinds;
+  const role = { sam: 'aircraft and missiles', abm: 'missiles', surface: 'ships', asroc: 'submarines and ships' };
+  const rows = document.getElementById('vls-rows');
+  rows.innerHTML = vlsKinds(cls).map((k) => `<div class="ag-row" data-kind="${k}">`
+    + `<span class="ag-name">${K[k].short}<em>${K[k].name} &mdash; ${role[K[k].role] || 'ships'}</em></span>`
+    + `<button class="ag-step vls-step" type="button" data-kind="${k}" data-step="-1" aria-label="Fewer ${K[k].short}">&minus;</button>`
+    + `<span class="ag-n" id="vls-n-${k}">0</span>`
+    + `<button class="ag-step vls-step" type="button" data-kind="${k}" data-step="1" aria-label="More ${K[k].short}">+</button>`
+    + '</div>').join('');
+  for (const btn of rows.querySelectorAll('.vls-step')) {
+    holdable(btn, () => stepVls(btn.dataset.kind, Number(btn.dataset.step)));
+  }
+  document.getElementById('vlspanel').hidden = false;
+  renderVls();
+}
+
+function closeVls() {
+  const el = document.getElementById('vlspanel');
+  if (el) el.hidden = true;
+  yardUi.vls = null;
+}
+
+function renderVls() {
+  const cls = SHIP_CLASSES[yardShip()];
+  const g = yardUi.vls;
+  if (!cls || !g) return;
+  const cells = vlsCells(cls);
+  const total = vlsKinds(cls).reduce((n, k) => n + (g[k] || 0), 0);
+  document.getElementById('vls-sub').textContent =
+    `${cells} Mk 41 cells, one missile to a cell. Any mix you like.`;
+  for (const k of vlsKinds(cls)) document.getElementById(`vls-n-${k}`).textContent = g[k] || 0;
+  document.getElementById('vls-total-n').textContent = `${total} / ${cells}`;
+  document.getElementById('vls-total').classList.toggle('full', total === cells);
+  for (const btn of document.querySelectorAll('.vls-step')) {
+    const n = (g[btn.dataset.kind] || 0) + Number(btn.dataset.step);
+    btn.disabled = n < 0 || (Number(btn.dataset.step) > 0 && total >= cells);
+  }
+  const sam = (g.sm2 || 0) + (g.sm2er || 0);
+  const note = document.getElementById('vls-note');
+  if (total < cells) note.textContent = `${cells - total} cells empty.`;
+  else if (!sam) note.textContent = 'No Standards: her Aegis has nothing to stop aircraft with.';
+  else note.textContent = '';
+}
+
+function stepVls(kind, d) {
+  const cls = SHIP_CLASSES[yardShip()];
+  const g = yardUi.vls;
+  if (!cls || !g) return;
+  const n = (g[kind] || 0) + d;
+  const total = vlsKinds(cls).reduce((a, k) => a + (g[k] || 0), 0);
+  if (n < 0 || (d > 0 && total >= vlsCells(cls))) return;
+  g[kind] = n;
+  renderVls();
+}
+
+document.getElementById('vls-reset').onclick = () => {
+  audio.click();
+  const cls = SHIP_CLASSES[yardShip()];
+  if (cls && yardUi.vls) { yardUi.vls = defaultVls(cls); renderVls(); }
+};
+document.getElementById('vls-done').onclick = () => {
+  audio.click();
+  const cls = SHIP_CLASSES[yardShip()];
+  if (cls && yardUi.vls) setSettings({ vls: normaliseVls(cls, yardUi.vls) });
+  closeVls();
+  renderYard();
+};
+
 function renderYard() {
-  const id = SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length];
+  const id = yardShip();
   const cls = SHIP_CLASSES[id];
   // A hull still coming down the wire: the one on the water stays there until
   // she is in, unless the captain has walked on past her by then.
   if (shipReady(id)) yard.setShip(id);
   else {
     loadShips([id]).then(() => {
-      if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
+      if (yard && yardShip() === id) yard.setShip(id);
     }, (e) => {
       if (staleBuild(e)) return;
       // Not coming down -- no signal, or too little of one: she is shown as
       // the hull generated off her class, as a battle would draw her.
-      if (yard && SHIP_ORDER[(yardUi.index + SHIP_ORDER.length) % SHIP_ORDER.length] === id) yard.setShip(id);
+      if (yard && yardShip() === id) yard.setShip(id);
       toast('Her hull has not downloaded yet, so she is drawn plain until it does.');
     });
   }
@@ -912,31 +1072,35 @@ function renderYard() {
     `${cls.className || cls.name} Class ${cls.typeName}`;
   // The arrows say which ship they go to, so the list can be walked without
   // pressing a chevron nine times to find out what is on the other side of it.
-  const at = (d) => SHIP_CLASSES[
-    SHIP_ORDER[(yardUi.index + d + SHIP_ORDER.length * 2) % SHIP_ORDER.length]].name;
+  const at = (d) => SHIP_CLASSES[yardShip(d)].name;
   const prevName = document.getElementById('yard-prev-name');
   const nextName = document.getElementById('yard-next-name');
   if (prevName) prevName.textContent = at(-1);
   if (nextName) nextName.textContent = at(1);
+  // A list of one -- the store's, with one hull in it -- has nowhere to go.
+  for (const el of ['yard-prev', 'yard-next']) {
+    document.getElementById(el).style.visibility = yardUi.order.length > 1 ? '' : 'hidden';
+  }
   const group = currentAirGroup(cls);
   sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls, group));
-  sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group));
+  sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group, currentVls(cls)));
 }
 
 function stepYard(dir) {
   // Walking on to another class is not refitting the one she came in for.
   yardUi.refit = null;
-  yardUi.index = (yardUi.index + dir + SHIP_ORDER.length) % SHIP_ORDER.length;
+  yardUi.index = (yardUi.index + dir + yardUi.order.length) % yardUi.order.length;
   closeAirGroup();
+  closeVls();
   renderYard();
 }
 
 // Eighty aircraft is a lot of presses one at a time, so a stepper held down
 // keeps stepping, and quicker the longer it is held.
-for (const btn of document.querySelectorAll('.ag-step')) {
+/** A stepper that keeps stepping while it is held, quicker the longer. */
+function holdable(btn, step) {
   let timer = null;
   let held = 0;
-  const step = () => stepAirGroup(btn.dataset.kind, Number(btn.dataset.step));
   const stop = () => { clearTimeout(timer); timer = null; };
   const repeat = () => {
     held++;
@@ -959,10 +1123,13 @@ for (const btn of document.querySelectorAll('.ag-step')) {
   // The keyboard still gets one step a press.
   btn.onclick = (e) => { if (e.detail === 0) { audio.click(); step(); } };
 }
+for (const btn of document.querySelectorAll('.ag-step')) {
+  holdable(btn, () => stepAirGroup(btn.dataset.kind, Number(btn.dataset.step)));
+}
 document.getElementById('ag-reset').onclick = () => {
   audio.click();
   const spec = airGroupSpec();
-  if (spec) { yardUi.ag = { ...spec.default }; renderAirGroup(); }
+  if (spec) { yardUi.ag = defaultAirGroup(SHIP_CLASSES[yardShip()]); renderAirGroup(); }
 };
 document.getElementById('ag-done').onclick = () => {
   audio.click();
@@ -986,7 +1153,7 @@ document.getElementById('yard-next').onclick = () => { audio.click(); stepYard(1
 document.getElementById('yard-back').onclick = () => { audio.click(); closeYard(); };
 document.getElementById('yard-commission').onclick = () => {
   audio.click();
-  const id = SHIP_ORDER[yardUi.index % SHIP_ORDER.length];
+  const id = yardShip();
   const whose = yardUi.side === 'ally' ? 'your' : 'the enemy';
   // A carrier goes with the air group the yard has her balanced at, and keeps
   // it: the next one commissioned can be given a different one.
@@ -997,8 +1164,61 @@ document.getElementById('yard-commission').onclick = () => {
     return;
   }
   toast(`${SHIP_CLASSES[id].name} joins ${whose} fleet.`);
+  // Out of the store, she goes to sea from a custom battle's briefing: that
+  // is where a fleet is, and where she has just joined one.
+  const fromStore = Boolean(yardUi.from);
+  yardUi.from = null;
   closeYard();
+  if (fromStore) { briefing.setMode('custom'); briefing.show(); }
 };
+
+// ---------------------------------------------------- premium equipment --
+//
+// The store's three departments, and its hulls. A premium hull is free to
+// sail while the game is in development; once it is published she is
+// unlocked by watching an ad (see premium.js).
+
+for (const btn of document.querySelectorAll('[data-premium]')) {
+  btn.addEventListener('click', () => {
+    audio.resume();
+    audio.click();
+    if (btn.dataset.premium === 'ships') { renderPremiumShips(); show('premium-ships'); return; }
+    toast('This department is not stocked yet.');
+  });
+}
+document.getElementById('premium-ships-back').onclick = () => { audio.click(); show('premium'); };
+
+function renderPremiumShips() {
+  const list = document.getElementById('premium-ships-list');
+  list.innerHTML = '';
+  for (const id of PREMIUM_ORDER) {
+    const c = SHIP_CLASSES[id];
+    const open = premiumUnlocked(id);
+    const guns = c.turrets.reduce((n, t) => n + t.guns, 0);
+    const inches = Math.round(c.gun.caliber / 25.4);
+    const card = document.createElement('div');
+    card.className = 'ship-card premium-ship';
+    card.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
+      <div class="nm">${c.fullName || c.name}</div>
+      <div class="bl">${c.blurb}</div>
+      <div class="ps-stats">${guns} × ${inches}" · ${Math.round(c.maxSpeed / KNOTS)} kn · `
+      + `${Math.round(c.armor.belt / 25.4)}" belt · ${c.datasheet.displacement.toLocaleString('en-US')} t</div>
+      <div class="ps-foot"><span class="ps-badge">${ADS_REQUIRED
+        ? (open ? 'Unlocked' : 'Watch an ad to unlock') : 'Free while the game is in development'}</span>
+      <button class="btn" type="button">${open ? 'Open in the yard' : 'Watch ad'}</button></div>`;
+    card.querySelector('button').onclick = async () => {
+      audio.click();
+      if (!premiumUnlocked(id)) {
+        if (!(await unlockWithAd(id))) { toast('No advertisement could be played. Try again later.'); return; }
+        toast(`${c.fullName || c.name} is unlocked.`);
+        renderPremiumShips();
+        return;
+      }
+      openYard('ally', { order: PREMIUM_ORDER, at: id, from: 'premium-ships' });
+    };
+    list.appendChild(card);
+  }
+}
 
 // --------------------------------------------------------------- gun park --
 // The shipyard's opposite number, and built the same way: one scene, made the
@@ -1190,7 +1410,6 @@ const optShadows = document.getElementById('opt-shadows');
 const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
 const optFF = document.getElementById('opt-ff');
-const optVoices = document.getElementById('opt-voices');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -1201,7 +1420,6 @@ optShadows.checked = settings.shadows;
 optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
 if (optFF) optFF.checked = settings.friendlyFire === true;
-if (optVoices) optVoices.checked = settings.voices !== false;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -1220,7 +1438,6 @@ optSkill.onchange = () => setSettings({ botSkill: optSkill.value });
 optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQuality(); toast('Quality applies to the next battle.'); };
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
-if (optVoices) optVoices.onchange = () => setSettings({ voices: optVoices.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
 if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked }); toast(optFF.checked ? 'Friendly fire on from the next battle.' : 'Friendly fire off from the next battle.'); };
 
@@ -1417,6 +1634,7 @@ function drawFrame(dt) {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && !eraEl.hidden) { closeEra(); return; }
   if (e.code === 'Escape' && current === 'yard') { closeYard(); return; }
   // The gun park and the bomber yard back out to the briefing the same way the
   // shipyard does: a commander who has just looked a battery over wants the
@@ -1497,8 +1715,8 @@ async function offlineState() {
 if (window.Capacitor || location.protocol === 'file:') sayOffline('Offline ready', true);
 
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !window.Capacitor) {
-  // Once it has taken over, it is asked to keep the rest -- every hull and
-  // voice -- behind the game, and asked again whenever the line comes back.
+  // Once it has taken over, it is asked to keep the rest -- every hull --
+  // behind the game, and asked again whenever the line comes back.
   const fill = () => navigator.serviceWorker.ready
     .then((reg) => reg.active?.postMessage({ t: 'fill' })).catch(() => {});
   // Beside the page: the server hands it out at the root, and the split build

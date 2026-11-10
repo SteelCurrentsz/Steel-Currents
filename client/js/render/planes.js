@@ -19,8 +19,8 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
-  wildcat, arado, kingfisher, besson, loire,
-  jake, muzzlesOf, dressPlane,
+  wildcat, arado, kingfisher, besson, loire, walrus, kor1, ro43,
+  jake, mitchell, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -47,6 +47,10 @@ import {
 import {
   AVENGER, AVENGER_SEGS, avengerGeometries, avengerMaterial, avengerSegOf, avengerRest, avengerHinge,
 } from './avengerModel.js';
+import {
+  DEVASTATOR, DEVASTATOR_SEGS, devastatorGeometries, devastatorMaterial, devastatorSegOf, devastatorRest,
+  devastatorHinge,
+} from './devastatorModel.js';
 
 /**
  * Flatten a built model into one geometry with a material group per material.
@@ -97,6 +101,11 @@ export function weld(group, about = null) {
     for (let n = o; n && n !== group.parent; n = n.parent) if (n.visible === false) return false;
     return true;
   };
+  // A model painted at every point (the owner's B-29) keeps its paint: the
+  // colours go through with the points. Everything else has none and is
+  // welded without them, as it always was.
+  let painted = false;
+  group.traverse((o) => { if (o.isMesh && o.geometry?.attributes.color && shown(o)) painted = true; });
   group.traverse((o) => {
     if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return;
     if (!shown(o)) return;
@@ -104,13 +113,20 @@ export function weld(group, about = null) {
     const mat = list[0];
     let b = buckets.get(mat);
     if (!b) {
-      b = { pos: [], nor: [], idx: [], slot: mats.length };
+      b = { pos: [], nor: [], col: [], idx: [], slot: mats.length };
       mats.push(mat);
       buckets.set(mat, b);
     }
     const geo = o.geometry;
     const pos = geo.attributes.position;
     const nor = geo.attributes.normal;
+    if (painted) {
+      const col = geo.attributes.color;
+      for (let i = 0; i < pos.count; i++) {
+        if (col) b.col.push(col.getX(i), col.getY(i), col.getZ(i));
+        else b.col.push(1, 1, 1);
+      }
+    }
     m.copy(o.matrixWorld);
     // A moving part is welded about its own hinge rather than about the
     // aeroplane's datum, so the batch that draws it can turn it.
@@ -132,6 +148,7 @@ export function weld(group, about = null) {
 
   const pos = [];
   const nor = [];
+  const col = [];
   const idx = [];
   const groups = [];
   for (const b of buckets.values()) {
@@ -139,12 +156,14 @@ export function weld(group, about = null) {
     const off = pos.length / 3;
     for (let i = 0; i < b.pos.length; i++) pos.push(b.pos[i]);
     for (let i = 0; i < b.nor.length; i++) nor.push(b.nor[i]);
+    for (let i = 0; i < b.col.length; i++) col.push(b.col[i]);
     for (const i of b.idx) idx.push(i + off);
     groups.push([start, idx.length - start, b.slot]);
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  if (painted) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   for (const [start, count, slot] of groups) geo.addGroup(start, count, slot);
   return { geo, mats };
@@ -284,6 +303,7 @@ function tipsOf(key, geo) {
   if (key === 'hellcat') return { tips: HELLCAT.tips, nose: [0, HELLCAT.prop[1] - 0.2, HELLCAT.prop[2] - 1.2] };
   if (key === 'avenger') return { tips: AVENGER.tips, nose: [0, AVENGER.prop[1] - 0.2, AVENGER.prop[2] - 1.2] };
   if (key === 'dauntless') return { tips: DAUNTLESS.tips, nose: [0, DAUNTLESS.prop[1] - 0.2, DAUNTLESS.prop[2] - 1.2] };
+  if (key === 'devastator') return { tips: DEVASTATOR.tips, nose: [0, DEVASTATOR.prop[1] - 0.2, DEVASTATOR.prop[2] - 1.2] };
   const pos = geo.attributes.position;
   let l = null, r = null, front = -Infinity, fy = 0;
   for (let i = 0; i < pos.count; i++) {
@@ -787,6 +807,39 @@ function avengerFlightModel() {
 }
 
 /**
+ * The TBD Devastator: the owner's sculpt, in her pieces, with her airscrew,
+ * the Mark 13 slung under her belly, the gunner's thirty and her two main
+ * legs, which swing aft and leave the wheels half out of the wing. Her tail
+ * wheel is fixed, and goes with her tail.
+ */
+function devastatorFlightModel() {
+  const geos = devastatorGeometries();
+  const mat = devastatorMaterial();
+  const segs = {};
+  for (const k of DEVASTATOR_SEGS) segs[k] = { geo: geos[k], mats: [mat] };
+  const probe = probeOf(geos, DEVASTATOR_SEGS);
+  const at = (k) => new THREE.Vector3().fromArray(devastatorHinge(k));
+  const parts = [{
+    name: 'prop', axis: 'z', open: 0, spin: true, at: at('prop'), rot: devastatorRest('prop'),
+    geo: withDisc(geos.prop, DEVASTATOR.propR), mats: [mat, discMaterial()],
+  }];
+  parts.push({ name: 'store', axis: 'z', open: 0, fall: true, at: at('store'), rot: devastatorRest('store'),
+    geo: geos.store, mats: [mat] });
+  parts.push({ name: 'gun', axis: 'y', open: 0, turret: true, at: at('gun'), rot: devastatorRest('gun'),
+    geo: geos.gun, mats: [mat] });
+  for (const k of ['gearL', 'gearR']) {
+    const spec = DEVASTATOR[k];
+    parts.push({
+      name: k, axis: spec.axis, open: spec.up, gear: true, tuck: spec.tuck || 0, slide: 0,
+      at: at(k), rot: devastatorRest(k), geo: geos[k], mats: [mat],
+    });
+  }
+  const segOf = devastatorSegOf;
+  segOf.breaks = DEVASTATOR.breaks;
+  return { segs, parts, probe, segOf, cy: DEVASTATOR.cy, geo: probe, mats: [mat] };
+}
+
+/**
  * The gun on a mounting of a type built off the kit rather than a sculpt --
  * the Avenger's ball turret -- read off her model when she is welded (see
  * flightModels), in the shape rearGunOf answers with.
@@ -814,6 +867,9 @@ export function rearGunOf(kind) {
   if (kind === 'dauntless') {
     return { at: DAUNTLESS.gun.at, rot: dauntlessRest('gun'), muzzle: DAUNTLESS.gun.muzzle };
   }
+  if (kind === 'devastator') {
+    return { at: DEVASTATOR.gun.at, rot: devastatorRest('gun'), muzzle: DEVASTATOR.gun.muzzle };
+  }
   return KIT_GUNS[kind] || null;
 }
 
@@ -833,6 +889,8 @@ const REAR_SEATS = {
   suisei: () => ({ x: 0, y: SUISEI.gun.at[1] + 0.5, z: SUISEI.gun.at[2] - 0.25, cal: 0.0077, guns: 1 }),
   // The Avenger's turret gunner, in the ball on her back with his fifty.
   avenger: () => ({ x: 0, y: AVENGER.gun.at[1] + 0.4, z: AVENGER.gun.at[2], cal: 0.0127, guns: 1 }),
+  // The Devastator's gunner, at the back of her long greenhouse with his thirty.
+  devastator: () => ({ x: 0, y: DEVASTATOR.gun.at[1] + 0.45, z: DEVASTATOR.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
   b5n: () => ({ x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
   // A Stuka's gunner, under the aft end of her greenhouse with his twin MG 81Z.
   ju87c: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
@@ -984,6 +1042,14 @@ export function flightModels() {
   out.dauntless = dauntlessFlightModel();
   MUZZLES.dauntless = DAUNTLESS.guns.slice().sort((a, b) => a[0] - b[0]);
   readStore('dauntless', out.dauntless.parts);
+  // And the B-25 the Hornet carried to Japan on her deck, off the owner's
+  // model of her. Built and welded like the kit's machines, but in her own
+  // paint, which goes through the weld with her points.
+  make('mitchell', (g) => mitchell(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  // And the Devastator the Hornet's torpedo squadron flew at Midway.
+  out.devastator = devastatorFlightModel();
+  MUZZLES.devastator = DEVASTATOR.guns.slice().sort((a, b) => a[0] - b[0]);
+  readStore('devastator', out.devastator.parts);
   // The two float planes fly as themselves. A cruiser's scout used to be
   // drawn as whatever the carrier had in the same role -- which is `dive` --
   // so a Dauntless dive bomber came off a battleship's quarterdeck, and the
@@ -994,6 +1060,12 @@ export function flightModels() {
   make('besson', (g) => besson(g, 0, 0, 0, 0, {}));
   // And the Loire 130 the Richelieu works off her quarterdeck.
   make('loire', (g) => loire(g, 0, 0, 0, 0, {}));
+  // And the Walrus the King George V throws off her cross-deck catapult.
+  make('walrus', (g) => walrus(g, 0, 0, 0, 0, {}));
+  // And the KOR-1 the Sovetsky Soyuz throws off her stern catapult.
+  make('kor1', (g) => kor1(g, 0, 0, 0, 0, {}));
+  // And the Ro.43 the Morosini throws off her stern catapult.
+  make('ro43', (g) => ro43(g, 0, 0, 0, 0, {}));
   // And the Japanese four: a Zero, a Suisei, a B5N and the Jake the
   // battleships and the cruisers work off their catapults. The Zero is the
   // owner's sculpt of her, in the pieces she is built to come apart in.
@@ -1038,8 +1110,8 @@ export const ROLE_TYPE = {
   fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'arado', 'kingfisher',
-  'besson', 'loire', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'arado', 'kingfisher',
+  'besson', 'loire', 'walrus', 'kor1', 'ro43', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
 export function typeOf(type, role) {

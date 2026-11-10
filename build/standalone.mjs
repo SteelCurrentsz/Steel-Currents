@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { packData } from './pack-data.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPLIT = process.argv.includes('--split');
@@ -144,18 +145,30 @@ if (!SPLIT) {
     fs.copyFileSync(path.join(CHUNKS, f), out('split', f));
     console.log(`build/split/${f} — ${Math.round(fs.statSync(out('split', f)).size / 1024)} KB`);
   }
+  // Each data file packed (build/pack-data.mjs): its long strings gzipped as
+  // one, and opened again beside the page by unpack.js, which goes with them.
+  fs.copyFileSync(path.join(ROOT, 'client/js/unpack.js'), out('split', 'unpack.js'));
+  let raw = 0, sent = 0;
   for (const f of named) {
-    fs.copyFileSync(path.join(HULLS, f), out('split', f));
-    console.log(`build/split/${f} — ${Math.round(fs.statSync(out('split', f)).size / 1024)} KB`);
+    const src = fs.readFileSync(path.join(HULLS, f), 'utf8');
+    const packed = packData(src);
+    fs.writeFileSync(out('split', f), packed);
+    raw += src.length; sent += packed.length;
+    console.log(`build/split/${f} — ${Math.round(packed.length / 1024)} KB${packed === src ? '' : ` (${Math.round(src.length / 1024)} KB unpacked)`}`);
   }
+  console.log(`data files: ${(sent / 1e6).toFixed(1)} MB sent for ${(raw / 1e6).toFixed(1)} MB of data`);
   // The offline keeper beside the page (client/sw.js), with the list it keeps
   // written in, as the server writes it into its own: the page, its chunks and
-  // the aircraft to take over with, then the hulls and the voices behind them.
+  // the aircraft to take over with, then the hulls behind them.
   // A page put up anywhere as these files plays with no signal once opened.
-  const files = ['./', ...chunks.map((f) => `./${f}`), ...named.map((f) => `./${f}`)];
+  const files = ['./', './unpack.js', ...chunks.map((f) => `./${f}`), ...named.map((f) => `./${f}`)];
   const shell = files.filter((f) => !/\.data\.js$/.test(f) || /Model\.data\.js$/.test(f));
+  // Over what every file holds, the data files' too: a hull rebuilt under
+  // the same name is a new version, or the worker would hand out the old one.
   const version = crypto.createHash('sha1')
-    .update(html).update(every).update(named.join()).digest('hex').slice(0, 12);
+    .update(html).update(every).update(named.join())
+    .update(named.map((f) => fs.readFileSync(out('split', f))).reduce((h, b) => h.update(b), crypto.createHash('sha1')).digest())
+    .digest('hex').slice(0, 12);
   const worker = fs.readFileSync(path.join(ROOT, 'client/sw.js'), 'utf8');
   fs.writeFileSync(out('split', 'sw.js'),
     `const OFFLINE = ${JSON.stringify({ version, shell, files })};\n${worker}`);

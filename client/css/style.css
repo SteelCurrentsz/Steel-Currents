@@ -29,7 +29,10 @@ html, body {
   user-select: none;
 }
 
-#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+/* Graded down: a war at sea, not a postcard. Less colour, a touch more weight
+   in the darks. The HUD is DOM over the top of it and keeps its own colours. */
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block;
+  filter: saturate(0.78) contrast(1.06) brightness(0.96); }
 
 .screen { position: fixed; inset: 0; display: none; }
 .screen.active { display: block; }
@@ -211,6 +214,11 @@ input[type="range"] { accent-color: var(--red); }
 .help { color: var(--steel); font-size: 0.98rem; line-height: 1.45; margin: 0 0 0.7rem; }
 .muted { color: rgba(154, 166, 178, 0.6); }
 
+/* The credits: each model's attribution, as its licence words it. */
+.credits .credit { color: var(--sand); font-size: 1.05rem; line-height: 1.55; margin: 0; }
+.credits a { color: var(--sand); text-decoration: underline; text-underline-offset: 0.15em; }
+.credits a:hover, .credits a:focus-visible { color: #fff; }
+
 .btn {
   background: var(--red); color: #fff; border: 0; padding: 0.7rem 1.8rem;
   font-family: var(--ui); font-size: 1.15rem; font-weight: 700;
@@ -301,8 +309,35 @@ input[type="range"] { accent-color: var(--red); }
    transom, filled with what is left of it. They have gone: her condition is
    read off the ship herself, on the damage board, where a hole is in a place
    rather than being a number beside a label. What is left here is the one
-   line a bridge messenger would give you.
-   There is no health bar anywhere in the game: a ship is not a number. */
+   line a bridge messenger would give you, under her integrity bar. */
+/* Her integrity: the one bar there is. Every way she has been hurt added
+   up, and the hatched end of the track is the part of her that can never be
+   mended back. Red under a quarter, and pulsing when she is going down on it. */
+.integrity { margin-top: 0.45rem; }
+.integrity-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 0.64rem; letter-spacing: 0.14em; color: var(--steel);
+}
+.integrity-head b { font-size: 0.8rem; color: var(--sand-bright); letter-spacing: 0.06em; }
+.integrity-track {
+  position: relative; height: 7px; margin-top: 0.2rem;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.integrity-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 100%;
+  background: linear-gradient(90deg, #4fb37a, #8fd6a0);
+  transition: width 0.35s ease-out, background-color 0.35s;
+}
+.integrity-lost {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 0;
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0 3px, transparent 3px 6px);
+}
+.integrity.warn .integrity-fill { background: linear-gradient(90deg, #c9a13a, #e8c96a); }
+.integrity.bad .integrity-fill { background: linear-gradient(90deg, #b8332c, #e2574c); }
+.integrity.bad .integrity-head b { color: #ff8a7a; }
+.integrity.sinking .integrity-track { animation: integrity-pulse 1s ease-in-out infinite; }
+@keyframes integrity-pulse { 50% { border-color: #ff5a4c; box-shadow: 0 0 6px #ff5a4c; } }
 .cond-row { display: flex; align-items: center; margin-top: 0.4rem; }
 .cond-row span {
   font-size: 0.66rem; letter-spacing: 0.12em;
@@ -1055,25 +1090,28 @@ input[type="range"] { accent-color: var(--red); }
  *
  * Bottom left: the conn keys own the bottom middle and the plot owns the top
  * right, and this is the one control that is not part of fighting the ship, so
- * it sits in the one corner nothing else wants. It appears when the last ship
- * of a side has gone and it does nothing at all until it is pressed -- the
- * battle used to take the player home on a timer three seconds after the
- * result, which is the one thing about an ending that cannot be waited out. */
+ * it sits in the one corner nothing else wants. It is there the whole battle:
+ * mid-action it takes a second press to confirm, and once the last ship of a
+ * side has gone one press takes you home -- the battle used to take the
+ * player home on a timer three seconds after the result, which is the one
+ * thing about an ending that cannot be waited out. */
 .port-key {
   position: absolute; z-index: 9; pointer-events: auto;
   left: max(1.4vw, env(safe-area-inset-left));
   bottom: max(1.4vh, calc(env(safe-area-inset-bottom) + 0.6rem));
-  padding: 0.6rem 1.3rem; min-height: 44px;
+  padding: 0.35rem 0.8rem; min-height: 32px;
   background: rgba(8, 19, 31, 0.92);
   border: 1px solid var(--sand); border-left: 3px solid var(--red);
-  color: var(--sand); font-family: var(--ui); font-size: 0.86rem;
-  font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--sand); font-family: var(--ui); font-size: 0.66rem;
+  font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
   cursor: pointer;
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
   animation: portIn 0.5s ease both;
   transition: color 0.15s ease, background 0.15s ease;
 }
 .port-key[hidden] { display: none; }
+/* Pressed once mid-battle, it asks again before it takes you out of it. */
+.port-key.arm { color: #0b141d; background: var(--red); border-color: var(--red); }
 .port-key:hover, .port-key:focus-visible {
   color: #0b141d; background: var(--sand); outline: none;
 }
@@ -2865,3 +2903,99 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
    so nothing the director needs to tap is ever under the panel. */
 .lay-screen.scripting #lay-canvas { width: calc(100% - var(--sp-w)); }
 .lay-actions .btn[hidden] { display: none; }
+
+/* The Premium Equipment store's hulls: a card each, with what she mounts and
+   what it takes to sail her. */
+.premium-ships { display: grid; gap: 1rem; }
+.premium-ship { cursor: default; }
+.premium-ship .ps-stats { margin-top: 0.5rem; font-size: 0.9rem; letter-spacing: 0.04em; }
+.premium-ship .ps-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  margin-top: 0.8rem; flex-wrap: wrap;
+}
+.premium-ship .ps-badge {
+  font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: #d9b45a;
+}
+
+/* The missile radar, in the top left corner, out of the plot's way: what she
+   has left, what the next one goes for, and her missiles in the air on a
+   scope. Beside the fullscreen key, which has the very corner in battle on a
+   desktop; on a touch screen that key moves to the top edge (see .fs-toggle). */
+.msl-radar {
+  position: absolute; top: max(0.7rem, env(safe-area-inset-top)); z-index: 7;
+  left: calc(max(0.8rem, env(safe-area-inset-left)) + 52px);
+  width: min(192px, 26vw); padding: 5px;
+  background: rgba(6, 16, 28, 0.78); border: 1px solid var(--panel-line);
+  font: 600 10px/1.2 var(--stencil, inherit); letter-spacing: 0.1em; color: var(--steel);
+}
+.msl-radar[hidden] { display: none; }
+.msl-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.msl-head b { color: var(--sand); font-weight: 600; }
+#msl-scope { width: 100%; aspect-ratio: 1; display: block; cursor: pointer;
+  background: radial-gradient(circle, rgba(10, 40, 30, 0.85), rgba(3, 14, 12, 0.9)); border-radius: 50%; }
+.msl-target { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.msl-target b { flex: 1; color: #ff8a73; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.msl-target button, .msl-fire button {
+  background: rgba(6, 16, 28, 0.9); border: 1px solid var(--panel-line); color: var(--steel);
+  font: inherit; cursor: pointer; padding: 4px 7px;
+}
+.msl-target button:hover, .msl-fire button:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.6); }
+.msl-fire { display: flex; gap: 5px; }
+.msl-fire button { flex: 1; position: relative; display: flex; justify-content: space-between; gap: 4px; overflow: hidden;
+  padding: 4px 5px; letter-spacing: 0.03em; font-size: 9px; }
+.msl-fire button b { color: var(--sand); }
+.msl-fire button i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--sand); width: 0; }
+.msl-fire button.empty { opacity: 0.4; }
+.msl-fire.many { flex-wrap: wrap; }
+.msl-fire.many button { flex: 1 1 30%; min-width: 0; font-size: 9px; }
+.msl-fire button.aegis b { color: #ff8a73; }
+.msl-fire button.aegis.on b { color: #8dffb6; }
+.msl-air { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; max-height: 64px; overflow-y: auto; }
+.msl-air button {
+  font: inherit; font-size: 9px; padding: 2px 5px; cursor: pointer;
+  background: rgba(6, 16, 28, 0.9); border: 1px solid rgba(255, 214, 120, 0.35); color: #ffd678;
+}
+.msl-air button.on { background: #ffd678; color: #0b141d; }
+.msl-hint { margin: 5px 0 0; font-size: 9px; opacity: 0.65; }
+@media (pointer: coarse) {
+  .msl-hint { display: none; }
+  .msl-radar { left: max(0.7rem, env(safe-area-inset-left)); }
+}
+@media (max-width: 700px), (max-height: 500px) {
+  .msl-radar { width: 132px; }
+  .msl-hint { display: none; }
+  .msl-fire { flex-direction: column; gap: 3px; }
+}
+
+/* The era choice the ship icon opens before the shipyard. --------------- */
+.era-pick {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(2, 6, 11, 0.62);
+  padding: 1rem;
+}
+.era-pick[hidden] { display: none; }
+.era-box {
+  width: min(24rem, 100%);
+  padding: 1.1rem 1.2rem 1rem;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  text-align: center;
+}
+.era-box h3 {
+  margin: 0 0 0.2rem;
+  font-family: var(--stencil); font-size: 1.1rem;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--sand);
+}
+.era-sub { margin: 0 0 0.9rem; font-size: 0.8rem; letter-spacing: 0.06em; color: var(--steel); }
+.era-choices { display: flex; gap: 0.6rem; }
+.era-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  padding: 0.8rem 0.6rem;
+}
+.era-btn em {
+  font-style: normal; font-weight: 400; font-size: 0.72rem;
+  letter-spacing: 0.08em; opacity: 0.8; margin-top: 0.2rem;
+}
+.era-cancel { margin-top: 0.8rem; padding: 0.45rem 1.4rem; font-size: 0.9rem; }

@@ -22,9 +22,12 @@ import { loadSuisei } from './suiseiModel.js';
 import { loadB5n } from './b5nModel.js';
 import { fitTubes } from './tubes.js';
 import { loadBf109 } from './bf109Model.js';
+import { loadB29 } from './b29Model.js';
 import { loadJu87 } from './ju87Model.js';
 import { loadHellcat } from './hellcatModel.js';
 import { loadAvenger } from './avengerModel.js';
+import { loadDevastator } from './devastatorModel.js';
+import { loadB25 } from './b25Model.js';
 import { loadDauntless } from './dauntlessModel.js';
 
 /**
@@ -38,9 +41,9 @@ import { loadDauntless } from './dauntlessModel.js';
  * background once the title screen is up, and waited for by the shipyard and
  * before a battle is joined.
  */
-let buildSpee, buildTakao, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
-  buildFuso, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin;
+let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
+  buildFuso, buildMutsu, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
+  buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -48,15 +51,25 @@ const SCULPTED = {
   // are too -- and they come first, ahead of the ships, when everything is
   // fetched behind the title screen.
   planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n(), loadBf109(), loadJu87(),
-    loadHellcat(), loadDauntless(), loadAvenger()]),
-  spee: () => import('./spee.js').then((m) => { buildSpee = m.buildSpee; }),
-  takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; }),
+    loadHellcat(), loadDauntless(), loadAvenger(), loadDevastator(), loadB25(), loadB29()]),
+  // The Admiral Scheer and her sister the Graf Spee, both off the model of the Scheer.
+  scheer: () => import('./scheer.js').then((m) => { buildSpee = m.buildSpee; buildScheer = m.buildScheer; }),
+  // The Takao and her sister the Maya, both off the model of the Atago.
+  takao: () => import('./takao.js').then((m) => { buildTakao = m.buildTakao; buildMaya = m.buildMaya; }),
+  hood: () => import('./hood.js').then((m) => { buildHood = m.buildHood; }),
+  kgv: () => import('./kgv.js').then((m) => { buildKgv = m.buildKgv; }),
+  soyuz: () => import('./soyuz.js').then((m) => { buildSoyuz = m.buildSoyuz; }),
+  hagen: () => import('./hagen.js').then((m) => { buildHagen = m.buildHagen; }),
+  morosini: () => import('./morosini.js').then((m) => { buildMorosini = m.buildMorosini; }),
+  tillman: () => import('./tillman.js').then((m) => { buildTillman = m.buildTillman; }),
+  missouri: () => import('./missouri.js').then((m) => { buildMissouri = m.buildMissouri; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
   baltimore: () => import('./baltimore.js').then((m) => { buildBaltimore = m.buildBaltimore; }),
   massachusetts: () => import('./massachusetts.js')
     .then((m) => { buildMassachusetts = m.buildMassachusetts; }),
   musashi: () => import('./musashi.js').then((m) => { buildMusashi = m.buildMusashi; }),
   fuso: () => import('./fuso.js').then((m) => { buildFuso = m.buildFuso; }),
+  mutsu: () => import('./mutsu.js').then((m) => { buildMutsu = m.buildMutsu; }),
   kongo: () => import('./kongo.js').then((m) => { buildKongo = m.buildKongo; }),
   matsu: () => import('./matsu.js').then((m) => { buildMatsu = m.buildMatsu; }),
   yukikaze: () => import('./yukikaze.js').then((m) => { buildYukikaze = m.buildYukikaze; }),
@@ -65,9 +78,16 @@ const SCULPTED = {
   scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
   richelieu: () => import('./richelieu.js').then((m) => { buildRichelieu = m.buildRichelieu; }),
   grafzeppelin: () => import('./grafzeppelin.js').then((m) => { buildGrafZeppelin = m.buildGrafZeppelin; }),
+  shokaku: () => import('./shokaku.js').then((m) => { buildShokaku = m.buildShokaku; }),
+  hornet: () => import('./hornet.js').then((m) => { buildHornet = m.buildHornet; }),
+  leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
+  ticonderoga: () => import('./ticonderoga.js').then((m) => { buildTiconderoga = m.buildTiconderoga; }),
+  guangzhou: () => import('./guangzhou.js').then((m) => { buildGuangzhou = m.buildGuangzhou; }),
+  burke: () => import('./burke.js').then((m) => { buildBurke = m.buildBurke; }),
+  sovremenny: () => import('./sovremenny.js').then((m) => { buildSovremenny = m.buildSovremenny; }),
 };
 // The module each class is drawn by, where it is not her own name.
-const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck' };
+const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck', spee: 'scheer', maya: 'takao' };
 const fetched = new Map();
 const ready = new Set();
 // When each fetch last failed. With no signal every ask fails at once, and
@@ -81,11 +101,11 @@ function sculptOf(classId) {
   return SCULPTED[k] ? k : null;
 }
 
-/** What has to be fetched before a class can be built. The Shinano carries
- *  the aircraft on her deck and in her hangar. */
+/** What has to be fetched before a class can be built. The Shinano and the
+ *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(classId === 'shinano' ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(classId === 'shinano' || classId === 'shokaku' || classId === 'hornet' ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */
@@ -106,10 +126,16 @@ export function fleetReady(classIds) {
  * an ask made `quiet` (a hull drawn as a stand-in, asked after every frame),
  * the next one after RETRY.
  */
-export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { quiet = false } = {}) {
+export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { quiet = false, background = false } = {}) {
   const keys = [...new Set(['planes', ...classIds.flatMap(needs)])];
   let done = 0;
-  return Promise.all(keys.map((k) => {
+  // Anything asked for in earnest holds back what is only fetched for later
+  // -- the preload behind the title screen, and the offline worker saving
+  // every file -- until it is in: on a slow line they shared it four ways,
+  // and the ships a battle was waiting on came down at a quarter of it.
+  const wanted = !background && keys.some((k) => !ready.has(k));
+  if (wanted) holdBackground(+1);
+  const all = Promise.all(keys.map((k) => {
     if (!fetched.has(k)) {
       if (quiet && Date.now() - (failed.get(k) || -Infinity) < RETRY) {
         return Promise.reject(new Error(`Steel Currents: ${k} could not be fetched`));
@@ -119,10 +145,35 @@ export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { qui
     }
     return fetched.get(k).then(() => { done++; onEach?.(done, keys.length); });
   }));
+  if (wanted) all.finally(() => holdBackground(-1)).catch(() => {});
+  return all;
+}
+
+// How many earnest asks are outstanding, and the preload's wait for none.
+let wantedNow = 0;
+let clear = null;
+function holdBackground(d) {
+  const was = wantedNow;
+  wantedNow += d;
+  const worker = typeof navigator !== 'undefined' && navigator.serviceWorker?.controller;
+  if (!was && wantedNow) worker?.postMessage({ t: 'hold' });
+  if (was && !wantedNow) {
+    worker?.postMessage({ t: 'go' });
+    clear?.();
+    clear = null;
+  }
+}
+function lineClear() {
+  if (!wantedNow) return Promise.resolve();
+  return new Promise((resolve) => {
+    const before = clear;
+    clear = () => { before?.(); resolve(); };
+  });
 }
 
 /**
- * Fetch every sculpted ship in the background, one at a time.
+ * Fetch every sculpted ship in the background, one at a time, and none
+ * while a battle's own are coming down.
  *
  * All of them at once was forty megabytes asked for in a single breath, and
  * the two or three a battle actually needed came down at a thirteenth of the
@@ -132,7 +183,9 @@ export function loadShips(classIds = Object.keys(SCULPTED), onEach = null, { qui
  */
 export async function preloadShips() {
   for (const k of Object.keys(SCULPTED)) {
-    try { await loadShips([k]); } catch { /* tried again when it is wanted */ }
+    // Never alongside a battle's own ships: each waits for them to be in.
+    await lineClear();
+    try { await loadShips([k], null, { background: true }); } catch { /* tried again when it is wanted */ }
   }
 }
 
@@ -652,11 +705,10 @@ function buildModel(classId) {
     };
   }
 
-  // And the Graf Spee: a Panzerschiff is a cruiser hull with two triple
-  // eleven-inch turrets on it and an armoured tower foremast between them, and
-  // there is no length and beam that gets you that.
-  if (cls.id === 'spee') {
-    const built = buildSpee();
+  // And the two Panzerschiffe, the Graf Spee and the Admiral Scheer: the
+  // owner's model of the Scheer, each armed off her own datasheet.
+  if (cls.id === 'spee' || cls.id === 'scheer') {
+    const built = cls.id === 'spee' ? buildSpee() : buildScheer();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
@@ -885,10 +937,25 @@ function buildModel(classId) {
     };
   }
 
-  // And the Takao, whose castle of a bridge and three superfiring turrets
-  // forward are the whole of what she looks like.
-  if (cls.id === 'takao') {
-    const built = buildTakao();
+  // And the Mutsu, the owner's model of her before her rebuilding: her
+  // trunked fore funnel and her pagoda, her four turrets and her casemates.
+  if (cls.id === 'mutsu') {
+    const built = buildMutsu();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Takao, whose castle of a bridge and three turrets forward are the
+  // whole of what she looks like, and the Maya, her sister with No.3 landed.
+  if (cls.id === 'takao' || cls.id === 'maya') {
+    const built = cls.id === 'maya' ? buildMaya() : buildTakao();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
@@ -929,6 +996,186 @@ function buildModel(classId) {
     };
   }
 
+  // And the Hood: the owner's sculpts of her hull, her superstructure and
+  // every gun and tube she carried.
+  if (cls.id === 'hood') {
+    const built = buildHood();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the King George V: the owner's sculpts of her hull, her
+  // superstructure and every gun she carried.
+  if (cls.id === 'kgv') {
+    const built = buildKgv();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Tillman: the owner's model of her hull, her superstructure, her
+  // catapults and every gun she carries.
+  if (cls.id === 'tillman') {
+    const built = buildTillman();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Missouri as she was in 1991: the owner's model of her, her guns,
+  // her Phalanx and her box launchers.
+  if (cls.id === 'missouri') {
+    const built = buildMissouri();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Guangzhou: the owner's model of her hull, her superstructure, her
+  // guns, her rocket launchers and her torpedo tubes.
+  if (cls.id === 'guangzhou') {
+    const built = buildGuangzhou();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [], rbuMounts: built.rbuMounts || [],
+    };
+  }
+
+  // And the Sovremenny: the owner's model of her hull, her superstructure,
+  // her launchers, her guns and her RBUs, and her torpedo tubes.
+  if (cls.id === 'sovremenny') {
+    const built = buildSovremenny();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [], rbuMounts: built.rbuMounts || [],
+    };
+  }
+
+  // And the Arleigh Burke: the model's hull, her superstructure, her gun,
+  // her Phalanx, her Mk 38s and her Mk 32 tubes.
+  if (cls.id === 'burke') {
+    const built = buildBurke();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Ticonderoga: the owner's model of her hull, her superstructure,
+  // her guns and her torpedo launchers, and her Phalanx off the owner's own.
+  if (cls.id === 'ticonderoga') {
+    const built = buildTiconderoga();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Leviathan: the owner's model of her hull, her superstructure and
+  // every gun she carried.
+  if (cls.id === 'leviathan') {
+    const built = buildLeviathan();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Morosini: the owner's model of her hull, her superstructure and
+  // every gun she carried.
+  if (cls.id === 'morosini') {
+    const built = buildMorosini();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the Hagen: the owner's model of her hull, her superstructure, every
+  // gun she carried and her tubes.
+  if (cls.id === 'hagen') {
+    const built = buildHagen();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Sovetsky Soyuz: the owner's model of her hull, her
+  // superstructure and every gun she carried.
+  if (cls.id === 'soyuz') {
+    const built = buildSoyuz();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
   if (cls.id === 'rodney') {
     const built = buildRodney();
     Object.assign(built.group.userData, {
@@ -946,6 +1193,38 @@ function buildModel(classId) {
   // over it, three lifts that run and two hangars under them.
   if (cls.id === 'grafzeppelin') {
     const built = buildGrafZeppelin();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      flightDeckY: built.flightDeckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
+    };
+  }
+
+  // And the Shokaku: the owner's model of her, her runway laid afresh over
+  // it, three lifts that run and two hangars under them.
+  if (cls.id === 'shokaku') {
+    const built = buildShokaku();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      flightDeckY: built.flightDeckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
+    };
+  }
+
+  // And the Hornet: the owner's model of her, her runway laid afresh over
+  // it, three lifts that run, a hangar under them and sixteen B-25s on deck.
+  if (cls.id === 'hornet') {
+    const built = buildHornet();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
       flightDeckY: built.flightDeckY,

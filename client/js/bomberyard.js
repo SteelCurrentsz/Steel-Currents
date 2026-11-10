@@ -16,6 +16,7 @@
 import * as THREE from '../../vendor/three.module.js';
 import { skyDome } from './render/scene.js';
 import { heavyBomber, HEAVY, layTurret } from './render/planekit.js';
+import { b29Ready, loadB29 } from './render/b29Model.js';
 import { BOMBERS } from '../../shared/bombers.js';
 
 // How far under her the city is. A heavy bombed from eighteen thousand feet --
@@ -494,6 +495,15 @@ export class BomberScene {
   setBomber(id) {
     if (this.id === id) return;
     this.id = id;
+    // The Superfortress is the owner's model, fetched on its own; until it is
+    // in she is drawn as a stand-in, and put up again as herself once it is.
+    if (id === 'silverplate' && !b29Ready()) {
+      loadB29().then(() => {
+        if (this.id !== 'silverplate') return;
+        this.id = null;
+        this.setBomber('silverplate');
+      }, () => {});
+    }
     if (this.plane) {
       this.scene.remove(this.plane);
       this.plane.traverse((o) => { if (o.geometry) o.geometry.dispose(); });

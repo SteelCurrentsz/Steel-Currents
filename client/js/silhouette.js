@@ -86,6 +86,45 @@ const HULLS = {
     <rect x="63" y="23.5" width="3.5" height="2.5"/>
     <rect x="69" y="23.5" width="3.5" height="2.5"/>
     <rect x="75" y="23.5" width="3.5" height="2.5"/>`,
+  // The Leviathan: a long cruiser hull, a tall bridge forward, two big
+  // funnels with a lattice mast abaft each, and four quadruple turrets, two
+  // at each end, the inner ones superfiring.
+  leviathan: `
+    <path d="M2 29 L98 29 L94 37 L7 37 Z"/>
+    <rect x="9" y="25" width="10" height="4"/>
+    <rect x="18" y="22" width="9" height="4"/>
+    <rect x="30" y="15" width="12" height="14"/>
+    <rect x="34" y="9" width="3" height="7"/>
+    <rect x="43" y="16" width="6" height="13"/>
+    <rect x="57" y="16" width="6" height="13"/>
+    <rect x="50" y="12" width="2" height="17"/>
+    <rect x="64" y="12" width="2" height="17"/>
+    <rect x="72" y="22" width="9" height="4"/>
+    <rect x="81" y="25" width="10" height="4"/>`,
+  // A Panzerschiff, the Graf Spee or the Admiral Scheer: a long low cruiser
+  // hull, a triple turret at each end on her upper deck, the tall tower
+  // forward of her single raked funnel, and a light mainmast aft.
+  scheer: `
+    <path d="M2 29 L98 29 L94 36 L7 36 Z"/>
+    <rect x="10" y="24" width="11" height="5"/>
+    <rect x="24" y="25" width="8" height="4"/>
+    <rect x="31" y="11" width="7" height="18"/>
+    <rect x="29" y="9" width="11" height="3"/>
+    <rect x="44" y="17" width="7" height="12"/>
+    <rect x="52" y="23" width="14" height="6"/>
+    <rect x="62" y="12" width="2" height="11"/>
+    <rect x="68" y="24" width="8" height="5"/>
+    <rect x="79" y="24" width="11" height="5"/>`,
+  // The Shokaku: her flight deck overhanging both ends of her, a small island
+  // well forward, and her funnels trunked out of her side under her deck and
+  // curving down to the water abaft it.
+  shokaku: `
+    <path d="M2 29 L9 30 L95 30 L93 37 L11 37 Z"/>
+    <path d="M5 26 L97 26 L97 29.5 L5 29.5 Z"/>
+    <rect x="30" y="19" width="8" height="7"/>
+    <rect x="32" y="15" width="4" height="4"/>
+    <rect x="33.4" y="7" width="1.4" height="8"/>
+    <path d="M41 30 L49 30 L50 34 L42 34 Z"/>`,
 };
 
 // Badges that say what a hull icon does when it is a button rather than a
@@ -112,7 +151,11 @@ const BADGES = {
 /** SVG for one hull, sized to fill its box. `flip` faces her the other way,
  *  and `badge` marks the icon as an add or a remove control. */
 export function silhouette(classId, { flip = false, cls = '', badge = null } = {}) {
-  const body = HULLS[classId] || HULLS.fletcher;
+  // A ship drawn off her sister's lines: the Spee off the Scheer, the
+  // Maya off the Takao, the Missouri off the Iowa, which she is with missiles
+  // on her, and the Hornet off the Enterprise, the Yorktown she was built to
+  // the drawings of.
+  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise' }[classId] || classId] || HULLS.fletcher;
   const mark = badge ? BADGES[badge] || '' : '';
   // Room either side for the arrow, and above for the cross. Equal margins, so
   // the box's centre line is the hull's centre line and the mirror below maps
