@@ -23,26 +23,36 @@ export const NUKE = {
   /** Radius of the fireball, metres: inside it nothing survives. */
   fireball: 380,
   /** Everything afloat within this is lost. */
-  lethal: 900,
+  lethal: 1300,
   /** Out to here the blast wrecks a ship's upperworks and sets her alight. */
-  heavy: 2200,
+  heavy: 3000,
   /** And out to here it still does harm. */
-  reach: 4200,
+  reach: 5400,
   /** How far an aeroplane can be from it, in the air, and live. */
   air: 2600,
   /** The front's time constant, seconds: see nukeFront. */
-  tau: 3.2,
+  tau: 2.0,
+  /**
+   * On the ground the same weapon is worse: nothing of it goes into lifting
+   * the sea, and the ground reflects the shock back up into the one going
+   * out. Every radius of the blast is this much longer on land, and what it
+   * does inside them this much heavier.
+   */
+  landReach: 1.35,
+  landBite: 1.3,
   /** How long the whole thing is worth drawing, seconds. */
   life: 150,
   /** The surface wave: how far out it ever gets, metres. */
-  waveReach: 6500,
+  waveReach: 9000,
   /** Its time constant, seconds: see nukeWave. */
-  waveTau: 110,
+  waveTau: 75,
   /** How tall it stands where it is thrown up, and how fast that falls away. */
   // Off Baker: a wave nearly thirty metres from crest to trough a thousand
   // feet from the burst, and still five or six two miles out.
-  waveHigh: 30,
-  waveFall: 2600,
+  // Made bigger than that for the game: a wall of water forty-five metres
+  // high at the burst, and still ten or so three miles out.
+  waveHigh: 45,
+  waveFall: 3600,
 };
 
 /** The most bursts the sea carries at once: the ocean shader's array is this long. */
@@ -55,12 +65,12 @@ export const MAX_BURSTS = 4;
  * spherical shock loses its strength as the square of the distance and its
  * speed with it -- and the curve that does that, close enough to the measured
  * one for anyone watching, is an exponential approach to its furthest reach.
- * Two and a half kilometres in the first three seconds, and done in fifteen.
+ * Three kilometres in the first two seconds, and done in ten.
  * The water comes after it, a great deal slower: see nukeWave.
  */
-export function nukeFront(age) {
+export function nukeFront(age, land = false) {
   if (!(age > 0)) return 0;
-  return NUKE.reach * (1 - Math.exp(-age / NUKE.tau));
+  return NUKE.reach * (land ? NUKE.landReach : 1) * (1 - Math.exp(-age / NUKE.tau));
 }
 
 /**
@@ -93,7 +103,8 @@ export function waveHeight(r) {
  * past one, she is lost. Falls away from the fireball's edge to the reach,
  * steeply at first -- which is what overpressure does -- and to nothing.
  */
-export function nukeBite(d) {
+export function nukeBite(d, land = false) {
+  if (land) return NUKE.landBite * nukeBite(d / NUKE.landReach);
   if (d <= NUKE.fireball) return 2.5;
   if (d <= NUKE.lethal) return 1.6;
   if (d >= NUKE.reach) return 0;

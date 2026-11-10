@@ -2961,7 +2961,7 @@ export class Battle {
           this.whiteOut();
           const eye = this.scene.camera.position;
           const far = Math.hypot(eye.x - ev.x, eye.z - ev.z);
-          this.shake = Math.max(this.shake, 2.2 * Math.max(0.35, 1 - far / 12000));
+          this.shake = Math.max(this.shake, (ev.land ? 3 : 2.2) * Math.max(0.35, 1 - far / 12000));
           if (!ev.land) fx.splash(ev.x, ev.z, 4000, { kind: 'bomb' });
           audio.nuke({ x: ev.x, y: Math.max(10, ev.y), z: ev.z });
           this.hud.alert('Atomic detonation');
@@ -2976,8 +2976,10 @@ export class Battle {
           if (view && at && view.blastSteps) {
             const q = this.blasts || (this.blasts = []);
             // Her own first: it is the ship the captain is looking at.
-            if (ev.ship === this.shipId) q.unshift(view.blastSteps(at.x, at.z, ev.b || 0));
-            else q.push(view.blastSteps(at.x, at.z, ev.b || 0));
+            const g = view.blastSteps(at.x, at.z, ev.b || 0);
+            if (ev.ship === this.shipId) { g.own = true; q.unshift(g); } else q.push(g);
+            // And the first of it now, in the frame the shock gets to her.
+            try { for (let k = 0; k < 4; k++) if (g.next().done) { q.splice(q.indexOf(g), 1); break; } } catch { /* the rest a frame at a time */ }
           }
         }
           // The shock has reached one of ours.
@@ -6924,11 +6926,22 @@ export class Battle {
   stepBlasts() {
     const q = this.blasts;
     if (!q || !q.length) return;
-    const until = performance.now() + 3;
+    // Every ship struck is worked on in the frame she is struck, a few steps
+    // of each in turn -- not one after another, which left the last ship in
+    // a fleet waiting seconds for her char behind the rest. Her own ship
+    // (first in the line) gets the most.
+    const until = performance.now() + 4;
+    let lap = 0;
     while (q.length && performance.now() < until) {
-      let r;
-      try { r = q[0].next(); } catch (e) { r = { done: true }; console.error('Steel Currents: blast damage', e); }
-      if (r.done) q.shift();
+      for (let i = 0; i < q.length && performance.now() < until; i++) {
+        const steps = i === 0 && q[0].own ? 8 : 3;
+        for (let k = 0; k < steps; k++) {
+          let r;
+          try { r = q[i].next(); } catch (e) { r = { done: true }; console.error('Steel Currents: blast damage', e); }
+          if (r.done) { q.splice(i, 1); i--; break; }
+        }
+      }
+      if (++lap > 64) break;
     }
   }
 

@@ -117,13 +117,16 @@ function glowTexture() {
 // ------------------------------------------------------------------ shapes
 
 /**
- * The cap the condensation cloud makes over a burst on the sea: a broad dome
- * rounded over at its rim and drawn in under it towards the column, which is
- * the shape every photograph of Baker shows. A lathe of this profile.
+ * The condensation cloud the shock leaves behind it: the great white dome of
+ * Baker, standing on the sea over the whole burst, its foot a bright flat
+ * skirt of spray and fog spread out on the water where the shock first struck
+ * it. A lathe of this profile, from the skirt's inner edge out along the
+ * water and up over the top.
  */
 const WILSON = [
-  [0.24, 0.0], [0.5, -0.04], [0.78, 0.02], [0.95, 0.14], [1.0, 0.3],
-  [0.96, 0.46], [0.84, 0.6], [0.64, 0.72], [0.38, 0.79], [0.0, 0.82],
+  [0.0, 0.0], [0.4, 0.0], [0.8, 0.0], [1.0, 0.0], [1.08, 0.004], [1.07, 0.03], [1.02, 0.08],
+  [0.99, 0.18], [0.95, 0.32], [0.88, 0.47], [0.77, 0.61], [0.61, 0.73],
+  [0.42, 0.82], [0.21, 0.87], [0.0, 0.89],
 ];
 
 let SHAPES = null;
@@ -317,6 +320,8 @@ uniform sampler2D uNoise;
 uniform vec3 uLit;
 uniform float uOpacity;
 uniform float uTime;
+uniform vec3 uShape;     // x: the water's height, y: the dome's radius, z: how far its top has thinned
+
 varying vec3 vN;
 varying vec3 vV;
 varying vec3 vW;
@@ -329,7 +334,16 @@ void main() {
   float n = texture2D(uNoise, vW.xz * 0.00045 + vW.y * 0.0003 + uTime * 0.004).r * 0.65
           + texture2D(uNoise, vW.xz * 0.0019 - uTime * 0.007).g * 0.35;
   float a = uOpacity * (0.32 + 0.68 * pow(1.0 - face, 1.4)) * smoothstep(0.18, 0.62, n + uOpacity * 0.25);
-  gl_FragColor = vec4(uLit * (0.85 + 0.3 * n), a);
+  // How high up it this is, 0 at the water and 0.89 at the top.
+  float h = (vW.y - uShape.x) / max(1.0, uShape.y);
+  // It clears from the top down, so the head of the column shows through it
+  // while its sides and its foot are still a wall of white.
+  a *= 1.0 - uShape.z * smoothstep(0.25, 0.85, h);
+  // The skirt: flat on the sea, dense and bright, and torn at its edge.
+  float skirt = (1.0 - smoothstep(0.0, 0.07, h));
+  float lip = texture2D(uNoise, vW.xz * 0.0011 + uTime * 0.003).b;
+  a = max(a, uOpacity * skirt * smoothstep(0.25, 0.6, lip + 0.2) * 0.95);
+  gl_FragColor = vec4(uLit * (0.85 + 0.3 * n + 0.25 * skirt), clamp(a, 0.0, 1.0));
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
   #include <fog_fragment>
@@ -525,7 +539,7 @@ export class Nukes {
     const wilson = new THREE.Mesh(S.wilson, new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
         uNoise: { value: null }, uLit: { value: new THREE.Color(1, 1, 1) },
-        uOpacity: { value: 0 }, uTime: { value: 0 },
+        uOpacity: { value: 0 }, uTime: { value: 0 }, uShape: { value: new THREE.Vector3(0, 1, 0) },
       }]),
       vertexShader: WILSON_VERT,
       fragmentShader: WILSON_FRAG,
@@ -674,33 +688,34 @@ export class Nukes {
       }
       const fire = this.fireball(n, t);
       // The flash and the glow.
-      const f = Math.exp(-t / 0.35) + 0.25 * Math.exp(-t / 4);
-      n.glow.scale.setScalar(NUKE.fireball * (4 + 10 * Math.exp(-t / 0.5)));
+      const f = Math.exp(-t / 0.35) + (n.land ? 0.45 * Math.exp(-t / 7) : 0.25 * Math.exp(-t / 4));
+      n.glow.scale.setScalar(NUKE.fireball * (n.land ? 1.35 : 1) * (4 + 10 * Math.exp(-t / 0.5)));
       n.glow.position.y = n.ball.position.y;
       n.glow.material.opacity = Math.min(1, f);
       n.glow.visible = n.glow.material.opacity > 0.004;
       if (n.lamp) {
-        n.lamp.intensity = 3e7 * Math.exp(-t / 0.6) + 2e6 * Math.exp(-t / 5);
+        n.lamp.intensity = (n.land ? 4.5e7 : 3e7) * Math.exp(-t / 0.6) + (n.land ? 4e6 : 2e6) * Math.exp(-t / (n.land ? 9 : 5));
         n.lamp.position.set(n.x, n.ball.position.y, n.z);
         // Forty seconds on it is lighting nothing a ship would show, and the
         // scene's gun flashes want it back.
         if (t > 40) { n.lamp.intensity = 0; this.dropLamp(n); }
       }
       // The shock, and the moment it reaches the eye.
-      const front = nukeFront(t);
+      const front = nukeFront(t, n.land);
+      const reach = NUKE.reach * (n.land ? NUKE.landReach : 1);
       if (camera) {
         const d = Math.hypot(camera.position.x - n.x, camera.position.y - n.y, camera.position.z - n.z);
         if (n.front < d && front >= d) {
-          this.jolt = Math.max(this.jolt, Math.max(0.25, 1 - d / NUKE.reach));
+          this.jolt = Math.max(this.jolt, Math.max(0.3, (n.land ? 1.3 : 1) * (1 - d / reach)));
         }
       }
       n.front = front;
-      const bend = 0.05 * Math.max(0, 1 - t / 14) * Math.min(1, t * 6);
+      const bend = 0.075 * Math.max(0, 1 - t / 11) * Math.min(1, t * 8);
       n.shock.visible = bend > 1e-4;
       n.shock.scale.setScalar(Math.max(1, front));
       n.shock.position.y = n.y * 0.5;
       n.shock.material.uniforms.uBend.value = bend;
-      n.shock.material.uniforms.uSkin.value = 0.9 * Math.exp(-t / 0.9);
+      n.shock.material.uniforms.uSkin.value = 1.2 * Math.exp(-t / 1.2);
       // The condensation cloud, the cap of Baker, and on land a brief skirt.
       this.wilson(n, t, front, L);
       // The cloud.
@@ -731,7 +746,9 @@ export class Nukes {
   fireball(n, t) {
     const grow = 1 - Math.exp(-t / 0.45);
     const rise = Math.max(0, t - 1.5);
-    const R = NUKE.fireball * grow * (1 + Math.min(0.6, rise * 0.03));
+    // On the ground nothing of it goes into boiling the sea: it is bigger,
+    // brighter, and it burns for longer.
+    const R = NUKE.fireball * (n.land ? 1.4 : 1) * grow * (1 + Math.min(0.6, rise * 0.03));
     let y, opacity, cool;
     if (n.land) {
       // Up off the ground as it cools, until it is the heart of the cap.
@@ -768,21 +785,27 @@ export class Nukes {
     TMPC.copy(L.sky).multiplyScalar(0.8);
     u.uLit.value.copy(L.sun).multiplyScalar(0.7).add(TMPC).multiplyScalar(1 / Math.PI)
       .addScalar(0.12 + glow);
-    let op;
+    // A dome standing on the water or the ground over the whole burst, out
+    // just behind the shock: as the shock passes, the damp air it leaves
+    // behind it is cooled into fog, and the fog clears again as it warms.
+    let op, r, thin;
     if (n.land) {
-      // Over land it is a skirt that flashes up round the rising fireball.
-      op = t < 0.6 ? 0 : 0.6 * Math.sin(Math.min(Math.PI, ((t - 0.6) / 4.5) * Math.PI));
-      const r = Math.min(front * 0.55, 1600);
-      w.scale.set(r, r * 0.5, r);
-      w.position.y = n.y + 100;
+      // Over dry land there is less in the air to condense: thinner, and
+      // gone in a few seconds, round a fireball that is still rising.
+      op = t < 0.3 ? 0 : Math.min(0.55, (t - 0.3) * 1.4) * (1 - smooth(3, 8, t));
+      r = Math.min(front * 0.9, 2600);
+      thin = 0.6 + 0.4 * smooth(1, 5, t);
     } else {
-      // Over the sea it is the great smooth cap of Baker: out with the shock,
-      // up round the head of the column, and thinning away in fifteen seconds.
-      op = t < 0.5 ? 0 : Math.min(0.92, (t - 0.5) * 1.6) * Math.max(0, 1 - Math.max(0, t - 5) / 10);
-      const r = Math.min(front * 0.62, 1500 + t * 18);
-      w.scale.set(r, r * 0.82, r);
-      w.position.y = n.y + Math.min(900, 120 + t * 70);
+      // Over the sea it is Baker's: a wall of white over the whole fleet in
+      // the first second, the column's head bursting up through its top,
+      // and clearing from the top down in a quarter of a minute.
+      op = t < 0.2 ? 0 : Math.min(0.96, (t - 0.2) * 2.2) * (1 - smooth(7, 17, t));
+      r = Math.min(front * 0.92, 2900) + Math.max(0, t - 4) * 22;
+      thin = 0.15 + 0.85 * smooth(2.5, 12, t);
     }
+    w.scale.set(r, r, r);
+    w.position.y = n.y + 1.5;
+    u.uShape.value.set(n.y + 1.5, r, thin);
     u.uOpacity.value = op;
     w.visible = op > 0.01;
   }
@@ -915,6 +938,19 @@ export class Nukes {
       const heat = burn * burn * Math.max(0, 1 - u * 1.1) * (0.4 + 0.6 * hash(i + 400, 0));
       putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.45 + 0.3 * u, heat, thin, k);
     }
+    // The ground under it, alight: everything that will burn for a mile
+    // round the foot of the stem, low and red under the smoke.
+    if (age < 70) {
+      const Rg = 300 + 1300 * (1 - Math.exp(-age / 3));
+      const blaze = (1 - smooth(25, 70, age)) * Math.min(1, age * 2);
+      for (let i = 0; i < 50; i++, k++) {
+        const a = hash(i + 800, 0) * Math.PI * 2;
+        const rr = Rg * Math.sqrt(hash(i + 800, 1));
+        const r = (60 + 80 * hash(i + 800, 2)) * (0.6 + 0.4 * Math.min(1, age / 6));
+        putBillow(b, Math.cos(a) * rr, n.y + r * 0.5, Math.sin(a) * rr, r, 0.35,
+          blaze * (0.5 + 0.5 * hash(i + 800, 3)), Math.max(thin, 1 - blaze), k);
+      }
+    }
     // The collar: a ring of white condensation that forms round the stem as
     // the cap goes up through damp air, and is gone in half a minute.
     if (age > 3 && age < 34) {
@@ -931,13 +967,16 @@ export class Nukes {
     }
     // The dust thrown up by the shock where it struck the ground, in the
     // first seconds, and the base surge after it rolling out along the ground.
-    const front = nukeFront(t);
-    if (t < 14) {
-      for (let i = 0; i < 70; i++, k++) {
+    // The shock across the ground is a wall of dust racing out with it --
+    // the thing that shows where it is.
+    const front = nukeFront(t, true);
+    if (t < 20) {
+      for (let i = 0; i < 130; i++, k++) {
         const a = hash(i, 2) * Math.PI * 2;
-        const rr = front * (0.9 + 0.08 * hash(i + 600, 0));
-        putBillow(m, Math.cos(a) * rr, n.y + 30 + 40 * hash(i + 600, 1), Math.sin(a) * rr,
-          80 + 90 * hash(i + 600, 2), 0.45, 0, smooth(2, 14, t), k);
+        const rr = front * (0.86 + 0.12 * hash(i + 600, 0));
+        const r = (110 + 130 * hash(i + 600, 2)) * (1 + 0.6 * smooth(0, 8, t));
+        putBillow(m, Math.cos(a) * rr, n.y + r * 0.4 + 60 * hash(i + 600, 1), Math.sin(a) * rr,
+          r, 0.42, 0, smooth(4, 20, t), k);
       }
     }
     // Low, and pale with dust: a skirt round the foot of the stem, not a

@@ -6365,8 +6365,8 @@ function atomicArrives(state, sh, px, py, pz) {
 export function nukeBlast(state, x, y, z, sh = null) {
   const id = eid();
   const team = sh ? sh.team : -1;
-  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0,
-    sea: groundHeight(state.world, x, z) <= 0.5 };
+  const sea = groundHeight(state.world, x, z) <= 0.5;
+  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0, sea, land: !sea };
   (state.nukes || (state.nukes = [])).push(n);
   const ashore = groundHeight(state.world, x, z) > 0.5;
   // With the moment on the battle's clock, which is the clock the sea runs on:
@@ -6420,7 +6420,7 @@ function stepNukes(state, dt) {
     const n = list[i];
     const age = state.t - n.t0;
     const r0 = n.r;
-    const r1 = nukeFront(age);
+    const r1 = nukeFront(age, n.land);
     const crossed = (d) => d <= r1 && (d > r0 || (r0 === 0 && d >= 0));
     for (const s of state.ships) {
       if (!s.alive) continue;
@@ -6430,7 +6430,7 @@ function stepNukes(state, dt) {
       // A boat deep under is spared a little of it by the water over her;
       // not much, because a shock in water is worse than one in air.
       const deep = (s.depth || 0) > 8 ? 0.7 : 1;
-      const bite = nukeBite(d) * deep;
+      const bite = nukeBite(d, n.land) * deep;
       if (bite <= 0) continue;
       damageShip(state, s, null, cls.hp * bite, 'nuke');
       if (s.alive) blastMounts(state, s, cls, n, bite);
@@ -6443,33 +6443,34 @@ function stepNukes(state, dt) {
       }
       // The shock is a blow, not a wave: it jolts her and that is all. The
       // water comes later (see the wave, below).
-      nukeShove(s, cls, n, 0.25 * Math.max(0, 1 - d / NUKE.reach));
+      nukeShove(s, cls, n, 0.45 * Math.max(0, 1 - d / (NUKE.reach * (n.land ? NUKE.landReach : 1))));
       state.events.push({ e: 'nukeHit', ship: s.id, i: n.id, b: Math.round(bite * 100) / 100 });
     }
     // In the air.
     const air = (q) => Math.hypot(q.x - n.x, (q.y ?? 220) - n.y, q.z - n.z);
+    const reachAir = NUKE.air * (n.land ? NUKE.landReach : 1);
     for (const q of state.planes) {
       if (q.dead) continue;
       const d = air(q);
-      if (!crossed(d) || d > NUKE.air) continue;
-      if (d < NUKE.air * 0.45) killFlight(state, q, 'blast');
+      if (!crossed(d) || d > reachAir) continue;
+      if (d < reachAir * 0.45) killFlight(state, q, 'blast');
       else {
-        hurtFlight(state, q, 900 * Math.pow(1 - d / NUKE.air, 1.5), 'blast');
+        hurtFlight(state, q, 900 * Math.pow(1 - d / reachAir, 1.5), 'blast');
         if (q.hp <= 0 && !q.dead) killFlight(state, q, 'blast');
       }
     }
     for (const bm of state.bombers) {
       if (!bm.alive) continue;
       const d = air(bm);
-      if (!crossed(d) || d > NUKE.air) continue;
-      if (d < NUKE.air * 0.45) heavyGone(state, bm, 'blast');
-      else hurtBomber(state, bm, 2400 * Math.pow(1 - d / NUKE.air, 2), 'blast');
+      if (!crossed(d) || d > reachAir) continue;
+      if (d < reachAir * 0.45) heavyGone(state, bm, 'blast');
+      else hurtBomber(state, bm, 2400 * Math.pow(1 - d / reachAir, 2), 'blast');
     }
     for (const bat of state.batteries) {
       if (!bat.alive) continue;
       const d = Math.hypot(bat.x - n.x, bat.z - n.z);
       if (!crossed(d)) continue;
-      const bite = nukeBite(d);
+      const bite = nukeBite(d, n.land);
       if (bite > 0) hurtBattery(state, bat, batteryHp(BATTERIES[bat.batteryId]) * bite * 1.2);
     }
     // What is in the water near it does not survive the shock in the water.
@@ -6485,7 +6486,7 @@ function stepNukes(state, dt) {
         for (const b of plan.byId.values()) {
           const d = Math.hypot(b.x - n.x, b.z - n.z);
           if (!crossed(d)) continue;
-          const bite = nukeBite(d);
+          const bite = nukeBite(d, n.land);
           if (bite > 0) hurtBuilding(state.world, b, b.hp * bite * 1.6, state.events, worksDice(state), { x: n.x, z: n.z, he: true });
         }
       }
@@ -6505,7 +6506,15 @@ function stepNukes(state, dt) {
         nukeShove(s, cls, n, h / NUKE.waveHigh);
         // Over her deck edge: a sea aboard, and what it does to what is there.
         const over = h - freeboardOf(cls);
-        if (over > 0) damageShip(state, s, null, cls.hp * Math.min(0.12, over * 0.008), 'flood');
+        // The blow of it against her side, which a big enough sea is on its
+        // own: plates started, frames buckled, boats and rafts gone.
+        const slam = Math.min(0.18, Math.max(0, h - 6) / 160);
+        if (slam > 0) damageShip(state, s, null, cls.hp * slam, 'wave');
+        if (over > 0 && s.alive) {
+          damageShip(state, s, null, cls.hp * Math.min(0.25, over * 0.012), 'flood');
+          // And what green water sweeping her deck takes with it.
+          if (s.alive) blastMounts(state, s, cls, n, Math.min(0.5, over * 0.035));
+        }
         // And over on her beam ends, if it took her the wrong way.
         const cap = s.alive ? waveRoll(state, s, cls, n, h) : 0;
         state.events.push({ e: 'nukeWave', ship: s.id, i: n.id, h: Math.round(h), ...(cap ? { cap } : {}) });

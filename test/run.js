@@ -28645,7 +28645,7 @@ check('after the flash and the shock comes the wave: slower, big close in, and n
   const st = createState(world, { mode: 'deathmatch' });
   // A destroyer outside the blast, where only the water reaches her.
   const dd = addShip(st, { name: 'Tin can', classId: 'fletcher', team: 0, index: 0 });
-  dd.x = 4800; dd.z = 0; dd.speed = 0; dd.heading = 0;
+  dd.x = 6500; dd.z = 0; dd.speed = 0; dd.heading = 0;
   const hp0 = dd.hp;
   nukeBlast(st, 0, 0, 0, null);
   let shock = null, wave = null, rolled = 0;
@@ -28659,21 +28659,21 @@ check('after the flash and the shock comes the wave: slower, big close in, and n
   }
   assert.equal(shock, null, 'the shock reached a ship outside its reach');
   assert.ok(wave, 'the wave never reached her');
-  const d = 4800 - getClass('fletcher').hull.beam / 2;
+  const d = 6500 - getClass('fletcher').hull.beam / 2;
   const due = -NUKE.waveTau * Math.log(1 - d / NUKE.waveReach);
   assert.ok(Math.abs(wave.t - due) < 0.5, `the wave got to her at ${wave.t.toFixed(1)} s, it was due at ${due.toFixed(1)} s`);
   // Slower than the shock by a long way: the shock is across that distance
   // in a few seconds, the sea takes the better part of two minutes.
   assert.ok(wave.t > 20 * NUKE.tau, 'the wave came at the speed of the shock');
   // A heavy sea, not a wall a hundred metres high, and lower the further out.
-  assert.ok(wave.h >= 3 && wave.h <= 15, `a ${wave.h} m sea at nearly five kilometres`);
+  assert.ok(wave.h >= 3 && wave.h <= 15, `a ${wave.h} m sea at six and a half kilometres`);
   assert.ok(waveHeight(500) > waveHeight(3000) && waveHeight(3000) > waveHeight(6000));
-  // Baker's was near thirty metres a thousand feet out.
-  assert.ok(waveHeight(0) < 35, `the wave stands ${waveHeight(0).toFixed(0)} m at the burst`);
+  // Baker's was near thirty metres a thousand feet out; the game's is bigger.
+  assert.ok(waveHeight(0) < 50, `the wave stands ${waveHeight(0).toFixed(0)} m at the burst`);
   for (let i = 0; i < 30 * 6; i++) { step(st, DT); rolled = Math.max(rolled, Math.abs(dd.rock || 0)); }
   assert.ok(rolled > 0.02, `it rolled her ${rolled.toFixed(3)} rad`);
   assert.ok(dd.alive && dd.hp > hp0 * 0.9, 'a five-metre sea sank a destroyer');
-  for (let i = 0; i < 30 * 40; i++) step(st, DT);
+  for (let i = 0; i < 30 * 90; i++) step(st, DT);
   assert.equal(st.nukes.length, 0, 'the burst is still being stepped long after it is done');
 });
 
