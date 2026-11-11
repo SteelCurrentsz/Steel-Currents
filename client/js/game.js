@@ -1075,6 +1075,12 @@ export class Battle {
         f.rackHeld = 0;
         this.hud.alert(NOMSL[m.why] || 'Missile did not go');
       }),
+      // A launch ordered while the last one is still going off her deck: it
+      // goes when that one is up, and the key does nothing till then.
+      this.net.on('nostrike', (m) => {
+        this.hud.alert(m && m.why === 'launching' ? 'Deck busy — a launch is still going off'
+          : 'Deck not ready to launch');
+      }),
       // And the racks refusing. Either there is nothing left in the stowage or
       // the party has not finished reloading, and a captain who pressed the
       // key and saw nothing go over the stern is entitled to be told which.

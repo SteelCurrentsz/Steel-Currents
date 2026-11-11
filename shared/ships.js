@@ -7352,8 +7352,11 @@ export const SHIP_CLASSES = {
       // onto it from the hover.
       helipad: { x: 0, z: 2, y: 20.1 },
       // Each one up a lift from the hangar, along the deck and off a bow
-      // catapult: a lift down and up, the taxi and the shot.
-      deckRun: 18, deckNext: 15, deckCycle: 12,
+      // catapult: a lift down and up, the taxi and the shot. With four
+      // catapults and two lifts forward she gets one off every nine seconds,
+      // so a squadron of twenty-odd Hornets is up in three and a half minutes
+      // rather than the six it took at fifteen.
+      deckRun: 14, deckNext: 9, deckCycle: 14,
       // An aeroplane of hers that comes home with her load gone is struck
       // below, loaded again and fuelled, and sent back out while there is
       // still an enemy to send her at: this long on the hangar deck.

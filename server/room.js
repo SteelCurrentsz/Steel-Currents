@@ -837,7 +837,9 @@ export class Room {
         if (foe) { from.aimX = foe.x; from.aimZ = foe.z; }
         // Somewhere her aircraft can actually go: see strikeAim.
         strikeAim(this.state, from);
-        launchStrike(this.state, from);
+        if (!launchStrike(this.state, from) && from.launching && !from.launching.hold) {
+          player.send({ t: 'nostrike', why: 'launching' });
+        }
         break;
       }
       default: break;

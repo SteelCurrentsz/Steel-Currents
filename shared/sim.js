@@ -10197,6 +10197,13 @@ export function launchStrike(state, ship) {
   // A deckload waiting between aeroplanes for one coming in to land still has
   // the rest of it below to fly off. See stepLaunch.
   if (ship.launching && ship.launching.hold) return false;
+  // Nor while one is still on the deck run. A deck whose cycle is shorter than
+  // its run (the Nimitz's is twelve seconds, her run eighteen) let a second
+  // press through while the first aeroplane was still taxiing, and the new
+  // launch overwrote the old one: that squadron was marked flying with nothing
+  // of it ever off the deck, swept back below to rearm, and a captain pressing
+  // the key again every few seconds never got an aeroplane into the air at all.
+  if (ship.launching) return false;
   // Nor while an aeroplane is about to land on her, or the last one down is
   // still on the deck. See stepLanding.
   if (ship.trapBusy > 0 || landingCommitted(state, ship)) return false;

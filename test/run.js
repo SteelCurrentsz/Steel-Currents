@@ -1924,6 +1924,27 @@ check('a Nimitz launch the picture still has on her deck when her flight is up i
   assert.ok(!src.includes('this.time - left.t > 4)'), 'the climb-out still vanishes after four seconds');
 });
 
+check('pressing launch again while a Nimitz launch is on her deck does not throw it away', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Iowa', classId: 'iowa', team: 1, index: 0 });
+  c.x = 0; c.z = -9000; c.heading = 0; foe.x = 0; foe.z = 14000;
+  setAirGroup(c, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19 });
+  c.aimX = foe.x; c.aimZ = foe.z;
+  assert.ok(launchStrike(state, c), 'the first launch did not go');
+  const first = c.launching.sqId;
+  // The captain keeps pressing the key, every few seconds, for two minutes.
+  let up = 0;
+  for (let i = 0; i < 120 / DT; i++) {
+    if (i % Math.round(3 / DT) === 0) { c.aimX = foe.x; c.aimZ = foe.z; launchStrike(state, c); }
+    step(state, DT);
+  }
+  up = state.planes.filter((p) => p.owner === c.id && p.sqId === first).length;
+  assert.ok(up >= 8, `only ${up} of the first squadron got off the deck`);
+  assert.ok(!c.squadrons.some((q) => q.id !== first && q.state === 'flying' && !(c.launching && c.launching.sqId === q.id)
+    && !state.planes.some((p) => p.sqId === q.id && p.owner === c.id)), 'a squadron was marked flying with nothing in the air');
+});
+
 check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun ashore, an AMRAAM at an aeroplane', () => {
   const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
   const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
@@ -13132,8 +13153,13 @@ check('only one aircraft uses the deck at a time', () => {
   ship.aimX = ship.x + 5000; ship.aimZ = ship.z + 5000;
   assert.ok(launchStrike(state, ship), 'she would not launch at all');
   assert.ok(!launchStrike(state, ship), 'a second squadron went while the deck was busy');
-  // Wind the clock past the evolution and the next one can go.
+  // Nor once the deck's own clock has run out while the first of them is
+  // still going off it: a new order then overwrote the launch under way.
   ship.deckBusy = 0;
+  assert.ok(!launchStrike(state, ship), 'a second squadron overwrote the launch still on her deck');
+  // Wind the clock past the evolution -- the last of it off -- and the next one can go.
+  for (let i = 0; i < 400 / DT && (ship.launching || ship.deckBusy > 0); i++) step(state, DT);
+  assert.ok(!ship.launching && state.planes.some((p) => p.owner === ship.id), 'the first launch never got off');
   assert.ok(launchStrike(state, ship), 'she would not launch once the deck was clear');
   assert.ok(ship.deckBusy > 10, 'the deck was not marked busy for the launch');
 });
