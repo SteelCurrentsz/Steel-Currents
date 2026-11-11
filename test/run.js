@@ -279,6 +279,7 @@ import { drift } from '../client/js/render/effects.js';
 import { MuzzleBlasts, blastRecipe, blastSize } from '../client/js/render/muzzleblast.js';
 import { Effects } from '../client/js/render/effects.js';
 import { buildShip, buildShipModel, buildStandIn, loadShips } from '../client/js/render/ships.js';
+import { FUNNEL_MOUTHS, MOUTH_SAME } from '../client/js/render/funnelMouths.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
 /**
@@ -6557,6 +6558,32 @@ check("a ship's funnels are on her datasheet where her model has them", () => {
         }
       }
       assert.ok(top > y - 1.5, `${id}: nothing of her at her funnel top at z ${z}, ${y} m up`);
+    }
+  }
+});
+
+check("no funnel can be looked straight down through", () => {
+  // Most models draw a funnel as its outside plating alone: from above, the
+  // eye went down past the rim and found her deck, or the backs of her plates.
+  // Each such mouth now has a plate of soot just under its rim, and a ray
+  // straight down anywhere inside one stops at that plate or above it.
+  assert.ok(Object.keys(FUNNEL_MOUTHS).includes('takao'), 'the Takao\'s open funnels have no mouths');
+  const rc = new THREE.Raycaster();
+  const ids = [...Object.keys(FUNNEL_MOUTHS), ...Object.keys(MOUTH_SAME).filter((k) => FUNNEL_MOUTHS[MOUTH_SAME[k]] && SHIP_CLASSES[k])];
+  for (const id of ids) {
+    const b = buildShip(id);
+    b.group.updateMatrixWorld(true);
+    const meshes = [];
+    b.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    for (const [y, cx, cz, ring] of FUNNEL_MOUTHS[id] || FUNNEL_MOUTHS[MOUTH_SAME[id]]) {
+      // halfway from her middle to her plating, all round
+      for (let k = 0; k < ring.length; k += 8) {
+        const x = (cx + ring[k]) / 2, z = (cz + ring[k + 1]) / 2;
+        rc.set(new THREE.Vector3(x, y + 20, z), new THREE.Vector3(0, -1, 0));
+        rc.far = 60;
+        const h = rc.intersectObjects(meshes, false)[0];
+        assert.ok(h && h.point.y > y - 0.05, `${id}: the eye goes down her funnel at ${x.toFixed(1)}, ${z.toFixed(1)} to ${h ? h.point.y.toFixed(1) : 'nothing'}, under her mouth at ${y}`);
+      }
     }
   }
 });

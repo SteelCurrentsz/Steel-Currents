@@ -21,6 +21,7 @@ import { loadZero } from './zeroModel.js';
 import { loadSuisei } from './suiseiModel.js';
 import { loadB5n } from './b5nModel.js';
 import { fitTubes } from './tubes.js';
+import { FUNNEL_MOUTHS, MOUTH_SAME } from './funnelMouths.js';
 import { loadBf109 } from './bf109Model.js';
 import { loadB29 } from './b29Model.js';
 import { loadJu87 } from './ju87Model.js';
@@ -587,8 +588,35 @@ function orderLightMounts(cls, built) {
 
 export function buildShip(classId) {
   const built = buildShipModel(classId);
+  if (shipReady(classId)) laySoot(built.group, classId);
   weldLoose(built.group, handedOver(built));
   return built;
+}
+
+/**
+ * A plate of soot under the rim of each funnel her model leaves open, so a
+ * captain looking down one sees its black mouth and not the deck, the sea or
+ * the backs of her own plating through it (build/funnel-mouths.mjs).
+ */
+const SOOT = new THREE.MeshStandardMaterial({ color: 0x1a1b1d, roughness: 1, metalness: 0 });
+function laySoot(group, classId) {
+  const mouths = FUNNEL_MOUTHS[classId] || FUNNEL_MOUTHS[MOUTH_SAME[classId]];
+  if (!mouths) return;
+  const pos = [];
+  for (const [y, cx, cz, ring] of mouths) {
+    const n = ring.length / 2;
+    for (let k = 0; k < n; k++) {
+      const j = (k + 1) % n;
+      // a fan from her middle, wound to face up
+      pos.push(cx, y, cz, ring[k * 2], y, ring[k * 2 + 1], ring[j * 2], y, ring[j * 2 + 1]);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, SOOT);
+  mesh.name = 'funnel mouths';
+  group.add(mesh);
 }
 
 /**
