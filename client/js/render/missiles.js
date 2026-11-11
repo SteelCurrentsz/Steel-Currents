@@ -68,6 +68,12 @@ export const MISSILE_SHAPES = {
   x: { name: 'RAM', len: 2.79, r: 0.064, span: 0.3, chord: 0.2, fin: 0.22, wingZ: -1.1, body: MAT.standard },
   q: { name: 'AGM-84', len: 3.84, r: 0.17, span: 0.91, chord: 0.5, fin: 0.36, wingZ: 0.1, body: MAT.harpoon },
   p: { name: 'Penguin', len: 3.0, r: 0.14, span: 1.0, chord: 0.4, fin: 0.3, wingZ: 0.0, body: MAT.harpoon },
+  // And what a Hornet's pilot locks on and fires: the Sidewinder, slim with
+  // its canards right forward; the AMRAAM, longer, its wings amidships; and
+  // the Maverick, short and fat, with long low wings along it.
+  w: { name: 'Sidewinder', len: 2.85, r: 0.064, span: 0.64, chord: 0.3, fin: 0.3, wingZ: 1.0, body: MAT.standard },
+  u: { name: 'AMRAAM', len: 3.65, r: 0.089, span: 0.53, chord: 0.4, fin: 0.3, wingZ: 0.1, body: MAT.standard },
+  k: { name: 'Maverick', len: 2.49, r: 0.15, span: 0.72, chord: 1.0, fin: 0.22, wingZ: -0.3, body: MAT.harpoon },
 };
 /** A missile code the client has no shape for is drawn as a Harpoon. */
 const shapeOf = (k) => (MISSILE_SHAPES[k] ? k : 'h');

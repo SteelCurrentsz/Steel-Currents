@@ -894,6 +894,19 @@ export function buildNimitz() {
     deck.current = null;
     deck.stowed = true;
   };
+  // The simulation has her in the air and the picture still has her on the
+  // deck -- the battle's clock jumped, or the picture fell behind it. The one
+  // furthest on of those still going is put off the bow now, so she is never
+  // drawn twice and never lost between the two: the game hands her from there
+  // to her flight (see flyLaunched). Says whether there was one.
+  g.userData.forceOff = () => {
+    const a = (deck.actors || []).filter((q) => !q.done && !q.off
+      && (q.plan === 'launch' || q.plan === 'heloLaunch')).sort((x, y) => x.t0 - y.t0)[0];
+    if (!a) return false;
+    a.off = true;
+    done(deck, a, deck.lastT ?? a.t0);
+    return true;
+  };
 
   dressShip(g);
   return {

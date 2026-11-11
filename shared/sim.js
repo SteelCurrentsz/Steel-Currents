@@ -6,7 +6,7 @@ import {
   clamp, lerp, wrapAngle, angleDelta, approachAngle, approach, dist, dist2,
   headingTo, localToWorld, worldToLocal, pointInBox, makeRng, gauss, TAU,
 } from './math.js';
-import { getClass, SHIP_CLASSES, AIR_MISSILES } from './ships.js';
+import { getClass, SHIP_CLASSES, AIR_MISSILES, AIR_MISSILE_HITS } from './ships.js';
 import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
@@ -7870,10 +7870,10 @@ const BOX_CELL = 1.19;
  * any class carries has one.
  */
 export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g', vulcan: 'v', s300: 'f', osa: 'm',
-  essm: 'r', ram: 'x', agm84: 'q', penguin: 'p' };
+  essm: 'r', ram: 'x', agm84: 'q', penguin: 'p', aim9: 'w', aim120: 'u', agm65: 'k' };
 export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(([k, c]) => [c, k]));
 
-/** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc'. */
+/** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc', 'aam' (an aeroplane's, at aeroplanes), 'ground' (an aeroplane's, at a gun ashore). */
 export const missileRole = (K) => (K && K.role) || 'surface';
 /**
  * Where a kind goes up from: a Mk 41 cell ('vls'), an armoured box ('box'), a
@@ -8559,6 +8559,61 @@ function missileFlak(state, m, dt) {
   return down;
 }
 
+/**
+ * A missile laid on a gun position ashore, a tick: up to its speed, and
+ * steered straight down the line onto the gun, which does not move. It goes
+ * off on the gun when it gets there, and into the hillside if the hill is in
+ * the way. Returns whether it is still flying.
+ */
+function stepGroundMissile(state, m, K, dt) {
+  m.speed = Math.min(K.speed, m.speed + MISSILE_BOOST * dt);
+  const b = (state.batteries || []).find((q) => q.id === m.target);
+  const px = m.x, py = m.y, pz = m.z;
+  if (b && b.alive) {
+    const ty = (b.y ?? 0) + 1.5;
+    const d = Math.hypot(b.x - m.x, b.z - m.z);
+    const wantH = headingTo(m.x, m.z, b.x, b.z);
+    const wantP = Math.atan2(ty - m.y, Math.max(1, d));
+    const turn = K.turn * dt;
+    m.heading = wrapAngle(m.heading + clamp(angleDelta(m.heading, wantH), -turn, turn));
+    m.pitch += clamp(wantP - m.pitch, -turn * 1.5, turn * 1.5);
+  }
+  const c = Math.cos(m.pitch);
+  m.x += Math.sin(m.heading) * c * m.speed * dt;
+  m.z += Math.cos(m.heading) * c * m.speed * dt;
+  m.y += Math.sin(m.pitch) * m.speed * dt;
+  m.travelled += m.speed * dt;
+  if (b && b.alive) {
+    // Its fuse: the nearest it came to the gun along the way it went.
+    const ty = (b.y ?? 0) + 1.5;
+    let near = Infinity;
+    for (let k = 0; k <= 4; k++) {
+      const u = k / 4;
+      near = Math.min(near, Math.hypot(px + (m.x - px) * u - b.x, py + (m.y - py) * u - ty, pz + (m.z - pz) * u - b.z));
+    }
+    if (near <= 9) {
+      hurtBattery(state, b, K.damage);
+      landStrike(state, b.x, b.z, 0.3, 'bomb', 1.2);
+      const owner = state.ships.find((s) => s.id === m.owner);
+      if (owner) owner.ribbons.hits++;
+      state.events.push({ e: 'mslHit', x: r(b.x), y: r(ty), z: r(b.z), k: m.kind, victim: 0, bat: b.id, owner: m.owner, i: m.id });
+      return false;
+    }
+  }
+  if (m.travelled > K.range) { loseMissile(state, m, 'fuel'); return false; }
+  if (m.y <= 0.3) {
+    state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 300 });
+    loseMissile(state, m, 'sea');
+    return false;
+  }
+  if (groundHeight(state.world, m.x, m.z) > m.y) {
+    landStrike(state, m.x, m.z, 0.3, 'bomb', 1.2);
+    loseMissile(state, m, 'land');
+    return false;
+  }
+  return true;
+}
+
 /** Every missile in the air, a tick at a time. */
 function stepMissiles(state, dt) {
   if (!state.missiles || !state.missiles.length) return;
@@ -8589,7 +8644,9 @@ function stepMissiles(state, dt) {
     // Something going for something in the air, and a rocket throwing a
     // torpedo: each flies its own way.
     const role = missileRole(K);
-    if (role === 'sam' || role === 'abm') { if (stepInterceptor(state, m, K, dt)) out.push(m); continue; }
+    if (role === 'sam' || role === 'abm' || role === 'aam') { if (stepInterceptor(state, m, K, dt)) out.push(m); continue; }
+    // A Maverick laid on a gun ashore: down its seeker's line onto it.
+    if (m.tk === 'b') { if (stepGroundMissile(state, m, K, dt)) out.push(m); continue; }
     if (role === 'asroc') {
       if (!stepAsroc(state, m, K, dt)) continue;
       if (missileFlak(state, m, dt)) { loseMissile(state, m, 'flak'); continue; }
@@ -10352,6 +10409,7 @@ export function slotOrder(cls, group, fighters, bomb, torp) {
         role: spec.role, count: 1, type: SL[k].type, load: key,
         torp: 0, bomb: spec.bomb || 0, bombEach: spec.bomb || 1,
         standoff: spec.standoff || null, asw: spec.asw || 0,
+        rack: spec.rack || null,
       });
     }
   }
@@ -10565,6 +10623,9 @@ function stepLaunch(state, ship, dt) {
       // What a load gives her on top of that: missiles she fires from a
       // distance at a ship, and homing torpedoes for a boat (see slotOrder).
       ...(f.standoff ? { standoff: { ...f.standoff } } : {}),
+      // And the missiles on her rails a pilot locks on and fires (see
+      // fireLocked); her own fighter direction fires them too.
+      ...(f.rack ? { rack: { ...f.rack } } : {}),
       ...(f.asw ? { asw: f.asw } : {}),
       ...(f.load ? { load: f.load } : {}),
       count: f.count,
@@ -12837,6 +12898,143 @@ function fireAirMissile(state, p, kind, K, t, i) {
   state.events.push({ e: 'mslLaunch', ship: p.owner, k: kind, at: -1, i: m.id, x: r(m.x), y: r(m.y), z: r(m.z), air: 1 });
 }
 
+// ---------------------------------------------------------------------------
+// Locking on, from the cockpit
+// ---------------------------------------------------------------------------
+//
+// A modern aeroplane's missiles are not let go at whatever is about: the
+// pilot puts her nose on something, the seeker or her radar takes it, and the
+// missile goes for that and nothing else. The client does the looking and
+// says what it has locked; this checks the lock was one she could have had --
+// her own aeroplane, a missile on the rail that goes for that kind of thing,
+// inside its reach and inside the seeker's cone off her nose -- and lets it go.
+
+/** How far either side of her nose a seeker will take a lock, in radians. */
+export const LOCK_CONE = 0.5;
+/** And how far off it the target may have got by the time the word arrives. */
+const LOCK_SLACK = 0.25;
+/** How soon after one missile the next can go off the same aeroplane. */
+const LOCK_INTERVAL = 0.6;
+
+/** What an air-launched missile can be locked on to: 'a', 's' or 'b'. */
+export function lockHits(kind) { return AIR_MISSILE_HITS[kind] || []; }
+
+/** Every missile on an aeroplane's rails, by kind: her rack, and a standoff load. */
+export function planeRack(p) {
+  const out = {};
+  for (const [k, n] of Object.entries(p.rack || {})) if (n > 0) out[k] = n;
+  if (p.standoff && p.standoff.n > 0) out[p.standoff.kind] = (out[p.standoff.kind] || 0) + p.standoff.n * (p.count || 1);
+  return out;
+}
+
+/** Where a lockable thing is: { x, y, z, team } or null when it is gone. */
+function lockAt(state, tk, id) {
+  if (tk === 'a') {
+    for (const { q } of airborne(state)) if (q.id === id) return { x: q.x, y: q.y ?? 220, z: q.z, team: q.team, ref: q };
+    return null;
+  }
+  if (tk === 's') {
+    const t = state.ships.find((q) => q.id === id);
+    if (!t || !t.alive || submerged(t)) return null;
+    return { x: t.x, y: 6, z: t.z, team: t.team, ref: t };
+  }
+  if (tk === 'b') {
+    const b = (state.batteries || []).find((q) => q.id === id);
+    if (!b || !b.alive) return null;
+    return { x: b.x, y: (b.y ?? 0) + 1.5, z: b.z, team: b.team, ref: b };
+  }
+  return null;
+}
+
+/**
+ * Fire one missile off an aeroplane at what her pilot has locked. `msg` is
+ * { i: her id, k: the kind, tk: 'a' | 's' | 'b', tg: its id }. Returns the
+ * missile, or a word for why not.
+ */
+export function fireLocked(state, ship, msg) {
+  const p = state.planes.find((q) => q.id === msg.i);
+  if (!p || p.dead || !ship) return 'gone';
+  if (p.owner !== ship.id && p.pilot !== ship.id) return 'gone';
+  const kind = typeof msg.k === 'string' ? msg.k : '';
+  const K = airKind(kind);
+  if (!K) return 'none';
+  const tk = msg.tk;
+  if (!lockHits(kind).includes(tk)) return 'kind';
+  const rack = planeRack(p);
+  if (!(rack[kind] > 0)) return 'none';
+  if ((p.lockCool || 0) > 0) return 'wait';
+  const t = lockAt(state, tk, msg.tg);
+  if (!t || !mayHurt(state, p.team, t.ref) || (t.team === p.team && !state.friendlyFire)) return 'lost';
+  const y = p.y ?? 200;
+  const dx = t.x - p.x, dy = t.y - y, dz = t.z - p.z;
+  const d = Math.hypot(dx, dy, dz);
+  if (d > K.range) return 'range';
+  // Off her nose: the line she is flying, which is where the seeker looks.
+  const pt = p.pitch || 0;
+  const fx = Math.sin(p.heading) * Math.cos(pt), fy = Math.sin(pt), fz = Math.cos(p.heading) * Math.cos(pt);
+  const off = Math.acos(clamp((dx * fx + dy * fy + dz * fz) / Math.max(1, d), -1, 1));
+  if (off > LOCK_CONE + LOCK_SLACK) return 'cone';
+  // Off the rack: her rails first, then her standoff load.
+  if (p.rack && p.rack[kind] > 0) p.rack[kind]--;
+  else if (p.standoff && p.standoff.kind === kind && p.standoff.n > 0) {
+    p.standoff.n--;
+    if (p.standoff.n <= 0) p.dropped = true;
+  } else return 'none';
+  p.lockCool = LOCK_INTERVAL;
+  return launchLocked(state, p, kind, K, tk, msg.tg, (p.mslSide = -(p.mslSide || 1)));
+}
+
+/** One missile off her rail at `tg`, going the way her nose is. */
+function launchLocked(state, p, kind, K, tk, tg, side) {
+  const h = p.heading || 0;
+  const air = missileRole(K) === 'aam';
+  const m = {
+    id: eid(), owner: p.owner, team: p.team, kind,
+    x: p.x + Math.sin(h + Math.PI / 2) * side * 2.5, y: Math.max(3, (p.y ?? 200) - 1.5), z: p.z + Math.cos(h + Math.PI / 2) * side * 2.5,
+    heading: h, pitch: clamp(p.pitch || 0, -1.2, 1.2),
+    // Off the rail at her own speed: there is no cell to climb out of, and
+    // for a missile at a ship or a gun no climb-out to fly first.
+    speed: Math.max(p.speed || 100, air ? 200 : 120), travelled: 0,
+    age: air ? 0.35 : MISSILE_CLIMB,
+    target: tg, tk, hold: 0, from: -1, vls: 0, aboard: null,
+    hp: K.hp, burn: 0, air: 1,
+  };
+  state.missiles.push(m);
+  state.events.push({ e: 'mslLaunch', ship: p.owner, k: kind, at: -1, i: m.id, x: r(m.x), y: r(m.y), z: r(m.z), air: 1, pl: p.id });
+  return m;
+}
+
+/**
+ * Her own fighter direction, with missiles for the air on her rails: once she
+ * has an aeroplane of the enemy's ahead of her and inside a missile's reach,
+ * she fires one at it -- the short one close in, the long one further out --
+ * and goes on with her guns if it misses.
+ */
+function stepAirMissiles(state, p, dt) {
+  if (p.lockCool > 0) p.lockCool -= dt;
+  if (p.flown || !p.rack || p.lockCool > 0) return;
+  const id = p.targetAir || p.targetHeavy;
+  if (!id) return;
+  const t = lockAt(state, 'a', id);
+  if (!t || t.team === p.team) return;
+  const y = p.y ?? 200;
+  const dx = t.x - p.x, dy = t.y - y, dz = t.z - p.z;
+  const d = Math.hypot(dx, dy, dz);
+  const ahead = (dx * Math.sin(p.heading) + dz * Math.cos(p.heading)) / Math.max(1, Math.hypot(dx, dz));
+  if (ahead < Math.cos(LOCK_CONE)) return;
+  // Not two at the one aeroplane.
+  if (state.missiles.some((m) => m.team === p.team && m.tk === 'a' && m.target === id)) return;
+  let kind = null;
+  for (const k of ['aim9', 'aim120']) {
+    const K = airKind(k);
+    if (p.rack[k] > 0 && d < K.range * 0.8 && d > 300) { kind = k; break; }
+  }
+  if (!kind) return;
+  p.rack[kind]--;
+  p.lockCool = 4;
+  launchLocked(state, p, kind, airKind(kind), 'a', id, (p.mslSide = -(p.mslSide || 1)));
+}
+
 function stepPlanes(state, dt) {
   const out = [];
   for (const p of state.planes) {
@@ -13116,6 +13314,7 @@ function stepPlanes(state, dt) {
 
     // A Hawkeye on her station, a Seahawk after a boat, and anything with
     // missiles to fire from a distance: see stepAirJobs.
+    stepAirMissiles(state, p, dt);
     if (!p.flown && (p.phase === 'outbound' || p.phase === 'formup')) stepAirJobs(state, p, carrier);
 
     // Whether anybody is sitting on her tail, which is what starts her
