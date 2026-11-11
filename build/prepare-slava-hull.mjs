@@ -1,25 +1,31 @@
-// Turn the owner's model of the Russian destroyer Sovremenny into what
-// client/js/render/sovremennyHull.js ships: her hull, her superstructure, her
-// masts, her Moskit and Uragan launchers and every fitting on her as one
-// painted mesh, and every mounting of hers that trains -- her two twin AK-130s,
-// her four AK-630s and her two RBU-1000s -- cut free of her, each as the
-// model drew it; her two twin torpedo tubes; her two screws; and where the
-// mouths of her Moskit canisters and the rails of her Uragan launchers are.
+// Turn the owner's model of the Russian cruiser Slava into what
+// client/js/render/slavaHull.js ships: her hull, her superstructure, her
+// masts, her Vulcan tubes, her S-300F hatches, her OSA-M launchers and every
+// fitting on her as one painted mesh, and every mounting of hers that trains --
+// her twin AK-130 and her two RBU-6000s -- cut free of her, each as the model
+// drew it; where her six AK-630s stand (the turrets drawn on them are the
+// owner's own model of one: see build/prepare-ak630.mjs); her two screws; and
+// where the mouths of her Vulcan tubes, her S-300F hatches and the tops of her
+// OSA-M launchers are.
 //
 //   npm i --no-save meshoptimizer@0.22 sharp     (see build/sculpt-source.mjs)
-//   node build/prepare-sovremenny-hull.mjs [model.glb]
+//   node build/prepare-slava-hull.mjs [model.glb]
 //
-// Reads assets/models/sovremenny-class_destroyer.glb as the owner uploaded
-// it: "Sovremenny-class destroyer" by SB-129 (https://skfb.ly/pBN6X), under
-// Creative Commons Attribution 4.0 -- credited on the game's Credits screen. A
-// Sketchfab export of the whole ship at a hundred-and-fortieth of her size,
-// bow along +Z, in eleven hundred small pieces: her hull in one, and every
-// gun, launcher and fitting out of a handful of its own. The mountings are
-// found here by where they stand. The steps are the Arleigh Burke's
-// (build/prepare-burke-hull.mjs).
+// Reads assets/models/RFSlava.glb as the owner uploaded it: "Project 1164" by
+// KlyushnikovAI (https://sketchfab.com/3d-models/project-1164-b13773d65e7440bca803ec6485e5f1b6),
+// under Creative Commons Attribution 4.0 -- credited on the game's Credits
+// screen. A Sketchfab export of the whole ship, bow along +Z, in twenty-seven
+// pieces, one to a material: her hull in one, and every gun, launcher and
+// fitting spread through the rest. The mountings are found here by where they
+// stand. The steps are the Sovremenny's (build/prepare-sovremenny-hull.mjs),
+// and so is her paint: every paint of the model is matched onto the
+// Sovremenny's, read off client/js/render/sovremennyHull.data.js.
 //
-// Writes client/js/render/sovremennyHull.data.js, which is committed, so a
-// fresh clone runs without this script.
+// Writes client/js/render/slavaHull.data.js, which is committed, so a fresh
+// clone runs without this script.
+//
+// SURVEY=1 lists the model's pieces and where they are; PARTS_IN=[x0,x1,y0,y1,z0,z1]
+// lists the parts of her fittings standing in that box, in metres of her frame.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -217,11 +223,11 @@ const { j } = model;
 console.log('model:', model.T.length / 3, 'triangles,', model.P.length / 3, 'points,', j.nodes.length, 'nodes');
 
 // ---- her frame -----------------------------------------------------------------------
-// The model is drawn a hundred and forty-odd times smaller than she is, and
-// it paints her bottom red up to a white boot-topping 7.6 m over her keel at
-// her size: that is her waterline, and she floats there. Brought up to her
-// length of 156.5 m, which makes her 17.3 m across her hull, centred on her
-// length and her beam; its bow is already +Z.
+// The model paints her bottom dark red up to a line 8.4 m over her keel at her
+// size, her full-load draught: that is her waterline, and she floats there --
+// 13 m over the model's own origin. Brought up to her length of 186.4 m, which
+// makes her 21 m across her hull, centred on her length and her beam; its bow
+// is already +Z.
 export const REAL_LOA = 186.4;
 export const SINK = +(process.env.SINK ?? -13.0);
 let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
@@ -254,8 +260,8 @@ if (process.env.SURVEY) {
 }
 
 // ---- her shell ------------------------------------------------------------------------
-// Her hull plating, side and bottom: the one piece of the model that draws
-// her hull, in its hull material. Over her waterline the model paints her
+// Her hull plating, side and bottom, and her main deck: the one piece of the
+// model that draws her hull, in its hull material. Over her waterline the model paints her
 // grey and she keeps it; under it, her bottom is painted one colour, cut
 // straight along it.
 const HULL_PIECES = new Set([22]);
@@ -1566,12 +1572,12 @@ const UP_KINDS = new Set(['rbu']);
  */
 const FOOT_H = { ciws: 0.2 };
 const GUNS = {
-  // Her AK-130s: two barrels out of a rounded gunhouse.
+  // Her AK-130: two barrels out of a rounded gunhouse.
   main: gunKind('main', { guns: 2, minLen: 2, tris: 1600, barrelTris: 400 }),
-  // Her AK-630: six barrels in one casing under a little dome, trained whole,
-  // its muzzle the furthest of it forward.
+  // The model's AK-630: a little dome and its barrels, trained whole, its
+  // muzzle the furthest of it forward -- measured for where it stands only.
   ciws: gunKind('ciws', { whole: true, tris: 900, ahead: true }),
-  // Her RBU-1000: six barrels in two rows on a cradle, trained whole.
+  // Her RBU-6000: its barrels in a horseshoe on a cradle, trained whole.
   rbu: gunKind('rbu', { whole: true, tris: 900, ahead: true }),
 };
 
@@ -1627,11 +1633,6 @@ const SCREWS = KINDS.screw.map((gi) => {
 console.log('screws:', SCREWS.map((s) => `(${s.x}, ${s.y}, ${s.z}) r ${s.r}`).join(' '));
 
 // ---- her launchers -----------------------------------------------------------------------
-// Her two quadruple Moskit launchers, one a side abreast her bridge, each
-// four canisters in two rows of two, cocked up and pointed forward: the
-// mouths are the caps on their forward ends, [across, up, along] at the
-// middle of each, and how far up the canisters are cocked is off a cap at
-// each end of one of them.
 const FIT = new Set(FITTINGS);
 const mid = (p) => [0, 1, 2].map((c) => (p.lo[c] + p.hi[c]) / 2);
 // Her sixteen P-1000 Vulcan tubes, in pairs, four pairs a side along her
