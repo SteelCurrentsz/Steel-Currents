@@ -723,9 +723,12 @@
     <div class="fly-missiles">
       <button class="fly-btn msl" id="fly-msl" type="button" hidden>MSL<br>F</button>
       <button class="fly-btn lockon" id="fly-lockon" type="button" hidden>LOCK<br>R</button>
+      <!-- Flares and chaff, on a modern aeroplane: a salvo out behind her to
+           pull a missile coming for her off her (V), and how many are left. -->
+      <button class="fly-btn chaff" id="fly-chaff" type="button" hidden>CHAFF<br><span id="fly-chaff-n">0</span> V</button>
     </div>
     <button class="fly-leave" id="fly-leave" type="button">LEAVE THE COCKPIT</button>
-    <p class="fly-hint" id="fly-hint">Drag to look — she flies where you look, loops and all · two fingers or right-drag to look around · Q/E roll · X dive brakes · R lock · F missile</p>
+    <p class="fly-hint" id="fly-hint">Drag to look — she flies where you look, loops and all · two fingers or right-drag to look around · Q/E roll · X dive brakes · R lock · F missile · V chaff</p>
     <!-- Her name, and her condition along the bottom: which aeroplane this is
          and how much of her is left. -->
     <div class="fly-ident" id="fly-ident">

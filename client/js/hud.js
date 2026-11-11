@@ -13,7 +13,7 @@ import { MISSILE_SHAPES } from './render/missiles.js';
 
 /** The key each missile is fired on, by kind (see onKey in game.js). */
 export const MISSILE_KEYS = {
-  tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y', sunburn: 'V', uragan: 'I', vulcan: 'V', s300: 'O', osa: 'I',
+  tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y', sunburn: 'V', uragan: 'I', vulcan: 'V', s300: 'O', osa: 'I', essm: 'I', ram: 'O',
 };
 import {
   worksTargets, townTargetId, wallTargetId, wallSections, sectionSpan, wallDamage, cityToWorld,
@@ -380,6 +380,7 @@ class HudBase {
       flyBrakes: $('fly-brakes'),
       flyLock: $('fly-lock'), flyLockLabel: $('fly-lock-label'),
       flyLockOn: $('fly-lockon'), flyMsl: $('fly-msl'),
+      flyChaff: $('fly-chaff'), flyChaffN: $('fly-chaff-n'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
@@ -1423,6 +1424,7 @@ class HudBase {
     if (el.flyBrakes) el.flyBrakes.onclick = () => this.flyFns.brakes?.();
     if (el.flyLockOn) el.flyLockOn.onclick = () => this.flyFns.lock?.();
     if (el.flyMsl) el.flyMsl.onclick = () => this.flyFns.missile?.();
+    if (el.flyChaff) el.flyChaff.onclick = () => this.flyFns.chaff?.();
     el.flyTake.onclick = () => this.flyFns.take?.();
     // The gunner's seat, and his trigger: held down for as long as the thumb
     // is on it, the same as the cockpit's.
@@ -1636,7 +1638,7 @@ class HudBase {
   }
 
   /** The missile keys: there only on an aeroplane with missiles, and what is left on her rails. */
-  setMissiles(has, label = '') {
+  setFlyMissiles(has, label = '') {
     const el = this.el;
     if (el.flyLockOn) el.flyLockOn.hidden = !has;
     if (el.flyMsl) {
@@ -1644,6 +1646,21 @@ class HudBase {
       el.flyMsl.title = label;
       el.flyMsl.classList.toggle('spent', has && !label);
     }
+  }
+
+  /**
+   * The chaff key: there only on a modern aeroplane, with the salvos left in
+   * her dispenser; `n` null takes it away.
+   */
+  setChaff(n) {
+    const el = this.el;
+    if (!el.flyChaff) return;
+    const has = Number.isFinite(n);
+    if (el.flyChaff.hidden === has) el.flyChaff.hidden = !has;
+    if (!has) return;
+    const t = String(n);
+    if (el.flyChaffN && el.flyChaffN.textContent !== t) el.flyChaffN.textContent = t;
+    el.flyChaff.classList.toggle('spent', n <= 0);
   }
 
   /** The sight goes red when there is something under it. */

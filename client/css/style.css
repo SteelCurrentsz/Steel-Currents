@@ -805,6 +805,9 @@ input[type="range"] { accent-color: var(--red); }
 .fly-btn.msl { border-color: rgba(255, 96, 88, 0.95); color: #ffd2cf; }
 .fly-btn.msl:active { background: rgba(255, 96, 88, 0.34); }
 .fly-btn.msl.spent { opacity: 0.35; }
+.fly-btn.chaff { font-size: 0.5rem; line-height: 1.25; border-color: rgba(255, 240, 200, 0.95); color: #fff4d6; }
+.fly-btn.chaff:active, .fly-btn.chaff.fired { background: rgba(255, 236, 170, 0.4); }
+.fly-btn.chaff.spent { opacity: 0.35; }
 .fly-btn.bombcam { font-size: 0.5rem; line-height: 1.25; }
 .fly-btn.brakes { font-size: 0.5rem; line-height: 1.25; }
 .fly-btn.brakes.on {

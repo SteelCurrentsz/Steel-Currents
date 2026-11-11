@@ -7307,7 +7307,7 @@ export const SHIP_CLASSES = {
     missiles: {
       kinds: {
         essm: {
-          name: 'RIM-7 Sea Sparrow', short: 'SEA SPARROW', code: 'r', role: 'sam', launch: 'rail', rounds: 32,
+          name: 'RIM-7 Sea Sparrow', short: 'SPARROW', code: 'r', role: 'sam', launch: 'rail', rounds: 32,
           launchers: 4, note: '32 in 4 eight-cell Mk 29 launchers',
           speed: 850, range: 16000, cruise: 600, turn: 1.6, damage: 0, hp: 1, interval: 2.0,
           length: 3.66, kill: 12, pk: 0.75, air: true,

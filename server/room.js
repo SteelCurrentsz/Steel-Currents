@@ -8,7 +8,7 @@ import {
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack, driveTank, tankGround,
-  fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE, fireLocked,
+  fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE, fireLocked, dropChaff,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -843,6 +843,11 @@ export class Room {
         if (typeof got === 'string') player.send({ t: 'nomsl', i: msg.i, why: got });
         break;
       }
+      // A salvo of flares and chaff off a modern aeroplane being flown by
+      // hand, to pull the missiles coming for her off her.
+      case 'chaff':
+        if (!dropChaff(this.state, ship, msg.i)) player.send({ t: 'nochaff', i: msg.i });
+        break;
       case 'land': releasePlane(this.state, msg.i, ship); break;
       // And the same three for a heavy squadron, which is flown by hand the
       // same way a flight is: where she is, let the stick go, and hand her
