@@ -44,7 +44,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny;
+  buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -87,6 +87,7 @@ const SCULPTED = {
   guangzhou: () => import('./guangzhou.js').then((m) => { buildGuangzhou = m.buildGuangzhou; }),
   burke: () => import('./burke.js').then((m) => { buildBurke = m.buildBurke; }),
   sovremenny: () => import('./sovremenny.js').then((m) => { buildSovremenny = m.buildSovremenny; }),
+  slava: () => import('./slava.js').then((m) => { buildSlava = m.buildSlava; }),
 };
 // The module each class is drawn by, where it is not her own name.
 const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck', spee: 'scheer', maya: 'takao' };
@@ -1118,6 +1119,21 @@ function buildModel(classId) {
   // her launchers, her guns and her RBUs, and her torpedo tubes.
   if (cls.id === 'sovremenny') {
     const built = buildSovremenny();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [], rbuMounts: built.rbuMounts || [],
+    };
+  }
+
+  // And the Slava: the owner's model of her hull, her superstructure, her
+  // launchers, her AK-130 and her RBUs, and the owner's AK-630s.
+  if (cls.id === 'slava') {
+    const built = buildSlava();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

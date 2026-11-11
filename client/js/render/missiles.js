@@ -1,6 +1,7 @@
 // Guided missiles in flight: the BGM-109 Tomahawk, the RGM-84 Harpoon, the
 // Standards an Aegis ship puts up (SM-2MR, SM-2ER, SM-3), the RUM-139 ASROC,
-// and the Sovremenny's P-270 Moskit and 9M38 Uragan.
+// the Sovremenny's P-270 Moskit and 9M38 Uragan, and the Slava's P-1000
+// Vulcan, S-300F and OSA-M.
 //
 // A missile is drawn at its own size, which is small -- a Tomahawk is six and
 // a quarter metres long and half a metre across -- and what makes it visible
@@ -23,6 +24,9 @@ const MAT = {
   asroc: new THREE.MeshLambertMaterial({ color: 0x9da39a }),
   moskit: new THREE.MeshLambertMaterial({ color: 0xa7ada3 }),
   uragan: new THREE.MeshLambertMaterial({ color: 0xc9cdc4 }),
+  vulcan: new THREE.MeshLambertMaterial({ color: 0x9fa69b }),
+  fort: new THREE.MeshLambertMaterial({ color: 0xd6d9d2 }),
+  osa: new THREE.MeshLambertMaterial({ color: 0xc3c8bd }),
   nose: new THREE.MeshLambertMaterial({ color: 0x3a3d40 }),
   band: new THREE.MeshLambertMaterial({ color: 0xb08a2e }),
   fin: new THREE.MeshLambertMaterial({ color: 0x8e9297 }),
@@ -50,6 +54,13 @@ export const MISSILE_SHAPES = {
   n: { name: 'Moskit', len: 9.75, r: 0.38, span: 2.1, chord: 0.9, fin: 0.5, wingZ: -1.6, body: MAT.moskit },
   // The 9M38 Uragan: long low strakes along its body and four tail fins.
   g: { name: 'Uragan', len: 5.55, r: 0.2, span: 0.86, chord: 1.4, fin: 0.42, wingZ: -0.4, body: MAT.uragan },
+  // The P-1000 Vulcan: nearly twelve metres of it, fat, with a pair of
+  // swept wings that unfold off the tube and four fins at the tail.
+  v: { name: 'Vulcan', len: 11.7, r: 0.44, span: 2.6, chord: 1.3, fin: 0.6, wingZ: -1.2, body: MAT.vulcan },
+  // The S-300F: a long slim round with four small fins at its tail.
+  f: { name: 'S-300F', len: 7.25, r: 0.26, span: 0.5, chord: 0.5, fin: 0.55, wingZ: -2.9, body: MAT.fort },
+  // The OSA-M: short and slim, its four wings well forward.
+  m: { name: 'OSA-M', len: 3.16, r: 0.105, span: 0.65, chord: 0.45, fin: 0.3, wingZ: 0.9, body: MAT.osa },
 };
 /** A missile code the client has no shape for is drawn as a Harpoon. */
 const shapeOf = (k) => (MISSILE_SHAPES[k] ? k : 'h');
