@@ -7,7 +7,7 @@ import {
   launchStrike, strikeAim, useRepair, useSmoke, setParty, DT, TICK_RATE, flyPlane, dropOrdnance,
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
-  commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack,
+  commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack, driveTank, tankGround,
   fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE, fireLocked,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
@@ -239,12 +239,16 @@ export class Room {
    * Emplace a coast battery. It has no captain and no brain: the simulation
    * fights it off its own datasheet.
    */
-  addBatteryOnTeam(team, batteryId, at = null) {
+  addBatteryOnTeam(team, batteryId, at = null, raw = false) {
     const x = at && Number.isFinite(at.x) ? at.x : 0;
     const z = at && Number.isFinite(at.z) ? at.z : (team === 0 ? -1 : 1) * (this.state.world.half - 1200);
     // On ground it can be built on: dry, back from the water and level enough
-    // to cut a pad into, at or as near as it can be to where it was put.
-    const site = siteBattery(this.state.world, x, z, BATTERIES[batteryId]?.span);
+    // to cut a pad into, at or as near as it can be to where it was put. A
+    // tank needs only ground it can stand on, and one going straight into a
+    // landing craft's well (`raw`) needs nothing at all.
+    const b = BATTERIES[batteryId];
+    const site = raw || (b?.tank && tankGround(this.state.world, x, z) >= 0.3)
+      ? { x, z } : siteBattery(this.state.world, x, z, b?.tank ? 8 : b?.span);
     return addBattery(this.state, {
       batteryId, team,
       x: site.x,
@@ -593,7 +597,7 @@ export class Room {
     // has gone down can still fight the guns ashore -- which is much of what
     // there is left for him to do.
     if (msg.t === 'tbat' || msg.t === 'lbat' || msg.t === 'bpin' || msg.t === 'btgt' || msg.t === 'bfire'
-      || msg.t === 'btrain') {
+      || msg.t === 'btrain' || msg.t === 'tdrive') {
       const bat = this.state.batteries.find((b) => b.id === msg.i);
       if (!bat || bat.team !== ship.team) return;
       if (msg.t === 'tbat') {
@@ -609,6 +613,8 @@ export class Room {
         if (!pinBattery(this.state, bat, x, Number(msg.z))) player.send({ t: 'nobat', i: bat.id, why: 'range' });
       } else if (msg.t === 'btgt') layBattery(this.state, bat, typeof msg.target === 'number' ? msg.target : 0);
       else if (msg.t === 'btrain') trainBattery(this.state, bat, Number(msg.d) || 0);
+      // A tank in hand, driven off its stick: throttle and steering.
+      else if (msg.t === 'tdrive') driveTank(this.state, bat, Number(msg.th) || 0, Number(msg.st) || 0);
       else triggerBattery(this.state, bat);
       return;
     }

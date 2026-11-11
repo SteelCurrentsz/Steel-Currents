@@ -21,6 +21,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { BATTERIES } from '../../../shared/batteries.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { buildRocket, M13 } from './rockets.js';
+import { buildSherman } from './vehicles.js';
 
 // ------------------------------------------------------------- materials --
 
@@ -1842,6 +1843,8 @@ function buildKatyusha(g, b) {
 }
 
 const BUILDERS = {
+  // The tanks, off the owner's model (see vehicles.js).
+  sherman: buildSherman,
   flak88: buildFlak88,
   merville: buildMerville,
   longues: buildLongues,
@@ -1916,7 +1919,9 @@ export function buildBattery(id) {
   // running off the side of the screen.
   const cx = (bb.min.x + bb.max.x) / 2;
   const cz = (bb.min.z + bb.max.z) / 2;
-  for (const child of group.children) { child.position.x -= cx; child.position.z -= cz; }
+  // Not a tank: it is drawn about the middle of its hull, which is the
+  // point it drives and turns about, whatever its gun reaches out to.
+  if (!group.userData.tank) for (const child of group.children) { child.position.x -= cx; child.position.z -= cz; }
   group.updateMatrixWorld(true);
   bb = new THREE.Box3().setFromObject(group);
   // What the gun stands on, in metres from its middle: the furthest anything

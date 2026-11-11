@@ -7,9 +7,9 @@ import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
 import { loadShips, shipReady, fleetReady, preloadShips } from './render/ships.js';
-import { BatteryScene, mountingSheet, ordnanceSheet } from './battery.js';
+import { BatteryScene, mountingSheet, ordnanceSheet, tankSheet } from './battery.js';
 import { BomberScene } from './bomberyard.js';
-import { BATTERIES, BATTERY_ORDER } from '../../shared/batteries.js';
+import { BATTERIES, BATTERY_ORDER, TANK_ORDER, TANKS, tankRoom } from '../../shared/batteries.js';
 import { BOMBERS, BOMBER_ORDER, airframeSheet, payloadSheet } from '../../shared/bombers.js';
 import { Battle } from './game.js';
 import { LocalNet } from './localnet.js';
@@ -709,7 +709,7 @@ const briefing = new Briefing({
   onClosePicker: () => show('custom'),
   onOpenYard: (side) => openEra(side),
   onOpenChart: (at) => openChart(at),
-  onOpenGuns: (side) => openGuns(side),
+  onOpenGuns: (side) => openArms(side),
   onOpenBombers: (side) => openBombers(side),
   onEditWing: (side, i) => openRefit(side, i),
 });
@@ -1366,10 +1366,36 @@ function renderPremiumShips() {
 // The shipyard's opposite number, and built the same way: one scene, made the
 // first time it is asked for, with plain DOM panels over it.
 
-const gunsUi = { side: 'ally', index: 0 };
+const gunsUi = { side: 'ally', index: 0, kind: 'batteries' };
 
-function openGuns(side) {
+// The gun icon asks first which of the two it is: guns dug into the shore, or
+// tanks. Each is a gun park of its own, stepped through the same way.
+const armEl = document.getElementById('arm-pick');
+let armSide = 'ally';
+function openArms(side) {
+  armSide = side;
+  armEl.hidden = false;
+  armEl.querySelector('[data-arm]')?.focus();
+}
+function closeArms() { armEl.hidden = true; }
+for (const b of armEl.querySelectorAll('[data-arm]')) {
+  b.onclick = () => {
+    audio.click();
+    closeArms();
+    openGuns(armSide, b.dataset.arm);
+  };
+}
+document.getElementById('arm-cancel').onclick = () => { audio.click(); closeArms(); };
+armEl.addEventListener('click', (e) => { if (e.target === armEl) closeArms(); });
+
+/** The list the gun park is stepping through: the batteries, or the tanks. */
+const gunOrder = () => (gunsUi.kind === 'tanks' ? TANK_ORDER : BATTERY_ORDER);
+const gunAt = () => { const o = gunOrder(); return o[(gunsUi.index % o.length + o.length) % o.length]; };
+
+function openGuns(side, kind = 'batteries') {
   gunsUi.side = side;
+  if (gunsUi.kind !== kind) gunsUi.index = 0;
+  gunsUi.kind = kind;
   if (!guns) {
     guns = new BatteryScene(renderer);
     guns.resize(window.innerWidth, window.innerHeight);
@@ -1387,18 +1413,24 @@ function closeGuns() {
 }
 
 function renderGuns() {
-  const id = BATTERY_ORDER[(gunsUi.index + BATTERY_ORDER.length) % BATTERY_ORDER.length];
+  const id = gunAt();
   const b = BATTERIES[id];
+  const tank = gunsUi.kind === 'tanks';
   guns.setBattery(id);
   document.getElementById('battery-name').textContent = b.name;
   document.getElementById('battery-piece').textContent = b.piece;
   document.getElementById('battery-place').textContent = b.place;
-  sheet(document.getElementById('battery-works'), 'Mounting', mountingSheet(b));
+  document.getElementById('battery-emplace').textContent = tank ? 'Deploy Tank' : 'Deploy Battery';
+  document.getElementById('battery-prev').setAttribute('aria-label', tank ? 'Previous tank' : 'Previous battery');
+  document.getElementById('battery-next').setAttribute('aria-label', tank ? 'Next tank' : 'Next battery');
+  sheet(document.getElementById('battery-works'), tank ? 'Hull' : 'Mounting', tank
+    ? tankSheet(b, SHIP_ORDER.filter((c) => tankRoom(SHIP_CLASSES[c], id) > 0).map((c) => SHIP_CLASSES[c].name))
+    : mountingSheet(b));
   sheet(document.getElementById('battery-guns'), 'Ordnance', ordnanceSheet(b));
 }
 
 function stepGuns(dir) {
-  gunsUi.index = (gunsUi.index + dir + BATTERY_ORDER.length) % BATTERY_ORDER.length;
+  gunsUi.index = (gunsUi.index + dir + gunOrder().length) % gunOrder().length;
   renderGuns();
 }
 
@@ -1407,13 +1439,15 @@ document.getElementById('battery-next').onclick = () => { audio.click(); stepGun
 document.getElementById('battery-back').onclick = () => { audio.click(); closeGuns(); };
 document.getElementById('battery-emplace').onclick = () => {
   audio.click();
-  const id = BATTERY_ORDER[gunsUi.index % BATTERY_ORDER.length];
+  const id = gunAt();
   const whose = gunsUi.side === 'ally' ? 'your' : 'the enemy';
+  const tank = !!TANKS[id];
   if (!briefing.emplace(gunsUi.side, id)) {
-    toast(`${FLEET_MAX} batteries is all ${whose} coast will take.`);
+    toast(`${FLEET_MAX} batteries and tanks is all ${whose} side will take.`);
     return;
   }
-  toast(`${BATTERIES[id].name} goes in on ${whose} shore.`);
+  toast(tank ? `${BATTERIES[id].name} joins ${whose} armour. Put it ashore or into a landing craft on the plotting board.`
+    : `${BATTERIES[id].name} goes in on ${whose} shore.`);
   closeGuns();
 };
 
@@ -1514,6 +1548,7 @@ const layout = new LayoutMap({
     toast(layoutReq.staged ? 'Places, everyone…' : 'Sortieing…');
   },
 });
+window.__layout = layout;   // a handle for the console, like __battle
 let layoutReq = null;
 const scriptEditor = new ScriptEditor(layout);
 window.__script = scriptEditor;   // a handle for the console, like __battle
@@ -1777,6 +1812,7 @@ function drawFrame(dt) {
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && !eraEl.hidden) { closeEra(); return; }
+  if (e.code === 'Escape' && !armEl.hidden) { closeArms(); return; }
   if (e.code === 'Escape' && current === 'yard') { closeYard(); return; }
   // The gun park and the bomber yard back out to the briefing the same way the
   // shipyard does: a commander who has just looked a battery over wants the

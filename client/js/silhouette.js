@@ -13,6 +13,13 @@ const HULLS = {
     <rect x="31" y="18" width="6" height="5"/>
     <rect x="11" y="15.5" width="9" height="1.4"/>
     <rect x="30" y="15.5" width="9" height="1.4"/>`,
+  // A Landing Craft Mechanized: a long open box, her ramp raked up at her
+  // bow, and her coxswain's deckhouse aft.
+  lcm: `
+    <path d="M4 24 L78 24 L92 12 L95 14 L84 37 L8 37 L4 33 Z"/>
+    <rect x="10" y="12" width="14" height="12"/>
+    <rect x="12" y="8" width="8" height="4"/>
+    <rect x="15" y="3" width="1.4" height="5"/>`,
   // A Liberty ship: a long, low three-island merchantman -- forecastle, the
   // house amidships with its one funnel, poop -- two masts forward of the
   // house and one abaft it, and a gun at either end.

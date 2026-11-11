@@ -10,7 +10,8 @@
 // back on the spawn line and no artillery at all. One copy, and that cannot
 // happen again.
 
-import { setAirGroup, setVlsLoad, troopsFor } from '../shared/sim.js';
+import { setAirGroup, setVlsLoad, troopsFor, embarkTank } from '../shared/sim.js';
+import { isTank } from '../shared/batteries.js';
 import { getClass } from '../shared/ships.js';
 import { isOpenSea } from '../shared/world.js';
 import { BOMBER_MAX } from '../shared/bombers.js';
@@ -25,7 +26,12 @@ import { BOMBER_MAX } from '../shared/bombers.js';
 export function berthsFrom(v, cap) {
   if (!Array.isArray(v)) return null;
   return v.slice(0, cap).map((b) => (b && Number.isFinite(b.x) && Number.isFinite(b.z)
-    ? { x: b.x, z: b.z, h: b.h }
+    ? {
+      x: b.x, z: b.z, h: b.h,
+      // A tank loaded into a landing craft on the chart: which hull of its
+      // own side's fleet, in the chart's order, and which slot in her well.
+      ...(Number.isInteger(b.c) && b.c >= 0 && Number.isInteger(b.s) && b.s >= 0 ? { c: b.c, s: b.s } : {}),
+    }
     : null));
 }
 
@@ -69,9 +75,14 @@ export function crewBattle(room, req, seat, limits = {}) {
   const allyAt = berthsFrom(layout.allies, maxA + 1);
   const enemyAt = berthsFrom(layout.enemies, maxE);
 
+  const before = new Set(room.state.ships.map((q) => q.id));
   const res = seat(allyAt?.[0] ?? null) || {};
   if (res.error) return res;
   const team = res.team ?? 0;
+  // Each side's hulls in the order the chart lists them -- her own first --
+  // so a tank loaded into the third of them on the chart goes into the third
+  // of them here.
+  const fleets = { ally: room.state.ships.filter((q) => !before.has(q.id) && q.team === team), enemy: [] };
 
   // The air group the captain chose in the yard, for her side only. It has to
   // be bound after the seating, because that is when her team is known -- so
@@ -115,12 +126,12 @@ export function crewBattle(room, req, seat, limits = {}) {
   const enemies = enemyClasses?.length ?? Math.max(1, Math.min(maxE, req.enemies ?? 4));
 
   for (let i = 0; i < allies; i++) {
-    room.addBotOnTeam(team, req.botSkill, allyClasses?.[i] ?? null, allyAt?.[i + 1] ?? null,
-      wingOf(allyWings[i]));
+    fleets.ally.push(room.addBotOnTeam(team, req.botSkill, allyClasses?.[i] ?? null, allyAt?.[i + 1] ?? null,
+      wingOf(allyWings[i])));
   }
   for (let i = 0; i < enemies; i++) {
-    room.addBotOnTeam(1 - team, req.botSkill, enemyClasses?.[i] ?? null, enemyAt?.[i] ?? null,
-      wingOf(enemyWings[i]));
+    fleets.enemy.push(room.addBotOnTeam(1 - team, req.botSkill, enemyClasses?.[i] ?? null, enemyAt?.[i] ?? null,
+      wingOf(enemyWings[i])));
   }
 
   const allyGunAt = berthsFrom(layout.allyGuns, maxG);
@@ -128,14 +139,21 @@ export function crewBattle(room, req, seat, limits = {}) {
   // Out of sight of land there is no ground to site a gun on: the batteries a
   // briefing ordered stay ashore, and the plotting board does not show them.
   const ashore = !isOpenSea(room.world);
-  if (ashore) {
-    gunsFrom(req.allyGuns, maxG).forEach((id, i) => {
-      room.addBatteryOnTeam(team, id, allyGunAt?.[i] ?? null);
-    });
-    gunsFrom(req.enemyGuns, maxG).forEach((id, i) => {
-      room.addBatteryOnTeam(1 - team, id, enemyGunAt?.[i] ?? null);
-    });
-  }
+  // A tank loaded into a landing craft goes to sea in her, whether or not
+  // there is land in sight; one put on the chart ashore needs land like a gun.
+  const emplace = (side, tm, id, at) => {
+    const craft = at && Number.isInteger(at.c) ? fleets[side][at.c] : null;
+    if (isTank(id) && craft) {
+      const bat = room.addBatteryOnTeam(tm, id, { x: craft.x, z: craft.z, h: craft.heading }, true);
+      // One tank, or her soldiers: a tank in her well leaves no room for them.
+      if (bat && embarkTank(room.state, bat, craft, at.s)) { craft.troops = 0; return; }
+      if (bat) room.state.batteries.splice(room.state.batteries.indexOf(bat), 1);
+      if (!ashore) return;
+    }
+    if (ashore) room.addBatteryOnTeam(tm, id, at);
+  };
+  gunsFrom(req.allyGuns, maxG).forEach((id, i) => emplace('ally', team, id, allyGunAt?.[i] ?? null));
+  gunsFrom(req.enemyGuns, maxG).forEach((id, i) => emplace('enemy', 1 - team, id, enemyGunAt?.[i] ?? null));
 
   // And the heavies, on the courses their commanders gave them. They are
   // ordered by type in the bomber yard and laid out on the chart the same way

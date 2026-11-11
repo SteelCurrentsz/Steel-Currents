@@ -46,7 +46,7 @@ import {
   clamp, lerp, wrapAngle, angleDelta, dist, worldToLocal, localToWorld,
   MPS_TO_KNOTS,
 } from '../../shared/math.js';
-import { groundHeight, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
+import { groundHeight, drawnGround, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
 import {
   applyRuin, cityPlans, cityToWorld, worksFloor, surfaceAt, wallAt, SURF, solidHit, worksHard,
   worksTarget, worksTargets, wallMiddle, isWorksTarget,
@@ -4016,6 +4016,8 @@ export class Battle {
     if (this.commandBat) {
       if (code === 'Space') { this.fireBattery(); return; }
       if (code === 'Escape') { this.leaveBattery(); return; }
+      // Driving a tank, the driving keys drive it and not her.
+      if (this.commandBat.tank && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(code)) return;
     }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
@@ -4435,6 +4437,13 @@ export class Battle {
     // bridge of a ship. It is what the point-of-view camera sits at.
     if (this.watching.kind === 'battery') {
       const b = (snap.batteries || []).find((x) => x.i === this.watching.id);
+      // A tank moves: the camera follows it where it is drawn, between
+      // snapshots, rather than jumping after it five times a second.
+      if (b && BATTERIES[b.b]?.tank) {
+        const v = this.scene.batteryViews.get(b.i);
+        const p = v ? v.group.position : b;
+        return { x: p.x, y: p.y, z: p.z, span: 22, eye: 3.2, tank: true };
+      }
       return b ? { x: b.x, y: b.y, z: b.z, span: 60, eye: 12 } : null;
     }
     // A town or a run of sea wall, picked off the plot: it does not move, so
@@ -4808,6 +4817,40 @@ export class Battle {
     return at;
   }
 
+  /**
+   * Put a tank where it is: in the well of the landing craft carrying it,
+   * moving with her as the sea moves her; or on the ground, between the last
+   * two snapshots, its hull on its own heading and its turret trained off
+   * that. `t` is how far between them, as everything else here.
+   */
+  placeTank(view, g, prev, t, ang) {
+    const grp = view.group;
+    const craft = g.ab ? this.scene.shipViews.get(g.ab) : null;
+    const cls = craft && SHIP_CLASSES[craft.group?.userData?.classId || ''];
+    const slot = cls?.cargo?.vehicles?.slots?.[g.sl || 0];
+    if (craft && slot) {
+      const v = cls.cargo.vehicles;
+      craft.group.updateMatrixWorld(true);
+      const p = new THREE.Vector3(slot[0], v.deck, slot[1]);
+      craft.group.localToWorld(p);
+      grp.position.copy(p);
+      craft.group.getWorldQuaternion(grp.quaternion);
+    } else {
+      const x = prev && !prev.ab ? lerp(g.x, prev.x, t) : g.x;
+      const z = prev && !prev.ab ? lerp(g.z, prev.z, t) : g.z;
+      const y = prev && !prev.ab ? lerp(g.y, prev.y, t) : g.y;
+      const h = prev && !prev.ab ? g.h + angleDelta(g.h, prev.h) * t : g.h;
+      // Sat on the ground as it is drawn, so it is not half buried in a
+      // slope the simulation reads a little lower than the mesh.
+      const w = this.scene.world;
+      const gy = w ? Math.max(y, drawnGround(w, x, z)) : y;
+      grp.position.set(x, gy, z);
+      grp.quaternion.identity();
+      grp.rotation.set(0, h, 0);
+    }
+    if (g.al) for (const m of view.spin) m.rotation.y = ang;
+  }
+
   /** Is the thing being watched a flight or a squadron of ours we could fly? */
   canTake() {
     const w = this.watching;
@@ -4964,6 +5007,9 @@ export class Battle {
       // battle service as it changes and no oftener. See layFromSight.
       sent: null, sentAt: 0, held: false,
       range: batteryGun(g.b).range, span: b.span || 20,
+      // A tank is driven as well as laid: off the stick in the lower left,
+      // or the keys. What was last sent, and when.
+      tank: !!b.tank, drive: { th: 0, st: 0 }, driveAt: 0,
     };
     // The sight starts on the bearing the guns are on, a little below the
     // horizon, and the view is what lays them from here on.
@@ -4982,6 +5028,15 @@ export class Battle {
     // bearing it is on. The mortar still fires itself at its pin.
     const fire = document.getElementById('bat-fire');
     if (fire) fire.hidden = false;
+    this.hud.setTankStick(!!b.tank);
+    const leave = document.getElementById('bat-leave');
+    if (leave) leave.textContent = b.tank ? 'Leave tank' : 'Leave battery';
+    if (b.tank) {
+      this.hud.alert(g.ab ? 'Stick to drive · it goes ashore over the ramp when she beaches · drag to aim · FIRE'
+        : 'Stick or WASD to drive · drag the view to aim the turret · FIRE');
+      audio.click();
+      return;
+    }
     this.hud.alert(b.mortar ? 'Drag the view to aim · the guns go where the crosshair is · wheel or right button to zoom · FIRE'
       : 'Drag the view to aim · the guns go where the crosshair is · wheel or right button to zoom · FIRE');
     audio.click();
@@ -4997,6 +5052,10 @@ export class Battle {
     this.commandBat = null;
     this.hud.commandBat = null;
     this.batAim = null;
+    if (c.tank) {
+      this.hud.setTankStick(false);
+      if (tell) this.net.send({ t: 'tdrive', i: c.id, th: 0, st: 0 });
+    }
     if (tell) this.net.send({ t: 'lbat', i: c.id });
     const el = document.getElementById('bat-sight');
     if (el) el.hidden = true;
@@ -5075,6 +5134,14 @@ export class Battle {
    */
   batEye(watch) {
     const c = this.commandBat;
+    // Over the back of a tank's turret, looking down the gun.
+    if (c.tank) {
+      return {
+        x: watch.x - Math.sin(this.batYaw) * 9,
+        y: watch.y + 4.6,
+        z: watch.z - Math.cos(this.batYaw) * 9,
+      };
+    }
     const back = (c.span || 20) * 0.45;
     return {
       x: watch.x - Math.sin(this.batYaw) * back,
@@ -5190,6 +5257,9 @@ export class Battle {
     // Slower the narrower the glass, so a ship at twenty thousand yards can be
     // held on as easily as one at two.
     const k = this.batFovNow / 52;
+    // A mouse working the drive stick is not turning the view.
+    if (c.tank && this.hud.stickMouse) { m.x = 0; m.y = 0; }
+    if (c.tank) this.driveFromStick(c);
     if (m.x || m.y) c.held = false;
     this.batYaw = wrapAngle(this.batYaw + m.x * k);
     // Down-positive: from a little above the horizon to the foot of the hill.
@@ -5218,6 +5288,27 @@ export class Battle {
     }
   }
 
+  /**
+   * The tank in hand driven off the stick in the lower left -- pushed up for
+   * ahead, down for astern, over for a turn -- or off W, S, A and D. Sent when
+   * it changes, and every so often while it is held, so a lost word does not
+   * leave the tank running on.
+   */
+  driveFromStick(c) {
+    const st = this.hud.stick || { x: 0, y: 0 };
+    const k = this.input;
+    const key = (...codes) => (codes.some((x) => k.down(x)) ? 1 : 0);
+    const th = clamp(st.y + key('KeyW', 'ArrowUp') - key('KeyS', 'ArrowDown'), -1, 1);
+    const turn = clamp(st.x + key('KeyD', 'ArrowRight') - key('KeyA', 'ArrowLeft'), -1, 1);
+    const q = (v) => Math.round(v * 20) / 20;
+    const now = performance.now();
+    const changed = q(th) !== c.drive.th || q(turn) !== c.drive.st;
+    if (!changed && now - c.driveAt < (th || turn ? 700 : 4000)) return;
+    c.drive = { th: q(th), st: q(turn) };
+    c.driveAt = now;
+    this.net.send({ t: 'tdrive', i: c.id, th: c.drive.th, st: c.drive.st });
+  }
+
   /** The trigger of the battery in hand. */
   fireBattery() {
     const c = this.commandBat;
@@ -5244,6 +5335,10 @@ export class Battle {
     const on = this.batAim && Math.abs(angleDelta(g.h + g.a,
       Math.atan2(this.batAim.x - g.x, this.batAim.z - g.z))) < 0.02;
     parts.push(`Bearing ${String(brg).padStart(3, '0')}°${on ? ' · on' : ' · training'}`);
+    if (c.tank) {
+      parts.unshift(g.ab ? 'In the landing craft · drives off when her ramp is down'
+        : `${Math.round(Math.abs(g.sp || 0) * 3.6)} km/h${(g.sp || 0) < -0.1 ? ' astern' : ''}`);
+    }
     if (g.cd > 0) parts.push(`Loading ${Math.ceil(g.cd)} s`);
     else parts.push('Loaded');
     const yd = (x, z) => Math.round(Math.hypot(x - g.x, z - g.z) / 0.9144 / 50) * 50;
@@ -7749,9 +7844,17 @@ export class Battle {
     const gunsSeen = new Set();
     for (const g of a.batteries || []) {
       gunsSeen.add(g.i);
-      const view = this.scene.getBatteryView(g.i, g.b, g.tm, { x: g.x, y: g.y, z: g.z });
+      const tank = !!BATTERIES[g.b]?.tank;
+      // A tank has no earthwork to cut, and moves: see placeTank.
+      const view = this.scene.getBatteryView(g.i, g.b, g.tm, tank ? null : { x: g.x, y: g.y, z: g.z });
       const prev = b ? (b.batteries || []).find((x) => x.i === g.i) : null;
       const ang = prev ? g.a + angleDelta(g.a, prev.a) * t : g.a;
+      if (tank) {
+        this.placeTank(view, g, prev, t, ang);
+        view.marker.visible = this.camMode === 'tactical';
+        if (!g.al) this.scene.flames.at(`bat:${g.i}`, view.group.position.x, view.group.position.y + 1.5, view.group.position.z, 0.4, 3);
+        continue;
+      }
       view.group.position.set(g.x, g.y, g.z);
       // The emplacement stands still; the mounting inside it trains. A model
       // with two mountings -- Townsley has a gun at each end -- turns both.

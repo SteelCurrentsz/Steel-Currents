@@ -25,7 +25,7 @@ import {
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
 import {
-  BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa, mortarFlight,
+  BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa, mortarFlight, isTank, tankRoom,
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
@@ -814,7 +814,7 @@ function stepMovement(state, ship, dt) {
   const going = ship.sinking ? Math.max(0, 1 - 1.3 * (ship.sinking.t / ship.sinking.T)) : 1;
   // Her screws clear of the water, or buried in the sand under her stern,
   // drive nothing: whatever the telegraph says, she is not going anywhere.
-  const screws = ship.stranded ? 0 : 1;
+  const screws = ship.stranded || ship.landed ? 0 : 1;
   const ordered = THROTTLE_NOTCHES[ship.notch] * (ship.notch === 0 ? cls.reverseSpeed : maxSpeed)
     * engine * going * screws;
   const target = ordered * bleed * flood;
@@ -1039,16 +1039,24 @@ export function rampStep(state, ship, cls) {
   const half = cls.hull.length * 0.5;
   const sx = ship.x + Math.sin(ship.heading) * half * 0.98;
   const sz = ship.z + Math.cos(ship.heading) * half * 0.98;
-  const beached = ship.aground > 0 && (ship.groundAt || 0) > 0.3
-    && bedAt(state.world, sx, sz) > -cls.hull.draft * 0.7;
-  if (!ship.rampDown) {
-    if (beached && Math.abs(ship.speed) < 1.5 && ship.speed > -0.2) {
-      ship.rampDown = true;
-      state.events.push({ e: 'ramp', i: ship.id, d: 1, x: r(sx), z: r(sz) });
-    }
-  } else if (!ship.aground || ship.speed < -0.2) {
-    ship.rampDown = false;
-    state.events.push({ e: 'ramp', i: ship.id, d: 0, x: r(sx), z: r(sz) });
+  // Her gate goes down the moment her bow first takes the beach, whatever
+  // way she still has on her: that is what she was run in for. And once it
+  // is down she stays where she is. She has put her load out onto the sand,
+  // and a landing craft with her ramp on the beach and her well empty is not
+  // going anywhere -- her screws are stopped and her helm does nothing.
+  if (ship.landed) {
+    ship.speed = 0;
+    ship.notch = 1;
+    return;
+  }
+  const beached = ship.aground > 0 && bedAt(state.world, sx, sz) > -cls.hull.draft * 0.7;
+  if (!ship.rampDown && beached) {
+    ship.rampDown = true;
+    ship.rampAt = state.t;
+    ship.landed = true;
+    ship.speed = 0;
+    ship.notch = 1;
+    state.events.push({ e: 'ramp', i: ship.id, d: 1, x: r(sx), z: r(sz) });
   }
 }
 
@@ -4724,6 +4732,17 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
     kills: 0,
     damageDealt: 0,
   };
+  // A tank stands on the ground rather than on a pad cut into it, and has a
+  // hull to drive: how fast it is going, and what its driver is being told.
+  if (b.tank) {
+    bat.tank = true;
+    bat.y = tankGround(state.world, x, z);
+    bat.speed = 0;
+    bat.drive = { th: 0, st: 0 };
+    bat.aboard = 0;
+    bat.slot = 0;
+    bat.roll = 0;
+  }
   // A rocket launcher fires its whole load as one ripple and is loaded again by
   // hand: how many rockets are on the rails, and the ripple it is in, if any.
   if (b.rocket) {
@@ -4734,9 +4753,167 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
   }
   // A gun put down in the town has the houses on its site pulled down first,
   // and the emplacement dug where they stood.
-  if (state.world?.works?.cities?.length) clearForBattery(state.world, x, z, b.span * 0.75 + 4, state.events);
+  if (!b.tank && state.world?.works?.cities?.length) clearForBattery(state.world, x, z, b.span * 0.75 + 4, state.events);
   state.batteries.push(bat);
   return bat;
+}
+
+// ---------------------------------------------------------------------------
+// Tanks
+// ---------------------------------------------------------------------------
+//
+// A tank is a battery with tracks under it (see TANKS in batteries.js): it is
+// laid, fired, shot at and taken over exactly as a gun ashore is. What is
+// here is the part a gun pit has not got -- a driver. On land it goes where
+// its stick sends it, over anything not too steep and through water no deeper
+// than it can ford; loaded into a landing craft it rides in her well, where
+// her captain puts her, until her ramp goes down on a beach, and then it
+// drives out over the ramp and up the sand.
+
+/** The ground a tank is standing on, in metres: the land, or the bottom of a ford. */
+export function tankGround(world, x, z) {
+  return Math.max(groundHeight(world, x, z), Math.min(0, drawnGround(world, x, z)));
+}
+
+/** How far up the beach a tank that has just come off a landing craft drives on its own, in metres. */
+export const TANK_LANDING_RUN = 60;
+
+/**
+ * Load a tank into a landing craft's well, at one of her vehicle slots.
+ * False if she cannot take it -- no well, too heavy for her, or that slot
+ * already has a tank in it.
+ */
+export function embarkTank(state, bat, ship, slot = 0) {
+  if (!bat || !bat.tank || !ship) return false;
+  const cls = getClass(ship.classId);
+  const room = tankRoom(cls, bat.batteryId);
+  if (!(slot >= 0 && slot < room)) return false;
+  if (state.batteries.some((o) => o !== bat && o.alive && o.aboard === ship.id && o.slot === slot)) return false;
+  bat.aboard = ship.id;
+  bat.slot = slot;
+  bat.speed = 0;
+  bat.roll = 0;
+  rideCraft(bat, ship, cls);
+  return true;
+}
+
+/** Where a tank in a landing craft's well stands, in the world. */
+export function wellSpot(ship, cls, slot) {
+  const v = cls.cargo.vehicles;
+  const [lx, lz] = v.slots[slot] || v.slots[0];
+  const w = localToWorld(lx, lz, ship.heading);
+  return { x: ship.x + w.x, z: ship.z + w.z, y: v.deck - 1.0 };
+}
+
+function rideCraft(bat, ship, cls) {
+  const at = wellSpot(ship, cls, bat.slot);
+  bat.x = at.x;
+  bat.z = at.z;
+  bat.y = at.y;
+  bat.heading = ship.heading;
+}
+
+/**
+ * Drive a tank in a player's hands: `th` the throttle, -1 full astern to 1
+ * full ahead, and `st` the steering, -1 hard left to 1 hard right. Both are
+ * held until the next order, the way a stick held over is.
+ */
+export function driveTank(state, bat, th, st) {
+  if (!bat || !bat.alive || !bat.tank || !bat.ctl) return false;
+  bat.drive.th = clamp(Number(th) || 0, -1, 1);
+  bat.drive.st = clamp(Number(st) || 0, -1, 1);
+  return true;
+}
+
+/**
+ * Out over the ramp of the craft she is in, if it is down: onto the point
+ * just past the end of it, if that is ground the tank can stand in.
+ */
+function leaveCraft(state, bat, b, ship, cls) {
+  if (!ship.rampDown) return false;
+  const half = cls.hull.length * 0.5;
+  const lx = (cls.cargo.vehicles.slots[bat.slot] || [0, 0])[0];
+  for (const past of [4, 9, 15]) {
+    const w = localToWorld(lx, half + past, ship.heading);
+    const x = ship.x + w.x;
+    const z = ship.z + w.z;
+    const g = tankGround(state.world, x, z);
+    if (g < -b.tank.wade) continue;
+    bat.aboard = 0;
+    bat.x = x;
+    bat.z = z;
+    bat.y = g;
+    bat.heading = ship.heading;
+    bat.speed = b.tank.speed * 0.3;
+    // Left to its own crew, it goes on up the beach to get off it.
+    bat.roll = bat.ctl ? 0 : TANK_LANDING_RUN;
+    state.events.push({ e: 'tankAshore', id: bat.id, ship: ship.id, x: r(x), z: r(z) });
+    return true;
+  }
+  return false;
+}
+
+/** One tick of a tank's hull: riding in its craft, coming off it, or driving. */
+function stepTank(state, bat, b, dt) {
+  const T = b.tank;
+  if (bat.aboard) {
+    const ship = state.ships.find((q) => q.id === bat.aboard);
+    // Gone down with the craft that was carrying it.
+    if (!ship || !ship.alive) {
+      bat.aboard = 0;
+      bat.alive = false;
+      bat.hp = 0;
+      state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
+      return;
+    }
+    const cls = getClass(ship.classId);
+    rideCraft(bat, ship, cls);
+    // Her ramp down: driven off by a player who puts his foot down, and by
+    // its own crew one after another, front rank first.
+    if (ship.rampDown) {
+      const go = bat.ctl ? bat.drive.th > 0.2
+        : (ship.rampAt == null || state.t - ship.rampAt > 1.5 + bat.slot * 2.5);
+      if (go) leaveCraft(state, bat, b, ship, cls);
+    }
+    return;
+  }
+  let th = 0;
+  let st = 0;
+  if (bat.ctl) {
+    th = bat.drive.th;
+    st = bat.drive.st;
+  } else if (bat.roll > 0) th = 0.6;
+  const want = th >= 0 ? th * T.speed : th * T.reverse;
+  bat.speed = approach(bat.speed, want, T.accel * dt * (Math.sign(want) !== Math.sign(bat.speed) ? 2 : 1));
+  // Steered on its tracks: a good rate of turn on the move, a slow slew
+  // standing.
+  const moving = clamp(Math.abs(bat.speed) / 3, 0, 1);
+  const rate = T.pivot + (T.turn - T.pivot) * moving;
+  bat.heading = wrapAngle(bat.heading + st * rate * dt);
+  if (Math.abs(bat.speed) < 0.01) { bat.speed = 0; return; }
+  const step = bat.speed * dt;
+  const nx = bat.x + Math.sin(bat.heading) * step;
+  const nz = bat.z + Math.cos(bat.heading) * step;
+  const g = tankGround(state.world, nx, nz);
+  const edge = (state.world.half || MAP_HALF) - 60;
+  // Deeper than it can ford, too steep to climb, or off the edge of the
+  // battlefield: it stops where it is.
+  // The slope is read over the tank's own length, not over the few
+  // centimetres it moves in a tick: what stops a tank is a bank, not a
+  // pebble in the height field.
+  const ahead = Math.sign(step) * T.length * 0.5;
+  const fx = bat.x + Math.sin(bat.heading) * ahead;
+  const fz = bat.z + Math.cos(bat.heading) * ahead;
+  const climb = (tankGround(state.world, fx, fz) - tankGround(state.world, bat.x, bat.z)) / Math.abs(ahead);
+  if (g < -T.wade || climb > 0.7 || Math.abs(nx) > edge || Math.abs(nz) > edge) {
+    bat.speed = 0;
+    bat.roll = 0;
+    return;
+  }
+  bat.x = nx;
+  bat.z = nz;
+  bat.y = g;
+  if (bat.roll > 0) bat.roll = Math.max(0, bat.roll - Math.abs(step));
 }
 
 /**
@@ -4994,6 +5171,10 @@ function stepBatteries(state, dt) {
     if (!bat.alive) continue;
     const b = BATTERIES[bat.batteryId];
     const gun = batteryGun(bat.batteryId);
+    if (b.tank) {
+      stepTank(state, bat, b, dt);
+      if (!bat.alive) continue;
+    }
     if (bat.cooldown > 0) bat.cooldown -= dt;
     if (gun.rocket) reloadRails(bat, b, gun);
 
@@ -5149,6 +5330,7 @@ export function commandBattery(state, bat, by) {
   bat.trainCmd = 0;
   bat.pin = null;
   bat.track = null;
+  if (bat.drive) { bat.drive.th = 0; bat.drive.st = 0; }
   return true;
 }
 

@@ -386,6 +386,14 @@ export function hullSheet(cls, group = null, troops = null) {
       const n = troops ?? cls.cargo.troops;
       rows.push(['Soldiers', `${num(n)} of ${num(cls.cargo.troops)}`
         + (cls.cargo.ready ? '' : ' (future update)'), 'troops']);
+      // Or a tank, in a well built for one: loaded on the plotting board.
+      if (cls.cargo.vehicles && cls.cargo.vehicles.tons >= 20) {
+        rows.push(['Or a tank', `${num(cls.cargo.vehicles.slots.length)} of up to ${num(cls.cargo.vehicles.tons)} t, on the plotting board`]);
+      }
+    } else if (cls.cargo.vehicles && !cls.cargo.troops) {
+      // A tank landing craft's well: tanks, loaded on the order-of-battle chart.
+      rows.push(['Well deck', `${num(cls.cargo.vehicles.slots.length)} medium tanks, `
+        + `${num(cls.cargo.vehicles.tons)} t each at most`]);
     } else {
       rows.push(['Cargo', `${num(cls.cargo.tanks)} tanks or ${num(cls.cargo.troops)} troops`
         + (cls.cargo.ready ? '' : ' (future update)')]);
@@ -411,9 +419,15 @@ function traverse(cls) {
 export function armsSheet(cls, group = null, vls = null) {
   const d = cls.datasheet;
   const rows = [];
-  rows.push([`${count(barrels(cls))} ${gunLabel(cls.gun.caliber, cls.nation)} main`,
-    `${num(d.mainRounds)} rds`]);
-  rows.push(['Main battery training', traverse(cls)]);
+  // A hull with no guns at all -- the Landing Craft Mechanized -- says so.
+  if (!cls.turrets.length && !d.secondary && !(d.tertiary || []).length && !(d.missiles || []).length) {
+    return [['Guns', 'None']];
+  }
+  if (cls.turrets.length) {
+    rows.push([`${count(barrels(cls))} ${gunLabel(cls.gun.caliber, cls.nation)} main`,
+      `${num(d.mainRounds)} rds`]);
+    rows.push(['Main battery training', traverse(cls)]);
+  }
   if (d.secondary) {
     rows.push([`${count(d.secondary.barrels)} ${d.secondary.label} secondary`,
       `${num(d.secondary.rounds)} rds`]);
