@@ -763,7 +763,97 @@ export function addNukeCrater(world, x, z, r, depth, lip) {
   }
   world.groundRev = (world.groundRev || 0) + 1;
   refileAll(world);
+  floodCrater(world, c);
   return c;
+}
+
+/** Whether a point lies in the bowl of an atomic crater the sea has got into. */
+function wetAt(world, x, z) {
+  for (const c of world.craters || []) {
+    if (c.wet && (x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r) return true;
+  }
+  return false;
+}
+
+/**
+ * Let the sea into an atomic crater, if it can get there.
+ *
+ * The ground over the crater and round it is laid out on a grid as the burst
+ * left it, without the floor held up out of the water, and the sea is let in
+ * from wherever it already is -- the open water, or the edge of the grid where
+ * the ground there is under it -- across every cell lying below the waterline.
+ * If it reaches the middle of the bowl the rim is breached somewhere: the
+ * crater is open to the sea and fills. If it does not, the bowl is a dry pan
+ * at the waterline, which is what a crater behind a whole rim is.
+ *
+ * Asked again whenever the ground near a dry one is knocked about, because a
+ * shell through the rim on the seaward side is an opening too.
+ */
+export function floodCrater(world, c) {
+  if (!c.nuke || c.wet) return false;
+  const R = c.r * LIP_OUT * 1.15;
+  const step = Math.max(8, R / 28);
+  const N = Math.ceil((2 * R) / step) + 1;
+  const h = new Float32Array(N * N);
+  const x0 = c.x - R;
+  const z0 = c.z - R;
+  const hard = world.works && !pristine();
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const x = x0 + i * step;
+      const z = z0 + j * step;
+      const base = baseGround(world, x, z);
+      h[j * N + i] = base <= 0 || (hard && worksHard(world, x, z)) ? base : base - craterDrop(world, x, z);
+    }
+  }
+  // Water stands at the sea's level; a breach a few hand-breadths under it
+  // still lets it through.
+  const LEVEL = -0.3;
+  const seen = new Uint8Array(N * N);
+  const q = [];
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const k = j * N + i;
+      const edge = i === 0 || j === 0 || i === N - 1 || j === N - 1;
+      const x = x0 + i * step;
+      const z = z0 + j * step;
+      if (h[k] < LEVEL && (edge || baseGround(world, x, z) <= 0)) { seen[k] = 1; q.push(k); }
+    }
+  }
+  const mid = (c.r * 0.5) ** 2;
+  while (q.length) {
+    const k = q.pop();
+    const i = k % N;
+    const j = (k - i) / N;
+    const dx = x0 + i * step - c.x;
+    const dz = z0 + j * step - c.z;
+    if (dx * dx + dz * dz < mid) {
+      c.wet = 1;
+      world.groundRev = (world.groundRev || 0) + 1;
+      return true;
+    }
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ii = i + a;
+      const jj = j + b;
+      if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
+      const kk = jj * N + ii;
+      if (seen[kk] || !(h[kk] < LEVEL)) continue;
+      seen[kk] = 1;
+      q.push(kk);
+    }
+  }
+  return false;
+}
+
+/** Ask every dry atomic crater near a piece of ground just changed. */
+export function floodNear(world, x, z, reach = 0) {
+  let any = false;
+  for (const c of world.craters || []) {
+    if (!c.nuke || c.wet) continue;
+    if (Math.hypot(x - c.x, z - c.z) > c.r * LIP_OUT + reach + 40) continue;
+    if (floodCrater(world, c)) any = true;
+  }
+  return any;
 }
 
 /**
@@ -815,6 +905,7 @@ export function addCrater(world, x, z, r, depth, cap = Infinity) {
       c.wear += depth;
       world.groundRev = (world.groundRev || 0) + 1;
       refileAll(world);
+      floodNear(world, c.x, c.z, c.r);
       return c;
     }
   }
@@ -835,6 +926,7 @@ export function addCrater(world, x, z, r, depth, cap = Infinity) {
   }
   world.groundRev = (world.groundRev || 0) + 1;
   refileAll(world);
+  floodNear(world, c.x, c.z, c.r);
   return c;
 }
 
@@ -843,7 +935,7 @@ export function craterWire(c) {
   return {
     i: c.id, x: Math.round(c.x), z: Math.round(c.z),
     r: Math.round(c.r * 10) / 10, d: Math.round(c.depth * 10) / 10,
-    ...(c.nuke ? { n: 1, l: Math.round(c.lip * 10) / 10 } : {}),
+    ...(c.nuke ? { n: 1, l: Math.round(c.lip * 10) / 10, ...(c.wet ? { w: 1 } : {}) } : {}),
   };
 }
 
@@ -865,16 +957,19 @@ export function applyCrater(world, c) {
   if (!world.craters) world.craters = [];
   const had = world.craters.find((q) => q.id === c.i);
   if (had) {
-    if (had.r === c.r && had.depth === c.d) return false;
+    if (had.r === c.r && had.depth === c.d && (!c.w || had.wet)) return false;
     had.x = c.x; had.z = c.z; had.r = c.r; had.depth = c.d;
+    if (c.w) had.wet = 1;
   } else {
     world.craters.push(c.n
-      ? { id: c.i, x: c.x, z: c.z, r: c.r, depth: c.d, wear: c.d, lip: c.l, nuke: 1, gone: true }
+      ? { id: c.i, x: c.x, z: c.z, r: c.r, depth: c.d, wear: c.d, lip: c.l, nuke: 1, gone: true, ...(c.w ? { wet: 1 } : {}) }
       : { id: c.i, x: c.x, z: c.z, r: c.r, depth: c.d, wear: c.d });
     world.craterSeq = Math.max(world.craterSeq || 0, c.i);
   }
   world.groundRev = (world.groundRev || 0) + 1;
   refileAll(world);
+  // The same ground as the simulation's, so the same answer about the sea.
+  floodNear(world, c.x, c.z, c.r);
   return true;
 }
 
@@ -1284,7 +1379,11 @@ export function keelGround(world, x, z) {
   // Paving and concrete take a shell as damage to what is built on them, not
   // as a hole: see blastWorks.
   if (world.works && (pristine() || worksHard(world, x, z))) return base;
-  return Math.max(0.2, base - craterDrop(world, x, z));
+  const g = base - craterDrop(world, x, z);
+  // Ground is never dug below the sea -- unless it is the floor of an atomic
+  // crater the sea has got into, which is under the water like any seabed.
+  if (g < 0.2) return wetAt(world, x, z) ? g : 0.2;
+  return g;
 }
 
 // ---------------------------------------------------------------------------

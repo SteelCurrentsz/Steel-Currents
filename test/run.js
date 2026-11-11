@@ -28736,6 +28736,34 @@ check('an atomic burst on the ground digs a crater with a rim, and a later shell
   assert.ok(!(sea.craters || []).some((q) => q.nuke), 'a burst on the sea dug a crater');
 });
 
+check('an atomic crater on the shore fills with the sea, and one inland stays a dry pan', () => {
+  const world = generateWorld(7, 'coral_shelf');
+  const isle = [...world.islands].sort((a, b) => b.r - a.r)[0];
+  const R = islandRadius(isle, 1.1) * 0.85;
+  const x = isle.x + Math.sin(1.1) * R;
+  const z = isle.z + Math.cos(1.1) * R;
+  const st = createState(world, { mode: 'deathmatch' });
+  nukeBlast(st, x, groundHeight(world, x, z) + 2, z, null);
+  const c = world.craters.find((q) => q.nuke);
+  assert.ok(c && c.wet, 'the sea did not get into a crater dug through the shore');
+  // Somewhere in the bowl is now under the water, and a shell there splashes.
+  let under = 0;
+  for (let k = 0; k < 64; k++) {
+    const a = (k / 64) * Math.PI * 2;
+    if (groundHeight(world, x + Math.sin(a) * c.r * 0.6, z + Math.cos(a) * c.r * 0.6) < -1) under++;
+  }
+  assert.ok(under > 4, `only ${under} of the bowl is under water`);
+  assert.ok(st.events.some((e) => e.e === 'crater' && e.c.n === 1 && e.c.w === 1), 'the wire does not say it flooded');
+  // And on top of the island, behind a whole rim, it does not.
+  const w2 = generateWorld(7, 'coral_shelf');
+  const i2 = [...w2.islands].sort((a, b) => b.r - a.r)[0];
+  const s2 = createState(w2, { mode: 'deathmatch' });
+  nukeBlast(s2, i2.x, groundHeight(w2, i2.x, i2.z) + 2, i2.z, null);
+  const c2 = w2.craters.find((q) => q.nuke);
+  assert.ok(c2 && !c2.wet, 'a crater on the summit filled with sea');
+  assert.ok(groundHeight(w2, i2.x, i2.z) > 0.5, 'the summit crater is under water');
+});
+
 check('the wire carries the atomic bomb and the open bay', () => {
   const { st, bm } = atomicRun('iowa', 812);
   let saw = { nk: false, d: false };

@@ -219,7 +219,9 @@ function buildCraters(world, tint) {
         const z = b.z + Math.cos(a) * b.r * f;
         const g = keelGround(world, x, z);
         const h = Math.max(g, drawnGround(world, x, z)) + 0.35;
-        dry[i * NR + j] = g > 0.15 ? 1 : 0;
+        // Under the water too, where the sea has got into it: the floor is
+        // still burnt glass, seen through the sea that has filled it.
+        dry[i * NR + j] = g > 0.15 || (b.wet && f < LIP_OUT) ? 1 : 0;
         pos.push(x, h, z);
         // The outermost ring is the terrain's own colour, so it ends in it.
         const ground = tint(x, z);

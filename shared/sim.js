@@ -29,7 +29,7 @@ import {
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
-  groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, addNukeCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
+  groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, addNukeCrater, floodNear, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
 } from './world.js';
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
@@ -5909,6 +5909,8 @@ function collapseGround(state, c, soft) {
     r: r(c.r), drop: r(drop),
   });
 
+  // A slip on the seaward side of an atomic crater can open it to the sea.
+  floodNear(state.world, c.x, c.z, c.r);
   // And anything standing on it goes down with it.
   settleBatteries(state, c.x, c.z, c.r);
 }
