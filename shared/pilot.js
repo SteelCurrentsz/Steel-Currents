@@ -16,7 +16,7 @@ import {
 } from './aero.js';
 
 /** How much livelier a player's aeroplane is than her book figures. */
-export const AGILITY = 1.6;
+export const AGILITY = 2.0;
 
 /** How long her dive brakes take to run all the way out, or all the way in. */
 export const BRAKE_RUN = 1.5;
@@ -73,7 +73,7 @@ export class Pilot {
     // A dogfight on a touch screen is fought at arm's length through an
     // instructor, and an aeroplane that answers at exactly her real roll and
     // pitch rates feels like a barge through that much indirection: she is
-    // given a third again on both, and answers the controls quicker.
+    // given twice her book rates on both, and answers the controls quicker.
     this.agility = agility;
     this.x = x; this.y = y; this.z = z;
     this.heading = heading;
@@ -495,17 +495,40 @@ export function instruct(p, aim) {
   // hard for a mark only a few degrees off her nose and swung past it.
   const side = yawErr * Math.cos(aimGamma);
   const most = Math.min(1.40, wingG * 0.9 > 1.02 ? Math.acos(1 / (wingG * 0.9)) : 0.2);
-  const wantBank = Math.max(-most, Math.min(most, side * 4.0));
-  const rollT = ((wrapAngle(wantBank - p.bank) - p.roll * tauR) * 5.5) / rmax;
-  // The nose, in the vertical. Pulling in a bank lifts her nose along her own
-  // up, which is only partly the world's, so it takes more in a steep one --
-  // and nothing at all on her wing tip, where the elevator moves her nose
-  // along the horizon. That runs smoothly through the vertical bank: turned
-  // over on the sign of the cosine there it reversed the stick in a frame.
+  // What she has to do to get there, as a push across her flight path: round
+  // toward the mark along the horizon, and up or down onto it -- with the
+  // nose worked against where it will be once the pull she has on has taken
+  // effect, not where it is.
   const climbing = (G * (p.g * cb - Math.cos(p.pitch))) / v;
   const gErr = aimGamma - p.pitch - climbing * tauP;
-  const lift = cb / Math.max(cb * cb, 0.35 * 0.35);
-  const pitchT = ((gErr * 3.2 * v) / G / span) * lift;
+  const across = Math.sign(side) * Math.max(
+    G * Math.tan(Math.min(1.45, Math.abs(side) * 4.0)),
+    3.2 * v * Math.max(0, Math.abs(side) - 0.08));
+  const upward = G * Math.cos(p.pitch) + gErr * 3.2 * v;
+  // Her lift is the only thing that can give her that push, so she is banked
+  // to point it there and pulled for as much of it as lies along her lift.
+  //
+  // The two used to be flown apart -- a bank for the horizontal and the
+  // elevator for the vertical -- and they fought. A mark low and off to one
+  // side had her banked over at eighty degrees and pushing on the stick to
+  // get the nose down, which in that bank swung her the wrong way round: she
+  // hung on her side for seconds on end, nose hardly falling, going nowhere.
+  // Pointed at the push she wants, she drops her nose into the turn the way a
+  // pilot does. Never past the bank the wing will hold, and never onto her
+  // back for a mark dead ahead and below: that is a push, not a roll.
+  const wantBank = Math.max(-most, Math.min(most, Math.atan2(across, Math.max(upward, 0.3 * G))));
+  const rollT = ((wrapAngle(wantBank - p.bank) - p.roll * tauR) * 5.5) / rmax;
+  // The pull: as much of that push as lies along her lift, in the bank she is
+  // actually in. That runs smoothly through the vertical bank and round onto
+  // her back, and it is nothing at all on her wing tip, where the elevator
+  // moves her nose along the horizon.
+  let Vx = -F.y * F.x, Vy = 1 - F.y * F.y, Vz = -F.y * F.z;
+  const vl = Math.hypot(Vx, Vy, Vz) || 1;
+  Vx /= vl; Vy /= vl; Vz /= vl;
+  // Square to that and to her path: the way positive bank turns her.
+  const Hx = Vy * F.z - Vz * F.y, Hy = Vz * F.x - Vx * F.z, Hz = Vx * F.y - Vy * F.x;
+  const wantG = (across * (Hx * U.x + Hy * U.y + Hz * U.z) + upward * (Vx * U.x + Vy * U.y + Vz * U.z)) / G;
+  const pitchT = (wantG - hold) / span;
   // Rudder, for the last few degrees: a skid onto the mark instead of a roll.
   const yawT = Math.max(-1, Math.min(1, side * 9)) * (1 - smooth(0.05, 0.25, Math.abs(side)));
 
@@ -526,7 +549,15 @@ export function instruct(p, aim) {
   // the elevator and the rudder instead, the way the last few degrees of any
   // shot are.
   const far = smooth(0.04, 0.22, off);
-  const rollV = ((rollTo * far - p.roll * tauR) * 5.5) / rmax;
+  // And once she is on it, she is rolled back the right way up. Laid on with
+  // the elevator and the rudder and nothing else, she kept whatever bank she
+  // had arrived in -- and a dive entered by rolling her lift onto a mark below
+  // went all the way down on her back, or hung there at sixty degrees, for as
+  // long as the mark stayed on her nose. Not with her nose near the vertical,
+  // where which way is level is whichever way the last rounding error went.
+  const settle = (1 - smooth(0.12, 0.35, off)) * smooth(0.3, 0.6, Math.cos(p.pitch));
+  const levelR = wrapAngle(wantBank - p.bank) * settle;
+  const rollV = ((rollTo * far * (1 - settle) + levelR - p.roll * tauR) * 5.5) / rmax;
   // Pull to the mark once her lift is on it; close in, up or down onto it.
   // How fast her path is already swinging toward her canopy is taken off, and
   // so is what gravity is already doing across her path -- pointed straight up
@@ -547,7 +578,7 @@ export function instruct(p, aim) {
   // where her heading is whichever way the last rounding error left it.
   const k = (a.gLimit ?? 5.5) > 3.2
     ? Math.max(
-      smooth(0.42, 0.62, Math.abs(aim.y)),
+      smooth(0.5, 0.6, Math.abs(aim.y)),
       smooth(1.0, 1.5, off) * smooth(0.25, 0.5, -p.pitch),
       smooth(0.95, 1.25, Math.abs(p.pitch)),
     )

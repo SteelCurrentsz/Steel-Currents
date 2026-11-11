@@ -5305,7 +5305,7 @@ export class Battle {
         x: bm.x, y: bm.y, z: bm.z, heading: bm.h, speed: aero.vMax * 0.70,
         // Thirty tonnes is thirty tonnes: livelier under a player, but not a
         // fighter.
-        agility: 1.15,
+        agility: 1.35,
       }),
       from: 0,
       dm: bm.dm || null,

@@ -26333,6 +26333,28 @@ check('the instructor pulls her out of a dive onto a marker behind her, rather t
   assert.ok(p.pitch > -0.3, `still diving at ${(p.pitch * 57.3).toFixed(0)} degrees`);
 });
 
+check('the instructor does not leave her hanging on her side or her back once she is on the marker', () => {
+  // Rolled over to put her lift on a marker below, she used to stay on her
+  // back all the way down the dive; and a marker low and off to one side had
+  // her banked eighty degrees and pushing herself round the wrong way.
+  const dir = (yaw, pitch) => ({
+    x: Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch),
+  });
+  for (const kind of ['wildcat', 'hellcat', 'avenger']) {
+    for (const [yaw, pitch, bank, secs] of [[0, -0.7, -1.2, 5], [0.6, -0.4, 0, 4], [0.2, -0.5, 0, 3]]) {
+      const p = new Pilot(AERO[kind], { y: 3000 });
+      p.bank = bank;
+      const a = dir(yaw, pitch);
+      let off = Math.PI;
+      for (let i = 0; i < secs * 60; i++) { off = instruct(p, a); p.step(1 / 60, 0); }
+      for (let i = 0; i < 120; i++) { off = instruct(p, a); p.step(1 / 60, 0); }
+      assert.ok(off < 0.05, `${kind} to ${yaw},${pitch}: still ${(off * 57.3).toFixed(0)} deg off`);
+      assert.ok(Math.abs(wrapAngle(p.bank)) < 0.15,
+        `${kind} to ${yaw},${pitch}: left at ${(p.bank * 57.3).toFixed(0)} degrees of bank`);
+    }
+  }
+});
+
 check('an enemy fighter on her tail is shaken off, not flown away from in a straight line', () => {
   // A bot fighter used to fight by being near: nothing it did depended on
   // where anybody was pointing. Now she looks over her shoulder.
