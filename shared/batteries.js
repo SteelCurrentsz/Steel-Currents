@@ -238,6 +238,90 @@ export const BATTERIES = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Tanks
+// ---------------------------------------------------------------------------
+//
+// A tank is a gun that drives itself about. It is chosen off the same gun icon
+// the coast batteries are -- the briefing asks which of the two a commander
+// wants -- sited on the same order-of-battle chart, and fought by the same
+// code: it lays and fires on whatever it can see, it is shot at, and a player
+// can take it over. What it has that a battery has not is a hull with tracks
+// under it (`tank`), so it can be driven across the land, and a weight, which
+// is what decides which landing craft can carry it in (see `tankRoom`).
+//
+// The figures are the real ones, the same as every battery's, except for the
+// reach: a tank's gun is not a coast gun, and its own maximum range is used
+// as it is rather than stretched across the battlefield.
+
+/** The tanks, in the order they are stepped through. */
+export const TANK_ORDER = ['sherman'];
+
+/** @type {Record<string, Battery & { tank: object }>} */
+export const TANKS = {
+  // The M4A2: the diesel Sherman, two General Motors 6-71s coupled together,
+  // which the United States Marine Corps took across the Pacific and the
+  // Red Army and the British got under Lend-Lease. A 75 mm gun in a turret
+  // that went right round, a .50 on the roof and a .30 in the bow, five men,
+  // and armour that was good in 1942.
+  sherman: {
+    name: 'M4A2 Sherman',
+    place: 'United States Marine Corps · Pacific, 1943-45',
+    piece: '75 mm Gun M3 in Mount M34A1',
+    caliber: 75, bore: '75 mm', barrels: 1,
+    calibers: 40,
+    // Ships, and anything else in front of it.
+    targets: 'ships',
+    // A hydraulic turret drive: right round in fifteen seconds.
+    traverse: 360,
+    mount: 'Medium tank, two GM 6-71 diesels',
+    // The front of the turret; the glacis was 51 mm laid back at 56 degrees.
+    armour: 76,
+    weight: 31.3, reload: 6, range: 12800,
+    // Its own range, not a coast gun's stretched one -- see above.
+    reach: 12800,
+    crew: 5, span: 6,
+    tank: {
+      // 48 km/h on a road; across the sand and the scrub a good deal less.
+      speed: 10,
+      reverse: 3.5,
+      accel: 2.2,
+      // Radians a second at a walk; it could slew round on its tracks
+      // standing, slowly.
+      turn: 0.6,
+      pivot: 0.3,
+      // Fording depth without the wading kit, in metres.
+      wade: 1.0,
+      tons: 31.3,
+      length: 5.92, width: 2.62, height: 2.74,
+    },
+  },
+};
+
+// Every tank is looked up by its id the same way a battery is -- the
+// simulation, the wire and the screens all ask BATTERIES for what they are
+// fighting -- so each one is put on that table too. Not enumerably: anything
+// that walks the list of coast batteries is walking the coast batteries.
+for (const [id, t] of Object.entries(TANKS)) {
+  Object.defineProperty(BATTERIES, id, { value: t, enumerable: false, writable: false });
+}
+
+/** Is this battery id a tank? */
+export const isTank = (id) => Object.prototype.hasOwnProperty.call(TANKS, id);
+
+/**
+ * How many of this tank a ship class can carry: none unless she is a landing
+ * craft built to put vehicles ashore over a ramp -- `cargo.vehicles` -- and
+ * the tank is no heavier than what that ramp and well were built for.
+ */
+export function tankRoom(cls, tankId) {
+  const t = TANKS[tankId];
+  const v = cls && cls.ramp && cls.cargo && cls.cargo.vehicles;
+  if (!t || !v) return 0;
+  if (t.tank.tons > v.tons) return 0;
+  return v.slots ? v.slots.length : 0;
+}
+
 /** How many barrels the whole emplacement carries. */
 export const batteryBarrels = (id) => BATTERIES[id]?.barrels || 0;
 
@@ -284,7 +368,7 @@ export const batteryBarrels = (id) => BATTERIES[id]?.barrels || 0;
 export const BATTERY_REACH = 25;
 
 /** How far the battery actually shoots on this battlefield, in metres. */
-export const batteryReach = (b) => b.range * BATTERY_REACH;
+export const batteryReach = (b) => b.reach ?? b.range * BATTERY_REACH;
 
 const REF_BORE = 127;
 const curve = (at127, power) => (mm) => Math.round(at127 * (mm / REF_BORE) ** power);

@@ -22,7 +22,7 @@
 
 import { clamp, dist, headingTo, wrapAngle, angleDelta } from '../shared/math.js';
 import { getClass } from '../shared/ships.js';
-import { blockedByLand } from '../shared/world.js';
+import { blockedByLand, islandAt } from '../shared/world.js';
 import {
   fireGuns, fireTorpedoes, fireMissile, launchStrike, leadPoint, solveBallistic, useRepair,
   useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged, layMine,
@@ -100,6 +100,39 @@ function clearGround(state, ship, brain, dt) {
   ship.notch = brain.groundAway < 0 ? 0 : 4;
   ship.rudderCmd = 0;
   if (!ship.aground && brain.ungrounding < 6) brain.ungrounding = 0;
+  return true;
+}
+
+/**
+ * Run a landing craft in: at the nearest land, flat out, until her bow takes
+ * the beach and her ramp goes down (see rampStep) -- and from then on nothing,
+ * because there she stays. False with no land on the battlefield to run at,
+ * so she sails with the fleet like anything else.
+ */
+function runIn(state, ship, brain) {
+  if (ship.landed) { ship.notch = 1; ship.rudderCmd = 0; return true; }
+  if (brain.beach === undefined || (state.tick % 300 === ship.id % 300)) {
+    brain.beach = null;
+    for (let r = 300; r <= 30000 && !brain.beach; r += 300) {
+      const n = Math.max(12, Math.round(r / 150));
+      let best = null;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        const x = ship.x + Math.sin(a) * r;
+        const z = ship.z + Math.cos(a) * r;
+        if (!islandAt(state.world, x, z, 0)) continue;
+        // Of the land at this range, the bit most nearly ahead of her.
+        const off = Math.abs(angleDelta(ship.heading, a));
+        if (!best || off < best.off) best = { x, z, off };
+      }
+      if (best) brain.beach = { x: best.x, z: best.z };
+    }
+  }
+  if (!brain.beach) return false;
+  // Straight at it: the helm that steers every other ship round an island
+  // would steer her off the one beach she is trying to hit.
+  ship.rudderCmd = clamp(angleDelta(ship.heading, headingTo(ship.x, ship.z, brain.beach.x, brain.beach.z)) * 2.2, -1, 1);
+  ship.notch = 5;
   return true;
 }
 
@@ -212,6 +245,9 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
     brain.retarget = 2.5;
     brain.targetId = pickTarget(state, ship);
   }
+  // A landing craft's captain has one job: put her on the nearest beach and
+  // let her load go ashore. See runIn.
+  if (cls.beaches && !conned && runIn(state, ship, brain)) return;
   const target = state.ships.find((s) => s.id === brain.targetId);
   // On the ship as well as in the brain, so it goes out with her snapshot: a
   // captain watching one of his ships work wants to know what she is shooting

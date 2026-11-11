@@ -590,6 +590,20 @@ export function mountingSheet(b) {
   return rows;
 }
 
+/** A tank's hull: what it weighs, how fast it goes, and what it can wade through. */
+export function tankSheet(b, crafts = []) {
+  const T = b.tank;
+  return [
+    ['Engine', b.mount],
+    ['Weight', `${b.weight} t`],
+    ['Speed', `${Math.round(T.speed * 3.6)} km/h across country`],
+    ['Fording', `${T.wade.toFixed(1)} m`],
+    ['Armour', `${num(b.armour)} mm turret front`],
+    ['Crew', `${num(b.crew)} men`],
+    ['Lands from', crafts.length ? crafts.join(', ') : 'None'],
+  ];
+}
+
 /** The gun: how big, how often, how far. */
 export function ordnanceSheet(b) {
   // A launcher has rails rather than a barrel, and fires its load all at once.

@@ -2418,6 +2418,14 @@ class HudBase {
     if (where && where.textContent !== man.where) where.textContent = man.where;
   }
 
+  /** The same stick, for driving a tank in hand: up, or put away. */
+  setTankStick(on) {
+    const stick = this.el.humanStick || (this.el.humanStick = document.getElementById('human-stick'));
+    if (stick) stick.hidden = !on;
+    document.getElementById('screen-battle')?.classList.toggle('tank', !!on);
+    if (!on) this.centreStick();
+  }
+
   /**
    * The stick over the ship plate. `this.stick` is where it is pushed, each
    * of x (right) and y (forward) from -1 to 1, and back to nothing the

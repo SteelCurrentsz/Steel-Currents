@@ -14,7 +14,7 @@ import {
 } from '../../shared/world.js';
 import { shipClearance, afloatAt } from '../../shared/sim.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
-import { BATTERIES } from '../../shared/batteries.js';
+import { BATTERIES, tankRoom } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import {
   cityPlans, cityToWorld, worldToCity, siteOnWorks, WALL_WIDTH, MAX_CITIES, MAX_WALLS,
@@ -131,10 +131,11 @@ export class LayoutMap {
     // Out of sight of land there is nowhere to site a gun, so whatever batteries
     // were ordered are not put on the chart at all -- nor into the battle (see
     // server/setup.js).
-    if (!isOpenSea(this.world)) {
-      (req.allyGuns || []).forEach((id, i) => this.tokens.push(this.gunToken(id, 0, i)));
-      (req.enemyGuns || []).forEach((id, i) => this.tokens.push(this.gunToken(id, 1, i)));
-    }
+    // A tank can still go to sea in a landing craft, so it is always on the
+    // chart.
+    const open = isOpenSea(this.world);
+    (req.allyGuns || []).forEach((id, i) => { if (!open || BATTERIES[id]?.tank) this.tokens.push(this.gunToken(id, 0, i)); });
+    (req.enemyGuns || []).forEach((id, i) => { if (!open || BATTERIES[id]?.tank) this.tokens.push(this.gunToken(id, 1, i)); });
     (req.allyBombers || []).forEach((id, i) => this.tokens.push(this.airToken(id, 0, i)));
     (req.enemyBombers || []).forEach((id, i) => this.tokens.push(this.airToken(id, 1, i)));
 
@@ -158,8 +159,18 @@ export class LayoutMap {
         t.x = was.x;
         t.z = was.z;
         t.heading = was.heading;
-        this.check(t);
+        // A tank loaded into a landing craft stays loaded into her, if she is
+        // still in the fleet.
+        if (was.tank) {
+          t.craft = null;
+          if (was.craft) {
+            const c = was.craft;
+            const now = this.tokens.find((o) => o.kind === 'ship' && o.classId === c.classId && o.team === c.team && o.index === c.index);
+            if (now && this.freeSlot(now, t) >= 0) { t.craft = now; t.slot = this.freeSlot(now, t); }
+          }
+        }
       }
+      for (const t of this.tokens) this.check(t);
     }
     // A different battlefield is looked at afresh; the same one keeps whatever
     // corner of it the captain had walked over to.
@@ -311,10 +322,11 @@ export class LayoutMap {
       // Five lines of instructions on a phone is a paragraph over the chart, so
       // the narrow screens get the short version of the same thing.
       const tight = (this.canvas.clientWidth || 1200) < 560;
-      const text = why || this.hintOnce || (this.director?.active ? this.director.hint() : null) || (tight
-        ? 'Drag to move, the peg to turn. Ships afloat, guns ashore.'
+      const text = why || this.hintOnce || this.flash || (this.director?.active ? this.director.hint() : null) || (tight
+        ? 'Drag to move, the peg to turn. Ships afloat, guns ashore, tanks ashore or onto a landing craft.'
         : 'Drag to move, the peg off the bow to turn, the water to pan. '
-          + 'Scroll or pinch to zoom. Ships on the water, guns ashore'
+          + 'Scroll or pinch to zoom. Ships on the water, guns ashore, '
+          + 'tanks ashore or dropped on a landing craft that can carry them'
           + `${this.plans?.length ? ' -- in a town or on the walls too. Drag a town to move it.' : '.'}`);
       if (text !== this._hint) {
         this.hint.textContent = text;
@@ -348,7 +360,49 @@ export class LayoutMap {
       // to this and writes it under the counter, so the two agree.
       range: b.range,
       x: 0, z: 0, heading: team === 0 ? 0 : Math.PI, ok: true,
+      // A tank: on land, or loaded into one of its own side's landing craft
+      // (the craft's token) in one of the slots in her well.
+      tank: !!b.tank, craft: null, slot: 0,
     };
+  }
+
+  /**
+   * The first slot in a landing craft's well that this tank could go into,
+   * or -1: none if she cannot carry it at all, or every slot is taken.
+   */
+  freeSlot(craft, tank) {
+    if (!craft || craft.kind !== 'ship' || craft.team !== tank.team) return -1;
+    const room = tankRoom(SHIP_CLASSES[craft.classId], tank.classId);
+    for (let k = 0; k < room; k++) {
+      if (!this.tokens.some((o) => o !== tank && o.tank && o.craft === craft && o.slot === k)) return k;
+    }
+    return -1;
+  }
+
+  /**
+   * The hull of the tank's own side under a point on the screen, if any,
+   * and the slot in her well it would go into (-1 if none).
+   */
+  craftUnder(p, tank) {
+    let best = null;
+    let bestD = Infinity;
+    for (const o of this.tokens) {
+      if (o.kind !== 'ship' || o.team !== tank.team) continue;
+      const s = this.toScreen(o.x, o.z);
+      const d = Math.hypot(p.x - s.x, p.y - s.y);
+      if (d < this.bodyR(o) + 6 && d < bestD) { best = o; bestD = d; }
+    }
+    return best ? { t: best, slot: this.freeSlot(best, tank) } : null;
+  }
+
+  /** Where a token is drawn and picked up, on the screen. A loaded tank sits on her deck, beside her. */
+  tokenScreen(t) {
+    if (t.tank && t.craft) {
+      const c = this.toScreen(t.craft.x, t.craft.z);
+      const r = this.bodyR(t.craft);
+      return { x: c.x + r * 0.55 + 12 + t.slot * 18, y: c.y - 12 };
+    }
+    return this.toScreen(t.x, t.z);
   }
 
   /**
@@ -392,7 +446,17 @@ export class LayoutMap {
     }
     // The guns want ground, and the best ground is the highest they can find on
     // their own side of the field: a battery is sited for the sight line.
-    const guns = this.tokens.filter((t) => t.kind === 'gun');
+    // A tank goes into a landing craft of its own side that can take it, if
+    // there is one with room; otherwise ashore with the guns.
+    for (const t of this.tokens) {
+      if (!t.tank) continue;
+      t.craft = null;
+      for (const c of ships.filter((o) => o.team === t.team)) {
+        const k = this.freeSlot(c, t);
+        if (k >= 0) { t.craft = c; t.slot = k; break; }
+      }
+    }
+    const guns = this.tokens.filter((t) => t.kind === 'gun' && !t.craft);
     if (guns.length) {
       const spots = this.landSpots(guns.length * 2 + 4);
       // Ground inside what the chart can show, the same way landSpots ranks it:
@@ -406,9 +470,12 @@ export class LayoutMap {
         const side = t.team === 0 ? -1 : 1;
         const worth = (o) => o.score + home(o)
           + (Math.sign(o.z) === side ? 900 : 0);
+        // The best of them it can actually stand on: a spot right on the
+        // border is land, but not a berth the chart will let it sail from.
         const wanted = spots
           .filter((s) => !s.taken)
-          .sort((a, bb) => worth(bb) - worth(a))[0];
+          .sort((a, bb) => worth(bb) - worth(a))
+          .find((s) => { t.x = s.x; t.z = s.z; return this.check(t); });
         if (wanted) {
           wanted.taken = true;
           t.x = wanted.x;
@@ -617,6 +684,12 @@ export class LayoutMap {
       t.ok = inside && (cls ? afloatAt(this.world, cls, t.x, t.z, t.heading)
         : !islandAt(this.world, t.x, t.z, t.clearance));
       t.shoal = inside && !t.ok && !islandAt(this.world, t.x, t.z, t.clearance);
+    } else if (t.tank && t.craft) {
+      // In a landing craft's well: wherever she is, it is.
+      t.x = t.craft.x;
+      t.z = t.craft.z;
+      t.heading = t.craft.heading;
+      t.ok = this.tokens.includes(t.craft) && tankRoom(SHIP_CLASSES[t.craft.classId], t.classId) > t.slot;
     } else if (t.kind === 'air') {
       // Nothing under a bomber is wrong: she is four thousand feet over it.
       // All the chart asks of her is that she starts on the battlefield.
@@ -643,6 +716,7 @@ export class LayoutMap {
     }
     const air = bad.find((t) => t.kind === 'air');
     if (air) return `${air.name} is off the battlefield. Bring her inside it.`;
+    if (bad[0].tank) return `${bad[0].name} has no ground under it. Put it ashore, or drop it on a landing craft that can carry it.`;
     return `${bad[0].name} has no ground under it. Batteries go ashore.`;
   }
 
@@ -711,6 +785,7 @@ export class LayoutMap {
    */
   bodyR(t) {
     if (t.kind === 'air') return BODY_R * 0.86;
+    if (t.tank && t.craft) return BODY_R * 0.5;
     if (t.kind !== 'ship') return BODY_R * 0.72;
     return clamp((t.length * this.scale) / 2, BODY_R, BODY_R * 3.2);
   }
@@ -927,20 +1002,23 @@ export class LayoutMap {
       // While a staged battle is being scripted the chart shows every ship
       // where the script has her, and that is where she is picked up.
       for (const t of this.director?.shown() || this.tokens) {
-        const s = this.toScreen(t.x, t.z);
+        const s = this.tokenScreen(t);
         const out = this.handleOut(t);
         const hx = s.x + Math.sin(CHART_X * t.heading) * out;
         const hy = s.y - Math.cos(CHART_X * t.heading) * out;
         const dh = Math.hypot(p.x - hx, p.y - hy);
         if (dh < HANDLE_R + 8 && dh < bestD) { best = { t, mode: 'turn' }; bestD = dh; }
         const db = Math.hypot(p.x - s.x, p.y - s.y);
-        if (db < this.bodyR(t) + 8 && db < bestD) { best = { t, mode: 'move' }; bestD = db; }
+        // Ties go to the one on top -- the last drawn -- so a counter lying
+        // over another can always be picked back up.
+        if (db < this.bodyR(t) + 8 && db <= bestD) { best = { t, mode: 'move' }; bestD = db; }
       }
       return best;
     };
 
     const down = (e) => {
       const p = at(e);
+      this.flash = null;
       this.pointers.set(e.pointerId, p);
       // Two fingers is always a pinch, whatever the first one had hold of.
       if (this.pointers.size === 2) {
@@ -972,6 +1050,9 @@ export class LayoutMap {
       const town = !hit ? this.onTown(p) : null;
       // Nothing under the finger: the chart itself is dragged instead.
       this.drag = hit || town || { mode: 'pan', from: p };
+      // Where a tank was picked up from, to go back to if it is let go over a
+      // landing craft that cannot take it.
+      if (hit && hit.t.tank) hit.from = { x: hit.t.x, z: hit.t.z, craft: hit.t.craft, slot: hit.t.slot };
       if (hit) {
         // The one being moved is drawn last, so it is on top of whatever it is
         // being dragged over.
@@ -1010,6 +1091,13 @@ export class LayoutMap {
         this.clampView();
       } else if (this.drag.mode === 'move') {
         const t = this.drag.t;
+        // A tank picked up out of a landing craft is unloaded from her.
+        if (t.tank && t.craft) t.craft = null;
+        if (t.tank) {
+          const c = this.craftUnder(p, t);
+          this.hintOnce = c ? (c.slot >= 0 ? `Let go to load it into ${c.t.name}.`
+            : `${c.t.name} cannot carry a ${t.name}.`) : null;
+        }
         const w = this.fromScreen(p.x, p.y);
         t.x = clamp(w.x, -this.half + 150, this.half - 150);
         t.z = clamp(w.z, -this.half + 150, this.half - 150);
@@ -1045,6 +1133,27 @@ export class LayoutMap {
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = 0;
       this.drag = null;
+      // A tank let go over a landing craft of its own side is loaded into
+      // her, if she can carry it and has room; over one that cannot, it
+      // stays where it was dropped and the chart says why.
+      if (d && d.mode === 'move' && d.t.tank) {
+        const c = this.craftUnder(at(e), d.t);
+        this.hintOnce = null;
+        if (c && c.slot >= 0) {
+          d.t.craft = c.t;
+          d.t.slot = c.slot;
+        } else if (c) {
+          this.flash = `${c.t.name} cannot carry a ${d.t.name}${tankRoom(SHIP_CLASSES[c.t.classId], d.t.classId) ? ': her well is full' : ''}.`;
+          // Back where it came from.
+          if (d.from) {
+            d.t.x = d.from.x;
+            d.t.z = d.from.z;
+            d.t.craft = d.from.craft;
+            d.t.slot = d.from.slot;
+          }
+        }
+        this.check(d.t);
+      }
       if (d && d.mode === 'town') {
         this.hintOnce = null;
         if (d.at) this.setWorks('city', true, d.at, d.plan.city.ask);
@@ -1363,7 +1472,8 @@ export class LayoutMap {
   }
 
   drawToken(ctx, t) {
-    const p = this.toScreen(t.x, t.z);
+    if (t.tank && t.craft) this.check(t);
+    const p = this.tokenScreen(t);
     const col = TEAM[t.team];
     // Her heading as the chart shows it: the same angle from north, turned the
     // way the chart's x runs.
@@ -1373,8 +1483,18 @@ export class LayoutMap {
     const r = this.bodyR(t);
     const out = this.handleOut(t);
 
-    // A gun's field of fire, so what it is pointed at means something.
-    if (t.kind === 'gun') {
+    // A gun's field of fire, so what it is pointed at means something. A
+    // tank in a landing craft has none yet, and no peg: it goes where she goes.
+    if (t.tank && t.craft) {
+      ctx.strokeStyle = 'rgba(230, 207, 156, 0.7)';
+      ctx.lineWidth = 1.2;
+      const c = this.toScreen(t.craft.x, t.craft.z);
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    if (t.kind === 'gun' && !(t.tank && t.craft)) {
       const half = ((t.traverse >= 360 ? 360 : t.traverse) / 2) * (Math.PI / 180);
       // Drawn to the gun's own range on the ground, not to a fixed number of
       // pixels. It used to be four and a half counter-widths whatever the
@@ -1418,7 +1538,7 @@ export class LayoutMap {
 
     // The handle it is turned by, and the shaft joining it to the body. Not
     // while the chart is a script: nothing is turned by hand there.
-    if (!t.noHandle) {
+    if (!t.noHandle && !(t.tank && t.craft)) {
       const hx = p.x + sin * out;
       const hy = p.y - cos * out;
       ctx.strokeStyle = 'rgba(230, 207, 156, 0.55)';
@@ -1473,6 +1593,9 @@ export class LayoutMap {
       ctx.lineTo(-sp, r * 0.02);
       ctx.lineTo(-r * 0.17, -r * 0.30);
       ctx.closePath();
+    } else if (t.tank) {
+      // A tank: a square hull with its gun out over the front.
+      ctx.rect(-r * 0.75, -r * 0.9, r * 1.5, r * 1.8);
     } else {
       // A gun: a drum with a barrel out of it.
       ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -1508,7 +1631,7 @@ export class LayoutMap {
     const clear = (x, y) => !taken.some((s) => Math.abs(s.x - x) < 52 && Math.abs(s.y - y) < 11);
     for (let i = tokens.length - 1; i >= 0; i--) {
       const t = tokens[i];
-      const p = this.toScreen(t.x, t.z);
+      const p = this.tokenScreen(t);
       // Under the token, unless the token is pointed that way -- a hull steering
       // down the chart has her peg where her name would go, so the name goes
       // over her head instead.
@@ -1528,7 +1651,8 @@ export class LayoutMap {
       if (!room || p.x < -80 || p.x > this.size.w + 80 || y < 0 || y > this.size.h) continue;
       taken.push({ x: p.x, y });
       ctx.fillStyle = t.ok ? 'rgba(240, 232, 214, 0.9)' : '#ffd9d6';
-      const label = t.kind === 'gun' && t.range
+      const label = t.tank && t.craft ? `${short(t.name, 14)} · in ${short(t.craft.name, 18)}`
+        : t.kind === 'gun' && t.range
         // The gun's range, in the yards the rest of the chart is measured in.
         // A figure, not a picture of one: it says the same thing whatever the
         // chart is zoomed to.
@@ -1546,6 +1670,26 @@ export class LayoutMap {
    * the simulation has no shore-battery entity, so a coast gun is chosen,
    * counted and sited here and takes no part in the fighting.
    */
+  /**
+   * One side's guns and tanks, each at its place in the briefing's list --
+   * so a battery left off the chart in open sea does not move every tank
+   * after it onto the wrong berth -- and a loaded tank with the hull it is
+   * in (her place in her fleet, as the chart numbers it) and its slot.
+   */
+  gunBerths(team) {
+    const out = [];
+    for (const t of this.tokens) {
+      if (t.kind !== 'gun' || t.team !== team) continue;
+      out[t.index] = {
+        x: Math.round(t.x), z: Math.round(t.z),
+        h: Math.round(t.heading * 1000) / 1000,
+        ...(t.tank && t.craft ? { c: t.craft.index, s: t.slot } : {}),
+      };
+    }
+    for (let i = 0; i < out.length; i++) if (!out[i]) out[i] = null;
+    return out;
+  }
+
   result() {
     const pick = (kind, team) => this.tokens
       .filter((t) => t.kind === kind && t.team === team)
@@ -1557,8 +1701,8 @@ export class LayoutMap {
     return {
       allies: pick('ship', 0),
       enemies: pick('ship', 1),
-      allyGuns: pick('gun', 0),
-      enemyGuns: pick('gun', 1),
+      allyGuns: this.gunBerths(0),
+      enemyGuns: this.gunBerths(1),
       allyBombers: pick('air', 0),
       enemyBombers: pick('air', 1),
       // The town and the walls, by their seeds: the server raises the same

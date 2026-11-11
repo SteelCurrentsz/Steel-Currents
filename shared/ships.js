@@ -11891,12 +11891,93 @@ export const SHIP_CLASSES = {
     // when it is down on the beach. For a future update: there are no soldiers
     // to put ashore yet, and the yard says so; her ramp goes down on the beach
     // all the same.
-    cargo: { troops: 36, adjustable: true, ready: false },
+    // Or one light vehicle -- a jeep, a 37 mm gun on its carriage -- in
+    // place of the men: three and a half tons at the most, which is no
+    // tank's weight (see tankRoom in batteries.js).
+    cargo: { troops: 36, adjustable: true, ready: false, vehicles: { tons: 3.6, deck: 1.0, slots: [[0, 1.0]] } },
     planes: null,
     datasheet: {
       displacement: 13,
       aircraft: 0,
       mainRounds: 2000,
+      torpedoesCarried: 0,
+      secondary: null,
+      tertiary: [],
+    },
+  },
+  lcm: {
+    // The Landing Craft Mechanized: the bigger sister of the Higgins boat,
+    // built to put a tank ashore rather than a platoon. A steel box with a
+    // ramp for a bow, an open well down the length of her and her coxswain's
+    // deckhouse along one side aft. She is run up the beach, her ramp goes
+    // down the moment her bow takes the ground, and whatever is in her well
+    // -- one tank, or as many soldiers as can stand in it -- goes out over it
+    // onto the sand. She carries no guns at all, and once she has put her
+    // load ashore she stays where she is.
+    //
+    // She is drawn from the owner's model of her (see vehicles.js) -- "US
+    // Marine Landing Craft Utility" by LM3D, under Creative Commons
+    // Attribution 4.0, credited on the Credits screen -- at twenty-two
+    // metres overall.
+    id: 'lcm',
+    name: 'Landing Craft Mechanized',
+    fullName: 'Landing Craft Mechanized (LCM)',
+    className: 'LCM',
+    type: 'LC',
+    typeName: 'Landing Craft',
+    nation: 'usa',
+    blurb: 'One tank, or as many men as her well will hold. Run her up the beach, the ramp drops, and her load goes ashore. No guns, and no going back.',
+    hull: { funnels: [[3.6, -7.0, 6.0]], length: 22, beam: 9.5, draft: 1.6, superstructure: 0.5, heavePeriod: 2.6 },
+    hp: 2600,
+    maxSpeed: 9 * KNOTS,
+    reverseSpeed: 4 * KNOTS,
+    accel: 0.9,
+    turnRate: 0.2,
+    rudderShift: 1.6,
+    speedLossInTurn: 0.2,
+    concealment: 3400,
+    fireDetectPenalty: 2800,
+    radarRange: 0,
+    repairCooldown: 60,
+    repairHeal: 0.10,
+    smokeCharges: 0,
+    lampSpots: [],
+    // Mild steel, and nothing over her heads.
+    armor: { belt: 8, deck: 6, citadel: 8, bow: 10, superstructure: 6 },
+    // Built to take the ground on a beach; see the Higgins boat.
+    beaches: true,
+    ramp: { hinge: 7.45 },
+    // No guns of her own: what keeps heads down while she goes in is somebody
+    // else's.
+    // (The figures below describe nothing she carries: with no mounting to
+    // put it in, it never fires. They are a rifle's, so anything that asks
+    // every class for her gun gets a sensible answer.)
+    turrets: [],
+    gun: {
+      name: 'None', role: 'main',
+      elev: { min: -0.1, max: 0.6 },
+      reach: 0.5,
+      caliber: 7.62, reload: 9999, traverse: 1, range: 1000, sigma: 1.4,
+      shells: shells(7.62, 1, 1, 1, 800, 0.004),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: { range: 0, dps: 0, guns: [] },
+    // What she is for: one tank in her well, loaded on the order-of-battle
+    // chart (see tankRoom in batteries.js), standing at [across, along] in
+    // metres of her frame on her well deck `deck` metres up it -- or, in
+    // place of it, as many soldiers as her captain embarks in the yard.
+    cargo: {
+      troops: 150,
+      adjustable: true,
+      ready: false,
+      vehicles: { tons: 60, deck: 1.0, slots: [[-1.3, -1.5]] },
+    },
+    planes: null,
+    datasheet: {
+      displacement: 110,
+      aircraft: 0,
+      mainRounds: 0,
       torpedoesCarried: 0,
       secondary: null,
       tertiary: [],
@@ -12052,7 +12133,7 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
-  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins'];
+  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
@@ -12068,7 +12149,7 @@ export const WWI_SHIPS = new Set(['agincourt']);
 // And the ships that are not warships at all, whatever war they sailed in:
 // the merchantmen and the transports, in a yard of their own beside the
 // Modern one.
-export const CIVIL_SHIPS = new Set(['liberty', 'higgins']);
+export const CIVIL_SHIPS = new Set(['liberty', 'higgins', 'lcm']);
 export const WWI_ORDER = SHIP_ORDER.filter((id) => WWI_SHIPS.has(id));
 export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id) && !WWI_SHIPS.has(id) && !CIVIL_SHIPS.has(id));
 export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));

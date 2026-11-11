@@ -618,6 +618,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     fs: b.salvo ? (b.salvo.wind > 0 ? 1 : 2) : undefined,
     // Whose hands its guns are in, if a player has taken them.
     pc: b.ctl || undefined,
+    // A tank: how fast it is going, and the landing craft it is riding in
+    // and where in her well, if it has not gone ashore yet.
+    sp: b.tank ? r1(b.speed) : undefined,
+    ab: b.aboard || undefined,
+    sl: b.aboard ? b.slot : undefined,
     // And what only its own side is told: the mortar's pin -- where it is,
     // whose plot put it there ('h' a player's; 's', 'm' or 't' its crew's,
     // for a ship stopped, steaming straight or turning) and on which ship --

@@ -27,11 +27,12 @@ import {
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
   siteBattery, batteryPad, afloatAt, seabedRoom,
   commandBattery, pinBattery, layBattery, triggerBattery, readTrack, predictTrack, PLOT_WATCH,
-  trainBattery, orderAttack,
+  trainBattery, orderAttack, embarkTank, driveTank, tankGround,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER, mortarFlight,
+  TANKS, TANK_ORDER, isTank, tankRoom,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
 import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER, CIVIL_ORDER } from '../shared/ships.js';
@@ -4186,11 +4187,11 @@ check('the RF Slava is commissioned after the Sovremenny, in the Modern yard, ar
   }
 });
 
-check('the Transport and Cargo yard, beside the Modern one, has the Liberty ship and then the Higgins boat', () => {
+check('the Transport and Cargo yard, beside the Modern one, has the Liberty ship, the Higgins boat and the LCM', () => {
   assert.ok(SHIP_ORDER.includes('liberty'), 'the Liberty ship is not in the yard');
-  assert.deepEqual(CIVIL_ORDER, ['liberty', 'higgins'], `the Transport and Cargo yard is ${CIVIL_ORDER}`);
+  assert.deepEqual(CIVIL_ORDER, ['liberty', 'higgins', 'lcm'], `the Transport and Cargo yard is ${CIVIL_ORDER}`);
   for (const [era, list] of [['WWI', WWI_ORDER], ['WWII', WWII_ORDER], ['Modern', MODERN_ORDER]]) {
-    assert.ok(!list.includes('liberty') && !list.includes('higgins'), `a transport is in the ${era} yard`);
+    assert.ok(!list.includes('liberty') && !list.includes('higgins') && !list.includes('lcm'), `a transport is in the ${era} yard`);
   }
   // The ship icon offers it right of the Modern yard, under its new name, and
   // it opens hers.
@@ -4312,11 +4313,11 @@ check('the Higgins boat sails with the soldiers her captain embarked, and no mor
   assert.ok(/soldiers<\/span>/.test(brief), 'the fleet list does not say how many soldiers she carries');
 });
 
-check('a Higgins boat run up on a beach drops her ramp, takes no harm, and backs off it again', () => {
-  const world = generateWorld(4242, 'coral_shelf');
+/** A landing craft of `classId` on a battlefield with land, pointed at the nearest of it. */
+function beachRun(classId, seed = 4242, map = 'coral_shelf') {
+  const world = generateWorld(seed, map);
   const st = createState(world, { mode: 'deathmatch' });
-  const s = addShip(st, { name: 'A', classId: 'higgins', team: 0, index: 0 });
-  // Pointed at the nearest land.
+  const s = addShip(st, { name: 'A', classId, team: 0, index: 0 });
   let best = null;
   for (let a = 0; a < 64; a++) {
     for (let d = 50; d < 6000; d += 25) {
@@ -4327,21 +4328,103 @@ check('a Higgins boat run up on a beach drops her ramp, takes no harm, and backs
   assert.ok(best, 'no land to beach her on');
   s.heading = best.h;
   s.notch = 5;
+  return { world, st, s };
+}
+
+check('a Higgins boat run up on a beach drops her ramp the moment she takes it, takes no harm, and stays', () => {
+  const { st, s } = beachRun('higgins');
   const hp = s.hp;
   let t = 0;
-  for (; t < 1200 && !s.rampDown; t += 1 / 30) step(st, 1 / 30);
-  assert.ok(s.rampDown, 'she never let her ramp go');
-  assert.ok(s.aground > 0 && s.groundAt > 0.3, 'her ramp went down off the beach');
+  for (; t < 1200 && !s.aground; t += 1 / 30) step(st, 1 / 30);
+  assert.ok(s.aground > 0, 'she never reached the beach');
+  // The tick she touched, or the one after: not once she has stopped.
+  step(st, 1 / 30);
+  assert.ok(s.rampDown, 'her ramp did not go down when she hit the beach');
   assert.ok(!s.stranded, 'she is stranded on the beach she was built for');
   assert.equal(s.hp, hp, 'the beach tore her bottom out');
   assert.equal(shipSnapshot(s, false).rp, 1, 'nobody can see her ramp is down');
-  // Astern: the ramp comes up, and she comes off.
+  // Her load is ashore, and she is going nowhere: not astern, not ahead.
+  const at = { x: s.x, z: s.z };
   s.notch = 0;
   for (let i = 0; i < 30 * 40; i++) step(st, 1 / 30);
-  assert.ok(!s.rampDown, 'her ramp is still down going astern');
-  assert.ok(!s.aground, 'she could not get off the beach');
+  assert.ok(s.rampDown, 'her ramp came up again');
+  assert.ok(Math.hypot(s.x - at.x, s.z - at.z) < 2, 'she left the beach after landing her load');
   // A destroyer driven onto the same beach drops nothing.
   assert.ok(!SHIP_CLASSES.fletcher.ramp && !SHIP_CLASSES.fletcher.beaches);
+});
+
+check('the Landing Craft Mechanized comes after the Higgins boat, carries one tank or a load of soldiers, and no guns', () => {
+  const cls = SHIP_CLASSES.lcm;
+  assert.equal(cls.name, 'Landing Craft Mechanized');
+  assert.equal(SHIP_ORDER.indexOf('lcm'), SHIP_ORDER.indexOf('higgins') + 1, 'she does not come after the Higgins boat');
+  assert.ok(CIVIL_ORDER.includes('lcm'), 'she is not in the Transport and Cargo yard');
+  assert.equal(cls.turrets.length, 0, 'she has guns');
+  assert.equal(lightMounts(cls).length, 0, 'she has light guns');
+  assert.ok(cls.ramp && cls.beaches, 'she has no ramp to put her load out over');
+  assert.equal(tankRoom(cls, 'sherman'), 1, 'she does not take exactly one Sherman');
+  assert.ok(cls.cargo.adjustable && cls.cargo.troops > 36, 'she does not carry soldiers in place of it');
+  // The Higgins boat cannot take a Sherman, nor can anything without a ramp.
+  assert.equal(tankRoom(SHIP_CLASSES.higgins, 'sherman'), 0, 'a Higgins boat carries a Sherman');
+  assert.equal(tankRoom(SHIP_CLASSES.liberty, 'sherman'), 0, 'a Liberty ship puts a Sherman on a beach');
+  assert.equal(tankRoom(SHIP_CLASSES.fletcher, 'sherman'), 0, 'a destroyer carries a tank');
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.match(html, /href="https:\/\/skfb\.ly\/owIX6"[^>]*>US Marine Landing Craft Utility<\/a>"\s*by LM3D is licensed under/);
+  assert.match(html, /href="https:\/\/skfb\.ly\/oAXAL"[^>]*>M4A2 Sherman<\/a>"\s*by barking_dogo is licensed under/);
+});
+
+check('a Sherman is a tank, not a coast battery: chosen from its own list, and driven where it is sent', () => {
+  assert.ok(isTank('sherman') && !BATTERY_ORDER.includes('sherman') && TANK_ORDER.includes('sherman'));
+  assert.ok(!Object.keys(BATTERIES).includes('sherman'), 'the tank is walked with the coast batteries');
+  assert.equal(BATTERIES.sherman, TANKS.sherman, 'the tank cannot be looked up by its id');
+  const world = generateWorld(77, 'archipelago');
+  const st = createState(world, { mode: 'deathmatch' });
+  const land = world.islands.find((i) => groundHeight(world, i.x, i.z) > 5);
+  const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: land.x, z: land.z, heading: 0 });
+  assert.ok(bat.tank && bat.alive);
+  // Not its own: nobody drives it.
+  assert.ok(!driveTank(st, bat, 1, 0), 'a tank nobody has taken can be driven');
+  commandBattery(st, bat, 99);
+  assert.ok(driveTank(st, bat, 1, 0.4));
+  for (let i = 0; i < 30 * 8; i++) step(st);
+  const moved = Math.hypot(bat.x - land.x, bat.z - land.z);
+  assert.ok(moved > 20, `it went ${moved.toFixed(1)} m in eight seconds`);
+  assert.ok(Math.abs(bat.heading) > 0.3, 'it did not turn');
+  assert.ok(Math.abs(bat.y - tankGround(world, bat.x, bat.z)) < 0.01, 'it is not on the ground');
+  assert.ok(buildSnapshot(st, 0).batteries.find((g) => g.i === bat.id).sp > 0, 'nobody can see it moving');
+});
+
+check('a Sherman loaded into a Landing Craft Mechanized goes ashore over her ramp, and she stays on the beach', () => {
+  const { st, s } = beachRun('lcm');
+  const t = addBattery(st, { batteryId: 'sherman', team: 0, x: s.x, z: s.z });
+  const spare = addBattery(st, { batteryId: 'sherman', team: 0, x: s.x, z: s.z });
+  assert.ok(embarkTank(st, t, s, 0), 'she would not take a Sherman');
+  assert.ok(!embarkTank(st, spare, s, 0), 'she took two');
+  const higgins = addShip(st, { name: 'H', classId: 'higgins', team: 0, index: 1 });
+  assert.ok(!embarkTank(st, spare, higgins, 0), 'a Higgins boat took a Sherman');
+  assert.equal(buildSnapshot(st, 0).batteries.find((g) => g.i === t.id).ab, s.id, 'nobody can see it is aboard');
+  for (let i = 0; i < 30 * 1200 && !s.rampDown; i++) {
+    step(st, 1 / 30);
+    if (!s.rampDown) assert.ok(t.aboard === s.id && Math.hypot(t.x - s.x, t.z - s.z) < 15, 'it fell out of her');
+  }
+  assert.ok(s.rampDown, 'she never dropped her ramp');
+  for (let i = 0; i < 30 * 30; i++) step(st, 1 / 30);
+  assert.ok(!t.aboard, 'it never came off her');
+  assert.ok(t.alive);
+  assert.ok(tankGround(st.world, t.x, t.z) > -1, 'it went off her into deep water');
+  const at = { x: s.x, z: s.z };
+  s.notch = 0;
+  for (let i = 0; i < 30 * 20; i++) step(st, 1 / 30);
+  assert.ok(Math.hypot(s.x - at.x, s.z - at.z) < 2, 'she left the beach');
+});
+
+check('a tank in a landing craft that goes down goes down with her', () => {
+  const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'A', classId: 'lcm', team: 0, index: 0 });
+  const t = addBattery(st, { batteryId: 'sherman', team: 0, x: s.x, z: s.z });
+  assert.ok(embarkTank(st, t, s, 0));
+  s.alive = false;
+  step(st, 1 / 30);
+  assert.ok(!t.alive, 'it survived her');
 });
 
 check('the Credits screen credits the model the Liberty ship is drawn from', () => {
