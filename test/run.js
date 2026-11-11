@@ -35,6 +35,7 @@ import {
   TANKS, TANK_ORDER, isTank, tankRoom,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
+import { TANK_ARMOUR, tankStrike } from '../shared/tankarmor.js';
 import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER, CIVIL_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine, troopsFor } from '../shared/sim.js';
@@ -4471,6 +4472,154 @@ check('a tank nobody has taken drives itself at the enemy and fights', () => {
   assert.ok(fired, 'neither tank fired');
   assert.ok(a.ai && a.ai.foe === e.id, 'it was not after the enemy tank');
   assert.ok(Math.hypot(a.x - e.x, a.z - e.z) < d0, 'it did not close the range');
+});
+
+// A Sherman held still over open water, for shooting at: nothing between it
+// and the round but the plate.
+function tankRange() {
+  const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: 0, z: 0, heading: 0 });
+  bat.y = 20;
+  commandBattery(st, bat, 99);
+  return { st, bat };
+}
+
+/**
+ * Fire a round at it: from `brg` (radians, world bearing from the tank to
+ * the gun) at height `dy` over the tank's ground, having flown `range` metres
+ * (that is what it has lost of its penetration), going `down` metres a second.
+ */
+function shootTank(st, bat, { brg, dy = 1.4, range = 500, spec, cal = 75, down = 0, lat = 0 }) {
+  const v = spec.velocity || 619;
+  const sx = bat.x + Math.sin(brg) * 30 + Math.cos(brg) * lat;
+  const sz = bat.z + Math.cos(brg) * 30 - Math.sin(brg) * lat;
+  st.shells.push({
+    id: 900000 + st.shells.length + Math.floor(st.t * 1000), owner: 777, team: 1, fromBattery: true,
+    x: sx, y: bat.y + dy + down * (30 / v), z: sz,
+    vx: -Math.sin(brg) * v, vy: -down, vz: -Math.cos(brg) * v, g: 0,
+    spec: { ...spec, type: spec.type }, caliber: cal, classId: null, life: 0,
+    from: [bat.x + Math.sin(brg) * range, bat.z + Math.cos(brg) * range],
+  });
+  const ev = [];
+  for (let i = 0; i < 6; i++) ev.push(...step(st, 1 / 30));
+  return ev.find((e) => e.e === 'hit' && e.victim === bat.id);
+}
+
+check("a tank's armour is met where a round reaches it, at the angle it really meets it", () => {
+  const A = TANK_ARMOUR.sherman;
+  const bat = { x: 0, y: 0, z: 0, heading: 0, angle: 0 };
+  const at = (p0, p1) => tankStrike(bat, A, p0, p1);
+  const deg = (s) => (Math.acos(s.cos) * 180) / Math.PI;
+  // Square on from in front: the glacis, laid back fifty-six degrees.
+  let s = at({ x: 0, y: 1.5, z: 60 }, { x: 0, y: 1.5, z: -60 });
+  assert.equal(s.plates[0].k, 'glacis');
+  assert.ok(Math.abs(deg(s) - 56) < 1, `the glacis is met at ${deg(s).toFixed(1)} degrees`);
+  // Low on the side: the track and the bogies, then the hull side.
+  s = at({ x: -60, y: 0.6, z: 0 }, { x: 60, y: 0.6, z: 0 });
+  assert.deepEqual(s.plates.map((p) => p.k), ['trackR', 'side']);
+  // The turret, square on: the mantlet.
+  s = at({ x: 0, y: 2.3, z: 60 }, { x: 0, y: 2.3, z: -60 });
+  assert.equal(s.part, 'turret');
+  assert.equal(s.plates[0].k, 'mantlet');
+  // Turned to the beam, its side faces the same shot.
+  bat.angle = Math.PI / 2;
+  s = at({ x: 0, y: 2.3, z: 60 }, { x: 0, y: 2.3, z: -60 });
+  assert.equal(s.plates[0].k, 'tside');
+  bat.angle = 0;
+  // Angled forty-five degrees to the gun, the side is met at forty-five.
+  bat.heading = Math.PI / 4;
+  s = at({ x: 0.3, y: 1.5, z: 60 }, { x: 0.3, y: 1.5, z: -60 });
+  assert.ok(Math.abs(deg(s) - 45) < 2, `angled, the plate is met at ${deg(s).toFixed(1)}`);
+  // And nosed up a bank, the belly shows to a round coming level at it.
+  bat.heading = 0;
+  bat.pitch = 0.5;
+  s = at({ x: 0, y: 1.2, z: 60 }, { x: 0, y: 1.2, z: -60 });
+  assert.ok(deg(s) > 56 || s.plates[0].k === 'belly', 'a tank nosed up a bank is met the same way as one on the level');
+  // A round going past it is not a hit.
+  assert.equal(at({ x: 5, y: 1.5, z: 60 }, { x: 5, y: 1.5, z: -60 }), null);
+});
+
+check("a Sherman's own round goes through another's side, but not its glacis at a thousand metres", () => {
+  const ap = batteryGun('sherman').shells.ap;
+  let side = 0;
+  let front = 0;
+  for (let k = 0; k < 6; k++) {
+    const a = tankRange();
+    const h = shootTank(a.st, a.bat, { brg: Math.PI / 2, range: 500, spec: ap });
+    assert.ok(h, 'the round into its side never arrived');
+    if (h.kind === 'pen' || h.kind === 'overpen') side++;
+    const b = tankRange();
+    const f = shootTank(b.st, b.bat, { brg: 0, range: 1000, spec: ap, dy: 1.5 });
+    assert.ok(f, 'the round into its front never arrived');
+    if (f.kind === 'pen' || f.kind === 'overpen') front++;
+    assert.equal(f.pl, undefined, 'a tank hit carries a penetration-camera walk');
+  }
+  assert.equal(side, 6, `${side} of 6 into the side got through`);
+  assert.equal(front, 0, `${front} of 6 into the glacis at a thousand metres got through`);
+  // Point blank, the glacis goes too: 91 mm against its 91 mm in line of fire.
+  let close = 0;
+  for (let k = 0; k < 6; k++) {
+    const b = tankRange();
+    const f = shootTank(b.st, b.bat, { brg: 0, range: 20, spec: { ...ap, pen: 110 }, dy: 1.5 });
+    if (f && (f.kind === 'pen' || f.kind === 'overpen')) close++;
+  }
+  assert.ok(close >= 5, `a 110 mm round through the glacis ${close} of 6 times`);
+});
+
+check('what a round does inside a tank is what it reaches: the engine stops it, the crew silence it', () => {
+  const ap = batteryGun('sherman').shells.ap;
+  // Into the engine room, from astern.
+  let stopped = 0;
+  for (let k = 0; k < 5; k++) {
+    const { st, bat } = tankRange();
+    const h = shootTank(st, bat, { brg: Math.PI, range: 300, spec: ap, dy: 1.1 });
+    assert.ok(h && h.kind === 'pen', `from astern it was ${h?.kind}`);
+    if (bat.tk.parts.engine >= 0.5) stopped++;
+    step(st, 1 / 30);
+    if (bat.tk.parts.engine >= 1) {
+      driveTank(st, bat, 1, 0);
+      for (let i = 0; i < 60; i++) step(st, 1 / 30);
+      assert.ok(Math.hypot(bat.x, bat.z) < 0.5, 'it drove off with its engine wrecked');
+    }
+  }
+  assert.ok(stopped >= 4, `the engine was reached ${stopped} of 5 times`);
+  // Into the turret side: the men in it.
+  let men = 0;
+  for (let k = 0; k < 5; k++) {
+    const { st, bat } = tankRange();
+    shootTank(st, bat, { brg: -Math.PI / 2, range: 300, spec: ap, dy: 2.2 });
+    if (['gunner', 'commander', 'loader'].some((q) => bat.tk.parts[q] >= 1)) men++;
+  }
+  assert.ok(men >= 3, `a round through the turret killed nobody in it ${5 - men} of 5 times`);
+});
+
+check('a round low into the running gear breaks a track, and the crew put it back on', () => {
+  const he = batteryGun('sherman').shells.he;
+  const { st, bat } = tankRange();
+  for (let k = 0; k < 4 && bat.tk.parts.trackR < 1; k++) shootTank(st, bat, { brg: -Math.PI / 2, range: 300, spec: he, dy: 0.6 });
+  assert.ok(bat.tk.parts.trackR >= 1, 'the track is still on');
+  assert.ok(bat.alive, 'a track hit knocked it out');
+  driveTank(st, bat, 1, 0);
+  for (let i = 0; i < 30 * 3; i++) step(st, 1 / 30);
+  assert.ok(Math.hypot(bat.x, bat.z) < 0.5, 'it drove on a broken track');
+  assert.ok(buildSnapshot(st, 0).batteries.find((g) => g.i === bat.id).td[0] & 8, 'its own side is not told the track is off');
+  for (let i = 0; i < 30 * 25; i++) step(st, 1 / 30);
+  assert.ok(bat.tk.parts.trackR < 1, 'the crew never put the track back on');
+});
+
+check('a battleship shell is the end of a tank, and a machine gun is nothing to it', () => {
+  const big = { ...SHIP_CLASSES.iowa.gun.shells.ap, type: 'ap' };
+  const { st, bat } = tankRange();
+  const h = shootTank(st, bat, { brg: 0.3, range: 15000, spec: big, cal: 406, dy: 1.5 });
+  assert.ok(h, 'it was not hit');
+  for (let i = 0; i < 30 * 12; i++) step(st, 1 / 30);
+  assert.ok(!bat.alive, 'a sixteen-inch shell left it fighting');
+  const b = tankRange();
+  const hp = b.bat.hp;
+  for (let i = 0; i < 20; i++) {
+    shootTank(b.st, b.bat, { brg: i * 0.3, range: 300, spec: { type: 'ap', pen: 25, damage: 30, caliber: 12.7, velocity: 850 }, cal: 12.7, dy: 1.5 });
+  }
+  assert.ok(b.bat.alive && b.bat.hp > hp * 0.97, `twenty half-inch rounds took it to ${b.bat.hp} of ${hp}`);
 });
 
 check('a tank in a landing craft that goes down goes down with her', () => {
