@@ -24,7 +24,7 @@ import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
 import * as account from './account.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
-import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, WWII_ORDER, MODERN_ORDER } from '../../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, WWI_ORDER, WWII_ORDER, MODERN_ORDER } from '../../shared/ships.js';
 import { ADS_REQUIRED, premiumUnlocked, unlockWithAd } from './premium.js';
 import { KNOTS } from '../../shared/math.js';
 import { MAP_PRESETS } from '../../shared/world.js';
@@ -768,9 +768,9 @@ function openYard(side, { order = SHIP_ORDER, at = null, from = null } = {}) {
   renderYard();
 }
 
-// The ship icon asks first which navy to look at: the war's hulls or the
-// missile age's. The yard then walks that list alone.
-const ERA_ORDER = { wwii: WWII_ORDER, modern: MODERN_ORDER };
+// The ship icon asks first which navy to look at: the Great War's hulls, the
+// Second World War's or the missile age's. The yard then walks that list alone.
+const ERA_ORDER = { ww1: WWI_ORDER, wwii: WWII_ORDER, modern: MODERN_ORDER };
 const eraEl = document.getElementById('era-pick');
 let eraSide = 'ally';
 
@@ -805,7 +805,7 @@ function closeYard() {
 function openRefit(side, i) {
   const id = briefing.state[side === 'ally' ? 'allyFleet' : 'enemyFleet'][i];
   const order = PREMIUM_ORDER.includes(id) ? PREMIUM_ORDER
-    : MODERN_ORDER.includes(id) ? MODERN_ORDER : WWII_ORDER;
+    : MODERN_ORDER.includes(id) ? MODERN_ORDER : WWI_ORDER.includes(id) ? WWI_ORDER : WWII_ORDER;
   if (!order.includes(id) || !SHIP_CLASSES[id]?.planes?.group) return;
   audio.click();
   openYard(side, { order, at: id });

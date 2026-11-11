@@ -42,7 +42,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * before a battle is joined.
  */
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
-  buildFuso, buildMutsu, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
+  buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
@@ -70,6 +70,7 @@ const SCULPTED = {
   musashi: () => import('./musashi.js').then((m) => { buildMusashi = m.buildMusashi; }),
   fuso: () => import('./fuso.js').then((m) => { buildFuso = m.buildFuso; }),
   mutsu: () => import('./mutsu.js').then((m) => { buildMutsu = m.buildMutsu; }),
+  agincourt: () => import('./agincourt.js').then((m) => { buildAgincourt = m.buildAgincourt; }),
   kongo: () => import('./kongo.js').then((m) => { buildKongo = m.buildKongo; }),
   matsu: () => import('./matsu.js').then((m) => { buildMatsu = m.buildMatsu; }),
   yukikaze: () => import('./yukikaze.js').then((m) => { buildYukikaze = m.buildYukikaze; }),
@@ -949,6 +950,20 @@ function buildModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: [],
+    };
+  }
+  // And the Agincourt, the owner's model of her as she fought at Jutland:
+  // her seven turrets, her casemates and her submerged tubes.
+  if (cls.id === 'agincourt') {
+    const built = buildAgincourt();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
     };
   }
 

@@ -7814,6 +7814,217 @@ export const SHIP_CLASSES = {
     },
   },
 
+  agincourt: {
+    // HMS Agincourt, the only battleship ever built with seven turrets:
+    // fourteen 12-inch in seven twins, every one on her centreline -- Sunday,
+    // Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, as her crew
+    // named them -- twenty 6-inch in casemates, ten a side, ten 3-inch, and
+    // three submerged 21-inch tubes. Laid down at Elswick for Brazil as the
+    // Rio de Janeiro, sold on the stocks to the Ottoman Empire as the Sultan
+    // Osman I, and taken over for the Royal Navy in August 1914 the day before
+    // her Turkish crew was to sail her home; she fought at Jutland with the
+    // 1st Battle Squadron. Her full broadside, it was said, looked like a
+    // battlecruiser blowing up.
+    //
+    // She is drawn from the owner's model of her (see agincourt.js): "HMS
+    // Agincourt (1913)" by kriss50, under Creative Commons Attribution 4.0.
+    // The model leaves out her 6-inch; they are made for her. At her own
+    // length, 204.7 m, and floated at 8.2 m.
+    id: 'agincourt',
+    name: 'Agincourt',
+    fullName: 'HMS Agincourt',
+    className: 'Agincourt',
+    type: 'BB',
+    typeName: 'Dreadnought',
+    nation: 'gbr',
+    blurb: 'Seven turrets, fourteen twelve-inch guns -- more than any battleship ever carried -- on a hull built for Brazil and seized from the Ottoman Empire in 1914.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 25.5, 23.5], [0, -20.5, 23.5]], length: 204.7, beam: 27.1, draft: 8.2, superstructure: 1.4 },
+    hp: 52000,
+    // Twenty-two knots on her trials, on four shafts: a Grand Fleet
+    // battleship's speed, and no more.
+    maxSpeed: 22 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.34,
+    turnRate: 0.046,
+    rudderShift: 14,
+    speedLossInTurn: 0.17,
+    concealment: 15200,
+    fireDetectPenalty: 6900,
+    // No radar: she was paid off in 1919 and scrapped in 1922. What she sees
+    // she sees from her spotting tops.
+    radarRange: 0,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Nine inches of belt over her machinery and magazines, thinning to four
+    // at her ends, and an inch and a half of deck: she was built for a navy
+    // that wanted guns more than armour, and her designers gave it them.
+    armor: { belt: 229, deck: 38, citadel: 229, bow: 102, superstructure: 25 },
+    turrets: [
+      // Where the model has them: Sunday low on her forecastle and Monday
+      // superfiring over it; Tuesday and Wednesday amidships, back to back
+      // between her funnels; Thursday forward of her mainmast, and Friday
+      // superfiring over Saturday aft. Arcs and sectors measured off the
+      // model by build/survey-arcs.mjs (see layFloor in sim.js).
+      { id: 0, name: 'Sunday', x: 0, z: 61.359, angle: 0, arc: 2.54, guns: 2, my: 9.37,
+          lift: [[-1.32, -1.28, 0.018], [-1.29, -1.1, 0.07], [-1.11, -1.05, 0.018], [-1.06, -0.89, 0.07], [-0.9, -0.86, 0.018], [-0.73, -0.56, 0.009], [-0.57, -0.41, 0.035], [-0.42, -0.28, 0.018], [-0.29, -0.27, 0.027], [-0.28, -0.13, 0.044], [-0.14, 0.01, 0.018], [0, 0.03, 0.027], [0.02, 0.12, 0.035], [0.11, 0.26, 0.027], [0.25, 0.4, 0.018], [0.39, 0.48, 0.009], [0.47, 0.64, 0.018], [0.63, 0.75, 0], [0.74, 0.9, 0.018], [0.89, 1.06, 0.07], [1.05, 1.08, 0.018], [1.09, 1.11, 0.018], [1.1, 1.29, 0.07], [1.28, 1.32, 0.018], [2.34, 2.53, 0.027], [2.52, 2.56, 0.009]],
+          mask: [[-1.31, -1.26, 0.018], [-1.27, -1.12, 0.07], [-1.13, -1.1, 0.018], [-1.08, -1.03, 0.018], [-1.04, -0.91, 0.07], [-0.92, -0.88, 0.018], [-0.71, -0.54, 0.009], [-0.55, -0.42, 0.035], [-0.43, -0.27, 0.018], [-0.28, -0.25, 0.027], [-0.26, -0.14, 0.044], [-0.15, 0.03, 0.018], [0.02, 0.05, 0.027], [0.04, 0.1, 0.035], [0.09, 0.12, 0.018], [0.11, 0.24, 0.027], [0.23, 0.26, 0.018], [0.25, 0.31, 0.027], [0.3, 0.38, 0.018], [0.37, 0.48, 0.009], [0.47, 0.5, 0], [0.49, 0.62, 0.018], [0.61, 0.64, 0], [0.63, 0.66, -0.008], [0.65, 0.76, 0], [0.75, 0.92, 0.018], [0.91, 1.04, 0.07], [1.03, 1.06, 0.018], [1.1, 1.13, 0.018], [1.12, 1.27, 0.07], [1.26, 1.31, 0.018], [2.36, 2.51, 0.027], [2.5, 2.56, 0.009]] },
+      { id: 1, name: 'Monday', x: 0, z: 51.586, angle: 0, arc: 2.68, guns: 2, my: 12.43,
+          lift: [[-0.19, -0.16, -0.008], [-0.17, -0.14, 0], [-0.15, 0, 0.009], [-0.01, 0.03, 0], [0.16, 0.36, 0.009], [0.35, 0.4, 0], [0.41, 0.52, -0.008]],
+          mask: [[-2.7, -2.66, 0.044], [-0.17, -0.14, -0.008], [-0.15, -0.13, 0], [-0.14, -0.02, 0.009], [-0.03, 0.01, 0], [0.18, 0.35, 0.009], [0.34, 0.38, 0], [0.42, 0.5, -0.008]] },
+      { id: 2, name: 'Tuesday', x: 0, z: 10.086, angle: -0.34, arc: 2.17, guns: 2, my: 9.24,
+          lift: [[-2.53, -2.43, 0.027], [-2.44, -2.34, 0.035], [-2.21, -2.12, 0.088], [-2.13, -2.05, 0.105], [-2.06, -1.94, 0.123], [-1.95, -1.85, 0.14], [-1.86, -1.84, 0.07], [-1.85, -1.75, 0.14], [-1.76, -1.71, 0.07], [-1.72, -1.63, 0.175], [-1.64, -1.61, 0.123], [-1.62, -1.59, 0.105], [-1.6, -1.5, 0.123], [-1.51, -1.37, 0.14], [-1.38, -1.26, 0.088], [-1.27, -1.21, 0.07], [-1.22, -1.12, 0.14], [-1.13, -1.1, 0.07], [-1.11, -0.75, 0.027], [-0.76, -0.67, 0.035], [-0.68, -0.47, 0.027], [-0.31, -0.25, 0.009], [-0.26, -0.2, 0.018], [-0.21, -0.09, 0.044], [-0.1, -0.02, 0.018], [-0.03, 0.1, 0.044], [0.09, 0.12, 0.009], [0.47, 0.5, 0.018], [0.49, 0.78, 0.027], [0.77, 0.8, 0.035], [0.79, 0.89, 0.053], [0.88, 0.9, 0.044], [0.89, 0.99, 0.053], [0.98, 1.11, 0.027], [1.1, 1.13, 0.044], [1.12, 1.22, 0.175], [1.21, 1.24, 0.053], [1.23, 1.25, 0.035], [1.24, 1.27, 0.044], [1.26, 1.31, 0.053], [1.3, 1.34, 0.07], [1.33, 1.65, 0.175], [1.64, 1.71, 0.123], [1.7, 1.72, 0.044], [1.71, 1.76, 0.053], [1.75, 1.79, 0.07], [1.78, 1.85, 0.088]],
+          mask: [[-2.51, -2.45, 0.027], [-2.42, -2.36, 0.035], [-2.2, -2.1, 0.088], [-2.11, -2.03, 0.105], [-2.04, -1.92, 0.123], [-1.93, -1.87, 0.14], [-1.88, -1.82, 0.07], [-1.83, -1.77, 0.14], [-1.78, -1.7, 0.07], [-1.71, -1.64, 0.175], [-1.65, -1.63, 0.123], [-1.64, -1.57, 0.105], [-1.58, -1.49, 0.123], [-1.5, -1.38, 0.14], [-1.39, -1.28, 0.088], [-1.29, -1.19, 0.07], [-1.2, -1.14, 0.14], [-1.15, -1.12, 0.07], [-1.13, -1.1, 0.027], [-1.1, -0.74, 0.027], [-0.75, -0.68, 0.035], [-0.69, -0.49, 0.027], [-0.48, 0.48], [0.49, 0.52, 0.018], [0.51, 0.8, 0.027], [0.79, 0.82, 0.035], [0.81, 0.87, 0.053], [0.86, 0.89, 0.044], [0.88, 0.92, 0.027], [0.91, 0.97, 0.053], [0.96, 1.1, 0.027], [1.1, 1.13, 0.027], [1.12, 1.15, 0.044], [1.14, 1.2, 0.175], [1.19, 1.22, 0.053], [1.21, 1.27, 0.035], [1.26, 1.29, 0.044], [1.28, 1.32, 0.053], [1.31, 1.36, 0.07], [1.35, 1.64, 0.175], [1.63, 1.69, 0.123], [1.68, 1.74, 0.044], [1.73, 1.78, 0.053], [1.77, 1.81, 0.07], [1.8, 1.85, 0.088]] },
+      // Wednesday's arc is set by hand: the survey finds her blocked only dead
+      // ahead, by Tuesday, and clear on her port bow and beam, but puts her
+      // stops at the worst of the bearings her after funnel makes her lay up
+      // to clear, and would have her bear on one beam only.
+      { id: 3, name: 'Wednesday', x: 0.038, z: -4.671, angle: 3.14, arc: 2.6, guns: 2, my: 9.25,
+          lift: [[1.94, 2.02, 0.14], [2.01, 2.04, 0.044], [2.03, 2.07, 0.018], [2.06, 2.13, 0.027], [2.12, 2.25, 0.07], [2.24, 2.75, 0.027], [2.8, 2.84, 0.009], [2.83, 2.96, 0.053], [2.95, 2.98, 0.044], [2.97, 3, 0.027], [2.99, 3.09, 0.018], [3.08, -3.11, 0.07], [-3.12, -3.08, 0.053], [-3.09, -3.01, 0.044], [-3.02, -2.94, 0.018], [-2.95, -2.92, 0.053], [-2.93, -2.83, 0.07], [-2.84, -2.81, 0.044], [-2.82, -2.8, 0.009], [-2.81, -2.74, -0.008], [-2.75, -2.69, 0.018], [-2.7, -2.27, 0.027], [-2.28, -2.26, 0.044], [-2.27, -2.13, 0.07], [-2.14, -2.03, 0.027], [-1.95, -1.92, 0.035], [-1.93, -1.91, 0.053], [-1.92, -1.8, 0.07], [-0.8, -0.61, 0.035]],
+          mask: [[1.94, 2, 0.14], [1.99, 2.02, 0.044], [2.01, 2.06, 0], [2.05, 2.09, 0.018], [2.08, 2.14, 0.027], [2.13, 2.23, 0.07], [2.22, 2.68, 0.027], [2.67, -2.66], [-2.67, -2.26, 0.027], [-2.27, -2.24, 0.044], [-2.25, -2.15, 0.07], [-2.16, -2.05, 0.027], [-1.93, -1.91, 0.035], [-1.92, -1.89, 0.053], [-1.9, -1.82, 0.07], [-0.78, -0.72, 0.035], [-0.69, -0.63, 0.035]] },
+      { id: 4, name: 'Thursday', x: -0.038, z: -47.961, angle: 0, arc: 2.54, guns: 2, my: 7.3,
+          lift: [[-2.56, -2.5, -0.008], [-0.29, 0.31, -0.008]],
+          mask: [[-2.56, -2.52, -0.008], [-0.42, -0.39, 0], [-0.4, -0.35, 0.07], [-0.36, -0.34, 0.175], [-0.35, 0.36], [0.35, 0.38, 0.07], [0.37, 0.4, 0.044], [0.39, 0.42, 0]] },
+      { id: 5, name: 'Friday', x: 0.038, z: -57.453, angle: 2.49, arc: 2.33, guns: 2, my: 10.1,
+          lift: [[0.14, 0.19, 0.088], [0.18, 0.42, 0.105], [0.41, 0.55, 0.07], [0.54, 0.59, 0.053], [2.81, 2.86, 0.035], [2.85, 2.96, 0.044], [2.95, 3, 0.053], [2.99, -3.11, 0.07], [-3.12, -3.08, 0.044], [-3.09, -3.01, 0.053], [-3.02, -2.81, 0.07], [-2.82, -2.67, 0.044], [-2.68, -2.66, 0.035]],
+          mask: [[0.14, 0.21, 0.21], [0.2, 0.24, 0.175], [0.23, 0.28, 0.14], [0.27, 0.4, 0.105], [0.39, 0.54, 0.07], [0.53, 0.57, 0.053], [2.83, 2.88, 0.035], [2.87, 2.98, 0.044], [2.97, 3.02, 0.053], [3.01, -3.13, 0.07], [-3.14, -3.06, 0.044], [-3.07, -2.99, 0.053], [-3, -2.83, 0.07], [-2.84, -2.69, 0.044], [-2.7, -2.67, 0.035]] },
+      { id: 6, name: 'Saturday', x: 0, z: -68.71, angle: 3.13, arc: 2.57, guns: 2, my: 7.3,
+          lift: [[0.54, 0.62, 0], [-3.07, -2.97, -0.008], [-0.66, -0.56, -0.008]],
+          mask: [[0.54, 0.61, 0], [3.06, 3.12, -0.008], [-3.05, -2.99, -0.008], [-0.64, -0.56, -0.008]] },
+    ],
+    gun: {
+      name: '12"/45 BL Mk XIII', role: 'surface',
+      // Three below the horizontal to thirty up. Her turrets were built for
+      // thirteen and a half, for the ranges of 1913; in the fleet's
+      // ballistics that would not carry her shells seven kilometres, so she
+      // is given the thirty her contemporaries were refitted to.
+      elev: { min: -0.052, max: 0.524 },
+      // Pivot to muzzle on the model's turret.
+      reach: 12.69,
+      caliber: 305, reload: 32, traverse: 0.05, range: 17800, sigma: 1.5,
+      // The 850 lb shell: 823 m/s.
+      shells: shells(305, 9000, 4300, 400, 823, 0.18),
+    },
+    torpedoes: {
+      // Her three submerged 21-inch tubes: one either beam forward of her
+      // forward barbette, and one in her stern, each to a sluice door in her
+      // side three metres under the water.
+      mounts: [
+        { id: 0, x: -2.0, z: 44.0, angle: -Math.PI / 2, arc: 0.3, tubes: 1, my: -3.2 },
+        { id: 1, x: 2.0, z: 44.0, angle: Math.PI / 2, arc: 0.3, tubes: 1, my: -3.2 },
+        { id: 2, x: 0, z: -93.25, angle: Math.PI, arc: 0.3, tubes: 1, my: -2.6 },
+      ],
+      name: '21" Mk II torpedo', role: 'surface', caliber: 533,
+      tubeLabel: '21"',
+      reach: 6.25,
+      inHull: true,
+      traverse: 0.35,
+      reload: 150, damage: 12800, speed: 35 * KNOTS, range: 9500,
+      detection: 1300, arming: 400, spread: 0.06, floodChance: 0.34,
+      launch: {
+        eject: 9, stagger: 0, lanes: [0], lie: 3.1, muzzle: 6.25, wet: true, clear: 4.5,
+        fish: { len: 6.0, r: 0.267, kind: 'mk15' },
+      },
+    },
+    // Twenty 6-inch/50 singles, ten a side in her battery along her upper
+    // deck, each in a port of her side, from abreast her forward turrets to
+    // abreast her midships pair.
+    secondary: {
+      name: '6"/50 BL', role: 'surface',
+      elev: { min: -0.122, max: 0.262 },
+      reach: 6.4,
+      caliber: 152, reload: 7.5, traverse: 0.14, range: 11500, sigma: 1.5,
+      shells: shells(152, 3300, 2500, 150, 900, 0.12),
+      mounts: [
+        { x: -10.933, z: 43, angle: -1.29, arc: 1.53, rest: -1.57, guns: 1, my: 5.95,
+          mask: [[0.11, 0.19, 0.175], [0.18, 0.21, 0.21], [0.2, 0.22, 0.262], [0.21, 0.26, 0.35]] },
+        { x: 10.933, z: 43, angle: 1.29, arc: 1.53, rest: 1.57, guns: 1, my: 5.95,
+          mask: [[-0.26, -0.21, 0.35], [-0.22, -0.2, 0.262], [-0.21, -0.18, 0.21], [-0.19, -0.11, 0.175]] },
+        { x: -11.493, z: 36.5, angle: -1.46, arc: 1.49, rest: -1.57, guns: 1, my: 5.95,
+          lift: [[-2.96, -2.9, 0.14], [-0.01, 0.05, 0.14]],
+          mask: [[-2.96, -2.92, 0.14], [0, 0.05, 0.14]] },
+        { x: 11.493, z: 36.5, angle: 1.46, arc: 1.49, rest: 1.57, guns: 1, my: 5.95,
+          lift: [[-0.05, 0.01, 0.14], [2.9, 2.96, 0.14]],
+          mask: [[-0.05, 0, 0.14], [2.92, 2.96, 0.14]] },
+        { x: -12.336, z: 29.5, angle: -1.45, arc: 1.46, rest: -1.57, guns: 1, my: 5.95 },
+        { x: 12.336, z: 29.5, angle: 1.45, arc: 1.46, rest: 1.57, guns: 1, my: 5.95 },
+        { x: -12.777, z: 24, angle: -1.54, arc: 1.42, rest: -1.57, guns: 1, my: 5.95 },
+        { x: 12.771, z: 24, angle: 1.54, arc: 1.42, rest: 1.57, guns: 1, my: 5.95 },
+        { x: -13.235, z: 18, angle: -1.5, arc: 1.44, rest: -1.57, guns: 1, my: 5.95 },
+        { x: 13.215, z: 18, angle: 1.5, arc: 1.44, rest: 1.57, guns: 1, my: 5.95 },
+        { x: -13.348, z: 12.5, angle: -1.6, arc: 1.37, rest: -1.57, guns: 1, my: 5.95 },
+        { x: 13.348, z: 12.5, angle: 1.6, arc: 1.37, rest: 1.57, guns: 1, my: 5.95 },
+        { x: -13.631, z: 6.5, angle: -1.6, arc: 1.43, rest: -1.57, guns: 1, my: 5.95 },
+        { x: 13.679, z: 6.5, angle: 1.6, arc: 1.43, rest: 1.57, guns: 1, my: 5.95 },
+        { x: -13.478, z: 0.5, angle: -1.7, arc: 0.18, rest: -1.57, guns: 1, my: 5.95 },
+        { x: 13.479, z: 0.5, angle: 1.7, arc: 0.18, rest: 1.57, guns: 1, my: 5.95 },
+        { x: -13.649, z: -5.5, angle: -1.56, arc: 1.43, rest: -1.57, guns: 1, my: 5.95 },
+        { x: 13.649, z: -5.5, angle: 1.56, arc: 1.43, rest: 1.57, guns: 1, my: 5.95 },
+        { x: -13.719, z: -11, angle: -1.91, arc: 1.71, rest: -1.57, guns: 1, my: 5.95,
+          lift: [[2.64, 2.7, -0.008], [2.85, 2.89, 0], [2.88, 2.98, 0.044], [2.97, 3.02, 0]],
+          mask: [[2.64, 2.72], [2.71, 2.74, 0.105], [2.73, 2.79, 0.21], [2.78, 2.91, 0.175], [2.9, 2.93, 0.14], [2.92, 2.95, 0.123], [2.94, 2.96, 0.105], [2.95, 2.98, 0.07], [2.97, 3, 0.044], [2.99, 3.07, 0.018], [3.06, 3.1, 0.009], [3.09, 3.12, 0], [3.11, 3.14, -0.008]] },
+        { x: 13.719, z: -11, angle: 1.91, arc: 1.71, rest: 1.57, guns: 1, my: 5.95,
+          lift: [[-3.02, -2.97, 0], [-2.98, -2.88, 0.044], [-2.89, -2.85, 0], [-2.7, -2.64, -0.008]],
+          mask: [[-3.14, -3.11, -0.008], [-3.12, -3.09, 0], [-3.1, -3.06, 0.009], [-3.07, -2.99, 0.018], [-3, -2.97, 0.044], [-2.98, -2.95, 0.07], [-2.96, -2.94, 0.105], [-2.95, -2.92, 0.123], [-2.93, -2.9, 0.14], [-2.91, -2.78, 0.175], [-2.79, -2.73, 0.21], [-2.74, -2.71, 0.105], [-2.72, -2.64]] },
+      ],
+    },
+    aa: {
+      range: 5500, dps: 30,
+      guns: [
+        // Ten 3-inch, the model's own, on her superstructure: four abreast
+        // her fore funnel and six round her mainmast. Anti-torpedo-boat guns
+        // first, and by 1918 her only defence against aircraft.
+        { name: '3"/45', caliber: 76, role: 'dp', reload: 3.0, range: 5500, piece: 'aa3',
+          elev: { min: -0.17, max: 1.31 },
+          mounts: [
+            { x: -5.823, z: 32.412, angle: -2.32, arc: 1.55, rest: -0.7859, guns: 1, my: 11.19,
+          lift: [[2.39, 2.46, 0.35], [2.45, 2.47, 0.21], [2.46, 2.49, 0.123], [2.48, 2.51, 0.044], [2.5, 2.53, -0.026], [2.88, 2.91, 0.175], [2.9, -2.83, 0.262], [-2.84, -2.81, 0.21], [-2.82, -2.8, 0.175]],
+          mask: [[2.39, 2.42, 1.222], [2.41, 2.47], [2.46, 2.49, 1.222], [2.48, 2.61], [2.6, 2.68, 1.222], [2.67, 2.7, 0.35], [2.69, 2.81, 0.262], [2.8, 2.88, 0.21], [2.87, 3, 0.262], [2.99, 3.09, 0.35], [3.08, -2.9, 0.262], [-2.91, -2.88, 0.524], [-2.89, -2.83, 0.699], [-2.84, -2.81, 0.175]] },
+            { x: 5.823, z: 32.412, angle: 2.32, arc: 1.55, rest: 0.7861, guns: 1, my: 11.19,
+          lift: [[2.8, 2.82, 0.175], [2.81, 2.84, 0.21], [2.83, -2.9, 0.262], [-2.91, -2.88, 0.175], [-2.53, -2.5, -0.026], [-2.51, -2.48, 0.044], [-2.49, -2.46, 0.123], [-2.47, -2.45, 0.21], [-2.46, -2.39, 0.35]],
+          mask: [[2.81, 2.84, 0.175], [2.83, 2.89, 0.699], [2.88, 2.91, 0.524], [2.9, -3.08, 0.262], [-3.09, -2.99, 0.35], [-3, -2.87, 0.262], [-2.88, -2.8, 0.21], [-2.81, -2.69, 0.262], [-2.7, -2.67, 0.35], [-2.68, -2.6, 1.222], [-2.61, -2.48], [-2.49, -2.46, 1.222], [-2.47, -2.41], [-2.42, -2.39, 1.222]] },
+            { x: -5.893, z: 28.684, angle: -1.17, arc: 1, rest: -0.3241, guns: 1, my: 11.19,
+          lift: [[-0.24, -0.16, 0.35]],
+          mask: [[-0.26, -0.23, 0.611], [-0.24, -0.18, 0.96], [-0.19, -0.16, 0.524]] },
+            { x: 5.893, z: 28.684, angle: 1.17, arc: 1, rest: 0.3241, guns: 1, my: 11.19,
+          lift: [[0.16, 0.24, 0.35]],
+          mask: [[0.16, 0.19, 0.524], [0.18, 0.24, 0.96], [0.23, 0.26, 0.611]] },
+            { x: -5.905, z: -24.172, angle: -1.42, arc: 0.31, rest: -1.1792, guns: 1, my: 11.24,
+          lift: [[-1.76, -1.7, 0.437], [-1.71, -1.66, 0.35], [-1.67, -1.64, 0.262], [-1.65, -1.63, 0.175], [-1.64, -1.61, 0.123], [-1.62, -1.59, 0.088], [-1.6, -1.57, 0.027], [-1.58, -1.56, -0.008]],
+          mask: [[-1.76, -1.71, 0.437], [-1.72, -1.68, 0.35], [-1.69, -1.66, 0.262], [-1.67, -1.64, 0.175], [-1.65, -1.63, 0.123], [-1.64, -1.61, 0.088], [-1.62, -1.59, 0.027], [-1.6, -1.57, -0.008]] },
+            { x: 5.905, z: -24.172, angle: 1.42, arc: 0.31, rest: 1.1796, guns: 1, my: 11.21,
+          lift: [[1.56, 1.58, -0.008], [1.57, 1.6, 0.027], [1.59, 1.62, 0.088], [1.61, 1.64, 0.123], [1.63, 1.65, 0.175], [1.64, 1.67, 0.262], [1.66, 1.71, 0.35], [1.7, 1.76, 0.437]],
+          mask: [[1.57, 1.6, -0.008], [1.59, 1.62, 0.027], [1.61, 1.64, 0.088], [1.63, 1.65, 0.123], [1.64, 1.67, 0.175], [1.66, 1.69, 0.262], [1.68, 1.72, 0.35], [1.71, 1.76, 0.437]] },
+            { x: -5.141, z: -25.751, angle: -2.22, arc: 2.8, rest: -3.0298, guns: 1, my: 13.44,
+          lift: [[3.01, 3.03, -0.026], [3.02, -3.13, -0.008], [-3.14, -2.99, -0.026], [-1.13, -0.88, -0.026], [-0.89, -0.74, -0.008], [-0.75, -0.72, -0.026]],
+          mask: [[1.24, 1.31, 1.048], [1.3, 1.5, 0.044], [1.49, 1.62, 0.105], [1.61, 1.67, 0.088], [1.66, 1.71, 0.07], [1.7, 1.76, -0.026], [1.75, 1.85, 0.009], [1.84, 2.02, -0.008], [2.01, 2.07, 1.048], [2.06, 2.11, 0.786], [2.1, 2.14, 0.175], [2.13, 2.27, -0.008], [2.26, 2.32, 0.009], [2.31, 2.34, 0.07], [2.33, 2.35, 0.088], [2.34, 2.42, 0.105], [2.41, 2.44, 0.123], [2.43, 2.49, 0.175], [2.48, 2.51, 0.123], [2.5, 2.58, 0.088], [2.57, 2.67, 0.123], [2.66, 2.74, 0.105], [2.73, 2.79, -0.008], [2.78, 2.81, 0.009], [2.8, 2.86, 0.123], [2.85, 2.91, 0.027], [2.9, 2.95, 0.009], [2.94, 2.96, -0.008], [2.95, 3.05, -0.026], [3.04, 3.14, -0.008], [3.13, -3.01, -0.026], [-1.11, -0.86, -0.026], [-0.87, -0.75, -0.008], [-0.76, -0.35, -0.026], [-0.36, -0.11, -0.008], [-0.12, 0.05, 0.21], [0.04, 0.12, 0.437], [0.11, 0.22, 0.35], [0.21, 0.26, 0.105], [0.25, 0.35, 0.07], [0.35, 0.38, 0.027], [0.37, 0.57, 0.044], [0.56, 0.59, -0.026]] },
+            { x: 5.141, z: -25.749, angle: 2.22, arc: 2.8, rest: 3.0299, guns: 1, my: 13.44,
+          lift: [[0.72, 0.75, -0.026], [0.74, 0.89, -0.008], [0.88, 1.13, -0.026], [2.99, 3.14, -0.026], [3.13, -3.02, -0.008], [-3.03, -3.01, -0.026]],
+          mask: [[-0.59, -0.56, -0.026], [-0.57, -0.37, 0.044], [-0.38, -0.35, 0.027], [-0.35, -0.25, 0.07], [-0.26, -0.21, 0.105], [-0.22, -0.11, 0.35], [-0.12, -0.04, 0.437], [-0.05, 0.12, 0.21], [0.11, 0.36, -0.008], [0.35, 0.76, -0.026], [0.75, 0.87, -0.008], [0.86, 1.11, -0.026], [3.01, -3.13, -0.026], [-3.14, -3.04, -0.008], [-3.05, -2.95, -0.026], [-2.96, -2.94, -0.008], [-2.95, -2.9, 0.009], [-2.91, -2.85, 0.027], [-2.86, -2.8, 0.123], [-2.81, -2.78, 0.009], [-2.79, -2.73, -0.008], [-2.74, -2.66, 0.105], [-2.67, -2.57, 0.123], [-2.58, -2.5, 0.088], [-2.51, -2.48, 0.123], [-2.49, -2.43, 0.175], [-2.44, -2.41, 0.123], [-2.42, -2.34, 0.105], [-2.35, -2.33, 0.088], [-2.34, -2.31, 0.07], [-2.32, -2.26, 0.009], [-2.27, -2.13, -0.008], [-2.14, -2.1, 0.175], [-2.11, -2.06, 0.786], [-2.07, -2.01, 1.048], [-2.02, -1.84, -0.008], [-1.85, -1.75, 0.009], [-1.76, -1.7, -0.026], [-1.71, -1.66, 0.07], [-1.67, -1.61, 0.088], [-1.62, -1.49, 0.105], [-1.5, -1.3, 0.044], [-1.31, -1.24, 1.048]] },
+            { x: -3.83, z: -27.795, angle: -2.01, arc: 0.89, rest: -2.751, guns: 1, my: 11.24,
+          lift: [[-2.93, -2.71, 0.437], [-2.72, -2.67, 0.35], [-2.68, -2.64, 0.262]],
+          mask: [[-2.93, -2.73, 0.437], [-2.74, -2.69, 0.35], [-2.7, -2.66, 0.262]] },
+            { x: 3.83, z: -27.795, angle: 2.01, arc: 0.89, rest: 2.7504, guns: 1, my: 11.21,
+          lift: [[2.64, 2.68, 0.262], [2.67, 2.72, 0.35], [2.71, 2.93, 0.437]],
+          mask: [[2.66, 2.7, 0.262], [2.69, 2.74, 0.35], [2.73, 2.93, 0.437]] },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 30250,
+      aircraft: 0,
+      mainRounds: 1400,
+      secondary: { caliber: 152, label: '6"', barrels: 20, rounds: 3000 },
+      tertiary: [
+        { caliber: 76, label: '3"', barrels: 10, rounds: 3000 },
+      ],
+    },
+  },
+
   musashi: {
     // IJN Musashi, Yamato's sister and the second of the class: nine 46 cm/45
     // in three triples behind a 410 mm belt, and the only battleship of either
@@ -11130,17 +11341,21 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
-  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano'];
+  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
- * yard opens: the war's hulls, or the missile age's. A hull is modern if she
+ * yard opens: the Great War's hulls, the Second World War's, or the missile
+ * age's. A hull is modern if she
  * sails as she was after 1945 (Missouri as recommissioned in 1991, Leviathan, the
  * Ticonderoga, the Guangzhou, the Sovremenny and the Arleigh Burke); everything
  * else is WWII.
  */
 export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'burke', 'ticonderoga', 'leviathan', 'missouri']);
-export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id));
+// And the Great War's: the dreadnoughts that sailed as they were before 1919.
+export const WWI_SHIPS = new Set(['agincourt']);
+export const WWI_ORDER = SHIP_ORDER.filter((id) => WWI_SHIPS.has(id));
+export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id) && !WWI_SHIPS.has(id));
 export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));
 
 /**

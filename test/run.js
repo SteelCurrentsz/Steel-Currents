@@ -34,7 +34,7 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER, mortarFlight,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
-import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER } from '../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine } from '../shared/sim.js';
 import {
@@ -172,6 +172,8 @@ import { buildBurke } from '../client/js/render/burke.js';
 import { buildSovremenny } from '../client/js/render/sovremenny.js';
 import { buildMutsu } from '../client/js/render/mutsu.js';
 import { mutsuSurfaceY, MOUNT_SEATS as MUTSU_SEATS } from '../client/js/render/mutsuHull.js';
+import { buildAgincourt } from '../client/js/render/agincourt.js';
+import { agincourtSurfaceY, MOUNT_SEATS as AGINCOURT_SEATS } from '../client/js/render/agincourtHull.js';
 import { sovremennySurfaceY, MOUNT_SEATS as SOV_SEATS } from '../client/js/render/sovremennyHull.js';
 import { burkeSurfaceY, MOUNT_SEATS as BURKE_SEATS } from '../client/js/render/burkeHull.js';
 import {
@@ -3795,6 +3797,84 @@ check('the Credits screen credits the model the Mutsu is drawn from', () => {
   const screen = html.slice(html.indexOf('id="screen-credits"'));
   assert.ok(screen.includes('Japanese Battleship Mutsu'), 'the model is not credited');
   assert.ok(screen.includes('https://skfb.ly/ptQvY') && screen.includes('kriss50'), 'the credit is not as its licence asks');
+});
+
+check('HMS Agincourt is in a yard of her own, the Great War\'s, armed with seven twin 12-inch', () => {
+  assert.deepEqual(WWI_ORDER, ['agincourt'], 'the Great War yard is not the Agincourt alone');
+  assert.ok(!WWII_ORDER.includes('agincourt'), 'she is in the Second World War yard');
+  assert.ok(!MODERN_ORDER.includes('agincourt'), 'she is in the Modern yard');
+  // And the ship icon offers the Great War first, left of the Second.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const eras = [...html.matchAll(/data-era="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(eras, ['ww1', 'wwii', 'modern'], `the eras on offer are ${eras}`);
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/ww1: WWI_ORDER/.test(main), 'the WWI button opens no yard');
+  const cls = SHIP_CLASSES.agincourt;
+  assert.equal(cls.fullName, 'HMS Agincourt');
+  assert.equal(cls.type, 'BB');
+  assert.equal(cls.nation, 'gbr');
+  // Fourteen 12-inch in seven twins, every one on her centreline.
+  assert.equal(cls.turrets.length, 7);
+  assert.ok(cls.turrets.every((t) => t.guns === 2 && Math.abs(t.x) < 0.1), 'a turret of hers is not a twin on her centreline');
+  assert.equal(cls.gun.caliber, 305);
+  // Twenty 6-inch, ten a side; ten 3-inch; three 21-inch tubes.
+  assert.equal(cls.secondary.caliber, 152);
+  assert.equal(cls.secondary.mounts.length, 20);
+  assert.equal(cls.secondary.mounts.filter((m) => m.x < 0).length, 10, 'she has not ten 6-inch a side');
+  assert.equal(cls.aa.guns.length, 1);
+  assert.equal(cls.aa.guns[0].caliber, 76);
+  assert.equal(cls.aa.guns[0].mounts.length, 10);
+  assert.equal(cls.torpedoes.caliber, 533);
+  assert.equal(cls.torpedoes.mounts.reduce((n, m) => n + m.tubes, 0), 3);
+  const built = buildAgincourt();
+  assert.equal(built.turrets.length, 7);
+  assert.equal(built.secMounts.length, 20);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.torpMounts.length, 3);
+  assert.ok(Math.abs(built.length - 204.7) < 0.01, `she is ${built.length} m long`);
+  // Every mounting of hers stands on her, not in the air.
+  for (const [kind, list] of Object.entries(AGINCOURT_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, agincourtSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check('every gun on the Agincourt trains inside its stops and fires only where her fire clears her', () => {
+  const cls = SHIP_CLASSES.agincourt;
+  const far = solveBallistic(cls.gun, 12000, 12).elev;
+  const fires = (t, b, el) => Math.abs(angleDelta(t.angle, b)) <= t.arc && layFloor(t.mask, b) <= el;
+  // All seven bear on either beam at a battle range: the whole of her
+  // broadside. (Tuesday, between her funnels, has to lay up over the boats
+  // stowed beside her to fire on the beam, and so does not at close range.)
+  for (const t of cls.turrets) {
+    for (const b of [Math.PI / 2, -Math.PI / 2]) {
+      assert.ok(fires(t, b, far), `${t.name} cannot fire on her ${b > 0 ? 'port' : 'starboard'} beam`);
+    }
+  }
+  // Monday, superfiring forward, does not fire dead astern through her
+  // bridge; Friday, superfiring aft, not dead ahead through her mainmast.
+  const by = Object.fromEntries(cls.turrets.map((t) => [t.name, t]));
+  assert.ok(!fires(by.Monday, Math.PI, cls.gun.elev.max), 'Monday fires dead astern through her');
+  assert.ok(!fires(by.Friday, 0, cls.gun.elev.max), 'Friday fires dead ahead through her');
+  // A casemate gun fires out of its own side and never across her.
+  for (const m of cls.secondary.mounts) {
+    assert.ok(Math.sign(m.angle) === Math.sign(m.x) && m.arc < Math.PI / 2 + 0.2,
+      `the 6-inch at ${m.x}, ${m.z} trains across her deck`);
+  }
+  surveyedArcsHold('agincourt');
+});
+
+check('the Credits screen credits the model the Agincourt is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('HMS Agincourt (1913)'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/ptuBZ') && screen.includes('kriss50'), 'the credit is not as its licence asks');
+  assert.ok(screen.includes('http://creativecommons.org/licenses/by/4.0/'), 'the licence is not linked');
 });
 
 check("the Sovremenny's Sunburns go forward out of their canisters, at ships", () => {
@@ -13508,8 +13588,15 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
       assert.ok(aaBearing(cls, ship, 0, R, 400).barrels >= 8,
         `${cls.id} cannot shoot at an aeroplane high over her bow`);
     }
+    //
+    // And the Agincourt, a dreadnought of 1914 that was never given an
+    // anti-aircraft battery of her own: her ten 3-inch are anti-torpedo-boat
+    // guns, abreast her bridge and round her mainmast, and every one of them
+    // is masked from the wave tops dead ahead by her bridge and her forward
+    // turrets. She fights an aeroplane on the beam.
+    const noBow = blindAhead || cls.id === 'agincourt';
     assert.ok(only ? (ahead.barrels > 0 || beam.barrels > 0)
-      : ((ahead.barrels > 0 || blindAhead) && beam.barrels > 0),
+      : ((ahead.barrels > 0 || noBow) && beam.barrels > 0),
       `${cls.id} cannot shoot at an aeroplane at all`);
     assert.ok(aaBarrels(cls) === aaBattery(cls).reduce((n, m) => n + m.guns, 0));
   }
@@ -19873,7 +19960,7 @@ check('every deckhouse in the fleet has sides and a roof', () => {
   // Rays are dropped on her the length of her superstructure and the two
   // answers -- as the renderer sees her, and with both faces of everything
   // turned on -- have to agree.
-  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'mutsu', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'spee',
+  for (const id of ['fletcher', 'cleveland', 'hipper', 'takao', 'mutsu', 'agincourt', 'hood', 'kgv', 'rodney', 'baltimore', 'massachusetts', 'spee',
     'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
     'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
     const built = buildShip(id);
