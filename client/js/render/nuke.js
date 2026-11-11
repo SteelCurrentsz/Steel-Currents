@@ -10,7 +10,7 @@
 //
 //   On the ground: the fireball climbing into the cap of the mushroom, the
 //   cap rolling over itself the way a vortex ring does and burning inside for
-//   the best part of a minute, the stem drawn up into it with fire still in
+//   well over a minute and hanging for minutes after, the stem drawn up into it with fire still in
 //   it, the white collar of condensation round the stem, and the dust of the
 //   base surge going out along the ground.
 //
@@ -410,6 +410,13 @@ const BILLOWS = 760;
 const MISTS = 420;
 
 /**
+ * How long the mushroom of a burst on the ground hangs over it, seconds: far
+ * longer than Baker's column, which falls back into the sea. Drawing only --
+ * the sim's clock for the burst (NUKE.life) is not this.
+ */
+const MUSHROOM_LIFE = 330;
+
+/**
  * The billows, as one instanced batch: solid (see BILLOW_FRAG), or `soft` --
  * the mist of the base surge, which a ship sails into and is lost in, and
  * which has to be a fog to be inside rather than a wall of cardboard.
@@ -681,7 +688,7 @@ export class Nukes {
       // the wave in the sea all keep the same time.
       n.t = n.t0 != null && Number.isFinite(clock) ? Math.max(0, clock - n.t0) : n.t + dt;
       const t = n.t;
-      if (t > NUKE.life) {
+      if (t > (n.land ? MUSHROOM_LIFE : NUKE.life)) {
         this.drop(n);
         this.live.splice(i, 1);
         continue;
@@ -754,8 +761,8 @@ export class Nukes {
       // Up off the ground as it cools, until it is the heart of the cap.
       n.capY = n.y + NUKE.fireball * 0.8 + 3200 * (1 - Math.exp(-rise / 26));
       y = Math.max(n.y + R * 0.6, t < 1.5 ? n.y + R * 0.6 : n.capY);
-      cool = Math.min(1, t / 14);
-      opacity = Math.max(0, 1 - Math.max(0, t - 8) / 14);
+      cool = Math.min(1, t / 22);
+      opacity = Math.max(0, 1 - Math.max(0, t - 12) / 24);
     } else {
       // In the sea it is swallowed by the water it throws up in a second or
       // two: what is left is the column.
@@ -771,7 +778,7 @@ export class Nukes {
     u.uOpacity.value = opacity;
     n.ball.visible = opacity > 0.01;
     n.R = R;
-    return (1 - cool * 0.7) * (n.land ? Math.max(0, 1 - t / 45) : Math.max(0, 1 - t / 4));
+    return (1 - cool * 0.7) * (n.land ? Math.max(0, 1 - t / 80) : Math.max(0, 1 - t / 4));
   }
 
   /** The smooth white condensation cloud, out behind the shock and gone. */
@@ -893,9 +900,9 @@ export class Nukes {
     const capY = n.capY ?? n.y + NUKE.fireball;
     const R = n.R || NUKE.fireball;
     // How long the fire shows in it: bright at first, and still glowing in
-    // its heart for the best part of a minute.
-    const burn = Math.max(0, 1 - age / 50);
-    const thin = smooth(90, NUKE.life - 5, t);
+    // its heart for well over a minute, and hanging there for minutes more.
+    const burn = Math.max(0, 1 - age / 85);
+    const thin = smooth(200, MUSHROOM_LIFE - 5, t);
     // The cap: a vortex ring, turning over on itself and widening as it climbs.
     const Rt = R * 0.8 + 950 * (1 - Math.exp(-age / 28));
     const tube = Rt * 0.55;
@@ -940,9 +947,9 @@ export class Nukes {
     }
     // The ground under it, alight: everything that will burn for a mile
     // round the foot of the stem, low and red under the smoke.
-    if (age < 70) {
+    if (age < 120) {
       const Rg = 300 + 1300 * (1 - Math.exp(-age / 3));
-      const blaze = (1 - smooth(25, 70, age)) * Math.min(1, age * 2);
+      const blaze = (1 - smooth(40, 120, age)) * Math.min(1, age * 2);
       for (let i = 0; i < 50; i++, k++) {
         const a = hash(i + 800, 0) * Math.PI * 2;
         const rr = Rg * Math.sqrt(hash(i + 800, 1));
@@ -952,11 +959,11 @@ export class Nukes {
       }
     }
     // The collar: a ring of white condensation that forms round the stem as
-    // the cap goes up through damp air, and is gone in half a minute.
-    if (age > 3 && age < 34) {
+    // the cap goes up through damp air, and is gone inside a minute.
+    if (age > 3 && age < 60) {
       const cy = n.y + (capY - n.y) * 0.42;
       const cr = sr * 2.2 + 120 + age * 12;
-      const fade = 1 - smooth(18, 34, age);
+      const fade = 1 - smooth(30, 60, age);
       const form = smooth(3, 6, age);
       for (let i = 0; i < 80; i++, k++) {
         const a = (i / 80) * Math.PI * 2 + hash(i, 1) * 0.08;
@@ -989,7 +996,7 @@ export class Nukes {
       const r = (70 + 80 * hash(i + 700, 2)) * Math.min(1, 0.4 + age / 12) * (1.25 - 0.45 * u);
       const y = n.y + r * 0.45 + 110 * hash(i + 700, 1) * (1 - u) * Math.min(1, age / 8);
       putBillow(m, Math.cos(a) * rr, y, Math.sin(a) * rr, r * 1.2, 0.6 + 0.3 * hash(i + 700, 3), 0,
-        Math.max(thin, smooth(60, 120, t)), k);
+        Math.max(thin, smooth(120, 260, t)), k);
     }
   }
 
