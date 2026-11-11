@@ -11864,11 +11864,13 @@ export const SHIP_CLASSES = {
     ramp: { hinge: 4.85 },
     // Her two Brownings, on their pintles in the gun cockpits aft, a side
     // each, where the model has them (see build/prepare-higgins-hull.mjs),
-    // resting on the bearing the model trains them to. Each fights forward
-    // over her well and out to its own beam and round astern on its own side.
+    // resting on the bearing the model trains them to. Each fights from just
+    // off her bow, out over her well, to its own beam and round astern on its
+    // own side. Dead ahead, low down, neither bears: her ramp stands up across
+    // her bow higher than their muzzles.
     turrets: [
-      { id: 0, name: 'Starboard gun', x: 0.98, z: -3.12, angle: 0.5, arc: 2.5, rest: 0.522, guns: 1, my: 2.55, open: true },
-      { id: 1, name: 'Port gun', x: -1.09, z: -3.23, angle: -0.5, arc: 2.5, rest: -1.049, guns: 1, my: 2.55, open: true },
+      { id: 0, name: 'Starboard gun', x: 0.98, z: -3.12, angle: 1.6, arc: 1.45, rest: 0.522, guns: 1, my: 2.55, open: true },
+      { id: 1, name: 'Port gun', x: -1.09, z: -3.23, angle: -1.6, arc: 1.45, rest: -1.049, guns: 1, my: 2.55, open: true },
     ],
     gun: {
       name: 'M1919 Browning Machine Gun', role: 'dp',
