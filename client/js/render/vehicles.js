@@ -149,6 +149,10 @@ export function buildLcm() {
     return f;
   };
   g.userData.rampNode = hinge;
+  // Her keel is drawn a metre up, at the waterline the battle floats every
+  // hull to (see DRAFT in build/prepare-vehicles.mjs); the shipyard floats a
+  // hull at y = 0 and lets her down by this much.
+  g.userData.floatDown = 1.0;
   return {
     group: g, turrets: [], length: cls.hull.length, beam: cls.hull.beam,
     deckY: cls.cargo.vehicles.deck,

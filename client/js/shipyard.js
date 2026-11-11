@@ -285,7 +285,11 @@ export class ShipyardScene {
     }
     // Another few metres of her track, and the water she is now in.
     this.stepWake(dt);
-    const att = this.ocean.attitude(0, 0, this.way, hull.length, hull.beam);
+    // Under her, where she is: at z = way, heading up the z axis. (It was
+    // asked of the water at the origin, on a heading of `way` radians, which
+    // was nowhere near her -- a big hull rode it out, a small boat rode a
+    // metre clear of the swell she was in, or under it.)
+    const att = this.ocean.attitude(0, this.way, 0, hull.length, hull.beam);
     const m = this.sea.step(att, dt);
     g.rotation.order = 'YXZ';
     g.rotation.z = m.roll;
