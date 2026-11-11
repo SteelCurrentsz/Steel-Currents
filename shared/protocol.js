@@ -629,7 +629,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   // where each one is trained and whether it is still in action.
   const batteries = state.batteries.map((b) => ({
     i: b.id, b: b.batteryId, tm: b.team,
-    x: Math.round(b.x), z: Math.round(b.z), y: r1(b.y),
+    // A tank to the centimetre: it moves, and a metre's rounding fifteen
+    // times a second is a hull that judders across the ground.
+    x: b.tank ? r2(b.x) : Math.round(b.x), z: b.tank ? r2(b.z) : Math.round(b.z), y: b.tank ? r2(b.y) : r1(b.y),
     h: r3(b.heading), a: r3(b.angle),
     hp: Math.round(b.hp), mx: b.maxHp,
     al: b.alive ? 1 : 0,
@@ -650,6 +652,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     td: b.tank && b.team === team && b.tk ? tankReport(b) : undefined,
     ab: b.aboard || undefined,
     sl: b.aboard ? b.slot : undefined,
+    // How far forward of its place in her well it has driven, going out
+    // over her ramp.
+    ox: b.aboard && b.out ? r2(b.out) : undefined,
     // And what only its own side is told: the mortar's pin -- where it is,
     // whose plot put it there ('h' a player's; 's', 'm' or 't' its crew's,
     // for a ship stopped, steaming straight or turning) and on which ship --

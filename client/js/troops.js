@@ -17,6 +17,8 @@ import { InfantryView } from './render/infantry.js';
 import { audio } from './audio.js';
 import { wrapAngle, angleDelta, clamp } from '../../shared/math.js';
 import { GARAND } from '../../shared/infantry.js';
+import { SHIP_CLASSES } from '../../shared/ships.js';
+import { BATTERIES } from '../../shared/batteries.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -26,6 +28,54 @@ function row(s) {
     i: s[0], tm: s[1], x: s[2], z: s[3], y: s[4], h: s[5], yaw: s[6], pitch: s[7], f: s[8],
     sp: s[9], hp: s[10], pc: s[11], clip: s[12], clips: s[13], sq: s[14],
   };
+}
+
+/** Room each man takes standing in a landing craft's well, in metres. */
+const WELL_PITCH = 0.62;
+const wellSpots = new Map();
+
+/**
+ * Where the men stand in a landing craft's well, in her own frame: rows
+ * across the open floor of it, those nearest the ramp first -- the first
+ * out -- and none where one of her tanks is standing.
+ */
+export function wellPlaces(cls, tanks) {
+  const key = `${cls.id}:${tanks.join(',')}`;
+  if (wellSpots.has(key)) return wellSpots.get(key);
+  const well = cls.cargo.well;
+  const slots = cls.cargo.vehicles?.slots || [];
+  // Packed in closer, shoulder to shoulder, if that is what it takes to get
+  // all she carries in.
+  let out = [];
+  for (let pitch = WELL_PITCH; pitch >= 0.42; pitch -= 0.03) {
+    out = placeAt(well, slots, tanks, pitch);
+    if (out.length >= cls.cargo.troops) break;
+  }
+  out.sort((a, b) => b.z - a.z);
+  wellSpots.set(key, out);
+  return out;
+}
+
+function placeAt(well, slots, tanks, pitch) {
+  const out = [];
+  for (const [x0, x1, z0, z1] of well.areas) {
+    const nx = Math.max(1, Math.floor((x1 - x0) / pitch));
+    const nz = Math.max(1, Math.floor((z1 - z0) / pitch));
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) {
+        // A little out of line, as men stand.
+        const x = x0 + (i + 0.5) * (x1 - x0) / nx + (((i * 7 + j * 13) % 5) - 2) * 0.03;
+        const z = z0 + (j + 0.5) * (z1 - z0) / nz + (((i * 11 + j * 5) % 5) - 2) * 0.03;
+        // Clear of a tank's hull by a hand's breadth.
+        const inTank = tanks.some((k) => {
+          const sl = slots[k];
+          return sl && Math.abs(x - sl[0]) < 1.55 && Math.abs(z - sl[1]) < 3.2;
+        });
+        if (!inTank) out.push({ x, z });
+      }
+    }
+  }
+  return out;
 }
 
 const ORDER_NAME = {
@@ -51,7 +101,8 @@ const Troops = {
   /** The men off the snapshot pair, interpolated, and drawn. */
   syncTroops(a, b, t, dt) {
     const rows = a.sd;
-    if (!rows && !this.infantry) return;
+    const afloat = (a.ships || []).some((s) => s.tr > 0);
+    if (!rows && !afloat && !this.infantry) return;
     if (!this.infantry) this.infantry = new InfantryView(this.scene.scene, this.scene.world || this.world);
     const next = new Map();
     for (const s of (b && b.sd) || []) next.set(s[0], s);
@@ -73,7 +124,46 @@ const Troops = {
     this.troopsNow = list;
     this.infantry.barracks(a.bk, this.team);
     const fp = !!(this.troop && this.troop.fp);
-    this.infantry.sync(list, dt, this.scene.camera, this.team, this.troop ? this.troop.id : 0, fp);
+    // And the men still in the landing craft, standing in her well and
+    // going in with her: drawn, not yet anybody's to pick or to take.
+    const drawn = afloat ? list.concat(this.wellMen(a)) : list;
+    this.infantry.sync(drawn, dt, this.scene.camera, this.team, this.troop ? this.troop.id : 0, fp);
+  },
+
+  /** The soldiers embarked in each landing craft, as rows to draw where they stand in her well. */
+  wellMen(a) {
+    const out = [];
+    const v = new THREE.Vector3();
+    for (const s of a.ships || []) {
+      if (!(s.tr > 0)) continue;
+      const view = this.scene.shipViews.get(s.i);
+      const cls = SHIP_CLASSES[view?.group?.userData?.classId || s.c || ''] || null;
+      const well = cls?.cargo?.well;
+      if (!view || !well) continue;
+      const tanks = [];
+      for (const g of a.batteries || []) {
+        if (g.ab === s.i && BATTERIES[g.b]?.tank) tanks.push(g.sl || 0);
+      }
+      tanks.sort();
+      const spots = wellPlaces(cls, tanks);
+      const n = Math.min(s.tr, spots.length);
+      view.group.updateMatrixWorld(true);
+      const e = view.group.matrixWorld.elements;
+      const h = Math.atan2(e[8], e[10]);
+      // Those nearest the ramp go out first, so the ones left are the ones furthest aft.
+      const most = this.wellMost || (this.wellMost = new Map());
+      const had = Math.min(spots.length, Math.max(most.get(s.i) || 0, s.tr));
+      most.set(s.i, had);
+      const skip = Math.max(0, had - n);
+      for (let k = 0; k < n; k++) {
+        const p = spots[Math.min(spots.length - 1, k + skip)];
+        v.set(p.x, well.deck, p.z).applyMatrix4(view.group.matrixWorld);
+        // Some crouched down behind the side, the most of them standing.
+        const crouch = (k * 37) % 9 === 0 ? 1 : 0;
+        out.push({ i: -(s.i * 1000 + k + 1), tm: s.tm, x: v.x, y: v.y, z: v.z, h, yaw: h, pitch: 0, f: crouch, sp: 0 });
+      }
+    }
+    return out;
   },
 
   /** A soldier's event: a shot, a wound, a death, and the rest. */
@@ -169,8 +259,9 @@ const Troops = {
     if (!p) return;
     if (this.commandBat) this.leaveBattery(true);
     this.troop = {
-      id: p.i, yaw: p.yaw, pitch: 0, cr: !!(p.f & 1), spLock: false, jp: 0, fp: false,
-      sent: null, sentAt: 0, since: performance.now(), lastShot: 0,
+      id: p.i, yaw: p.yaw, pitch: 0, cr: !!(p.f & 1), spLock: false, jp: 0,
+      // Through his own eyes to begin with; V puts the camera over his shoulder.
+      sent: null, sentAt: 0, since: performance.now(), lastShot: 0, fp: true,
     };
     this.hud.commandSol = p.i;
     this.net.send({ t: 'tsol', i: p.i });
@@ -179,7 +270,7 @@ const Troops = {
     const el = document.getElementById('sol-sight');
     if (el) el.hidden = !!this.mapBig;
     this.troopButtons();
-    this.hud.alert('Stick or WASD to move · drag to aim · F or FIRE to shoot · C crouch · Shift sprint · Space jump · R reload · V first person');
+    this.hud.alert('Stick or WASD to move · drag to aim · F or FIRE to shoot · C crouch · Shift sprint · Space jump · R reload · V over the shoulder');
     audio.click();
   },
 

@@ -33,7 +33,7 @@ import { stepLock, nextLock, lockLabel, rackLabel, hasRack } from './lockon.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE,
+  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE, RAMP_RUN,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -4931,10 +4931,36 @@ export class Battle {
     if (craft && slot) {
       const v = cls.cargo.vehicles;
       craft.group.updateMatrixWorld(true);
-      const p = new THREE.Vector3(slot[0], v.deck, slot[1]);
+      // Driving out: along her well, then down her ramp to the sand.
+      const out = prev && prev.ab === g.ab ? lerp(g.ox || 0, prev.ox || 0, t) : (g.ox || 0);
+      const lz = slot[1] + out;
+      const hinge = cls.ramp?.hinge ?? cls.hull.length * 0.5;
+      const p = new THREE.Vector3(slot[0], v.deck, Math.min(lz, hinge));
       craft.group.localToWorld(p);
-      grp.position.copy(p);
       craft.group.getWorldQuaternion(grp.quaternion);
+      if (lz > hinge) {
+        // Down the ramp, from her deck at the hinge to the ground at the
+        // foot of it, nose down; then on along the sand, level.
+        const w = this.scene.world;
+        const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(grp.quaternion);
+        fwd.y = 0;
+        fwd.normalize();
+        const run = lz - hinge;
+        const top = p.y;
+        p.x += fwd.x * run;
+        p.z += fwd.z * run;
+        const footX = p.x - fwd.x * Math.max(0, run - RAMP_RUN);
+        const footZ = p.z - fwd.z * Math.max(0, run - RAMP_RUN);
+        const foot = w ? drawnGround(w, footX, footZ) : top;
+        if (run < RAMP_RUN) {
+          p.y = top + (foot - top) * (run / RAMP_RUN);
+          grp.rotation.set(Math.atan2(top - foot, RAMP_RUN) * Math.min(1, run * 0.6), g.h, 0, 'YXZ');
+        } else {
+          p.y = w ? drawnGround(w, p.x, p.z) : foot;
+          grp.rotation.set(0, g.h, 0, 'YXZ');
+        }
+      }
+      grp.position.copy(p);
       view.ride = null;
     } else {
       const x = prev && !prev.ab ? lerp(g.x, prev.x, t) : g.x;
@@ -4956,7 +4982,9 @@ export class Battle {
         const W = (T?.width || 2.6) * 0.45;
         const sh = Math.sin(h);
         const ch = Math.cos(h);
-        const at = (px, pz) => Math.max(groundHeight(w, px, pz), drawnGround(w, px, pz));
+        // The ground as drawn: on a hillside the true field can stand metres
+        // clear of the coarse mesh, and a tank sat on that floats.
+        const at = (px, pz) => drawnGround(w, px, pz);
         const front = at(x + sh * L, z + ch * L);
         const back = at(x - sh * L, z - ch * L);
         // Screen right is a falling heading in this world.
@@ -4964,7 +4992,11 @@ export class Battle {
         const left = at(x + ch * W, z - sh * W);
         pitch = Math.atan2(front - back, 2 * L);
         roll = Math.atan2(left - right, 2 * W);
-        gy = Math.max(y, drawnGround(w, x, z), (front + back + left + right) / 4);
+        // What the simulation has it riding on above the ground itself --
+        // a kerb, a heap of rubble in a town -- it rides on here too.
+        const exact = Math.max(groundHeight(w, x, z), Math.min(0, drawnGround(w, x, z)));
+        const rise = clamp(y - exact, 0, 3);
+        gy = Math.max(drawnGround(w, x, z), (front + back + left + right) / 4) + rise;
       }
       // Eased into the new attitude over a tenth of a second or so, the way a
       // hull on its suspension settles, rather than snapping to every change

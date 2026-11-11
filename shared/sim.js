@@ -4808,6 +4808,7 @@ export function embarkTank(state, bat, ship, slot = 0) {
   if (state.batteries.some((o) => o !== bat && o.alive && o.aboard === ship.id && o.slot === slot)) return false;
   bat.aboard = ship.id;
   bat.slot = slot;
+  bat.out = 0;
   bat.speed = 0;
   bat.roll = 0;
   rideCraft(bat, ship, cls);
@@ -4842,32 +4843,61 @@ export function driveTank(state, bat, th, st) {
   return true;
 }
 
+/** How far forward of her hinge a landing craft's ramp reaches when it is down on the sand, in metres. */
+export const RAMP_RUN = 4.6;
+
 /**
- * Out over the ramp of the craft she is in, if it is down: onto the point
- * just past the end of it, if that is ground the tank can stand in.
+ * Where a tank driving out of a landing craft is, `out` metres forward of
+ * its place in her well: on her well deck, then down her ramp to the sand at
+ * the foot of it, then on the beach. Its height is its hull's on the deck, the
+ * ramp or the ground under it.
  */
-function leaveCraft(state, bat, b, ship, cls) {
-  if (!ship.rampDown) return false;
-  const half = cls.hull.length * 0.5;
-  const lx = (cls.cargo.vehicles.slots[bat.slot] || [0, 0])[0];
-  for (const past of [4, 9, 15]) {
-    const w = localToWorld(lx, half + past, ship.heading);
-    const x = ship.x + w.x;
-    const z = ship.z + w.z;
-    const g = tankGround(state.world, x, z);
-    if (g < -b.tank.wade) continue;
-    bat.aboard = 0;
-    bat.x = x;
-    bat.z = z;
-    bat.y = g;
-    bat.heading = ship.heading;
-    bat.speed = b.tank.speed * 0.3;
-    // Left to its own crew, it goes on up the beach to get off it.
-    bat.roll = bat.ctl ? 0 : TANK_LANDING_RUN;
-    state.events.push({ e: 'tankAshore', id: bat.id, ship: ship.id, x: r(x), z: r(z) });
-    return true;
+export function rampSpot(world, ship, cls, slot, out) {
+  const v = cls.cargo.vehicles;
+  const [lx, lz0] = v.slots[slot] || v.slots[0];
+  const lz = lz0 + out;
+  const w = localToWorld(lx, lz, ship.heading);
+  const x = ship.x + w.x;
+  const z = ship.z + w.z;
+  const hinge = cls.ramp?.hinge ?? cls.hull.length * 0.5;
+  const deck = v.deck - 1.0;
+  if (lz <= hinge) return { x, z, y: deck, lz, off: false };
+  const foot = localToWorld(lx, hinge + RAMP_RUN, ship.heading);
+  const footG = tankGround(world, ship.x + foot.x, ship.z + foot.z);
+  if (lz <= hinge + RAMP_RUN) {
+    const f = (lz - hinge) / RAMP_RUN;
+    return { x, z, y: deck + (footG - deck) * f, lz, off: false };
   }
-  return false;
+  return { x, z, y: tankGround(world, x, z), lz, off: true };
+}
+
+/**
+ * Driving out over the ramp of the craft it is in: along her well, down the
+ * ramp and onto the sand, at a crawl, rather than being put down on the beach
+ * all at once. Ashore once the whole of it is past the foot of her ramp on
+ * ground it can stand in; true when it is.
+ */
+function leaveCraft(state, bat, b, ship, cls, dt) {
+  if (!ship.rampDown) return false;
+  const T = b.tank;
+  bat.speed = approach(bat.speed || 0, T.speed * 0.3, T.accel * dt);
+  bat.out = (bat.out || 0) + bat.speed * dt;
+  const at = rampSpot(state.world, ship, cls, bat.slot, bat.out);
+  bat.x = at.x;
+  bat.z = at.z;
+  bat.y = at.y;
+  bat.heading = ship.heading;
+  if (!at.off) return false;
+  // Clear of the ramp by half its own length: on the beach, if it can stand there.
+  const hinge = cls.ramp?.hinge ?? cls.hull.length * 0.5;
+  if (at.lz < hinge + RAMP_RUN + T.length * 0.5) return false;
+  if (at.y < -T.wade && bat.out < cls.hull.length + 20) return false;
+  bat.aboard = 0;
+  bat.out = 0;
+  // Left to its own crew, it goes on up the beach to get off it.
+  bat.roll = bat.ctl ? 0 : TANK_LANDING_RUN;
+  state.events.push({ e: 'tankAshore', id: bat.id, ship: ship.id, x: r(at.x), z: r(at.z) });
+  return true;
 }
 
 /** One tick of a tank's hull: riding in its craft, coming off it, or driving. */
@@ -4884,14 +4914,18 @@ function stepTank(state, bat, b, dt) {
       return;
     }
     const cls = getClass(ship.classId);
-    rideCraft(bat, ship, cls);
     // Her ramp down: driven off by a player who puts his foot down, and by
-    // its own crew one after another, front rank first.
+    // its own crew one after another, front rank first -- the one behind
+    // waiting until the one in front of it is well down the ramp.
     if (ship.rampDown) {
-      const go = bat.ctl ? bat.drive.th > 0.2
-        : (ship.rampAt == null || state.t - ship.rampAt > 1.5 + bat.slot * 2.5);
-      if (go) leaveCraft(state, bat, b, ship, cls);
+      const go = bat.out > 0 || (bat.ctl ? bat.drive.th > 0.2
+        : (ship.rampAt == null || state.t - ship.rampAt > 2.2 + bat.slot * 4));
+      if (go) {
+        leaveCraft(state, bat, b, ship, cls, dt);
+        return;
+      }
     }
+    rideCraft(bat, ship, cls);
     return;
   }
   stepTankCrew(state, bat, b, dt);
@@ -4922,7 +4956,7 @@ function stepTank(state, bat, b, dt) {
   // A tank labours up a slope and runs on down one: what the engine can give
   // it on the level falls away as the hill steepens.
   const up = Math.max(0, grade) / TANK_MAX_GRADE;
-  const pull = clamp(1 - up * 0.72, 0.22, 1) * (1 + clamp(-grade, 0, 0.6) * 0.35);
+  const pull = clamp(1 - up * 0.6, 0.38, 1) * (1 + clamp(-grade, 0, 0.6) * 0.35);
   const want = (th >= 0 ? th * T.speed : th * T.reverse) * pull * ok.speed;
   // Easing on and off the throttle rather than snapping to it, and harder
   // on the brakes than on the gas.
@@ -5228,20 +5262,31 @@ function tankNearMiss(state, sh, bat) {
 }
 
 /**
- * The steepest a tank will climb, as rise over run: a bit over fifty degrees.
+ * The steepest a tank will climb, as rise over run, read along the whole of
+ * its hull: two in one, a little over sixty degrees. Steeper than a real
+ * Sherman would take on, but the ground here is a coarse field, and a tank
+ * that sticks on every hillside and lip of a crater is no use to anybody.
  * Going down it will take anything it will not tumble off.
  */
-export const TANK_MAX_GRADE = 1.25;
+export const TANK_MAX_GRADE = 2.0;
 
 /** How long a tank's hull takes to get swinging, or stop swinging, in seconds. */
 const TANK_YAW_LAG = 0.22;
 
-/** Rise over run along the hull from where it stands, half its length out ahead (`dir` 1) or astern (-1). */
+/**
+ * Rise over run along the hull, from the ground under its tail to the ground
+ * a little past its nose, going ahead (`dir` 1) or astern (-1): the slope the
+ * whole tank is being asked to climb, not the lip under one end of its tracks,
+ * which it rides over.
+ */
 function tankGrade(world, bat, T, dir) {
   const half = T.length * 0.5;
-  const fx = bat.x + Math.sin(bat.heading) * half * dir;
-  const fz = bat.z + Math.cos(bat.heading) * half * dir;
-  return (tankGround(world, fx, fz) - tankGround(world, bat.x, bat.z)) / half;
+  const sx = Math.sin(bat.heading) * dir;
+  const sz = Math.cos(bat.heading) * dir;
+  const ahead = half + 1;
+  const back = tankGround(world, bat.x - sx * half, bat.z - sz * half);
+  const front = tankGround(world, bat.x + sx * ahead, bat.z + sz * ahead);
+  return (front - back) / (half + ahead);
 }
 
 /** The kerb, lawn or heap of rubble a tank is riding on in a town, in metres. */
@@ -5325,6 +5370,53 @@ function tankSees(state, bat, o) {
   return !hit || dist(hit.x, hit.z, o.x, o.z) < 12;
 }
 
+/**
+ * The infantry a tank goes forward with: the nearest squad of its own side
+ * ashore within a mile and a half, as the point a little ahead of them on
+ * their way (their middle, led toward where they were sent) and the way they
+ * are going. Null if there is none. It keeps to the squad it chose while that
+ * squad has men left.
+ */
+function tankEscort(state, bat) {
+  const inf = state.inf;
+  if (!inf || !state.soldiers?.length) return null;
+  const sums = new Map();
+  for (const s of state.soldiers) {
+    if (!s.alive || s.team !== bat.team) continue;
+    let m = sums.get(s.sq);
+    if (!m) sums.set(s.sq, (m = { x: 0, z: 0, n: 0 }));
+    m.x += s.x;
+    m.z += s.z;
+    m.n++;
+  }
+  if (!sums.size) return null;
+  let pick = bat.ai?.follow != null ? sums.get(bat.ai.follow) : null;
+  let sq = pick ? bat.ai.follow : null;
+  if (pick && dist(bat.x, bat.z, pick.x / pick.n, pick.z / pick.n) > 2600) pick = null;
+  if (!pick) {
+    let best = 2400;
+    for (const [id, m] of sums) {
+      const d = dist(bat.x, bat.z, m.x / m.n, m.z / m.n);
+      if (d < best) { best = d; pick = m; sq = id; }
+    }
+  }
+  if (!pick) return null;
+  const cx = pick.x / pick.n;
+  const cz = pick.z / pick.n;
+  const squad = inf.squads.find((q) => q.id === sq);
+  const o = squad?.order;
+  let h = bat.heading;
+  let x = cx;
+  let z = cz;
+  if (o && Number.isFinite(o.x) && dist(cx, cz, o.x, o.z) > 8) {
+    h = headingTo(cx, cz, o.x, o.z);
+    // A little ahead of them, so the hull is between them and what they are going for.
+    x = cx + Math.sin(h) * 15;
+    z = cz + Math.cos(h) * 15;
+  }
+  return { x, z, h, sq };
+}
+
 /** Can a tank drive this way from where it is, for the next thirty metres or so? */
 function tankOpen(state, bat, T, h) {
   const world = state.world;
@@ -5406,7 +5498,20 @@ function planTank(state, bat, T, gun, ai) {
   const ok = tankOk(bat);
   let want = bat.heading;
   let th = 0;
-  if (foe) {
+  // With its own side's infantry ashore, it goes with them: up behind the
+  // nearest squad and where they are going, unless it has something in its
+  // sights to fight first, or is too knocked about to be any use to them.
+  const men = tankEscort(state, bat);
+  const fighting = foe && dist(bat.x, bat.z, foe.x, foe.z) < gun.range * 0.85 && tankSees(state, bat, foe);
+  if (men && !fighting && bat.hp / (bat.maxHp || 1) >= 0.35) {
+    const d = dist(bat.x, bat.z, men.x, men.z);
+    want = headingTo(bat.x, bat.z, men.x, men.z);
+    // Closing up, easing off as it reaches them, and sitting with them once
+    // it is there, turned the way they are going.
+    th = d > 120 ? 1 : d > 45 ? 0.6 : d > 22 ? 0.3 : 0;
+    if (th === 0) want = men.h;
+    ai.follow = men.sq;
+  } else if (foe) {
     const d = dist(bat.x, bat.z, foe.x, foe.z);
     const to = headingTo(bat.x, bat.z, foe.x, foe.z);
     const hurt = bat.hp / (bat.maxHp || 1);
