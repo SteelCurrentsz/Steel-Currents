@@ -14146,7 +14146,9 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
   const ROLES = new Set(['surface', 'aa', 'dp', 'sub']);
   for (const cls of Object.values(SHIP_CLASSES)) {
     const rows = arsenal(cls);
-    assert.ok(rows.length >= 3, `${cls.id} lists only ${rows.length} weapons`);
+    // A warship carries three kinds at least; a merchantman -- the Liberty
+    // ship's 4-inch and her Oerlikons -- may carry two.
+    assert.ok(rows.length >= (cls.cargo ? 2 : 3), `${cls.id} lists only ${rows.length} weapons`);
     for (const w of rows) {
       assert.ok(w.name && w.name.length > 2, `${cls.id} has an unnamed weapon`);
       assert.ok(ROLES.has(w.role), `${cls.id} ${w.name} may engage "${w.role}"`);
