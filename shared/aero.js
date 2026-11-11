@@ -106,7 +106,7 @@ export const AERO = {
   f18: {
     mass: 16000, wing: 37.16, span: 12.31, clMax: 1.7, cd0: 0.0240,
     thrust: 190000, vMax: 300, name: 'F/A-18C', jet: true,
-    helix: 0.16, gLimit: 7.5,
+    helix: 0.11, gLimit: 7.5,
   },
   // The E-2D Advanced Hawkeye: two T56 turboprops and the rotodome over her
   // back. She does not fight; she sees.

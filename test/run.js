@@ -14161,8 +14161,14 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
       // pom-poms and her Bofors are both 40 mm -- each have their own row on
       // her sheet, told apart by the label.
       const twin = (cls.datasheet.tertiary || []).filter((o) => o.caliber === t.caliber).length > 1;
+      // A ship whose only guns are her CIWS -- the Nimitz -- has the same
+      // mountings listed as her main battery and her light battery: they are
+      // counted once.
+      const same = (a, b) => a.specs && b.specs && a.specs.length === b.specs.length
+        && a.specs.every((m, k) => Math.abs(m.x - b.specs[k].x) < 0.5 && Math.abs(m.z - b.specs[k].z) < 0.5);
       const of = rows.filter((w) => w.caliber === t.caliber
-        && (!twin || w.name.includes(t.label)));
+        && (!twin || w.name.includes(t.label))
+        && !(w.band === 'Main battery' && rows.some((o) => o !== w && o.band === 'Light battery' && same(w, o))));
       assert.ok(of.length, `${cls.id} carries ${t.label} on her sheet and none in the arsenal`);
       const barrels = of.reduce((n, w) => n + w.barrels, 0);
       assert.equal(barrels, t.barrels,
