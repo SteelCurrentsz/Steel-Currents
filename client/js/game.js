@@ -4835,18 +4835,51 @@ export class Battle {
       craft.group.localToWorld(p);
       grp.position.copy(p);
       craft.group.getWorldQuaternion(grp.quaternion);
+      view.ride = null;
     } else {
       const x = prev && !prev.ab ? lerp(g.x, prev.x, t) : g.x;
       const z = prev && !prev.ab ? lerp(g.z, prev.z, t) : g.z;
       const y = prev && !prev.ab ? lerp(g.y, prev.y, t) : g.y;
       const h = prev && !prev.ab ? g.h + angleDelta(g.h, prev.h) * t : g.h;
       // Sat on the ground as it is drawn, so it is not half buried in a
-      // slope the simulation reads a little lower than the mesh.
+      // slope the simulation reads a little lower than the mesh -- and laid
+      // over to it: nose up a bank, down into a dip, and canted on a hillside
+      // it is driving across, read off the ground under each end of its
+      // tracks rather than the one point in the middle.
       const w = this.scene.world;
-      const gy = w ? Math.max(y, drawnGround(w, x, z)) : y;
-      grp.position.set(x, gy, z);
+      const T = BATTERIES[g.b]?.tank;
+      let gy = y;
+      let pitch = 0;
+      let roll = 0;
+      if (w) {
+        const L = (T?.length || 6) * 0.45;
+        const W = (T?.width || 2.6) * 0.45;
+        const sh = Math.sin(h);
+        const ch = Math.cos(h);
+        const at = (px, pz) => Math.max(groundHeight(w, px, pz), drawnGround(w, px, pz));
+        const front = at(x + sh * L, z + ch * L);
+        const back = at(x - sh * L, z - ch * L);
+        // Screen right is a falling heading in this world.
+        const right = at(x - ch * W, z + sh * W);
+        const left = at(x + ch * W, z - sh * W);
+        pitch = Math.atan2(front - back, 2 * L);
+        roll = Math.atan2(left - right, 2 * W);
+        gy = Math.max(y, drawnGround(w, x, z), (front + back + left + right) / 4);
+      }
+      // Eased into the new attitude over a tenth of a second or so, the way a
+      // hull on its suspension settles, rather than snapping to every change
+      // in the ground under it.
+      const now = performance.now();
+      const s = view.ride || (view.ride = { p: pitch, r: roll, y: gy, at: now });
+      const k = 1 - Math.exp(-Math.min(0.1, (now - s.at) / 1000) / 0.11);
+      s.at = now;
+      s.p += (pitch - s.p) * k;
+      s.r += (roll - s.r) * k;
+      // Up a step it rides up at once (never into the ground); down one it settles.
+      s.y = gy > s.y ? gy : s.y + (gy - s.y) * Math.min(1, k * 1.6);
+      grp.position.set(x, s.y, z);
       grp.quaternion.identity();
-      grp.rotation.set(0, h, 0);
+      grp.rotation.set(-s.p, h, s.r, 'YXZ');
     }
     if (g.al) for (const m of view.spin) m.rotation.y = ang;
   }

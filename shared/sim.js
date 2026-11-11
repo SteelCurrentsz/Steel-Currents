@@ -34,7 +34,7 @@ import {
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
   wallAt, hurtBuilding, hurtWall, wallHp, solidGround, solidAt, solidHit, buildingAt, worksTarget,
-  cityPlans,
+  cityPlans, worksFloor,
 } from './works.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
@@ -4753,7 +4753,12 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
   }
   // A gun put down in the town has the houses on its site pulled down first,
   // and the emplacement dug where they stood.
-  if (!b.tank && state.world?.works?.cities?.length) clearForBattery(state.world, x, z, b.span * 0.75 + 4, state.events);
+  // A tank put down in the town has the house it was put on pulled down, and
+  // stands in the lot where it was.
+  if (state.world?.works?.cities?.length) {
+    const clear = b.tank ? Math.max(b.tank.length, b.tank.width) * 0.6 + 2 : b.span * 0.75 + 4;
+    clearForBattery(state.world, x, z, clear, state.events);
+  }
   state.batteries.push(bat);
   return bat;
 }
@@ -4883,37 +4888,301 @@ function stepTank(state, bat, b, dt) {
     th = bat.drive.th;
     st = bat.drive.st;
   } else if (bat.roll > 0) th = 0.6;
-  const want = th >= 0 ? th * T.speed : th * T.reverse;
-  bat.speed = approach(bat.speed, want, T.accel * dt * (Math.sign(want) !== Math.sign(bat.speed) ? 2 : 1));
+  else ({ th, st } = tankBrain(state, bat, b, dt));
+  // How steep the ground is along the hull, read over the tank's own length
+  // rather than over the few centimetres it moves in a tick: what stops a
+  // tank is a bank, not a pebble in the height field. Positive is uphill in
+  // the direction it is going.
+  const dir = th < -0.05 || bat.speed < -0.05 ? -1 : 1;
+  const grade = tankGrade(state.world, bat, T, dir);
+  // A tank labours up a slope and runs on down one: what the engine can give
+  // it on the level falls away as the hill steepens.
+  const up = Math.max(0, grade) / TANK_MAX_GRADE;
+  const pull = clamp(1 - up * 0.72, 0.22, 1) * (1 + clamp(-grade, 0, 0.6) * 0.35);
+  const want = (th >= 0 ? th * T.speed : th * T.reverse) * pull;
+  // Easing on and off the throttle rather than snapping to it, and harder
+  // on the brakes than on the gas.
+  const braking = Math.sign(want) !== Math.sign(bat.speed) || Math.abs(want) < Math.abs(bat.speed);
+  bat.speed = approach(bat.speed, want, T.accel * dt * (braking ? 2.2 : 1));
   // Steered on its tracks: a good rate of turn on the move, a slow slew
-  // standing.
+  // standing. Steering right is a falling heading in this world (see
+  // steerAim on the client), and the hull is got swinging, and stopped
+  // swinging, over a fraction of a second rather than all at once.
   const moving = clamp(Math.abs(bat.speed) / 3, 0, 1);
   const rate = T.pivot + (T.turn - T.pivot) * moving;
-  bat.heading = wrapAngle(bat.heading + st * rate * dt);
-  if (Math.abs(bat.speed) < 0.01) { bat.speed = 0; return; }
+  bat.yaw = (bat.yaw || 0) + (-st * rate - (bat.yaw || 0)) * (1 - Math.exp(-dt / TANK_YAW_LAG));
+  if (Math.abs(bat.yaw) < 1e-4 && !st) bat.yaw = 0;
+  bat.heading = wrapAngle(bat.heading + bat.yaw * dt);
+  if (Math.abs(bat.speed) < 0.01 && Math.abs(want) < 0.01) { bat.speed = 0; return; }
   const step = bat.speed * dt;
   const nx = bat.x + Math.sin(bat.heading) * step;
   const nz = bat.z + Math.cos(bat.heading) * step;
   const g = tankGround(state.world, nx, nz);
   const edge = (state.world.half || MAP_HALF) - 60;
-  // Deeper than it can ford, too steep to climb, or off the edge of the
-  // battlefield: it stops where it is.
-  // The slope is read over the tank's own length, not over the few
-  // centimetres it moves in a tick: what stops a tank is a bank, not a
-  // pebble in the height field.
-  const ahead = Math.sign(step) * T.length * 0.5;
-  const fx = bat.x + Math.sin(bat.heading) * ahead;
-  const fz = bat.z + Math.cos(bat.heading) * ahead;
-  const climb = (tankGround(state.world, fx, fz) - tankGround(state.world, bat.x, bat.z)) / Math.abs(ahead);
-  if (g < -T.wade || climb > 0.7 || Math.abs(nx) > edge || Math.abs(nz) > edge) {
-    bat.speed = 0;
+  const moveGrade = tankGrade(state.world, bat, T, Math.sign(step) || 1);
+  // Deeper than it can ford, a bank steeper than the tracks will climb, a
+  // house in the way, or off the edge of the battlefield: it stops there.
+  const wall = tankWall(state, bat, nx, nz, T, th, dt);
+  if (g < -T.wade || moveGrade > TANK_MAX_GRADE || wall || Math.abs(nx) > edge || Math.abs(nz) > edge) {
+    bat.speed = approach(bat.speed, 0, T.accel * 6 * dt);
+    if (Math.abs(bat.speed) < 0.3) bat.speed = 0;
     bat.roll = 0;
+    if (bat.ai) bat.ai.blocked = (bat.ai.blocked || 0) + dt;
     return;
   }
+  if (bat.ai) bat.ai.blocked = 0;
   bat.x = nx;
   bat.z = nz;
-  bat.y = g;
+  bat.y = g + worksRise(state.world, nx, nz);
   if (bat.roll > 0) bat.roll = Math.max(0, bat.roll - Math.abs(step));
+}
+
+/**
+ * The steepest a tank will climb, as rise over run: a bit over fifty degrees.
+ * Going down it will take anything it will not tumble off.
+ */
+export const TANK_MAX_GRADE = 1.25;
+
+/** How long a tank's hull takes to get swinging, or stop swinging, in seconds. */
+const TANK_YAW_LAG = 0.22;
+
+/** Rise over run along the hull from where it stands, half its length out ahead (`dir` 1) or astern (-1). */
+function tankGrade(world, bat, T, dir) {
+  const half = T.length * 0.5;
+  const fx = bat.x + Math.sin(bat.heading) * half * dir;
+  const fz = bat.z + Math.cos(bat.heading) * half * dir;
+  return (tankGround(world, fx, fz) - tankGround(world, bat.x, bat.z)) / half;
+}
+
+/** The kerb, lawn or heap of rubble a tank is riding on in a town, in metres. */
+function worksRise(world, x, z) {
+  if (!world.works?.cities?.length) return 0;
+  return worksFloor(world, x, z).rise;
+}
+
+/**
+ * A building standing in front of the tank: true if it stops it. A house it
+ * keeps its foot down against comes down in front of it -- small ones only;
+ * a block of flats or a church stops it dead.
+ */
+function tankWall(state, bat, nx, nz, T, th, dt) {
+  const world = state.world;
+  if (!world.works?.cities?.length) return false;
+  const dir = Math.sign(bat.speed || th) || 1;
+  const px = nx + Math.sin(bat.heading) * T.length * 0.5 * dir;
+  const pz = nz + Math.cos(bat.heading) * T.length * 0.5 * dir;
+  if (!worksFloor(world, px, pz).blocked) return false;
+  const b = buildingAt(world, px, pz, 0.15);
+  if (b && b.h <= 14 && Math.abs(th) > 0.2) {
+    hurtBuilding(world, b, b.hp * 0.3 * dt * Math.abs(th), state.events, worksDice(state), { x: px, z: pz });
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// A tank left to its own crew
+// ---------------------------------------------------------------------------
+//
+// Nobody at the controls, the commander drives it himself. Every so often he
+// looks round: what is the nearest thing of the enemy's worth going after --
+// a ship off the beach, a gun ashore, another tank -- can he reach it from
+// here, and can he see it? Out of reach or out of sight, he closes; in reach
+// he fights on the move, crossing the enemy's line of fire rather than
+// sitting still in it, and backs off anything that gets inside the range his
+// gun can be laid at; badly knocked about, he pulls back. Where he drives he
+// looks a little way ahead first and takes the nearest line that is not
+// water, not too steep and not through a house, and if he finds he is not
+// getting anywhere he backs out and tries the other way.
+
+/** How often a tank's commander looks round, in seconds. */
+const TANK_THINK = 0.35;
+
+/** What the commander is going after: the ship, gun or tank of the enemy's that matters most to him now. */
+function tankFoe(state, bat, gun) {
+  const ord = batteryOrder(state, bat);
+  if (ord && ord.alive !== false && !ord.point) return ord;
+  let best = null;
+  let bestV = Infinity;
+  const look = (o, k) => {
+    const d = dist(bat.x, bat.z, o.x, o.z);
+    // Nearest first, but a tank or a gun that can shoot back counts as
+    // nearer than a ship the same distance off, and anything past the gun's
+    // reach a good deal further off than it is.
+    const v = d * k * (d > gun.range ? 1.6 : 1);
+    if (v < bestV) { bestV = v; best = o; }
+  };
+  for (const s of state.ships) if (s.alive && s.team !== bat.team) look(s, 1);
+  for (const o of state.batteries) {
+    if (o === bat || !o.alive || o.team === bat.team || o.aboard) continue;
+    look(o, o.tank ? 0.6 : 0.8);
+  }
+  return best;
+}
+
+/**
+ * Whether the tank can see what it is after: a line from its commander's
+ * hatch to the target that no hill and no house gets in the way of. Its own
+ * island counts -- it drives about on it, and the hill in the middle of it
+ * is the thing most often between it and the enemy -- which is not how a gun
+ * dug into a hillside asks the question (see batteryTarget).
+ */
+function tankSees(state, bat, o) {
+  const d = dist(bat.x, bat.z, o.x, o.z);
+  if (d < 40) return true;
+  const oy = o.classId != null ? 6 : (o.y || 0) + 2;
+  const hit = solidHit(state.world, bat.x, bat.y + 3.2, bat.z, o.x, oy, o.z, 6);
+  // The ground the target is standing on is not in the way of it.
+  return !hit || dist(hit.x, hit.z, o.x, o.z) < 12;
+}
+
+/** Can a tank drive this way from where it is, for the next thirty metres or so? */
+function tankOpen(state, bat, T, h) {
+  const world = state.world;
+  const edge = (world.half || MAP_HALF) - 90;
+  const sx = Math.sin(h);
+  const sz = Math.cos(h);
+  let prevD = 0;
+  let prevG = tankGround(world, bat.x, bat.z);
+  const town = !!world.works?.cities?.length;
+  for (const d of [5, 11, 19, 30]) {
+    const x = bat.x + sx * d;
+    const z = bat.z + sz * d;
+    if (Math.abs(x) > edge || Math.abs(z) > edge) return false;
+    const g = tankGround(world, x, z);
+    // Into the shallows it will go if it must, but not out of its depth.
+    if (g < -T.wade * 0.5) return false;
+    if ((g - prevG) / (d - prevD) > TANK_MAX_GRADE * 0.9) return false;
+    if (town && worksFloor(world, x, z).blocked) return false;
+    prevD = d;
+    prevG = g;
+  }
+  return true;
+}
+
+/** The commander's orders to his driver this tick: throttle and steering, as a player's stick gives them. */
+function tankBrain(state, bat, b, dt) {
+  const T = b.tank;
+  const gun = batteryGun(bat.batteryId);
+  const ai = bat.ai || (bat.ai = {
+    at: 0, head: bat.heading, th: 0, side: bat.id % 2 ? 1 : -1, sideAt: 0,
+    back: 0, stuck: 0, lx: bat.x, lz: bat.z, foe: 0, blocked: 0,
+  });
+  if (ai.back > 0) {
+    ai.back -= dt;
+    return { th: -0.8, st: ai.side };
+  }
+  if (state.t >= ai.at) {
+    ai.at = state.t + TANK_THINK;
+    planTank(state, bat, T, gun, ai);
+  }
+  const off = angleDelta(bat.heading, ai.head);
+  // Steering right is a falling heading: see stepTank.
+  const st = clamp(-off * 2.2, -1, 1);
+  // Easing off for a sharp turn, and pivoting on the spot for a very sharp one.
+  const a = Math.abs(off);
+  const th = a > 1.3 ? 0 : ai.th * clamp(1 - a * 0.55, 0.25, 1);
+  return { th, st };
+}
+
+function planTank(state, bat, T, gun, ai) {
+  // Getting nowhere with its foot down: back out and try the other side.
+  const moved = Math.hypot(bat.x - ai.lx, bat.z - ai.lz);
+  ai.lx = bat.x;
+  ai.lz = bat.z;
+  if (ai.th > 0.3 && (moved < 0.4 || ai.blocked > 0.5)) ai.stuck++;
+  else ai.stuck = 0;
+  if (ai.stuck >= 4) {
+    ai.stuck = 0;
+    ai.side = -ai.side;
+    ai.back = 1.4;
+    ai.th = 0;
+    return;
+  }
+  const foe = tankFoe(state, bat, gun);
+  ai.foe = foe ? foe.id : 0;
+  let want = bat.heading;
+  let th = 0;
+  if (foe) {
+    const d = dist(bat.x, bat.z, foe.x, foe.z);
+    const to = headingTo(bat.x, bat.z, foe.x, foe.z);
+    const hurt = bat.hp / (bat.maxHp || 1);
+    const reach = d < gun.range * 0.85;
+    const close = foe.classId == null; // a gun or a tank ashore, not a ship
+    if (state.t > ai.sideAt) {
+      ai.sideAt = state.t + 6 + state.rng() * 8;
+      if (state.rng() < 0.55) ai.side = -ai.side;
+    }
+    if (hurt < 0.35 && reach) {
+      // Knocked about: away from it, and off its line.
+      want = to + Math.PI + ai.side * 0.5;
+      th = 0.9;
+    } else if (!reach || !tankSees(state, bat, foe)) {
+      // Closing, on a line a little off the straight one, so it does not
+      // drive nose first down the enemy's sights.
+      want = to + ai.side * 0.25;
+      th = 1;
+    } else if (close && d < 140) {
+      // Too close to lay on: open the range again, still crossing.
+      want = to + Math.PI - ai.side * 0.6;
+      th = 0.7;
+    } else {
+      // In reach and in sight: fighting on the move, across its line.
+      want = to + ai.side * 1.35;
+      th = 0.5;
+    }
+  } else if (state.t > ai.sideAt) {
+    // Nothing to go after: a slow look round the ground it is holding.
+    ai.sideAt = state.t + 8 + state.rng() * 10;
+    want = bat.heading + (state.rng() - 0.5) * 2;
+    th = state.rng() < 0.5 ? 0.3 : 0;
+    ai.head = want;
+  } else {
+    want = ai.head;
+    th = ai.th;
+  }
+  // The nearest line to the one it wants that it can actually drive along.
+  want = wrapAngle(want);
+  ai.head = want;
+  ai.th = th;
+  if (th <= 0) return;
+  const tries = [0, 0.35, 0.7, 1.05, 1.45, 1.9, 2.5];
+  for (const k of tries) {
+    for (const sgn of k ? [ai.side, -ai.side] : [1]) {
+      const h = wrapAngle(want + k * sgn);
+      if (tankOpen(state, bat, T, h)) {
+        ai.head = h;
+        // Feeling its way round something, slower.
+        if (k > 1) ai.th = Math.min(th, 0.5);
+        return;
+      }
+    }
+  }
+  // Boxed in every way it looks: back out.
+  ai.back = 1.2;
+  ai.side = -ai.side;
+}
+
+/** The ship, tank or gun a tank lays its own gun on, left to its crew: the commander's choice, in reach and in sight. */
+function tankTarget(state, bat, b, gun) {
+  const ai = bat.ai;
+  const pick = (o) => o && o.alive && o.team !== bat.team && !o.aboard
+    && dist(bat.x, bat.z, o.x, o.z) <= gun.range && tankSees(state, bat, o);
+  const foe = ai?.foe ? findTarget(state, ai.foe) : null;
+  if (pick(foe)) return foe;
+  // Whatever else is near enough to shoot at.
+  let best = null;
+  let bestD = Infinity;
+  for (const o of state.batteries) {
+    if (o === bat) continue;
+    const d = dist(bat.x, bat.z, o.x, o.z);
+    if (d < bestD && pick(o)) { best = o; bestD = d; }
+  }
+  return best || batteryTarget(state, bat, b, gun);
+}
+
+/** A ship or a battery (a tank among them) by id. */
+function findTarget(state, id) {
+  return state.ships.find((q) => q.id === id) || state.batteries.find((q) => q.id === id) || null;
 }
 
 /**
@@ -5228,7 +5497,7 @@ function stepBatteries(state, dt) {
     // ground and the sight line over everything else -- and nothing on a
     // battlefield moves far in a thirtieth of a second.
     if (state.tick % 15 === bat.id % 15) {
-      const found = batteryTarget(state, bat, b, gun);
+      const found = b.tank ? tankTarget(state, bat, b, gun) : batteryTarget(state, bat, b, gun);
       bat.targetId = found ? found.id : 0;
     }
     // But the cheap half of it is checked every tick. A ship that has just run
@@ -5236,6 +5505,8 @@ function stepBatteries(state, dt) {
     // of the half-second until the battery next looks up.
     let target = bat.targetId
       ? state.ships.find((sp) => sp.id === bat.targetId && sp.alive)
+        // A tank fights other tanks and the guns ashore too.
+        || (b.tank ? state.batteries.find((o) => o.id === bat.targetId && o.alive && !o.aboard) : null)
       : null;
     if (target) {
       const d = dist(bat.x, bat.z, target.x, target.z);
@@ -5899,7 +6170,13 @@ function loftedGun(state, gun, d) {
 
 function fireBattery(state, bat, b, gun, target) {
   const spec = batteryShell(gun, target);
-  const d = clamp(dist(bat.x, bat.z, target.x, target.z), 400, gun.range);
+  // A tank's gun is laid over open sights on what it can see, however close;
+  // a coast gun's fire control is worked out for ranges out to sea.
+  const near = b.tank ? 25 : 400;
+  // Where the round leaves the muzzle: out over a tank's glacis, or out of a gun pit.
+  const reachOut = b.tank ? 4 : 14;
+  const up = b.tank ? 2.6 : 6;
+  const d = clamp(dist(bat.x, bat.z, target.x, target.z), near, gun.range);
   const bearing = wrapAngle(bat.heading + bat.angle);
   // A bedded gun shoots tighter than a rolling one, and the lead is the same
   // problem a ship's gunnery officer has: where she will be, not where she is.
@@ -5910,7 +6187,7 @@ function fireBattery(state, bat, b, gun, target) {
   const lead = Math.min(s2.tof, 60);
   const ax = target.x + Math.sin(target.heading || 0) * (target.speed || 0) * lead;
   const az = target.z + Math.cos(target.heading || 0) * (target.speed || 0) * lead;
-  const aimD = clamp(dist(bat.x, bat.z, ax, az), 400, gun.range);
+  const aimD = clamp(dist(bat.x, bat.z, ax, az), near, gun.range);
   const aimB = headingTo(bat.x, bat.z, ax, az);
   const spreadBase = (aimD * 0.0125) / gun.sigma;
   bat.lastRange = aimD;
@@ -5920,7 +6197,10 @@ function fireBattery(state, bat, b, gun, target) {
   // the one below the gun, long of it. Nothing is laid on lower than six
   // metres, though: at sea that is a hull, not the waterline under it, and a
   // round solved for the waterline comes down short of the ship.
-  const drop = bat.y + 6 - Math.max(6, aimHeight(state, ax, az));
+  // A tank lays on the tank or the gun in front of it, at the height it is.
+  const drop = b.tank && target.classId == null && Number.isFinite(target.y)
+    ? bat.y + up - (target.y + 1.5)
+    : bat.y + 6 - Math.max(6, aimHeight(state, ax, az));
 
   // One arc for the whole salvo: the barrels of a battery are laid together.
   // Up a hill is further for the gun than the map says: allowed for, or the
@@ -5929,15 +6209,15 @@ function fireBattery(state, bat, b, gun, target) {
   for (let g = 0; g < b.barrels; g++) {
     const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
     const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
-    const shotD = clamp(aimD + rng, 300, gun.range);
+    const shotD = clamp(aimD + rng, Math.min(300, near), gun.range);
     const sol = solveBallistic(arc, shotD, drop);
     const bb = aimB + Math.atan2(lat, Math.max(600, aimD));
     const vh = sol.v * Math.cos(sol.elev);
     fireShell(state, {
       id: eid(),
       owner: bat.id, team: bat.team, fromBattery: true,
-      x: bat.x + Math.sin(bb) * 14, z: bat.z + Math.cos(bb) * 14,
-      y: bat.y + 6,
+      x: bat.x + Math.sin(bb) * reachOut, z: bat.z + Math.cos(bb) * reachOut,
+      y: bat.y + up,
       vx: Math.sin(bb) * vh, vz: Math.cos(bb) * vh, vy: sol.v * Math.sin(sol.elev),
       g: sol.g,
       spec, caliber: gun.caliber,
@@ -5948,7 +6228,7 @@ function fireBattery(state, bat, b, gun, target) {
   bat.cooldown = gun.reload;
   bat.lastFiredAt = state.t;
   state.events.push({
-    e: 'muzzle', x: bat.x, z: bat.z, y: bat.y + 6, b: bearing,
+    e: 'muzzle', x: bat.x, z: bat.z, y: bat.y + up, b: bearing,
     cal: gun.caliber, battery: bat.id,
   });
 }

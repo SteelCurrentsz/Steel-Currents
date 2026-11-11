@@ -27,7 +27,7 @@ import {
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
   siteBattery, batteryPad, afloatAt, seabedRoom,
   commandBattery, pinBattery, layBattery, triggerBattery, readTrack, predictTrack, PLOT_WATCH,
-  trainBattery, orderAttack, embarkTank, driveTank, tankGround,
+  trainBattery, orderAttack, embarkTank, driveTank, tankGround, TANK_MAX_GRADE,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
@@ -4415,6 +4415,62 @@ check('a Sherman loaded into a Landing Craft Mechanized goes ashore over her ram
   s.notch = 0;
   for (let i = 0; i < 30 * 20; i++) step(st, 1 / 30);
   assert.ok(Math.hypot(s.x - at.x, s.z - at.z) < 2, 'she left the beach');
+});
+
+check('a tank steered right turns to the right on the screen: its heading falls', () => {
+  const world = generateWorld(77, 'archipelago');
+  const st = createState(world, { mode: 'deathmatch' });
+  const land = world.islands.find((i) => groundHeight(world, i.x, i.z) > 5);
+  const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: land.x, z: land.z, heading: 0 });
+  commandBattery(st, bat, 99);
+  driveTank(st, bat, 0, 1);
+  for (let i = 0; i < 30 * 2; i++) step(st);
+  assert.ok(bat.heading < -0.1, `steered right, its heading went to ${bat.heading.toFixed(2)}`);
+  driveTank(st, bat, 0, -1);
+  const was = bat.heading;
+  for (let i = 0; i < 30 * 3; i++) step(st);
+  assert.ok(bat.heading > was + 0.1, 'steered left, it did not come back the other way');
+});
+
+check('a tank climbs a bank steeper than forty-five degrees, and is slowed by it', () => {
+  assert.ok(TANK_MAX_GRADE > 1, `it will climb only ${TANK_MAX_GRADE} in 1`);
+});
+
+check('a tank nobody has taken drives itself at the enemy and fights', () => {
+  const world = generateWorld(77, 'archipelago');
+  const st = createState(world, { mode: 'deathmatch' });
+  // Two tanks across the biggest island from each other.
+  const land = world.islands.reduce((p, q) => ((q.r || 0) > (p.r || 0) ? q : p));
+  const spot = (th) => {
+    for (let r = land.r * 0.7; r > 50; r -= 20) {
+      const x = land.x + Math.sin(th) * r;
+      const z = land.z + Math.cos(th) * r;
+      if (tankGround(world, x, z) > 2) return { x, z };
+    }
+    return null;
+  };
+  const mine = spot(0);
+  const far = spot(Math.PI);
+  assert.ok(mine && far, 'no ground for the tanks');
+  const a = addBattery(st, { batteryId: 'sherman', team: 0, x: mine.x, z: mine.z, heading: 0 });
+  const e = addBattery(st, { batteryId: 'sherman', team: 1, x: far.x, z: far.z, heading: 0 });
+  const d0 = Math.hypot(a.x - e.x, a.z - e.z);
+  let fired = false;
+  let moved = 0;
+  let lx = a.x;
+  let lz = a.z;
+  for (let i = 0; i < 30 * 150 && !fired; i++) {
+    step(st);
+    moved += Math.hypot(a.x - lx, a.z - lz);
+    lx = a.x;
+    lz = a.z;
+    if (a.lastFiredAt > 0 || e.lastFiredAt > 0) fired = true;
+    assert.ok(tankGround(world, a.x, a.z) > -TANKS.sherman.tank.wade, 'it drove into the sea');
+  }
+  assert.ok(moved > 30, `it went ${moved.toFixed(1)} m with an enemy across the island`);
+  assert.ok(fired, 'neither tank fired');
+  assert.ok(a.ai && a.ai.foe === e.id, 'it was not after the enemy tank');
+  assert.ok(Math.hypot(a.x - e.x, a.z - e.z) < d0, 'it did not close the range');
 });
 
 check('a tank in a landing craft that goes down goes down with her', () => {
@@ -28436,6 +28492,20 @@ check('a battery put down in the town has the houses on its site pulled down, an
   assert.ok(world.ruin.b[b.id]?.c, 'the flats were left standing in the gun pit');
   assert.ok(Math.abs(bat.y - plan.level - 1.2) < 1.5, `the gun stands at ${bat.y} over a town at ${plan.level}`);
   assert.ok(!worksFloor(world, b.x, b.z).blocked, 'the cleared site is still in the way');
+});
+
+check('a tank put down in the town pulls down the house it was put on, and drives off', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const plan = cityPlan(world);
+  const b = plan.buildings.find((q) => q.kind === 'house') || plan.buildings[0];
+  const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: b.x, z: b.z });
+  assert.ok(world.ruin.b[b.id]?.c, 'the house was left standing round the tank');
+  assert.ok(!worksFloor(world, b.x, b.z).blocked, 'the cleared site is still in the way');
+  assert.ok(bat.y >= plan.level - 0.5, `the tank stands at ${bat.y} in a town at ${plan.level}`);
+  commandBattery(st, bat, 99);
+  for (let i = 0; i < 30 * 5; i++) step(st);
+  assert.ok(bat.alive);
 });
 
 check('a shell falling on a building bursts in it and knocks it about rather than digging a crater', () => {
