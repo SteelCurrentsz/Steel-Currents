@@ -28708,6 +28708,34 @@ check("a Silverplate's gunners fight her five positions at the fighters on her",
   }
 }));
 
+check('an atomic burst on the ground digs a crater with a rim, and a later shell does not fill it', () => {
+  const world = generateWorld(7, 'coral_shelf');
+  const isle = [...world.islands].sort((a, b) => b.r - a.r)[0];
+  const st = createState(world, { mode: 'deathmatch' });
+  const { x, z } = isle;
+  const g0 = groundHeight(world, x, z);
+  const rim0 = groundHeight(world, x + 200, z);
+  const events = [];
+  nukeBlast(st, x, g0 + 2, z, null);
+  events.push(...st.events);
+  const c = world.craters.find((q) => q.nuke);
+  assert.ok(c, 'no atomic crater was dug');
+  assert.ok(c.r > 150 && c.r < 260, `crater ${c.r} m across the wrong size`);
+  assert.ok(g0 - groundHeight(world, x, z) > 15, 'the middle of it is not a hole');
+  assert.ok(groundHeight(world, x + c.r * 1.05, z) > rim0 - 1, 'it has no rim');
+  assert.ok(events.some((e) => e.e === 'crater' && e.c.n === 1 && e.c.l > 0), 'the crater is not on the wire');
+  // A shell into it afterwards digs its own hole, and leaves the bowl as deep.
+  const d0 = c.depth;
+  landStrike(st, x + 10, z, 0.406, 'shell');
+  assert.equal(c.depth, d0, 'a shell made the atomic crater shallower');
+  // A burst at sea digs nothing.
+  const sea = generateWorld(91, 'open_ocean');
+  sea.islands = [];
+  const s2 = createState(sea, { mode: 'deathmatch' });
+  nukeBlast(s2, 0, 0, 0, null);
+  assert.ok(!(sea.craters || []).some((q) => q.nuke), 'a burst on the sea dug a crater');
+});
+
 check('the wire carries the atomic bomb and the open bay', () => {
   const { st, bm } = atomicRun('iowa', 812);
   let saw = { nk: false, d: false };

@@ -40,6 +40,12 @@ export const NUKE = {
    */
   landReach: 1.35,
   landBite: 1.3,
+  // The crater a burst on the ground digs: radius, depth and the height of
+  // the spoil thrown up round it, in metres, for middling ground. Soft ground
+  // gives a wider hole; rock a narrower one.
+  craterR: 190,
+  craterDepth: 34,
+  craterLip: 9,
   /** How long the whole thing is worth drawing, seconds. */
   life: 150,
   /** The surface wave: how far out it ever gets, metres. */

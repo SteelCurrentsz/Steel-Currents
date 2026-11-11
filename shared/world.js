@@ -621,8 +621,11 @@ export function landBlocks(world, ax, az, bx, bz) {
 // So an empty crater list is one array-length test, and a full one is a
 // lookup in a coarse hash of the battlefield rather than a walk of the lot.
 
-/** The side of a crater bucket, in metres. Bigger than any single crater. */
-const CRATER_CELL = 220;
+/** The side of a crater bucket, in metres. Bigger than any single crater,
+ * rim and all -- an atomic burst's included (see addNukeCrater). */
+const CRATER_CELL = 300;
+/** How far out an atomic crater's thrown-up rim runs, in crater radii. */
+export const LIP_OUT = 1.4;
 /** How many craters a battlefield keeps. The oldest shallow one is recycled. */
 const CRATER_MAX = 320;
 
@@ -703,17 +706,79 @@ export function craterDrop(world, x, z) {
   const list = craterIndex(world).get(craterKey(x, z));
   if (!list) return 0;
   let worst = 0;
+  let lift = 0;
   for (const c of list) {
     const dx = x - c.x;
     const dz = z - c.z;
     const d2 = dx * dx + dz * dz;
-    if (d2 >= c.r * c.r) continue;
-    const u = 1 - Math.sqrt(d2) / c.r;
-    // Smoothstep in from the lip, so a crater has a rim and not a kerb.
-    const drop = c.depth * u * u * (3 - 2 * u);
+    const out = c.lip ? c.r * LIP_OUT : c.r;
+    if (d2 >= out * out) continue;
+    const d = Math.sqrt(d2);
+    let drop = 0;
+    if (d < c.r) {
+      const u = 1 - d / c.r;
+      // Smoothstep in from the lip, so a crater has a rim and not a kerb.
+      drop = c.depth * u * u * (3 - 2 * u);
+    }
+    if (c.lip) {
+      // An atomic crater throws its spoil up round itself: a ring bank
+      // standing over the old ground, steep on the inside and running out
+      // across the land on the outside.
+      const w = d < c.r ? c.r * 0.22 : c.r * (LIP_OUT - 1);
+      const v = Math.max(0, 1 - Math.abs(d - c.r) / w);
+      drop -= c.lip * v * v * (3 - 2 * v);
+    }
     if (drop > worst) worst = drop;
+    else if (drop < 0 && -drop > lift) lift = -drop;
   }
-  return worst;
+  // A hole wins over a bank: a shell into the rim takes a piece out of it.
+  return worst > 0 ? worst : -lift;
+}
+
+/**
+ * The hole an atomic burst on the ground leaves.
+ *
+ * Not a shell crater grown big: a crater of its own, a bowl a few hundred
+ * metres across with the spoil heaped round it, and nothing a later round does
+ * merges into it or makes it shallower. Its floor may go down to the water;
+ * the ground under it is never taken below the sea, so it is a scorched pan
+ * at the waterline rather than a new bay.
+ */
+export function addNukeCrater(world, x, z, r, depth, lip) {
+  if (!world.craters) world.craters = [];
+  const c = {
+    id: (world.craterSeq = (world.craterSeq || 0) + 1),
+    x, z, r: Math.min(r, CRATER_CELL / LIP_OUT), depth, wear: depth, lip, nuke: 1, gone: true,
+  };
+  if (world.craters.length >= CRATER_MAX) {
+    let worstI = -1;
+    for (let i = 0; i < world.craters.length; i++) {
+      const q = world.craters[i];
+      if (!q.nuke && (worstI < 0 || q.depth < world.craters[worstI].depth)) worstI = i;
+    }
+    if (worstI < 0) return null;
+    world.craters[worstI] = c;
+  } else {
+    world.craters.push(c);
+  }
+  world.groundRev = (world.groundRev || 0) + 1;
+  refileAll(world);
+  return c;
+}
+
+/**
+ * How badly the ground at a point has been burnt by an atomic burst on it:
+ * one in the glassed floor of the crater, falling away across the rim and the
+ * blackened ground round it to nothing.
+ */
+export function nukeScorch(world, x, z) {
+  let s = 0;
+  for (const c of world.craters || []) {
+    if (!c.nuke) continue;
+    const d = Math.hypot(x - c.x, z - c.z) / c.r;
+    if (d < 3.2) s = Math.max(s, d < 1 ? 1 : 1 - (d - 1) / 2.2);
+  }
+  return s;
 }
 
 /**
@@ -737,6 +802,8 @@ export function addCrater(world, x, z, r, depth, cap = Infinity) {
   const list = craterIndex(world).get(craterKey(x, z));
   if (list) {
     for (const c of list) {
+      // An atomic crater is its own: a shell into it digs a hole of its own.
+      if (c.nuke) continue;
       if (dist(x, z, c.x, c.z) > Math.max(c.r, r) * 0.6) continue;
       // Deepen, and widen a little: the second shell throws out the lip of
       // the first. The widening is what actually carries on happening once the
@@ -776,6 +843,7 @@ export function craterWire(c) {
   return {
     i: c.id, x: Math.round(c.x), z: Math.round(c.z),
     r: Math.round(c.r * 10) / 10, d: Math.round(c.depth * 10) / 10,
+    ...(c.nuke ? { n: 1, l: Math.round(c.lip * 10) / 10 } : {}),
   };
 }
 
@@ -800,7 +868,9 @@ export function applyCrater(world, c) {
     if (had.r === c.r && had.depth === c.d) return false;
     had.x = c.x; had.z = c.z; had.r = c.r; had.depth = c.d;
   } else {
-    world.craters.push({ id: c.i, x: c.x, z: c.z, r: c.r, depth: c.d, wear: c.d });
+    world.craters.push(c.n
+      ? { id: c.i, x: c.x, z: c.z, r: c.r, depth: c.d, wear: c.d, lip: c.l, nuke: 1, gone: true }
+      : { id: c.i, x: c.x, z: c.z, r: c.r, depth: c.d, wear: c.d });
     world.craterSeq = Math.max(world.craterSeq || 0, c.i);
   }
   world.groundRev = (world.groundRev || 0) + 1;

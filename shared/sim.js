@@ -29,7 +29,7 @@ import {
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
-  groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
+  groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, addNukeCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
 } from './world.js';
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
@@ -6374,8 +6374,19 @@ export function nukeBlast(state, x, y, z, sh = null) {
   // screen and here.
   state.events.push({ e: 'nuke', i: id, x: r(x), y: r(y), z: r(z), tm: team, land: ashore ? 1 : 0, tk: state.tick,
     t: Math.round(state.t * 100) / 100 });
-  // The hole it leaves in the ground, if it went off on the ground.
-  if (ashore) landStrike(state, x, z, 1.52, 'bomb', 1);
+  // The hole it leaves in the ground, if it went off on the ground: what it
+  // does to anything built there, and then the crater itself.
+  if (ashore) {
+    landStrike(state, x, z, 1.52, 'bomb', 1);
+    const soft = soilAt(state.world, x, z);
+    const k = 0.85 + soft * 0.3;
+    const c = addNukeCrater(state.world, x, z, NUKE.craterR * k, NUKE.craterDepth * k, NUKE.craterLip * k);
+    if (c) {
+      state.events.push({ e: 'crater', c: craterWire(c), soft: Math.round(soft * 100) / 100 });
+      // Every gun on the ground it moved goes down into it or up onto its rim.
+      settleBatteries(state, x, z, c.r * 1.4);
+    }
+  }
   stepNukes(state, 0);
   return n;
 }
