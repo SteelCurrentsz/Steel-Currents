@@ -39,6 +39,10 @@ import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_O
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine, troopsFor } from '../shared/sim.js';
 import {
+  addBarracks, addSoldier, dryLand, footing, woundSoldier, blastInfantry, shootRifle, clearLine, orderSquads,
+  infantryBrief, doctrineOut, doctrineIn, poolDoctrine, commandSoldier, driveSoldier, GARAND, BARRACKS_MEN,
+} from '../shared/infantry.js';
+import {
   normaliseAirGroup, defaultAirGroup, setAirGroup, rotary, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
@@ -29714,6 +29718,175 @@ check("the owner's B-29 is built with turning airscrews, swinging doors and the 
   const dim = all.getSize(new THREE.Vector3());
   assert.ok(Math.abs(dim.x - 43.05) < 0.6, `she is ${dim.x.toFixed(2)} m across`);
   assert.ok(Math.abs(dim.z - 30.18) < 0.8, `she is ${dim.z.toFixed(2)} m long`);
+});
+
+// ---------------------------------------------------------------------------
+// Infantry
+// ---------------------------------------------------------------------------
+
+/** A battlefield with land on it, and the middle of a good run of dry ground. */
+function infantryField(seed = 77) {
+  const world = generateWorld(seed, 'coral_shelf');
+  const st = createState(world, { mode: 'deathmatch' });
+  let best = null;
+  for (const i of world.islands) if (!best || i.r > best.r) best = i;
+  let at = null;
+  for (let k = 0; k < 60 && !at; k++) {
+    const x = best.x + (k % 6 - 3) * 40, z = best.z + (Math.floor(k / 6) - 5) * 40;
+    if (dryLand(world, x, z) && dryLand(world, x + 120, z) && dryLand(world, x - 120, z)) at = { x, z };
+  }
+  assert.ok(at, 'no dry ground on the field');
+  return { world, st, at };
+}
+
+check('a barracks puts fifty soldiers on the ground in squads of ten, on dry land, on its side', () => {
+  const { st, at } = infantryField();
+  const b = addBarracks(st, { team: 1, x: at.x, z: at.z, h: 0 });
+  assert.ok(b && b.alive, 'no barracks');
+  const men = st.soldiers.filter((s) => s.team === 1);
+  assert.equal(men.length, BARRACKS_MEN);
+  assert.equal(st.inf.squads.length, 5);
+  for (const s of men) {
+    assert.ok(s.alive && s.hp === 100 && s.clip === GARAND.clip, 'a man fell in without his rifle loaded');
+    assert.ok(Math.abs(s.y - footing(st.world, s.x, s.z)) < 0.05, 'a man is not standing on the ground');
+  }
+  const snap = buildSnapshot(st, 0, 0, 0, true);
+  assert.equal(snap.sd.length, BARRACKS_MEN, 'the soldiers are not on the wire');
+  assert.equal(snap.bk.length, 1, 'the barracks is not on the wire');
+});
+
+check('a round fired at a man in the open hits him; a tank between them stops it', () => {
+  const { st, at } = infantryField();
+  // Two men forty metres apart with nothing between them.
+  let spot = null;
+  for (let k = 0; k < 400 && !spot; k++) {
+    const x = at.x + ((k % 20) - 10) * 15, z = at.z + (Math.floor(k / 20) - 10) * 15;
+    if (!dryLand(st.world, x, z) || !dryLand(st.world, x + 40, z) || !dryLand(st.world, x - 40, z)) continue;
+    const y0 = footing(st.world, x, z), y1 = footing(st.world, x + 40, z), y2 = footing(st.world, x - 40, z);
+    if (Math.abs(y1 - y0) > 3 || Math.abs(y2 - y0) > 3) continue;
+    if (clearLine(st, x, y0 + 1.62, z, x + 40, y1 + 1.3, z) && clearLine(st, x, y0 + 1.62, z, x - 40, y2 + 1.0, z)) spot = { x, z };
+  }
+  assert.ok(spot, 'nowhere flat enough for two men to see each other');
+  at.x = spot.x; at.z = spot.z;
+  const a = addSoldier(st, { team: 0, x: at.x, z: at.z, h: Math.PI / 2 });
+  const b = addSoldier(st, { team: 1, x: at.x + 40, z: at.z, h: -Math.PI / 2 });
+  b.brain.next = 1e9; a.brain.next = 1e9;
+  const eye = a.y + 1.62;
+  let hits = 0;
+  for (let k = 0; k < 20 && b.alive; k++) {
+    a.cool = 0; a.reload = 0; a.clip = 8;
+    const pitch = Math.atan2(b.y + 1.3 - (a.y + 1.62 - 0.08), 39.45);
+    const hp = b.hp;
+    shootRifle(st, a, Math.PI / 2, pitch, 3);
+    if (b.hp < hp) hits++;
+  }
+  assert.ok(hits > 0, 'forty metres and twenty rounds, and not one hit');
+  const ev = st.events.filter((e) => e.e === 'rf');
+  assert.ok(ev.length > 0 && ev.every((e) => e.tm === 0), 'no tracer for the rounds fired');
+  assert.ok(st.events.some((e) => e.e === 'wd' || e.e === 'kia'), 'a man hit did not bleed');
+  // A Sherman parked across the line: he cannot be seen, or hit, through it.
+  const c = addSoldier(st, { team: 1, x: at.x - 40, z: at.z });
+  const t = addBattery(st, { batteryId: 'sherman', team: 0, x: at.x - 20, z: at.z, heading: 0 });
+  st.tick++;
+  assert.ok(!clearLine(st, a.x, eye, a.z, c.x, c.y + 1.0, c.z), 'a man can be seen through a tank');
+  assert.ok(t.alive);
+});
+
+check('a man killed bleeds; a shell close by takes him apart; a tank runs him down', () => {
+  const { st, at } = infantryField();
+  const a = addSoldier(st, { team: 0, x: at.x, z: at.z });
+  woundSoldier(st, a, 30, { part: 3 });
+  assert.ok(a.alive && st.events.some((e) => e.e === 'wd' && e.i === a.id), 'a wound is not an event');
+  woundSoldier(st, a, 200, { part: 1 });
+  const kia = st.events.find((e) => e.e === 'kia' && e.i === a.id);
+  assert.ok(kia && !a.alive && kia.g === 0, 'a man shot dead is not reported dead');
+  const b = addSoldier(st, { team: 1, x: at.x + 3, z: at.z });
+  blastInfantry(st, b.x + 1, b.z, 0.356, 'shell');
+  const gone = st.events.find((e) => e.e === 'kia' && e.i === b.id);
+  assert.ok(gone && gone.g === 1, 'a fourteen-inch shell at his feet left him in one piece');
+  const c = addSoldier(st, { team: 1, x: at.x + 60, z: at.z });
+  c.brain.next = 1e9;
+  const t = addBattery(st, { batteryId: 'sherman', team: 0, x: c.x, z: c.z - 6, heading: 0 });
+  t.speed = 4; t.drive = { th: 1, st: 0 }; t.ctl = 1;
+  for (let i = 0; i < 30 * 4 && c.alive; i++) step(st, 1 / 30);
+  assert.ok(!c.alive, 'a man stood in front of a Sherman doing four metres a second is still standing');
+});
+
+check('a Higgins boat on the beach puts her soldiers ashore over the ramp, and they are on their feet', () => {
+  const { st, s } = beachRun('higgins');
+  const carried = s.troops;
+  assert.ok(carried > 0, 'she sailed empty');
+  for (let t = 0; t < 1200 && !s.rampDown; t += 1 / 30) step(st, 1 / 30);
+  assert.ok(s.rampDown, 'she never beached');
+  for (let i = 0; i < 30 * 30; i++) step(st, 1 / 30);
+  assert.equal(s.troops, 0, 'men are still in her well');
+  const men = st.soldiers.filter((q) => q.team === s.team);
+  assert.equal(men.length, carried, `${men.length} of her ${carried} men came ashore`);
+  assert.ok(men.every((q) => footing(st.world, q.x, q.z) > -1.3), 'a man went ashore into deep water');
+});
+
+check('a player takes a soldier, walks him, and hands him back to himself', () => {
+  const { st, at } = infantryField();
+  const s = addSoldier(st, { team: 0, x: at.x, z: at.z, h: 0 });
+  assert.ok(commandSoldier(st, s, 7));
+  const x0 = s.x, z0 = s.z;
+  driveSoldier(st, s, { mx: 0, mz: 1, yaw: Math.PI / 2, pitch: 0, sp: true, cr: false, jp: 0 });
+  for (let i = 0; i < 60; i++) step(st, 1 / 30);
+  const moved = Math.hypot(s.x - x0, s.z - z0);
+  assert.ok(moved > 2 || s.brain.stuck > 0, `he went ${moved.toFixed(1)} m in two seconds of sprinting`);
+  assert.ok(s.x - x0 > Math.abs(s.z - z0) || s.brain.stuck > 0, 'he did not go the way he was looking');
+  driveSoldier(st, s, { mx: 0, mz: 0, yaw: 0, pitch: 0, cr: true, jp: 1 });
+  step(st, 1 / 30);
+  assert.ok(s.air || s.vy !== 0 || st.events.some((e) => e.e === 'jump'), 'he did not jump');
+  assert.ok(!s.ctl || commandSoldier(st, s, 0));
+  assert.equal(s.ctl, 0, 'he was not handed back');
+  assert.ok(!commandSoldier(st, s, 0) || s.ctl === 0);
+});
+
+check('two sides of riflemen fight it out, and each side learns from it', () => {
+  const { st, at } = infantryField();
+  addBarracks(st, { team: 0, x: at.x - 110, z: at.z, h: Math.PI / 2 });
+  addBarracks(st, { team: 1, x: at.x + 110, z: at.z, h: -Math.PI / 2 });
+  const before = JSON.stringify(doctrineOut(st, 0).q);
+  for (let i = 0; i < 30 * 90; i++) step(st, 1 / 30);
+  const dead = st.soldiers.filter((s) => !s.alive).length;
+  assert.ok(dead > 0, 'ninety seconds at two hundred metres and nobody hit');
+  assert.notEqual(JSON.stringify(doctrineOut(st, 0).q), before, 'the side learned nothing');
+  // What it learned survives being kept and given back.
+  const kept = doctrineOut(st, 0);
+  const st2 = createState(st.world, { mode: 'deathmatch' });
+  assert.ok(doctrineIn(st2, 0, JSON.parse(JSON.stringify(kept))));
+  assert.deepEqual(doctrineOut(st2, 0).q, kept.q);
+  const pooled = poolDoctrine(doctrineOut(st, 0), doctrineOut(st, 1));
+  assert.ok(pooled.lessons > 0 && pooled.q.length === kept.q.length);
+});
+
+check('the brief for Opus is plain, and its orders land only on squads it names of its own side', () => {
+  const { st, at } = infantryField();
+  addBarracks(st, { team: 0, x: at.x, z: at.z, h: 0 });
+  addBarracks(st, { team: 1, x: at.x + 300, z: at.z, h: 0 });
+  const brief = infantryBrief(st, 0);
+  assert.equal(brief.my_squads.length, 5);
+  assert.ok(JSON.stringify(brief).length < 12000, 'the brief is too long to send every half minute');
+  const n = orderSquads(st, 0, [
+    { squad: 1, order: 'flank_left', x: at.x + 100, z: at.z, posture: 'aggressive', reason: 'r' },
+    { squad: 6, order: 'advance', x: 0, z: 0 }, // the enemy's
+    { squad: 2, order: 'charge', x: 0, z: 0 }, // no such order
+  ], 'opus', 40, 'Fix them and go round');
+  assert.equal(n, 1);
+  assert.equal(st.inf.squads[0].order.k, 'flank_left');
+  assert.equal(st.inf.squads[0].order.from, 'opus');
+  assert.equal(st.inf.squads[0].posture, 'aggressive');
+  assert.equal(st.inf.squads[5].order.from, 'staff');
+});
+
+check('the soldier and his rifle are credited, and the barracks is on the plotting board', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(/skfb\.ly\/pI7S8[^]*American Soldier WW2[^]*Diplomattheftgun1945/.test(html), 'the soldier is not credited');
+  assert.ok(/skfb\.ly\/oPwXw[^]*M1 Garand Asset[^]*lennur/.test(html), 'the rifle is not credited');
+  const walls = html.indexOf('id="lay-walls"');
+  const huts = html.indexOf('id="lay-barracks"');
+  assert.ok(walls > 0 && huts > walls, 'the barracks button is not under the sea walls');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

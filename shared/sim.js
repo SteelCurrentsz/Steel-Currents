@@ -24,6 +24,7 @@ import {
   freshAirframe, hitAirframe, stepAirframe, airframeState, flightState,
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
+import { stepInfantry, blastInfantry } from './infantry.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa, mortarFlight, isTank, tankRoom,
 } from './batteries.js';
@@ -6082,6 +6083,9 @@ function groundStrength(soft) {
 export function landStrike(state, x, z, bore, kind = 'shell', filler = 1, inside = null) {
   const world = state.world;
   if (!world) return null;
+  // The men standing about where it came down, whether it was the beach or
+  // the shallows off it. See infantry.js.
+  if (state.inf) blastInfantry(state, x, z, bore, kind);
   // That was the sea -- unless it was the sea at the foot of a sea wall,
   // which takes a burst against its face as well as one on its walkway.
   if (groundHeight(world, x, z) <= 0.5 && !inside
@@ -17463,6 +17467,8 @@ export function step(state, dt = DT) {
   stepAirSpacing(state);
   stepMidAir(state);
   stepFallers(state, dt);
+  // The soldiers ashore, and the ones coming off the landing craft.
+  stepInfantry(state, dt, { hurtBattery });
   // The town burning, and the surf at the walls.
   if (state.world?.works) stepWorks(state.world, dt, state.events, worksDice(state));
   if (state.tick % 3 === 0) stepDetection(state);

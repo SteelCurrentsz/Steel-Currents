@@ -1,6 +1,7 @@
 // Wire format. Snapshots are fog-of-war filtered per team: you only ever
 // receive the enemies your side can actually see.
 
+import { soldierWire, barracksWire, squadWire } from './infantry.js';
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
@@ -643,6 +644,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     tick: state.tick,
     time: r1(state.t),
     ships, contacts, shells, torps, missiles, charges, mines, planes, batteries, bombers,
+    // The soldiers, as rows of numbers (see soldierWire), the barracks they
+    // came out of, and the orders this side's squads are under.
+    sd: state.inf ? soldierWire(state, team, ended) : undefined,
+    bk: state.inf?.barracks?.length ? barracksWire(state) : undefined,
+    sq: state.inf ? squadWire(state, team) : undefined,
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

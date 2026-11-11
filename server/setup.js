@@ -15,6 +15,7 @@ import { isTank } from '../shared/batteries.js';
 import { getClass } from '../shared/ships.js';
 import { isOpenSea } from '../shared/world.js';
 import { BOMBER_MAX } from '../shared/bombers.js';
+import { MAX_BARRACKS } from '../shared/infantry.js';
 
 /**
  * The berths off the order-of-battle chart, sanitised.
@@ -167,5 +168,16 @@ export function crewBattle(room, req, seat, limits = {}) {
   gunsFrom(req.enemyBombers, maxB).forEach((id, i) => {
     room.addBomberOnTeam(1 - team, id, enemyAir?.[i] ?? null);
   });
+  // The barracks off the chart, and the soldiers that fall in outside each
+  // one. Its side is the chart's: `a` is the captain's own (allied), anything
+  // else the enemy's. Out of sight of land there is nowhere to put one.
+  if (ashore && Array.isArray(layout.barracks)) {
+    for (const b of layout.barracks.slice(0, MAX_BARRACKS)) {
+      if (!b || !Number.isFinite(b.x) || !Number.isFinite(b.z)) continue;
+      room.addBarracksOnTeam(b.side === 'enemy' ? 1 - team : team, { x: b.x, z: b.z, h: b.h });
+    }
+  }
+  // And what soldiers have learned in battles before this one.
+  if (limits.doctrine) room.teachInfantry(limits.doctrine);
   return res;
 }

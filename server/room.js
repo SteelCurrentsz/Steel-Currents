@@ -13,6 +13,9 @@ import {
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
 import { buildSnapshot, scoreboard } from '../shared/protocol.js';
+import {
+  addBarracks, infantryOf, commandSoldier, driveSoldier, shootRifle, reloadRifle, doctrineIn, doctrineOut,
+} from '../shared/infantry.js';
 import { getClass, SHIP_ORDER, PLAYABLE } from '../shared/ships.js';
 import { setLamp } from '../shared/searchlights.js';
 import { setGroup, fleetCourse, membersOf, vectorFlight } from '../shared/groups.js';
@@ -261,6 +264,32 @@ export class Room {
    * A squadron of heavies on to the battlefield, on the course her commander
    * gave her on the order-of-battle chart.
    */
+  /**
+   * A barracks off the plotting board, on its side, and the fifty men who
+   * come out of it. See infantry.js.
+   */
+  addBarracksOnTeam(team, at) {
+    if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.z)) return null;
+    return addBarracks(this.state, { team, x: at.x, z: at.z, h: Number.isFinite(at.h) ? at.h : (team === 0 ? 0 : Math.PI) });
+  }
+
+  /**
+   * What the soldiers learned in earlier battles, given to both sides before
+   * this one starts (see `doctrine` in the constructor's options), and what
+   * they know now, to be kept for the next.
+   */
+  teachInfantry(saved) {
+    if (!saved) return;
+    infantryOf(this.state);
+    doctrineIn(this.state, 0, saved);
+    doctrineIn(this.state, 1, saved);
+  }
+
+  infantryLessons() {
+    if (!this.state.inf) return null;
+    return [doctrineOut(this.state, 0), doctrineOut(this.state, 1)];
+  }
+
   addBomberOnTeam(team, bomberId, at = null) {
     const half = this.state.world.half;
     const x = at && Number.isFinite(at.x) ? at.x : 0;
@@ -387,6 +416,9 @@ export class Room {
       const events = step(this.state, DT);
       if (events.length) this.dispatchEvents(events);
     }
+    // The infantry's commander, if it is Opus: it sends a brief when one is
+    // due and goes straight back to the battle. See server/opus.js.
+    if (this.commander && this.phase === 'battle') this.commander.tick(this);
     // Every other tick -- counted from the last one sent, not off the tick
     // number: a catch-up of an odd number of steps used to skip a snapshot
     // and leave a gap in every ship's track.
@@ -596,6 +628,26 @@ export class Room {
     // Like the orders above these are not his ship's, so a captain whose ship
     // has gone down can still fight the guns ashore -- which is much of what
     // there is left for him to do.
+    // A soldier of his own side taken over, walked, fired and handed back.
+    // See infantry.js.
+    if (msg.t === 'tsol' || msg.t === 'lsol' || msg.t === 'sdrive' || msg.t === 'sfire' || msg.t === 'sreload') {
+      const s = (this.state.soldiers || []).find((q) => q.id === msg.i);
+      if (!s || s.team !== ship.team || !s.alive) return;
+      if (msg.t === 'tsol') {
+        for (const b of this.state.batteries) if (b.ctl === ship.id) commandBattery(this.state, b, 0);
+        if (!commandSoldier(this.state, s, ship.id)) player.send({ t: 'nosol', i: s.id, why: 'taken' });
+        return;
+      }
+      if (s.ctl !== ship.id) return;
+      if (msg.t === 'lsol') commandSoldier(this.state, s, 0);
+      else if (msg.t === 'sdrive') driveSoldier(this.state, s, msg);
+      else if (msg.t === 'sreload') reloadRifle(this.state, s);
+      else {
+        const yaw = Number(msg.yaw), pitch = Number(msg.pitch);
+        if (Number.isFinite(yaw) && Number.isFinite(pitch)) shootRifle(this.state, s, yaw, Math.max(-1.2, Math.min(1.2, pitch)), 1.6);
+      }
+      return;
+    }
     if (msg.t === 'tbat' || msg.t === 'lbat' || msg.t === 'bpin' || msg.t === 'btgt' || msg.t === 'bfire'
       || msg.t === 'btrain' || msg.t === 'tdrive') {
       const bat = this.state.batteries.find((b) => b.id === msg.i);

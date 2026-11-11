@@ -28,3 +28,4 @@ DerivedData/
 *.apk
 *.aab
 client/__*.html
+server/data/

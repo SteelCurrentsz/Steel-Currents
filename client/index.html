@@ -488,6 +488,12 @@
       <p class="credit">"<a href="https://skfb.ly/owIX6" target="_blank" rel="noopener">US Marine Landing Craft Utility</a>"
         by LM3D is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pI7S8" target="_blank" rel="noopener">American Soldier WW2</a>"
+        by Diplomattheftgun1945 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oPwXw" target="_blank" rel="noopener">M1 Garand Asset</a>"
+        by lennur is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
     </div>
     <footer class="panel-foot">
       <button class="btn ghost" data-action="back">Back</button>
@@ -918,6 +924,26 @@
     <button class="human-jump" id="human-jump" type="button">Jump</button>
     <button class="gun-leave" id="human-leave" type="button">Leave human view</button>
   </div>
+  <!-- A soldier in hand: the stick walks him, the drag aims, and the keys
+       fire, crouch, sprint, jump and reload. See troops.js. -->
+  <div class="lamp-sight sol-sight" id="sol-sight" hidden>
+    <div class="gun-cross" aria-hidden="true">
+      <i class="gp"></i>
+      <span class="gt gt-u"></span><span class="gt gt-d"></span>
+      <span class="gt gt-l"></span><span class="gt gt-r"></span>
+    </div>
+    <p class="lamp-name" id="sol-name">Rifleman</p>
+    <p class="bat-read" id="sol-read"></p>
+    <div class="sol-keys">
+      <button class="sol-key" id="sol-crouch" type="button">Crouch</button>
+      <button class="sol-key" id="sol-sprint" type="button">Sprint</button>
+      <button class="sol-key" id="sol-jump" type="button">Jump</button>
+      <button class="sol-key" id="sol-reload" type="button">Reload</button>
+    </div>
+    <button class="gun-fire" id="sol-fire" type="button">Fire</button>
+    <button class="gun-leave" id="sol-leave" type="button">Leave soldier</button>
+  </div>
+  <div class="sol-blood" id="sol-blood" aria-hidden="true"></div>
   <!-- At the guns of a battery ashore. The view is the sight: drag it, and
        the guns are laid on whatever is under the crosshair -- a ship by name,
        anything else as a point -- and fired on the key. A ship, a town or a
@@ -1023,6 +1049,16 @@
     <div class="lay-work">
       <button class="btn ghost" id="lay-walls" type="button" title="Build sea walls: press, then tap by the shore">+ Sea Walls</button>
       <button class="lay-x" id="lay-walls-x" type="button" aria-label="Take away the last sea walls" title="Take away the last sea walls" hidden>&times;</button>
+    </div>
+    <!-- Barracks: press, then tap the chart on land, and fifty soldiers fall
+         in outside it. Tap a barracks to change whose it is. -->
+    <div class="lay-work">
+      <button class="btn ghost" id="lay-barracks" type="button" title="Put a barracks down: press, then tap anywhere on land. Fifty soldiers each.">+ Barracks</button>
+      <button class="lay-x" id="lay-barracks-x" type="button" aria-label="Take away the last barracks" title="Take away the last barracks" hidden>&times;</button>
+    </div>
+    <div class="lay-work lay-side" id="lay-barracks-side" hidden>
+      <button class="btn ghost on" id="lay-barracks-ally" type="button" title="New barracks are allied">Allied</button>
+      <button class="btn ghost" id="lay-barracks-enemy" type="button" title="New barracks are enemy">Enemy</button>
     </div>
   </div>
   <p id="lay-hint" class="deploy-hint"></p>

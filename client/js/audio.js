@@ -319,6 +319,18 @@ export class Audio {
     }
   }
 
+  /** A rifle going off ashore; `mg` a tank's machine gun instead. */
+  rifle(at = null, mg = false) {
+    if (mg) this.play('rattle', at, { level: 0.22, ref: 45, rate: 1.25 });
+    else this.play('rifle', at, { level: 0.42, ref: 40 });
+  }
+
+  /** The Garand's clip flying out, empty. Only heard close to. */
+  ping(at = null) { this.play('ping', at, { level: 0.35, ref: 6 }); }
+
+  /** A round going into a man. Only heard close to. */
+  flesh(at = null) { this.play('flesh', at, { level: 0.5, ref: 8 }); }
+
   /**
    * The light battery firing at aircraft: the automatic guns going in short
    * bursts, as many rounds as there are barrels on her, about, or the heavy

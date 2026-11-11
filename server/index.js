@@ -14,6 +14,8 @@ import { MAP_PRESETS } from '../shared/world.js';
 import { cleanAsk } from '../shared/works.js';
 import { SHIP_CLASSES, SHIP_ORDER } from '../shared/ships.js';
 import { crewBattle } from './setup.js';
+import { OpusCommander, opusWanted } from './opus.js';
+import { poolDoctrine } from '../shared/infantry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -257,8 +259,34 @@ function removeRoom(room) {
   broadcastLobby();
 }
 
+// What the soldiers have learned, battle after battle: each side's table of
+// which drills paid off (see infantry.js), pooled and kept on disk, and handed
+// to both sides at the start of the next battle.
+const DOCTRINE_FILE = process.env.STEEL_DOCTRINE || path.join(__dirname, 'data', 'doctrine.json');
+let doctrine = null;
+try { doctrine = JSON.parse(fs.readFileSync(DOCTRINE_FILE, 'utf8')); } catch { doctrine = null; }
+
+function keepLessons(room) {
+  const lessons = room.infantryLessons?.();
+  if (!lessons) return;
+  doctrine = poolDoctrine(doctrine, poolDoctrine(lessons[0], lessons[1]));
+  try {
+    fs.mkdirSync(path.dirname(DOCTRINE_FILE), { recursive: true });
+    fs.writeFileSync(DOCTRINE_FILE, JSON.stringify(doctrine));
+  } catch (err) {
+    console.warn('could not keep the infantry\'s lessons:', err.message);
+  }
+}
+
+// Opus in command of the infantry, where the server has been given a key.
+const OPUS = opusWanted();
+if (OPUS) console.log('Infantry commanded by Claude Opus 5.5 (see server/opus.js)');
+
 function createRoom(opts) {
-  const room = new Room({ ...opts, onEmpty: removeRoom });
+  const room = new Room({ ...opts, onEmpty: (r) => { keepLessons(r); removeRoom(r); } });
+  if (OPUS) {
+    try { room.commander = new OpusCommander(); } catch (err) { console.warn('Opus commander not started:', err.message); }
+  }
   rooms.set(room.id, room);
   return room;
 }
@@ -366,7 +394,7 @@ function handle(player, msg) {
       crewBattle(room, msg, (at) => {
         const res = joinRoom(player, room, msg, at);
         return res?.error ? { error: res.error } : { team: player.team };
-      });
+      }, { doctrine });
       room.start();
       break;
     }
