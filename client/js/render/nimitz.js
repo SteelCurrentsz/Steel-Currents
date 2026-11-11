@@ -20,10 +20,17 @@
 //
 //   * her Phalanx, Sea Sparrow and RAM, each the model's own, each training:
 //     a launcher swings onto the bearing of what it is firing at;
-//   * her hangar, and her armour and her interior, fitted to her own lines;
-//   * her deck cycle: a Hornet or a Hawkeye taxis to a bow catapult and is
-//     shot off it, a Seahawk lifts off the deck forward of her island, and
-//     coming home each comes down on her deck and is taken below.
+//   * her hangar, on the deck her hangar doors open onto, with the four doors
+//     cut through its sides; and her armour and her interior, fitted to her
+//     own lines;
+//   * her four lifts, the model's own plates, which run between her flight
+//     deck and her hangar deck;
+//   * her deck cycle: an aeroplane is towed out of the hangar onto a lift and
+//     brought up; a Hornet or a Hawkeye taxis off it to a bow catapult and is
+//     shot off, and a Seahawk is towed to the spot abreast the island and goes
+//     straight up off it. Coming home a jet traps, taxis aft onto an after
+//     lift and goes down; a Seahawk comes straight down onto the spot and is
+//     towed to a lift. Each is towed in through the door.
 //
 // Local frame, as everywhere else: +Z is the bow, +Y is up, y = 0 is the
 // waterline, and starboard is -X.
@@ -38,7 +45,7 @@ import { box, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
 import { f18, e2d, sh60 } from './planekit.js';
 import {
-  NIMITZ_HULL_B64, NIMITZ_SURFACE, NIMITZ_DECK, NIMITZ_ISLAND, NIMITZ_GUNS, NIMITZ_MOUNTS, NIMITZ_LINES,
+  NIMITZ_HULL_B64, NIMITZ_SURFACE, NIMITZ_DECK, NIMITZ_ISLAND, NIMITZ_GUNS, NIMITZ_MOUNTS, NIMITZ_LINES, NIMITZ_LIFTS,
 } from './nimitzHull.data.js';
 
 const CLS = SHIP_CLASSES.nimitz;
@@ -162,11 +169,17 @@ function platingAt(z, y) {
 
 /** Her flight deck. */
 export const FD = NIMITZ_DECK.y;
-/** Her hangar deck, and its deckhead: one hangar, seven and a half metres high. */
-export const HANGAR = 12.1;
+/**
+ * Her hangar deck, and its deckhead: one hangar, eight metres high, on the
+ * deck the model's hangar doors open onto. It runs from abaft her after lifts
+ * to where her bow closes in on it.
+ */
+export const HANGAR = 7.4;
 const HANGAR_TOP = FD - 2.6;
-const HANGAR_Z = [-100, 90];
-const HANGAR_HW = 14.0;
+const HANGAR_Z = [-121, 62];
+const HANGAR_HW = 18.3;
+/** The head of her hangar doors, as the model has them. */
+const DOOR_TOP = 15.8;
 
 function hangarHalf(z, y0, y1) {
   let plating = Infinity;
@@ -179,7 +192,14 @@ function hangarHalf(z, y0, y1) {
   return Math.max(0.5, Math.min(HANGAR_HW, plating - 1.2));
 }
 
-/** Her hangar: its deck, its deckhead, its sides and ends, and its frames. */
+/** The hangar door on her `side` (-1 starboard, +1 port) that z is in, if any. */
+const doorAt = (side, z, margin = 0) => LIFTS.find((l) => l.side === side
+  && Math.abs(z - l.door.z) < l.door.hd + margin);
+
+/**
+ * Her hangar: its deck, its deckhead, its sides and ends, and its frames, and
+ * her four hangar doors opened through its sides to her lifts.
+ */
 function hangar(g) {
   const [z0, z1] = HANGAR_Z;
   const y0 = HANGAR, y1 = HANGAR_TOP;
@@ -187,14 +207,20 @@ function hangar(g) {
   const N = 70;
   sheet(g, M.deckSteel, z0, z1, half, () => y0, N).userData.inside = true;
   sheet(g, M.steelDark, z0, z1, half, () => y1, N, false).userData.inside = true;
+  // Her sides, cut at every door jamb: under a door's head there is no side.
+  const zs = [];
+  for (let i = 0; i <= N; i++) zs.push(z0 + ((z1 - z0) * i) / N);
+  for (const l of LIFTS) zs.push(l.door.z - l.door.hd, l.door.z + l.door.hd);
+  zs.sort((a, b) => a - b);
   for (const out of [1, -1]) {
     const w = strip();
-    for (let i = 0; i < N; i++) {
-      const za = z0 + ((z1 - z0) * i) / N;
-      const zb = z0 + ((z1 - z0) * (i + 1)) / N;
+    for (let i = 0; i + 1 < zs.length; i++) {
+      const za = zs[i], zb = zs[i + 1];
+      if (zb - za < 1e-3 || za < z0 || zb > z1) continue;
       for (const sgn of [-1, 1]) {
-        w.quad([sgn * half(za), y0, za], [sgn * half(za), y1, za],
-          [sgn * half(zb), y1, zb], [sgn * half(zb), y0, zb], [sgn * out, 0, 0]);
+        const foot = doorAt(sgn, (za + zb) / 2) ? DOOR_TOP : y0;
+        w.quad([sgn * half(za), foot, za], [sgn * half(za), y1, za],
+          [sgn * half(zb), y1, zb], [sgn * half(zb), foot, zb], [sgn * out, 0, 0]);
       }
     }
     const m = w.mesh(g, out > 0 ? M.steel : M.hangar);
@@ -212,6 +238,7 @@ function hangar(g) {
   for (let z = z0 + 4; z < z1 - 2; z += 5) {
     const w = half(z);
     for (const sgn of [-1, 1]) {
+      if (doorAt(sgn, z, 0.4)) continue;
       box(g, M.steelDark, 0.3, y1 - y0, 0.4, sgn * (w - 0.17), (y0 + y1) / 2, z).userData.inside = true;
     }
     box(g, M.steelDark, w * 2 - 0.4, 0.34, 0.3, 0, y1 - 0.2, z).userData.inside = true;
@@ -220,6 +247,19 @@ function hangar(g) {
   for (const z of [z0 + (z1 - z0) / 3, z0 + (2 * (z1 - z0)) / 3]) {
     const w = half(z) - 0.3;
     box(g, M.canvas, w * 2, 0.6, 0.3, 0, y1 - 0.5, z).userData.inside = true;
+  }
+  // Each door out through her side: its sill, its jambs and its head, from
+  // the hangar's side out to her plating.
+  for (const l of LIFTS) {
+    const { z, hd } = l.door;
+    const w = half(z);
+    const out = Math.abs(l.door.x) + 0.3;
+    const mid = (w + out) / 2, thick = out - w + 0.2;
+    box(g, M.deckSteel, thick, 0.12, 2 * hd, l.side * mid, y0 - 0.06, z).userData.inside = true;
+    box(g, M.hangar, thick, 0.25, 2 * hd, l.side * mid, DOOR_TOP + 0.12, z).userData.inside = true;
+    for (const e of [-1, 1]) {
+      box(g, M.hangar, thick, DOOR_TOP - y0, 0.25, l.side * mid, (y0 + DOOR_TOP) / 2, z + e * hd).userData.inside = true;
+    }
   }
 }
 
@@ -339,44 +379,61 @@ function launchers(g) {
   });
 }
 
+// ------------------------------------------------------------- her lifts --
+
+/**
+ * Her four lifts, as the model has them (see build/prepare-nimitz-hull.mjs):
+ * a plate out beyond her deck edge, sixteen metres by twenty-seven, that
+ * runs between her flight deck and her hangar deck. Each faces one of her
+ * hangar doors, a little abaft it, and the door is what an aeroplane is
+ * taken through between the lift and the hangar.
+ */
+export const LIFTS = NIMITZ_LIFTS.map((l, i) => ({
+  ...l, i, side: Math.sign(l.x),
+  // Her hangar door: a little forward of the lift's middle, as the model has it.
+  door: { z: l.z - 2.1, hd: 10.6, x: Math.sign(l.x) * 19.3 },
+}));
+/** How far a lift runs: from her flight deck down to her hangar deck. */
+export const LIFT_DROP = FD - HANGAR;
+/** How long a lift takes to run its length, in seconds. */
+const LIFT_T = 3.4;
+
+/** Her four lifts: each a group of its own, its plate the model's and a grillage under it. */
+function elevators(g) {
+  const m = nimitzMaterials();
+  return LIFTS.map((l) => {
+    const lift = new THREE.Group();
+    lift.position.set(l.x, FD, l.z);
+    lift.userData.dynamic = true;
+    g.add(lift);
+    lift.add(new THREE.Mesh(decodePiece(l.piece), m.deck));
+    // The platform under the plate, and its girders.
+    box(lift, M.steelDark, 2 * l.hw - 0.3, 0.55, 2 * l.hd - 0.3, 0, -0.3, 0);
+    for (let k = -3; k <= 3; k++) box(lift, M.steel, 0.3, 0.3, 2 * l.hd - 1.2, k * (l.hw - 1) / 3, -0.72, 0);
+    box(lift, M.steel, 2 * l.hw - 0.8, 0.3, 0.4, 0, -0.72, 0);
+    mergeStatic(lift);
+    return { group: lift, y: FD, want: FD, rate: LIFT_DROP / LIFT_T, by: null, spec: l };
+  });
+}
+
 // ------------------------------------------------------------ deck cycle --
 
 /** Her two bow catapults: where each starts, across, and how long its stroke is. */
 const CATS = [{ x: -5.2, z: 72 }, { x: 6.4, z: 74 }];
 const STROKE = 92;
-/** Where her aircraft come out onto the deck: off her forward lifts, abaft the catapults. */
-const PARK = { x: -27, z: 22 };
-/** Where a Seahawk lifts off from, forward of her island. */
-const HELO = { x: -8, z: 4 };
+/** Where a Seahawk lifts off and comes down: her deck abreast the island, on her centreline. */
+export const HELO = { x: 0, z: 2 };
+/** How high a Seahawk hovers over the spot before she goes. */
+export const HELO_RISE = 18;
 /** Where they come down coming home: up her deck from the round-down. */
 const LAND = { x: 0, z: -138 };
-/** The machine each of her roles is (see her `types`). */
+/** The machine each of her roles is, when the order does not say (see her `types`). */
 const KIND_OF = { fighter: 'f18', dive: 'f18', torpedo: 'sh60', aew: 'e2d' };
 const ON = 0.04;
-
-/** The aeroplane on her deck: one of each of her three types, the ones not in use put out of sight. */
-function deckAircraft(g) {
-  const plane = new THREE.Group();
-  plane.userData.dynamic = true;
-  g.add(plane);
-  const kinds = {
-    f18: f18(plane, 0, 0, 0, 0, false, {}),
-    e2d: e2d(plane, 0, 0, 0, 0, false, {}),
-    sh60: sh60(plane, 0, 0, 0, 0, false, {}),
-  };
-  const out = { group: plane, kinds, role: 'fighter', kind: 'f18' };
-  out.pick = (role) => {
-    const k = KIND_OF[role] || 'f18';
-    for (const [n, v] of Object.entries(kinds)) v.visible = n === k;
-    out.role = role;
-    out.kind = k;
-    out.body = kinds[k];
-    out.gear = kinds[k].userData.gear;
-    out.turn = kinds[k].userData.turn;
-  };
-  out.pick('fighter');
-  return out;
-}
+/** Which of her lifts each evolution would rather have, in order. */
+const PREFER = {
+  launch: [0, 1], heloLaunch: [1, 0], recover: [2, 3, 1], heloRecover: [1, 2, 0],
+};
 
 /**
  * A catapult shot, in the evolution's own seconds from the flag: the stroke,
@@ -395,118 +452,329 @@ function shot(k) {
   const e = k - CAT_T;
   return { s: STROKE + v * e, h: 2.5 * e * e + 1.2 * e, pitch: Math.min(0.16, 0.07 + 0.2 * e), v };
 }
+/** How long a Seahawk takes to go straight up from the spot to her hover. */
+const RISE_T = 3.2;
 
 /**
- * Her deck cycle. A launch brings a Hornet or a Hawkeye out onto the deck off
- * her forward lifts; she taxis round onto whichever catapult is next, the
- * shuttle takes her, she runs up against the holdback, and the catapult
- * throws her off the bow. A Seahawk winds her rotor up forward of the
- * island, lifts, and goes away low ahead of the ship. Coming home, each comes
- * down on her deck aft -- the jets into the wires -- and is taken below.
+ * Each evolution as its phases, each [name, seconds]. What is flown -- the
+ * catapult shot, the Seahawk's climb -- takes the time it takes; what is
+ * handled is played at whatever pace fits the time the deck has been given.
+ */
+const PLANS = {
+  launch: [['down', LIFT_T], ['out', 2.2], ['up', LIFT_T], ['taxi', 5.2], ['hold', 1.6]],
+  heloLaunch: [['down', LIFT_T], ['out', 2.2], ['up', LIFT_T], ['tow', 3.6], ['spin', 2.6]],
+  recover: [['roll', 2.2], ['taxi', 6.4], ['down', LIFT_T], ['in', 2.4]],
+  heloRecover: [['spin', 3.0], ['tow', 3.6], ['down', LIFT_T], ['in', 2.4]],
+};
+/** Which phase of `plan` she is in at `k` seconds, played over `total` seconds. */
+function phaseAt(plan, k, total) {
+  const sum = plan.reduce((s, [, d]) => s + d, 0);
+  const f = total ? total / sum : 1;
+  let at = 0;
+  for (const [name, d] of plan) {
+    const len = d * f;
+    if (k < at + len) return { name, u: (k - at) / len, len };
+    at += len;
+  }
+  return { name: 'done', u: 1, len: 0, over: k - at };
+}
+
+/** A cubic from a to d through b and c, as `n` points. */
+function cubic(a, b, c, d, n = 24) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, v = 1 - u;
+    out.push([0, 1].map((k) => v * v * v * a[k] + 3 * v * v * u * b[k] + 3 * v * u * u * c[k] + u * u * u * d[k]));
+  }
+  return out;
+}
+/** Half a turn about (cx, cz), from angle a0 to a1 (radians off +z), radius r, as points. */
+function arc(cx, cz, r, a0, a1, n = 16) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + ((a1 - a0) * i) / n;
+    out.push([cx + Math.sin(a) * r, cz + Math.cos(a) * r]);
+  }
+  return out;
+}
+/**
+ * A taxiway through `pts`, walked by how far along it she is: where she is
+ * at fraction `u` of its length, and which way it runs there.
+ */
+function taxiway(pts) {
+  const run = [0];
+  for (let i = 1; i < pts.length; i++) run.push(run[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const len = run[run.length - 1] || 1;
+  return (u) => {
+    const s = clamp(u, 0, 1) * len;
+    let i = 1;
+    while (i < pts.length - 1 && run[i] < s) i++;
+    const a = pts[i - 1], b = pts[i];
+    const f = (s - run[i - 1]) / ((run[i] - run[i - 1]) || 1);
+    return { x: a[0] + (b[0] - a[0]) * f, z: a[1] + (b[1] - a[1]) * f, yaw: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+  };
+}
+/** Easing from one heading to another the short way round. */
+function turnTo(a, b, k) {
+  const d = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  return a + d * ease(k);
+}
+
+/**
+ * The way she goes over the deck, for an evolution on lift `l`. Out to a
+ * catapult, she taxis forward off the lift and swings in onto the track. A
+ * Seahawk is towed between the lift and the spot. Home from a trap a jet
+ * has rolled out up her centreline: she turns about -- to starboard for a
+ * starboard lift, to port for the port one -- runs aft clear of the island,
+ * and comes onto the lift nose aft.
+ */
+function routeFor(a, l) {
+  if (a.plan === 'launch') {
+    const cat = CATS[a.cat || 0];
+    return taxiway(cubic([l.x, l.z], [l.x, l.z + 16], [cat.x, cat.z - 22], [cat.x, cat.z]));
+  }
+  if (a.plan === 'heloLaunch') {
+    return taxiway(cubic([l.x, l.z], [l.x - l.side * 10, l.z], [HELO.x, HELO.z - 12], [HELO.x, HELO.z]));
+  }
+  if (a.plan === 'heloRecover') {
+    return taxiway(cubic([HELO.x, HELO.z], [HELO.x, HELO.z - 10], [l.x - l.side * 10, l.z], [l.x, l.z]));
+  }
+  // Rolled out to here, nose forward: round about onto a lane eight metres
+  // off her centreline, aft down it, and out onto the lift.
+  const x0 = LAND.x, z0 = LAND.z + 95;
+  const s = l.side;
+  const R = 4;
+  const turn = [];
+  for (let i = 0; i <= 16; i++) {
+    const t = (Math.PI * i) / 16;
+    turn.push([x0 + s * R - s * R * Math.cos(t), z0 + R * Math.sin(t)]);
+  }
+  const lane = x0 + 2 * s * R;
+  return taxiway([...turn, ...cubic([lane, l.z + 24], [lane, l.z + 10], [l.x, l.z + 10], [l.x, l.z])]);
+}
+
+/** Where an aeroplane stands in her hangar, waiting at the door of lift `l`. */
+const inHangar = (l) => ({ x: l.side * 12.5, z: l.door.z });
+
+/**
+ * An aeroplane of one of her three types, for the deck to use: taken from
+ * those she has drawn already and not in use, or drawn now.
+ */
+function machine(deck, kind) {
+  const pool = deck.pool[kind] || (deck.pool[kind] = []);
+  let m = pool.find((x) => !x.busy);
+  if (!m) {
+    const make = { f18, e2d, sh60 }[kind];
+    m = { body: make(deck.planes, 0, 0, 0, 0, false, {}), busy: false, kind };
+    pool.push(m);
+  }
+  m.busy = true;
+  m.body.visible = true;
+  return m;
+}
+function release(m) {
+  if (!m) return;
+  m.busy = false;
+  m.body.visible = false;
+}
+/** The first of the lifts `which` that nobody else has. */
+function claimLift(deck, which, actor) {
+  const i = which.find((n) => !deck.lifts[n].by) ?? which[0];
+  const l = deck.lifts[i];
+  if (l.by && l.by !== actor) l.by.lift = null;
+  l.by = actor;
+  return l;
+}
+
+/**
+ * Everything her deck is doing: what each aeroplane on it is doing, and her
+ * lifts doing what those aeroplanes want of them.
+ *
+ * Each launch and each recovery is an aeroplane of her own with its own
+ * clock. A launch comes up from the hangar on a forward lift: she is towed
+ * out through the hangar door onto it, it brings her up flush with the
+ * flight deck, and she taxis off it onto whichever catapult is next and is
+ * shot off the bow; a Seahawk is towed off it to the spot abreast the island,
+ * winds her rotor up, and goes straight up. Coming home a jet traps, rolls
+ * out, and taxis round the island onto an after lift; a Seahawk comes straight
+ * down onto the spot, her rotor runs down, and she is towed to the lift. The
+ * lift takes each down and she is towed in through the door, and the lift
+ * comes up empty. Two can be at it at once -- one going down aft while the
+ * next comes in to land -- and each has her own lift.
  */
 export function stepDeck(deck, t) {
   if (!deck) return;
-  const { plane } = deck;
   const dt = Math.max(0, Math.min(0.5, t - (deck.lastT ?? t)));
   deck.lastT = t;
+  deck.dt = dt;
   for (const l of deck.launchers || []) {
     if (l.hold > 0) l.hold -= dt;
     else l.want = l.rest;
     const d = Math.atan2(Math.sin(l.want - l.group.rotation.y), Math.cos(l.want - l.group.rotation.y));
     l.group.rotation.y += clamp(d, -2.2 * dt, 2.2 * dt);
   }
-  if (!plane) return;
-  const p = plane.group;
-  if (deck.owner && p.parent !== deck.owner) return;
-  const helo = plane.kind === 'sh60';
-  const turn = (rate) => plane.turn && plane.turn(rate * dt);
+  const lifts = deck.lifts || [];
+  // A lift nobody wants comes back up flush with the deck.
+  for (const l of lifts) { if (!l.by) { l.want = FD; l.rate = LIFT_DROP / LIFT_T; } }
+  for (const a of deck.actors || []) poseActor(deck, a, t, true);
+  for (const l of lifts) {
+    l.y += clamp(l.want - l.y, -l.rate * dt, l.rate * dt);
+    l.group.position.y = l.y;
+  }
+  for (const a of deck.actors || []) poseActor(deck, a, t, false);
+  if (deck.actors) deck.actors = deck.actors.filter((a) => !a.done);
+}
 
-  if (deck.landAt != null) {
-    const k = t - deck.landAt;
-    p.visible = true;
-    if (helo) {
-      // Down onto the deck aft, her rotor still turning, and below.
-      const h = Math.max(0, 12 * (1 - k / 3));
-      p.position.set(LAND.x, FD + ON + h, LAND.z + 30);
-      p.rotation.set(0, 0, 0);
-      turn(30 * Math.max(0, 1 - (k - 3) / 4));
-      if (k > 6) { deck.landAt = null; deck.stowed = true; p.visible = false; }
+/**
+ * One aeroplane's evolution at time `t`. Called twice a frame: first only to
+ * say what she wants of her lift (`plan`), and then, with the lift moved, to
+ * put her where she is.
+ */
+function poseActor(deck, a, t, plan) {
+  const k = t - a.t0;
+  const helo = a.kind === 'sh60';
+  const flown = a.plan === 'launch' ? CAT_T + OFF_T : a.plan === 'heloLaunch' ? RISE_T : 0;
+  const ph = phaseAt(PLANS[a.plan], k, a.dur ? Math.max(1, a.dur - flown) : 0);
+  const L = a.lift;
+  const l = a.spec;
+  const mine = L && L.by === a;
+  const free = () => { if (mine) L.by = null; a.lift = null; };
+  if (plan) {
+    if (!mine) return;
+    // Down for her, or with her; up with her, or waiting up for her.
+    if (ph.name === 'down' || ph.name === 'out' || ph.name === 'in') {
+      L.want = HANGAR; L.rate = LIFT_DROP / Math.max(0.8, ph.name === 'down' ? ph.len : LIFT_T);
+    } else if (ph.name === 'up') {
+      L.want = FD; L.rate = LIFT_DROP / Math.max(0.8, ph.len);
+    } else if (ph.name === 'done' || ph.name === 'hold' || ph.name === 'spin' && a.plan === 'heloLaunch') {
+      free();
     } else {
-      // Into the wires: a hundred metres from a hundred and thirty knots to
-      // nothing in two seconds, and then off the landing area to starboard.
-      const ROLL = 2.2;
-      let z, x = LAND.x, yaw = 0;
-      if (k < ROLL) { const u = k / ROLL; z = LAND.z + 95 * (1 - (1 - u) * (1 - u)); } else {
-        const u = ease((k - ROLL) / 6);
-        z = LAND.z + 95 + 40 * u;
-        x = LAND.x - 22 * u;
-        yaw = -0.5 * Math.sin(Math.PI * u);
-      }
-      if (plane.gear) plane.gear(0);
-      p.position.set(x, FD + ON, z);
-      p.rotation.set(0, yaw, 0);
-      turn(8);
-      if (k > ROLL + 6) { deck.landAt = null; deck.stowed = true; p.visible = false; }
+      L.want = FD; L.rate = LIFT_DROP / LIFT_T;
     }
     return;
   }
-  if (deck.launchAt == null || deck.airborne) {
-    if (deck.stowed || deck.airborne) p.visible = false;
+  const p = a.m.body;
+  const turn = (rate) => p.userData.turn(rate * deck.dt);
+  const onLift = () => (mine ? L.y : FD) + ON;
+  const hold = inHangar(l);
+  p.userData.gear(0);
+  p.rotation.set(0, 0, 0);
+  a.route ||= routeFor(a, l);
+  if (a.plan === 'launch' || a.plan === 'heloLaunch') {
+    if (ph.name === 'down') {
+      p.position.set(hold.x, HANGAR + ON, hold.z);
+      return;
+    }
+    if (ph.name === 'out') {
+      const u = ease(ph.u);
+      p.position.set(hold.x + (l.x - hold.x) * u, onLift(), hold.z + (l.z - hold.z) * u);
+      return;
+    }
+    if (ph.name === 'up') {
+      p.position.set(l.x, onLift(), l.z);
+      return;
+    }
+    if (ph.name === 'taxi' || ph.name === 'tow') {
+      const w = a.route(ease(ph.u));
+      p.position.set(w.x, FD + ON, w.z);
+      // A jet on her own power, nose down the taxiway; a Seahawk on her
+      // tractor, nose forward.
+      p.rotation.y = helo ? 0 : w.yaw;
+      if (ph.u > 0.35) free();
+      if (!helo) turn(6);
+      return;
+    }
+    free();
+    if (a.plan === 'heloLaunch') {
+      if (ph.name === 'spin') {
+        // Her rotor wound up on the spot.
+        p.position.set(HELO.x, FD + ON, HELO.z);
+        turn(30 * clamp(ph.u * 1.2, 0, 1));
+        return;
+      }
+      // Straight up off the spot to her hover, and there she is handed to the sky.
+      const e = Math.min(1, ph.over / RISE_T);
+      p.position.set(HELO.x, FD + ON + HELO_RISE * ease(e), HELO.z);
+      p.rotation.set(-0.04 * e, 0, 0);
+      turn(32);
+      if (ph.over >= RISE_T) done(deck, a, t);
+      return;
+    }
+    const cat = CATS[a.cat || 0];
+    if (ph.name === 'hold') {
+      // Held back against the shuttle at full power.
+      p.position.set(cat.x, FD + ON, cat.z);
+      p.rotation.set(-0.012 * Math.sin(k * 30), 0, 0);
+      turn(14);
+      return;
+    }
+    const s = shot(ph.over);
+    p.position.set(cat.x, FD + ON + s.h, cat.z + s.s);
+    p.rotation.set(-s.pitch, 0, 0);
+    p.userData.gear(ph.over > CAT_T ? Math.min(1, (ph.over - CAT_T) / 2) : 0);
+    turn(16);
+    if (ph.over >= CAT_T + OFF_T) done(deck, a, t);
     return;
   }
-  const dur = deck.dur ?? DECK_RUN;
-  const run = t - deck.launchAt;
-  const FLOWN = helo ? 3.2 : CAT_T + OFF_T;
-  const HANDLE = Math.max(1, dur - FLOWN);
-  if (run >= dur) {
+  // Coming home. Nose aft on an after lift and forward on a forward one, so
+  // she goes through the door sideways on her tractor, wings along it.
+  const park = helo ? 0 : (l.z < -60 ? Math.PI : 0);
+  if (ph.name === 'roll') {
+    // Into the wires: a hundred metres from a hundred and thirty knots to
+    // nothing in two seconds.
+    const u = ph.u;
+    p.position.set(LAND.x, FD + ON, LAND.z + 95 * (1 - (1 - u) * (1 - u)));
+    turn(8);
+    return;
+  }
+  if (ph.name === 'spin') {
+    // Down on the spot, her rotor running down.
+    p.position.set(HELO.x, FD + ON, HELO.z);
+    turn(30 * Math.max(0, 1 - ph.u));
+    return;
+  }
+  if (ph.name === 'taxi' || ph.name === 'tow') {
+    const w = a.route(ease(ph.u));
+    p.position.set(w.x, FD + ON, w.z);
+    p.rotation.y = helo ? 0 : ph.u < 0.8 ? w.yaw : turnTo(w.yaw, park, (ph.u - 0.8) / 0.2);
+    if (!helo) turn(5);
+    return;
+  }
+  if (ph.name === 'down') {
+    p.position.set(l.x, onLift(), l.z);
+    p.rotation.y = park;
+    return;
+  }
+  if (ph.name === 'in') {
+    const u = ease(ph.u);
+    p.position.set(l.x + (hold.x - l.x) * u, onLift(), l.z + (hold.z - l.z) * u);
+    p.rotation.y = park;
+    return;
+  }
+  free();
+  done(deck, a, t);
+}
+
+/** The end of an evolution: off the deck one way or the other, and her model put away. */
+function done(deck, a, t) {
+  if (a.done) return;
+  a.done = true;
+  if (a.lift && a.lift.by === a) a.lift.by = null;
+  release(a.m);
+  if (a === deck.current) {
     if (!deck.airborne) deck.airborneAt = t;
     deck.airborne = true;
-    p.visible = false;
-    return;
   }
-  p.visible = true;
-  if (plane.gear) plane.gear(0);
-  if (helo) {
-    // Her rotor wound up on the deck, then up and away ahead of the ship.
-    if (run < HANDLE) {
-      p.position.set(HELO.x, FD + ON, HELO.z);
-      p.rotation.set(0, 0, 0);
-      turn(30 * Math.min(1, run / Math.max(0.5, HANDLE * 0.8)));
-    } else {
-      const k = (run - HANDLE) / FLOWN;
-      const up = 14 * ease(Math.min(1, k * 1.6));
-      const fwd = 36 * k * k;
-      p.position.set(HELO.x * (1 - k), FD + ON + up, HELO.z + fwd);
-      p.rotation.set(-0.12 * k, 0, 0);
-      turn(32);
-    }
-    return;
-  }
-  const cat = CATS[deck.cat || 0];
-  if (run < HANDLE) {
-    // Out from the lift and round onto the catapult, then held back against
-    // the shuttle at full power.
-    const TAXI = HANDLE * 0.7;
-    if (run < TAXI) {
-      const u = ease(run / TAXI);
-      const x = PARK.x + (cat.x - PARK.x) * u;
-      const z = PARK.z + (cat.z - PARK.z) * Math.sin((u * Math.PI) / 2);
-      const yaw = Math.atan2(cat.x - PARK.x, (cat.z - PARK.z) * Math.cos((u * Math.PI) / 2) + 1e-3) * (1 - u);
-      p.position.set(x, FD + ON, z);
-      p.rotation.set(0, yaw, 0);
-      turn(6);
-    } else {
-      p.position.set(cat.x, FD + ON, cat.z);
-      p.rotation.set(-0.012 * Math.sin(run * 30), 0, 0);
-      turn(14);
-    }
-    return;
-  }
-  const s = shot(run - HANDLE);
-  p.position.set(cat.x, FD + ON + s.h, cat.z + s.s);
-  p.rotation.set(-s.pitch, 0, 0);
-  if (plane.gear) plane.gear(run - HANDLE > CAT_T ? Math.min(1, (run - HANDLE - CAT_T) / 2) : 0);
-  turn(16);
+}
+
+/** Start an evolution: `plan` is one of PLANS. */
+function begin(deck, t, plan, kind, role, dur) {
+  const a = { plan, kind, role, t0: t, dur, m: machine(deck, kind), done: false, lift: null };
+  a.lift = claimLift(deck, PREFER[plan], a);
+  a.spec = a.lift.spec;
+  if (plan === 'launch') a.cat = deck.cat = (deck.cat + 1) % CATS.length;
+  deck.actors.push(a);
+  return a;
 }
 
 // ---------------------------------------------------------------- build ----
@@ -526,7 +794,11 @@ export function buildNimitz() {
   buildInterior(g, {
     loa: LOA, shellAt, keelY: (t) => keelY(t) + 0.15, sheer: () => HANGAR, zAt, hollow: true,
   });
-  const plane = deckAircraft(g);
+  const lifts = elevators(g);
+  // The aeroplanes on her deck: a group of their own, drawn as they are wanted.
+  const planes = new THREE.Group();
+  planes.userData.dynamic = true;
+  g.add(planes);
   mergeStatic(g, bySection(LOA));
   const turrets = mainBattery(g);
   mountings(g);
@@ -535,11 +807,16 @@ export function buildNimitz() {
   g.userData.classId = 'nimitz';
 
   const deck = {
-    plane, launchers: rails, launchAt: null, landAt: null, stowed: true,
-    owner: g, lastT: 0, airborne: false, pending: [], flightId: 0, cat: 0,
+    lifts, planes, pool: {}, actors: [], current: null,
+    // What the game reads of the launch going on: see flyLaunched.
+    plane: { role: 'fighter', kind: 'f18', group: planes },
+    launchers: rails, launchAt: null, airborne: false, stowed: true,
+    owner: g, lastT: 0, dt: 0, pending: [], flightId: 0, cat: 0,
   };
+  // One of each drawn at once, so the first launch has nothing to wait for.
+  for (const k of ['f18', 'e2d', 'sh60']) release(machine(deck, k));
   g.userData.deck = deck;
-  g.userData.deckPlane = plane.group;
+  g.userData.deckPlane = planes;
   g.userData.landingSpot = [LAND.x, FD + ON, LAND.z];
   g.userData.step = (t) => stepDeck(deck, t);
   /**
@@ -553,42 +830,45 @@ export function buildNimitz() {
     l.hold = 3;
   };
   // Told how long the deck has to get her off (see the launch event): what
-  // the evolution is played to.
-  g.userData.launch = (t, role, dur = DECK_RUN) => {
+  // the evolution is played to. `kind` is which of her types she is.
+  g.userData.launch = (t, role, dur = DECK_RUN, kind = null) => {
+    const k = kind && kind in { f18: 1, e2d: 1, sh60: 1 } ? kind : KIND_OF[role] || 'f18';
+    const helo = k === 'sh60';
+    const a = begin(deck, t, helo ? 'heloLaunch' : 'launch', k, role, dur);
+    deck.current = a;
     deck.launchAt = t;
-    deck.landAt = null;
     deck.stowed = false;
     deck.airborne = false;
     deck.dur = dur;
-    plane.pick(role);
-    if (plane.kind !== 'sh60') deck.cat = (deck.cat + 1) % CATS.length;
-    const cat = CATS[deck.cat];
-    deck.endPose = plane.kind === 'sh60'
-      ? { x: 0, y: FD + 14 + ON, z: HELO.z + 36, pitch: 0.12 }
-      : { x: cat.x, y: FD + ON + shot(CAT_T + OFF_T).h, z: cat.z + shot(CAT_T + OFF_T).s, pitch: shot(CAT_T + OFF_T).pitch };
-    plane.group.visible = true;
+    deck.plane = { role, kind: k, group: a.m.body };
+    if (helo) {
+      deck.endPose = { x: HELO.x, y: FD + ON + HELO_RISE, z: HELO.z, pitch: 0, v: 6 };
+    } else {
+      const s = shot(CAT_T + OFF_T);
+      const cat = CATS[a.cat];
+      deck.endPose = { x: cat.x, y: FD + ON + s.h, z: cat.z + s.s, pitch: s.pitch };
+    }
   };
-  g.userData.recover = (t = deck.lastT ?? 0, role = null) => {
-    plane.pick(role || 'fighter');
-    deck.landAt = t;
-    deck.launchAt = null;
-    deck.stowed = false;
-    deck.airborne = false;
-    plane.group.visible = true;
+  // One of hers down: a jet in the wires, or a Seahawk on the spot.
+  g.userData.recover = (t = deck.lastT ?? 0, role = null, kind = null) => {
+    const k = kind && kind in { f18: 1, e2d: 1, sh60: 1 } ? kind : KIND_OF[role] || 'f18';
+    begin(deck, t, k === 'sh60' ? 'heloRecover' : 'recover', k, role, 0);
   };
+  // The launch going on is over, one way or another. What is coming home,
+  // and going down her lifts, carries on.
   g.userData.stow = () => {
+    if (deck.current && !deck.current.done) done(deck, deck.current, deck.lastT);
+    deck.current = null;
     deck.airborne = false;
     deck.launchAt = null;
-    deck.landAt = null;
     deck.stowed = true;
-    plane.group.visible = false;
   };
   g.userData.stow();
 
   dressShip(g);
   return {
-    group: g, turrets, lifts: [],
-    deckPlane: plane.group,
+    group: g, turrets, lifts,
+    deckPlane: planes,
     length: LOA, beam: BEAM, deckY: HANGAR, flightDeckY: FD,
     secMounts: [], aaMounts: g.userData.aaMounts || [], torpMounts: [],
   };

@@ -123,6 +123,9 @@ export const AERO = {
     mass: 9900, wing: 60, span: 16.36, clMax: 6.0, cd0: 0.0700,
     thrust: 42000, vMax: 82, name: 'SH-60B',
     helix: 0.07, gLimit: 3.0,
+    // And a helicopter: she goes up off the deck and comes down onto it
+    // straight, from a hover (see the simulation's heloHover).
+    rotor: true,
   },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,

@@ -38,7 +38,7 @@ import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_O
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine } from '../shared/sim.js';
 import {
-  normaliseAirGroup, defaultAirGroup, setAirGroup, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
+  normaliseAirGroup, defaultAirGroup, setAirGroup, rotary, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, runwayLength, takeoffRoll, deckRunFate, resolveShellHit, buoyancy, launchOffset, gunLimits,
@@ -396,6 +396,9 @@ import {
   enterpriseParts, buildEnterprise, stepLifts, stepDeck, LIFT_HW, liftZs, FD, HANGAR,
   __aircraft, deckPhases,
 } from '../client/js/render/enterprise.js';
+import {
+  HANGAR as NZ_HANGAR, FD as NZ_FD, HELO as NZ_HELO, HELO_RISE as NZ_RISE, LIFTS as NZ_LIFTS,
+} from '../client/js/render/nimitz.js';
 import {
   fletcherParts, buildFletcher, fletcherCharges, deckAt as fletcherDeckAt,
   halfDeck as fletcherHalfDeck, sheer as fletcherSheer,
@@ -1786,13 +1789,120 @@ check('the Nimitz is commissioned after the Missouri, with her air wing of ninet
   assert.equal(normaliseAirGroup(cls, { ...g, load: { fighters: 'nonsense' } }).load.fighters, S.fighters.default);
 });
 
+check('the Nimitz brings each aircraft up a lift to her catapults, takes each down one coming home, and her Seahawks go straight up and come straight down', () => {
+  const ud = buildShip('nimitz').group.userData;
+  const d = ud.deck;
+  assert.equal(d.lifts.length, 4, 'she has four lifts');
+  assert.equal(NZ_LIFTS.filter((l) => l.side < 0).length, 3, 'three to starboard');
+  const run = (t0, t1, f) => { for (let t = t0; t <= t1 + 1e-9; t += 0.05) { ud.step(t); if (f) f(t); } };
+  ud.step(0);
+  const on = (a, l) => Math.abs(a.m.body.position.x - l.spec.x) < 1 && Math.abs(a.m.body.position.z - l.spec.z) < 1;
+
+  // Out: down for her, up with her on it, and off it to a catapult and away
+  // on the simulation's clock.
+  ud.launch(0, 'fighter', 15, 'f18');
+  const a = d.actors[d.actors.length - 1];
+  const lift = a.lift;
+  let lowest = Infinity, upWithHer = false, downForHer = false;
+  run(0, 15.1, () => {
+    lowest = Math.min(lowest, lift.y);
+    if (!a.done && on(a, lift) && lift.y < NZ_HANGAR + 0.3) downForHer = true;
+    if (!a.done && on(a, lift) && lift.y > NZ_HANGAR + 6 && lift.y < NZ_FD - 1) upWithHer = true;
+  });
+  assert.ok(Math.abs(lowest - NZ_HANGAR) < 0.05, `her lift only went down to ${lowest.toFixed(2)}`);
+  assert.ok(downForHer && upWithHer, 'she did not come up on the lift');
+  assert.ok(d.airborne && a.done, 'she was not off the bow when the simulation put her in the air');
+  assert.ok(Math.abs(lift.y - NZ_FD) < 0.05, 'her lift was left down');
+
+  // Home: a Hawkeye in the wires, onto an after lift, and down with it.
+  ud.recover(20, 'aew', 'e2d');
+  const r = d.actors[d.actors.length - 1];
+  const rl = r.lift;
+  assert.ok(rl.spec.z < -60, 'she was not taken down an after lift');
+  let rode = false;
+  run(20, 40, () => { if (!r.done && on(r, rl) && rl.y < NZ_FD - 4) rode = true; });
+  assert.ok(rode && r.done, 'she did not go down the lift');
+  run(40, 45);
+  assert.ok(Math.abs(rl.y - NZ_FD) < 0.05, 'the lift did not come back up');
+
+  // A Seahawk: straight up off the spot to her hover, which is where the
+  // simulation puts her.
+  ud.launch(50, 'torpedo', 15, 'sh60');
+  const h = d.actors[d.actors.length - 1];
+  const rise = [];
+  run(50, 65.1, () => {
+    const p = h.m.body.position;
+    if (!h.done && p.y > NZ_FD + 0.5) rise.push([p.x, p.y, p.z]);
+  });
+  assert.ok(rise.length > 10 && h.done, 'she never went up');
+  for (const [x, , z] of rise) {
+    assert.ok(Math.hypot(x - NZ_HELO.x, z - NZ_HELO.z) < 0.01, `she went up sideways, at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+  }
+  const P = SHIP_CLASSES.nimitz.planes;
+  assert.ok(Math.abs(P.runOut.torpedo - NZ_HELO.z) < 0.5 && Math.abs(P.runHeight.torpedo - (NZ_FD + NZ_RISE)) < 0.5,
+    'the simulation does not pick her up where the deck leaves her');
+  // And home onto the spot, and down a lift.
+  ud.recover(70, 'torpedo', 'sh60');
+  const hr = d.actors[d.actors.length - 1];
+  run(70, 72, () => {
+    const p = hr.m.body.position;
+    assert.ok(Math.hypot(p.x - NZ_HELO.x, p.z - NZ_HELO.z) < 0.01, 'she is not on the spot she came down on');
+  });
+  let below = false;
+  run(72, 95, () => { if (!hr.done && hr.m.body.position.y < NZ_HANGAR + 1) below = true; });
+  assert.ok(below && hr.done, 'she was not taken below');
+});
+
+check('a Seahawk comes home to a hover over the Nimitz and straight down onto her deck, and what comes home is turned round and sent out again', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Iowa', classId: 'iowa', team: 1, index: 0 });
+  c.x = 0; c.z = -6000; c.heading = 0; c.notch = 4; foe.x = 1500; foe.z = 5000;
+  setAirGroup(c, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'as', torpedo: 'as' } });
+  c.aimX = 0; c.aimZ = 4000;
+  assert.ok(launchStrike(state, c), 'she would not launch');
+  const pad = SHIP_CLASSES.nimitz.planes.helipad;
+  const track = new Map();
+  let downs = 0, again = 0, firstTrap = Infinity;
+  for (let i = 0; i < Math.ceil(700 / DT) && foe.alive; i++) {
+    const evs = step(state, DT);
+    for (const p of state.planes) {
+      if (p.type !== 'sh60' || p.phase !== 'landing' || !p.land || p.land.leg !== 'hover') continue;
+      const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
+      const dx = p.x - c.x, dz = p.z - c.z;
+      if (!track.has(p.id)) track.set(p.id, []);
+      track.get(p.id).push([dx * fx + dz * fz, dx * fz - dz * fx, p.y]);
+    }
+    for (const ev of evs) {
+      if (ev.e === 'trap' && ev.k === 'sh60') {
+        const pts = (track.get(ev.i) || []).filter(([, , y]) => y < pad.y + 15);
+        assert.ok(pts.length > 20, 'she was not seen coming down');
+        for (const [al, ac] of pts) {
+          assert.ok(Math.hypot(al - pad.z, ac - pad.x) < 3,
+            `she came down ${al.toFixed(1)} m along and ${ac.toFixed(1)} m across, not over the spot`);
+        }
+        downs += 1;
+      }
+      if (ev.e === 'trap') firstTrap = Math.min(firstTrap, state.t);
+      if (ev.e === 'launch' && state.t > firstTrap + SHIP_CLASSES.nimitz.planes.turnaround) again += 1;
+    }
+  }
+  assert.ok(downs > 0, 'no Seahawk landed');
+  assert.ok(again > 0 || !foe.alive, 'nothing that came home went out again');
+  // Struck below and up again: nothing went missing on the way round.
+  assert.ok(state.planes.every((p) => !p.land || p.land.leg !== 'final' || !rotary(p)), 'a Seahawk flew the groove');
+});
+
 check('the Nimitz flies her Hornets, Hawkeyes and Seahawks as their loads say, and a Hawkeye up widens her side\'s picture', () => {
   const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
   const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
   const foe = addShip(state, { name: 'Fletcher', classId: 'fletcher', team: 1, index: 0 });
-  c.x = 0; c.z = -9000; c.heading = 0; foe.x = 0; foe.z = 9000;
+  // Corner to corner, seventeen kilometres apart: further than her own
+  // radar sees a destroyer, and the sea is not big enough to put them further
+  // apart square on.
+  c.x = -6000; c.z = -6000; c.heading = 0; foe.x = 6000; foe.z = 6000;
   setAirGroup(c, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'as', torpedo: 'asw' } });
-  c.aimX = 0; c.aimZ = 9000;
+  c.aimX = foe.x; c.aimZ = foe.z;
   assert.ok(launchStrike(state, c), 'she would not launch');
   const kinds = new Set();
   let harpoons = 0, aewUp = false, widened = false;

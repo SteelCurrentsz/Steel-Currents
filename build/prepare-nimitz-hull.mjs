@@ -397,6 +397,51 @@ for (const [kind, boxes] of Object.entries(MOUNT_BOXES)) {
 const kindOf = new Map();
 for (const [k, list] of Object.entries(KINDS)) for (const set of list) for (const t of set) kindOf.set(t, k);
 
+// ---- her lifts and her hangar deck ---------------------------------------------------
+/**
+ * Her four deck-edge lifts, as the model draws them: each a plate at the
+ * height of her flight deck, out beyond its edge, with its markings on it --
+ * two to starboard forward of her island and one abaft it, and one to port
+ * aft. Every run of faces that lies wholly on a lift is that lift's, and it
+ * is lifted out of her to be run up and down (see nimitz.js). In her frame,
+ * [x0, x1, z0, z1].
+ */
+const LIFT_AT = [
+  [-36.4, -19.9, 12.4, 40.2],
+  [-36.4, -19.9, -34.0, -6.2],
+  [-36.4, -19.9, -112.7, -84.8],
+  [19.6, 36.1, -117.6, -89.8],
+];
+const liftOf = new Map();
+const LIFT_SETS = LIFT_AT.map(([x0, x1, z0, z1], i) => {
+  const set = new Set();
+  for (const p of PARTS) {
+    if (p.lo[1] < 19.9 || p.hi[1] > 20.2) continue;
+    if (p.lo[0] < x0 || p.hi[0] > x1 || p.lo[2] < z0 || p.hi[2] > z1) continue;
+    for (const t of p.tris) if (!kindOf.has(t)) { set.add(t); liftOf.set(t, i); }
+  }
+  if (set.size < 12) throw new Error(`lift ${i}: only ${set.size} faces`);
+  return set;
+});
+console.log('lifts:', LIFT_SETS.map((s) => s.size).join(' '), 'faces');
+/**
+ * The model's hangar deck: a slab under each of her hangar doors, at the
+ * height of the doors' sills. Her hangar is drawn whole in nimitz.js on that
+ * deck, and the model's slabs, lying in the same plane, would fight it.
+ */
+const HANGAR_SILL = 7.4;
+const floorOf = new Set();
+for (let t = 0; t < nTri; t++) {
+  let ok = true;
+  for (let k = 0; k < 3 && ok; k++) {
+    const v = model.T[t * 3 + k] * 3;
+    const x = model.P[v], y = model.P[v + 1], z = model.P[v + 2];
+    if (Math.abs(y - HANGAR_SILL) > 0.06 || Math.abs(x) > 19.7 || z < -125 || z > 64) ok = false;
+  }
+  if (ok) floorOf.add(t);
+}
+console.log('hangar deck:', floorOf.size, 'faces of the model\'s taken off');
+
 /** A mesh of the triangles `pick` picks, painted by palette index a triangle. */
 function subMeshOf(pick) {
   const map = new Map();
@@ -539,7 +584,7 @@ function creaseNormals(m, deg = 38) {
   return { P: P2, N: N2, T: T2, C, S: m.S };
 }
 // ---- her hull --------------------------------------------------------------------------
-const hullRaw = subMeshOf((t) => !kindOf.has(t));
+const hullRaw = subMeshOf((t) => !kindOf.has(t) && !liftOf.has(t) && !floorOf.has(t));
 console.log('hull:', hullRaw.T.length / 3, 'triangles before decimation');
 
 // ---- which way her faces face ---------------------------------------------------------
@@ -780,6 +825,16 @@ const surfaceOf = (t) => (hull.S[t] ? 2 : 0);
 // her aircraft taxi on.
 const HM = { x0: -47, z0: -168, step: 0.5, nx: 189, nz: 673 };
 const hm = heightmap(hull, HM);
+// Her lifts are part of her flight deck whenever they are up, which is
+// whenever nothing is using them: they are her surface there.
+for (const [x0, x1, z0, z1] of LIFT_AT) {
+  for (let j = Math.ceil((z0 + 0.2 - HM.z0) / HM.step); j <= Math.floor((z1 - 0.2 - HM.z0) / HM.step); j++) {
+    for (let i = Math.ceil((x0 + 0.2 - HM.x0) / HM.step); i <= Math.floor((x1 - 0.2 - HM.x0) / HM.step); i++) {
+      const k = j * HM.nx + i;
+      if (k >= 0 && k < hm.length) hm[k] = Math.max(hm[k], 20.05);
+    }
+  }
+}
 /** Her surface at (x, z), off the height map: the median of the cells round it. */
 function hullSeat(x, z) {
   const i = Math.round((x - HM.x0) / HM.step), j2 = Math.round((z - HM.z0) / HM.step);
@@ -1010,6 +1065,33 @@ for (const [k, list] of Object.entries(MOUNTS)) {
   console.log(k, list.map((s) => `(${s.x}, ${s.z}) y ${s.y} rest ${(s.rest * 180 / Math.PI).toFixed(0)} reach ${s.reach} my ${s.my}`).join('\n   '));
 }
 
+// ---- her lifts, as pieces ---------------------------------------------------------------
+/**
+ * Each lift as a piece of its own: its plate and its markings, put about the
+ * middle of its plate with its top at y = 0, and where that middle is.
+ */
+const LIFTS = LIFT_SETS.map((set) => {
+  const m = subMeshOf((t) => set.has(t));
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, top = -Infinity;
+  for (let i = 0; i < m.P.length; i += 3) {
+    x0 = Math.min(x0, m.P[i]); x1 = Math.max(x1, m.P[i]);
+    z0 = Math.min(z0, m.P[i + 2]); z1 = Math.max(z1, m.P[i + 2]);
+    top = Math.max(top, m.P[i + 1]);
+  }
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  const local = { ...m, P: m.P.map((v, i) => (i % 3 === 0 ? v - cx : i % 3 === 1 ? v - top : v - cz)) };
+  const w = reduce(local, 1e9, 0);
+  const hd = creaseNormals(w);
+  const byV = new Uint8Array(hd.P.length / 3);
+  for (let t = 0; t < hd.T.length / 3; t++) for (let k = 0; k < 3; k++) byV[hd.T[t * 3 + k]] = hd.C[t];
+  return {
+    x: +cx.toFixed(3), z: +cz.toFixed(3), y: +top.toFixed(3),
+    hw: +((x1 - x0) / 2).toFixed(3), hd: +((z1 - z0) / 2).toFixed(3),
+    piece: packPieceCompact(hd, (i) => PALETTE[byV[i]]).toString('base64'),
+  };
+});
+for (const l of LIFTS) console.log(`lift at (${l.x}, ${l.z}), ${(l.hw * 2).toFixed(1)} by ${(l.hd * 2).toFixed(1)} m, top ${l.y}`);
+
 // ---- a look at her ------------------------------------------------------------------
 // DUMP=file.glb writes her whole, guns and all, as one coloured mesh, to be
 // looked at in any glTF viewer.
@@ -1085,6 +1167,9 @@ writeFileSync(OUT_DATA,
   + `// Where every one of her mountings stands, which way it faces, and its\n`
   + `// muzzle's reach and height.\n`
   + `export const NIMITZ_MOUNTS = ${JSON.stringify(MOUNTS)};\n`
+  + `// Her four lifts, each its plate and its markings about its own middle, top\n`
+  + `// at y = 0: where that middle is, and how big each is.\n`
+  + `export const NIMITZ_LIFTS = ${JSON.stringify(LIFTS)};\n`
   + `// Her lines as the model has them: keel, and her half-breadth at every half\n`
   + `// metre of height, a metre at a time; and the breadth inside her plating.\n`
   + `export const NIMITZ_LINES = ${JSON.stringify({ ...LINES, keel: round(LINES.keel), deck: round(LINES.deck), half: round(LINES.half) })};\n`);

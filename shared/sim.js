@@ -14,7 +14,7 @@ import { slotAt, vicAt } from './formation.js';
 import { NUKE, MAX_BURSTS, nukeFront, nukeBite, nukeWave, waveHeight } from './nuke.js';
 import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
-  airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
+  airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO, AERO,
 } from './aero.js';
 import {
   enterDogfight, leaveDogfight, stepDogfight, pickFoe, threatOn, velocityOf as airVelocity, gunned,
@@ -9880,6 +9880,25 @@ export function landingGuide(state, p, ship, dt) {
   const shipV = Math.max(0, ship.speed || 0);
   const cruise = cruiseOf(cls.planes, p);
 
+  // A helicopter does not fly the groove: she comes in to the spot and down
+  // onto it from a hover (see heloHover), once nobody else is on the way down.
+  const pad = rotary(p) && cls.planes && cls.planes.helipad;
+  if (pad) {
+    const busy = order.slice(0, at).some((id) => {
+      const q = state.planes.find((o) => o.id === id);
+      return q && q.land && (q.land.leg === 'final' || q.land.leg === 'hover' || q.land.leg === 'inbound');
+    });
+    if ((L.leg === 'marshal' || L.leg === 'base') && at < CLEARED && !busy) L.leg = 'inbound';
+    if (L.leg === 'inbound') {
+      const w = padWorld(ship, pad);
+      if (dist(p.x, p.z, w.x, w.z) < HOVER_JOIN) L.leg = 'hover';
+      return { x: w.x, z: w.z, y: pad.y + 60, speed: cruise * 0.75, final: false };
+    }
+    if (L.leg === 'hover') {
+      const w = padWorld(ship, pad);
+      return { x: w.x, z: w.z, y: pad.y + HOVER_H, speed: Math.max(10, shipV), final: true };
+    }
+  }
   // Out of the circle when she is one of the next few to go -- and into the
   // groove when the one ahead of her is far enough up it, or down.
   if (L.leg === 'marshal' && at < CLEARED) L.leg = 'base';
@@ -9981,14 +10000,108 @@ export function stepLanding(state, p, ship) {
   // Something got onto the deck between the call and her wheels.
   const fouled = landingFouled(ship);
   if (fouled) { waveOff(fouled); return null; }
-  ship.trapBusy = TRAP_CYCLE;
+  return trapAboard(state, p, ship);
+}
+
+/**
+ * She is down: off the plot, onto her deck, and -- on a carrier that turns
+ * her round -- onto the hangar deck to be loaded and fuelled again.
+ */
+function trapAboard(state, p, ship) {
+  const cls = shipClass(ship);
+  ship.trapBusy = cls.planes.trapCycle ?? TRAP_CYCLE;
   ship.recovery = (ship.recovery || []).filter((id) => id !== p.id);
   state.events.push({
     e: 'trap', i: p.id, ship: ship.id, team: p.team, r: p.role, k: p.type || undefined,
     x: r(p.x), z: r(p.z), tk: state.tick,
   });
   p.dead = true;
+  // Struck below to be turned round: the same aeroplane, with the same load
+  // as she went out with, back up the lift when she is ready.
+  if (cls.planes.turnaround && p.sortie && ship.alive) {
+    (ship.turnaround || (ship.turnaround = [])).push({
+      f: { ...p.sortie, count: 1 }, sqId: p.sqId, ready: state.t + cls.planes.turnaround,
+    });
+  }
   return 'trap';
+}
+
+/** How far out a helicopter coming home slows to come in to the spot. */
+const HOVER_JOIN = 450;
+/** How high over the spot she hovers before she comes down onto it. */
+const HOVER_H = 18;
+/** How fast she comes down onto the spot, and how fast she closes on it. */
+const HOVER_SINK = 2.4;
+const HOVER_CLOSE = 26;
+
+/** Whether she is a helicopter. */
+export function rotary(p) {
+  const a = p && p.type ? AERO[p.type] : null;
+  return !!(a && a.rotor);
+}
+
+/** A carrier's helicopter spot in the world. */
+function padWorld(ship, pad) {
+  const fx = Math.sin(ship.heading), fz = Math.cos(ship.heading);
+  return { x: ship.x + fx * pad.z + fz * pad.x, z: ship.z + fz * pad.z - fx * pad.x };
+}
+
+/**
+ * A helicopter in to the spot and down onto it.
+ *
+ * She is not flown on a wing here at all: she closes on the spot, going over
+ * the water with the ship as the ship goes, slowing as she gets there, and
+ * hangs over it eighteen metres up with her nose on the ship's head. Over it,
+ * and with nothing using the deck, she comes straight down onto it -- and is
+ * aboard when her wheels are on it. A deck that is in use holds her in the
+ * hover until it is clear.
+ *
+ * Returns true when she has been moved here, and 'trap' when she is down.
+ */
+function heloHover(state, p, ship, dt) {
+  const L = p.land;
+  const cls = shipClass(ship);
+  const pad = cls.planes && cls.planes.helipad;
+  if (!L || L.leg !== 'hover' || !pad) return false;
+  const w = padWorld(ship, pad);
+  const sv = Math.max(0, ship.speed || 0);
+  const fx = Math.sin(ship.heading), fz = Math.cos(ship.heading);
+  let dx = w.x - p.x, dz = w.z - p.z;
+  const d = Math.hypot(dx, dz);
+  // Closing on it over the ship's own way, quickly far out and gently near it.
+  const close = Math.min(HOVER_CLOSE, 0.3 * d + 0.4);
+  const step = Math.min(d, close * dt);
+  const vx = fx * sv + (d > 1e-3 ? (dx / d) * close : 0);
+  const vz = fz * sv + (d > 1e-3 ? (dz / d) * close : 0);
+  p.x += fx * sv * dt + (d > 1e-3 ? (dx / d) * step : 0);
+  p.z += fz * sv * dt + (d > 1e-3 ? (dz / d) * step : 0);
+  dx = w.x + fx * sv * dt - p.x; dz = w.z + fz * sv * dt - p.z;
+  const off = Math.hypot(dx, dz);
+  // Her nose: along her way while she is still coming in, onto the ship's
+  // head once she is nearly over the spot.
+  const want = d > 60 ? Math.atan2(vx, vz) : ship.heading;
+  const turn = clamp(angleDelta(p.heading, want), -0.7 * dt, 0.7 * dt);
+  p.heading = wrapAngle(p.heading + turn);
+  p.turn = turn / Math.max(dt, 1e-3);
+  p.bank = (p.bank ?? 0) * Math.exp(-dt * 3);
+  p.roll = 0;
+  p.speed = Math.hypot(vx, vz);
+  // Down only over the spot and with the deck clear for her.
+  const fouled = landingFouled(ship);
+  if (fouled === 'holed') { p.phase = 'return'; p.land = null; return true; }
+  if (!L.down && off < 2.5 && p.y < pad.y + HOVER_H + 3 && !fouled) { L.down = true; L.cut = true; }
+  if (L.down && fouled && p.y > pad.y + 4) { L.down = false; L.cut = false; }
+  const wantY = L.down ? pad.y : pad.y + HOVER_H;
+  // Down to the hover briskly; from it onto the deck gently.
+  const vy = clamp((wantY - p.y) * 0.8, L.down ? -HOVER_SINK : -9, 4);
+  p.vy = vy;
+  p.y += vy * dt;
+  if (L.down && p.y <= pad.y + 0.3) {
+    p.y = pad.y;
+    p.x = w.x; p.z = w.z;
+    return trapAboard(state, p, ship);
+  }
+  return true;
 }
 
 /**
@@ -10049,6 +10162,9 @@ export function launchStrike(state, ship) {
   // brought it home, which is not a strike, it is a bookkeeping entry.
   if (d < MIN_STRIKE_RANGE) return false;
   sq.state = 'flying';
+  // Where she was sent, for any of it that comes home and is sent out again.
+  sq.tx = ship.aimX;
+  sq.tz = ship.aimZ;
   ship.deckBusy = cls.planes.deckCycle ?? DECK_CYCLE;
   // The order is not the launch. Pressing it rings the deck: the lift fetches
   // her up, she taxis forward, runs up against the brakes and goes down the
@@ -10452,6 +10568,9 @@ function stepLaunch(state, ship, dt) {
       ...(f.asw ? { asw: f.asw } : {}),
       ...(f.load ? { load: f.load } : {}),
       count: f.count,
+      // What she went out as, so that a carrier that turns her round can send
+      // her out again the same (see trapAboard).
+      sortie: f.deckload ? null : f,
       // Fighters are harder to catch than a loaded bomber, and they are what
       // keeps the flak and the enemy's CAP off the ones carrying the weapons.
       // Where the launch actually leaves her, off the ground: the end of the
@@ -10463,7 +10582,10 @@ function stepLaunch(state, ship, dt) {
       // stall with her flaps still down, and she works up to cruise from
       // there. Born at cruise she was drawn leaping forward at the hand-over,
       // twice as fast as the aeroplane that had just gone off the bow.
-      launchV: cls.planes.launchSpeed ?? LAUNCH_SPEED,
+      // A helicopter goes up off the deck and away with the ship's way on her.
+      launchV: AERO[f.type]?.rotor
+        ? Math.max(byRole(cls.planes.launchSpeed, f.role) ?? 4, (ship.speed || 0) + 2)
+        : byRole(cls.planes.launchSpeed, f.role) ?? LAUNCH_SPEED,
       hp: hp0,
       // The aeroplanes themselves. A flight is not a hit-point bar with a
       // number of aircraft written on it: it is that many machines, each with
@@ -10547,7 +10669,7 @@ function recoveryUnderway(state, ship) {
   if (ship.trapBusy > 0) return true;
   return (ship.recovery || []).some((id) => {
     const p = state.planes.find((q) => q.id === id);
-    return p && !p.dead && p.land && p.land.leg === 'final';
+    return p && !p.dead && p.land && (p.land.leg === 'final' || p.land.leg === 'hover');
   });
 }
 
@@ -12127,6 +12249,8 @@ function stepRam(state, p) {
   if (p.dead) return false;
   for (const s of state.ships) {
     if (!s.alive || !mayHurt(state, p.team, s)) continue;
+    // A helicopter coming down onto her own ship's deck is landing on it.
+    if (s.id === p.owner && p.land && p.land.leg === 'hover') continue;
     const cls = getClass(s.classId);
     if (!planeInShip(p, s, cls)) continue;
     return ramShip(state, p, s, cls);
@@ -12668,7 +12792,9 @@ function stepAirJobs(state, p, carrier) {
     return;
   }
   const S = p.standoff;
-  if (S && S.n > 0 && p.phase === 'outbound') {
+  // Clear of her own ship and up to some height first: a launch with the
+  // enemy already inside her missile's reach still climbs out before it goes.
+  if (S && S.n > 0 && p.phase === 'outbound' && p.life > 12) {
     const K = airKind(S.kind);
     if (!K) return;
     const reach = K.range * 0.9;
@@ -13023,6 +13149,9 @@ function stepPlanes(state, dt) {
     if (!fight && p.df) leaveDogfight(p);
     if (fight) {
       if (flyFight(state, p, fight, P, dt)) continue;
+    } else if (!p.flown && p.phase === 'landing' && carrier && p.land && p.land.leg === 'hover') {
+      // A helicopter in the hover over her deck, and down onto it.
+      if (heloHover(state, p, carrier, dt) === 'trap') continue;
     } else if (!p.flown) {
       let goalX = p.tx, goalZ = p.tz;
       if (guide) { goalX = guide.x; goalZ = guide.z; }
@@ -13790,6 +13919,8 @@ function sweepSquadrons(state) {
       // Still on the deck run: ordered up, not yet off.
       if (ship.launching && ship.launching.sqId === sq.id) continue;
       if (state.planes.some((p) => p.owner === ship.id && p.sqId === sq.id)) continue;
+      // Some of it below being turned round to go out again.
+      if ((ship.turnaround || []).some((e) => e.sqId === sq.id)) continue;
       // A float plane does not come back (see oneWay): her place on the
       // catapult is empty for the rest of the action.
       if (oneWay(cls.planes)) { sq.state = 'spent'; continue; }
@@ -16621,6 +16752,61 @@ function stepDamageOverTime(state, ship, dt) {
   if (ship.deckBusy > 0) ship.deckBusy -= dt;
   if (ship.trapBusy > 0) ship.trapBusy -= dt;
   if (ship.launching) stepLaunch(state, ship, dt);
+  if (ship.turnaround && ship.turnaround.length) stepTurnaround(state, ship);
+}
+
+/**
+ * Her aeroplanes that have come home and been turned round: loaded again,
+ * fuelled, and sent back up the lift.
+ *
+ * Each goes out again as she went the first time -- the same machine, the
+ * same load -- at wherever her ship is aiming her strikes now, or failing that
+ * where her squadron was sent. One that is ready while her squadron's launch
+ * is still going goes with it; otherwise she is a launch of her own as soon as
+ * the deck is clear. With no enemy left to send her at she stays below, and
+ * her squadron is done when the last of it is down.
+ */
+function stepTurnaround(state, ship) {
+  const T = ship.turnaround;
+  if (!ship.alive || !state.ships.some((o) => o.alive && o.team !== ship.team)) {
+    ship.turnaround = [];
+    return;
+  }
+  const ready = T.filter((e) => e.ready <= state.t);
+  if (!ready.length) return;
+  const L = ship.launching;
+  if (L) {
+    const join = ready.filter((e) => e.sqId === L.sqId);
+    if (join.length) {
+      for (const e of join) L.flights.push(e.f);
+      ship.turnaround = T.filter((e) => !join.includes(e));
+    }
+    return;
+  }
+  if (ship.deckBusy > 0 || ship.trapBusy > 0 || landingCommitted(state, ship)
+    || recoveryUnderway(state, ship) || flightDeckOut(ship)) return;
+  const cls = shipClass(ship);
+  const sqId = ready[0].sqId;
+  const go = ready.filter((e) => e.sqId === sqId);
+  ship.turnaround = T.filter((e) => !go.includes(e));
+  const sq = ship.squadrons.find((q) => q.id === sqId);
+  if (!sq) return;
+  const aimed = Number.isFinite(ship.aimX) && Number.isFinite(ship.aimZ)
+    && dist(ship.x, ship.z, ship.aimX, ship.aimZ) >= MIN_STRIKE_RANGE;
+  sq.state = 'flying';
+  ship.deckBusy = cls.planes.deckCycle ?? DECK_CYCLE;
+  ship.launching = {
+    sqId, left: cls.planes.deckRun ?? DECK_RUN,
+    tx: aimed ? ship.aimX : sq.tx ?? ship.x, tz: aimed ? ship.aimZ : sq.tz ?? ship.z,
+    lead: 0, slot: 0, side: (ship.catSide = -(ship.catSide || 1)),
+    flights: go.map((e) => e.f),
+    escort: go.filter((e) => e.f.role === 'fighter').length,
+  };
+  state.events.push({
+    e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
+    r: ship.launching.flights[0].role, d: ship.launching.left,
+    ...deckloadTag(ship, cls, ship.launching.flights[0]),
+  });
 }
 
 // ---------------------------------------------------------------------------

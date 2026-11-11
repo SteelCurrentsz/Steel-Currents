@@ -3533,7 +3533,7 @@ export class Battle {
           const v = this.scene.shipViews.get(ev.ship);
           if (!v || !v.group.userData.recover) break;
           this.recallDeckPlane(v);
-          v.group.userData.recover(this.time, ev.r);
+          v.group.userData.recover(this.time, ev.r, ev.k);
           break;
         }
         case 'waveOff': {
@@ -7936,9 +7936,13 @@ export class Battle {
       // Somebody flying her sends the pitch of her flight path, which goes
       // past the vertical and over on her back as nothing worked out from a
       // rate of climb can; her nose sits above it by what her wing is doing.
-      const pitchWant = flown
-        ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), 1) * Math.cos(bank)
-        : flightAttitude(a, gs, pl.vy || 0, 1 / Math.max(0.35, Math.cos(bank)));
+      // A helicopter's nose is not on her path: she hangs level in the hover,
+      // going straight up or down, and dips it a few degrees going ahead.
+      const pitchWant = a.rotor && !flown
+        ? -0.07 * clamp((gs - 12) / 50, 0, 1)
+        : flown
+          ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), 1) * Math.cos(bank)
+          : flightAttitude(a, gs, pl.vy || 0, 1 / Math.max(0.35, Math.cos(bank)));
       // Eased like her bank, on the autopilot: her rate of climb comes off the
       // wire a tenth of a metre a second at a time, and her nose nodded with
       // every step of it.
@@ -8525,11 +8529,18 @@ export class Battle {
     }
     const P = v.cls && v.cls.planes ? v.cls.planes : {};
     const role = (deck.plane && deck.plane.role) || (P.group ? 'torpedo' : 'dive');
-    const type = (P.types && P.types[role]) || P.type || null;
+    const type = (deck.plane && deck.plane.kind) || (P.types && P.types[role]) || P.type || null;
+    // A deck may give her speed off it once for all her aircraft or per role.
+    // A helicopter goes up off the deck and away with the ship under her, so
+    // she leaves at the ship's way and a little more.
+    const ls = P.launchSpeed && typeof P.launchSpeed === 'object'
+      ? (P.launchSpeed[role] ?? P.launchSpeed.torpedo) : P.launchSpeed;
+    const rotor = !!(AERO[type] && AERO[type].rotor);
     return {
       at, t: deck.airborneAt ?? this.time,
       h: Math.atan2(fwd.x, fwd.z), pitch: clamp(pitch, -0.2, 0.35),
-      v: P.launchSpeed ?? 44, role, kind: typeOf(type, role), handed: false,
+      v: rotor ? Math.max(ls ?? 4, (v.speedNow || 0) + 2) : ls ?? 44,
+      role, kind: typeOf(type, role), handed: false,
     };
   }
 

@@ -7312,14 +7312,21 @@ export const SHIP_CLASSES = {
       touchdown: { z: -138, y: 20.1 },
       types: { fighter: 'f18', dive: 'f18', torpedo: 'sh60', aew: 'e2d' },
       // Shot off her bow catapults: off the bow at a hundred and fifty knots
-      // and climbing. A Seahawk lifts off the deck forward of her island and
-      // goes on from there.
-      runOut: { fighter: 178, dive: 178, aew: 178, torpedo: 40 },
-      runHeight: { fighter: 26, dive: 26, aew: 25, torpedo: 34 },
-      launchSpeed: 76,
-      // Four catapults, two of them worked turn and turn about: a launch
-      // every few seconds, not one a lift-cycle.
-      deckRun: 13, deckNext: 9, deckCycle: 12,
+      // and climbing. A Seahawk goes straight up off the spot abreast her
+      // island to a hover eighteen metres over it, and goes on from there.
+      runOut: { fighter: 178, dive: 178, aew: 178, torpedo: 2 },
+      runHeight: { fighter: 26, dive: 26, aew: 25, torpedo: 38.1 },
+      launchSpeed: { fighter: 76, dive: 76, aew: 76, torpedo: 4 },
+      // Where a Seahawk comes down coming home: the same spot, straight down
+      // onto it from the hover.
+      helipad: { x: 0, z: 2, y: 20.1 },
+      // Each one up a lift from the hangar, along the deck and off a bow
+      // catapult: a lift down and up, the taxi and the shot.
+      deckRun: 18, deckNext: 15, deckCycle: 12,
+      // An aeroplane of hers that comes home with her load gone is struck
+      // below, loaded again and fuelled, and sent back out while there is
+      // still an enemy to send her at: this long on the hangar deck.
+      turnaround: 60,
       rearm: 40, torpDamage: 7000, torpSpeed: 40 * KNOTS, torpRange: 4000,
       floodChance: 0.3, hp: 1600, dropSpread: 0.05,
       // A five-hundred-pound bomb, guided: it goes where it is put far more
