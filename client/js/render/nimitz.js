@@ -843,6 +843,10 @@ export function buildNimitz() {
   g.userData.deckPlane = planes;
   g.userData.landingSpot = [LAND.x, FD + ON, LAND.z];
   g.userData.step = (t) => stepDeck(deck, t);
+  // Her deck is worked on the battle's clock, not the screen's: each of her
+  // launches leaves the bow when the simulation has her leave it (see the
+  // game's deckClock).
+  g.userData.simClock = true;
   /**
    * A launcher told to fire: rail `at` of her datasheet swings onto the
    * bearing `b` (off her bow) and holds it while its missile goes.

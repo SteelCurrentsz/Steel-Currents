@@ -1890,6 +1890,14 @@ check('a Nimitz launch still on her deck when the next order or a trap comes in 
   // The game's own stow after it has handed her over leaves the word alone.
   ud.stow();
   assert.ok(d.airborne && d.launchAt === a.t0, 'the word that she was up was lost');
+  // And her deck is worked on the battle's clock, so that a battle running
+  // behind real time does not have her off the bow before the simulation
+  // puts her in the air (see the game's deckClock).
+  assert.equal(ud.simClock, true, 'her deck is worked on the screen\'s clock');
+  const src = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  for (const call of ['userData.step?.(this.deckClock(view))', 'userData.launch?.(this.deckClock(v)', 'userData.recover(this.deckClock(v)']) {
+    assert.ok(src.includes(call), `the game does not work her deck on its clock: ${call}`);
+  }
 });
 
 check('the Nimitz\'s lifts go down whole: nothing of a lift is left in her deck for it to come up through', () => {

@@ -3521,7 +3521,7 @@ export class Battle {
           // Which of her three types is going, and how long the deck has to get
           // her off: the first of a strike comes up from the hangar with the
           // whole evolution to go through, and the ones after her are quicker.
-          v.group.userData.launch?.(this.time, ev.r, ev.d, ev.k, ev.n);
+          v.group.userData.launch?.(this.deckClock(v), ev.r, ev.d, ev.k, ev.n);
           break;
         }
         case 'trap': {
@@ -3533,7 +3533,7 @@ export class Battle {
           const v = this.scene.shipViews.get(ev.ship);
           if (!v || !v.group.userData.recover) break;
           this.recallDeckPlane(v);
-          v.group.userData.recover(this.time, ev.r, ev.k);
+          v.group.userData.recover(this.deckClock(v), ev.r, ev.k);
           break;
         }
         case 'waveOff': {
@@ -7495,7 +7495,7 @@ export class Battle {
       if (s.wk) view.setKnocked(s.wk);
 
       // Anything on her that works itself -- a carrier's lifts, so far.
-      view.group.userData.step?.(this.time);
+      view.group.userData.step?.(this.deckClock(view));
       // And anything it has dropped into the sea: a fish off her tubes going
       // in alongside, in her own frame -- a splash where it goes in, and the
       // running torpedo picked up from that spot and that depth. One pushed
@@ -8537,7 +8537,9 @@ export class Battle {
       ? (P.launchSpeed[role] ?? P.launchSpeed.torpedo) : P.launchSpeed;
     const rotor = !!(AERO[type] && AERO[type].rotor);
     return {
-      at, t: deck.airborneAt ?? this.time,
+      // On the battle's own clock (see deckClock) the moment she left is now,
+      // on this one: she is latched the frame she goes.
+      at, t: v.group.userData.simClock ? this.time : deck.airborneAt ?? this.time,
       h: Math.atan2(fwd.x, fwd.z), pitch: clamp(pitch, -0.2, 0.35),
       v: rotor ? Math.max(ls ?? 4, (v.speedNow || 0) + 2) : ls ?? 44,
       role, kind: typeOf(type, role), handed: false,
@@ -8743,6 +8745,23 @@ export class Battle {
    * have her back in the ship's frame first or it will be positioning a
    * world-space object with ship-space numbers.
    */
+  /**
+   * The clock a ship's deck is worked on.
+   *
+   * A deck whose aeroplanes are each a launch of their own (the Nimitz's: see
+   * `simClock`) is worked on the battle's own clock, the moment the picture
+   * on the screen is of. Worked on the screen's clock, a battle running behind
+   * real time -- a busy phone, a slow worker -- had her off the bow seconds
+   * before the simulation put her in the air: she flew her few seconds of
+   * climb-out, vanished, and the flight she was came on later somewhere else.
+   * On the battle's clock she goes off the bow in the picture the flight first
+   * appears in, whatever pace the battle is going at, and stops when it stops.
+   */
+  deckClock(v) {
+    if (!v.group.userData.simClock) return this.time;
+    return this.renderST ?? this.time;
+  }
+
   recallDeckPlane(v) {
     // Anything of hers still climbing out from an earlier run keeps flying:
     // those are copies, and the ship's own model is not out there with them.
