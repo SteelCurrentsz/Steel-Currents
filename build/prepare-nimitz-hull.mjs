@@ -413,12 +413,33 @@ const LIFT_AT = [
   [19.6, 36.1, -117.6, -89.8],
 ];
 const liftOf = new Map();
+/**
+ * How deep each lift is drawn. The model's lift is a slab, not a plate: its
+ * top at her flight deck, its sides, and its underside 1.8 m below. Taking
+ * only the top left the sides and the underside in her hull at the height of
+ * her flight deck, and the lift -- and the aeroplane on it -- went down
+ * through them and came up through them again.
+ */
+const LIFT_UNDER = 17.9;
 const LIFT_SETS = LIFT_AT.map(([x0, x1, z0, z1], i) => {
   const set = new Set();
   for (const p of PARTS) {
     if (p.lo[1] < 19.9 || p.hi[1] > 20.2) continue;
     if (p.lo[0] < x0 || p.hi[0] > x1 || p.lo[2] < z0 || p.hi[2] > z1) continue;
     for (const t of p.tris) if (!kindOf.has(t)) { set.add(t); liftOf.set(t, i); }
+  }
+  // Its sides and its underside are joined to her hull, so they are taken a
+  // face at a time: every face that lies wholly within the lift's plan and
+  // between its underside and its top.
+  for (let t = 0; t < model.T.length / 3; t++) {
+    if (kindOf.has(t) || liftOf.has(t)) continue;
+    let ok = true;
+    for (let k = 0; k < 3 && ok; k++) {
+      const v = model.T[t * 3 + k] * 3;
+      const x = model.P[v], y = model.P[v + 1], z = model.P[v + 2];
+      if (x < x0 || x > x1 || z < z0 || z > z1 || y < LIFT_UNDER || y > 20.2) ok = false;
+    }
+    if (ok) { set.add(t); liftOf.set(t, i); }
   }
   if (set.size < 12) throw new Error(`lift ${i}: only ${set.size} faces`);
   return set;

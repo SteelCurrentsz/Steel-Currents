@@ -1853,6 +1853,99 @@ check('the Nimitz brings each aircraft up a lift to her catapults, takes each do
   assert.ok(below && hr.done, 'she was not taken below');
 });
 
+check('a Nimitz launch still on her deck when the next order or a trap comes in goes on off the bow, and says where she left it', () => {
+  const ud = buildShip('nimitz').group.userData;
+  const d = ud.deck;
+  const run = (t0, t1) => { for (let t = t0; t <= t1 + 1e-9; t += 0.05) ud.step(t); };
+  ud.step(0);
+  // The simulation's word that she is up and its order for the next one come
+  // in the same breath, and the game strikes the deck plane below for each
+  // (see recallDeckPlane). Here they come a moment before her own clock has
+  // her off the bow -- on the catapult, at full power.
+  ud.launch(0, 'fighter', 18, 'f18');
+  const a = d.actors[d.actors.length - 1];
+  run(0, 16.5);
+  assert.ok(!a.done && a.m.body.visible, 'she was gone before her shot');
+  // A trap meanwhile, and then the next order.
+  ud.stow(); ud.recover(16.5, 'fighter', 'f18');
+  ud.stow(); ud.launch(16.6, 'aew', 15, 'e2d');
+  const b = d.actors[d.actors.length - 1];
+  assert.ok(!a.done && a.m.body.visible, 'the next order struck her below on the catapult');
+  assert.ok(!d.airborne || d.launchAt !== a.t0, 'she was said to be up before she was');
+  let seenOff = false;
+  for (let t = 16.65; t <= 18.3; t += 0.05) {
+    ud.step(t);
+    if (a.done && !seenOff) {
+      seenOff = true;
+      // Off the bow, and the deck says it was her that went, from her catapult.
+      assert.ok(d.airborne, 'she went off the bow and the deck never said so');
+      assert.equal(d.launchAt, a.t0, 'the deck reported the wrong launch');
+      assert.equal(d.plane.kind, 'f18', `the deck said a ${d.plane.kind} went`);
+      assert.ok(d.endPose.z > 150, `she was handed over at ${d.endPose.z.toFixed(0)} m along her deck, not off the bow`);
+      assert.ok(Math.abs(t - 18) < 0.1, `she went at ${t.toFixed(2)} s, not when the simulation put her up`);
+    }
+  }
+  assert.ok(seenOff, 'she never went');
+  assert.ok(!b.done && b.m.body.visible, 'the next one did not carry on');
+  // The game's own stow after it has handed her over leaves the word alone.
+  ud.stow();
+  assert.ok(d.airborne && d.launchAt === a.t0, 'the word that she was up was lost');
+});
+
+check('the Nimitz\'s lifts go down whole: nothing of a lift is left in her deck for it to come up through', () => {
+  const g = buildShip('nimitz').group;
+  const d = g.userData.deck;
+  g.updateMatrixWorld(true);
+  const lifts = new Set(d.lifts.map((l) => l.group));
+  const under = (o) => { for (let q = o; q; q = q.parent) if (lifts.has(q)) return true; return false; };
+  for (const l of d.lifts) {
+    const s = l.spec;
+    const x0 = s.x - s.hw - 0.5, x1 = s.x + s.hw + 0.5, z0 = s.z - s.hd - 0.5, z1 = s.z + s.hd + 0.5;
+    // The lift's own plan, off the top of its plate: it is not a rectangle,
+    // its leading edge is cut on the slant.
+    const top = [];
+    l.group.traverse((o) => {
+      if (!o.isMesh || !o.geometry.attributes.uv) return;
+      const P = o.geometry.attributes.position, I = o.geometry.index;
+      for (let t = 0; t < (I ? I.count : P.count); t += 3) {
+        const q = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(P, I ? I.getX(t + k) : t + k));
+        if (q.every((v) => v.y > -0.1)) top.push(q.map((v) => [v.x + s.x, v.z + s.z]));
+      }
+    });
+    const inside = (x, z) => top.some(([a, b, c]) => {
+      const dd = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+      if (Math.abs(dd) < 1e-9) return false;
+      const u = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (z - c[1])) / dd;
+      const v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (z - c[1])) / dd;
+      return u > 0.02 && v > 0.02 && 1 - u - v > 0.02;
+    });
+    assert.ok(top.length > 4, 'the lift has no top');
+    // Her hull's faces lying flat under the lift, between her hangar deck and
+    // her flight deck: the lift would go through every one.
+    let area = 0;
+    g.traverse((o) => {
+      if (!o.isMesh || !o.geometry || under(o) || o.userData.inside) return;
+      const P = o.geometry.attributes.position;
+      const I = o.geometry.index;
+      const n = I ? I.count : P.count;
+      const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      for (let t = 0; t < n; t += 3) {
+        for (let k = 0; k < 3; k++) v[k].fromBufferAttribute(P, I ? I.getX(t + k) : t + k).applyMatrix4(o.matrixWorld);
+        if (v.some((p) => p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1 || p.y < NZ_HANGAR + 1 || p.y > NZ_FD - 0.1)) continue;
+        if (!inside((v[0].x + v[1].x + v[2].x) / 3, (v[0].z + v[1].z + v[2].z) / 3)) continue;
+        const u = v[1].clone().sub(v[0]), w = v[2].clone().sub(v[0]);
+        const c = u.cross(w);
+        if (Math.abs(c.y) > 0.9 * c.length()) area += c.length() / 2;
+      }
+    });
+    assert.ok(area < 2, `${area.toFixed(0)} m² of her deck is left where the lift at ${s.z.toFixed(0)} goes down`);
+    // And the slab goes down with the lift: its underside is drawn under it.
+    l.group.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(l.group);
+    assert.ok(bb.min.y < NZ_FD - 1.5, `the lift at ${s.z.toFixed(0)} is a plate, not the model's slab`);
+  }
+});
+
 check('a Seahawk comes home to a hover over the Nimitz and straight down onto her deck, and what comes home is turned round and sent out again', () => {
   const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
   const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
