@@ -16203,7 +16203,11 @@ check('the damage board is drawn on her own lines, not on a box', () => {
 
     const mid = halfBeamAt(lines, 0, -0.4);
     const bow = halfBeamAt(lines, half * 0.9, -0.4);
-    const deep = halfBeamAt(lines, 0, lines.keel * 0.85);
+    // The Takao's 1938-39 refit hung anti-torpedo bulges on her that stand
+    // out widest five metres under her waterline, wider than she is at it, and
+    // turn in hard under that to her flat bottom: at 85% of her draft she is
+    // still out on her bulge. Her bilge is measured under it, at 95%.
+    const deep = halfBeamAt(lines, 0, lines.keel * (id === 'takao' ? 0.95 : 0.85));
     assert.ok(mid > cls.hull.beam * 0.3,
       `${id} is ${mid.toFixed(1)} m in the half-beam amidships`);
     assert.ok(mid <= cls.hull.beam * 0.62,
@@ -16273,9 +16277,10 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // the Fuso's blisters, which top out at her waterline, and the Kongo's
     // bulges, which are fullest three metres under it, and the Scharnhorst's
     // side, which is widest four or five metres under hers, and the Mutsu's,
-    // which the model carries out as far under her waterline as at it.)
+    // which the model carries out as far under her waterline as at it, and
+    // the Takao's bulges, widest five metres under hers.)
     if (id === 'bismarck' || id === 'tirpitz' || id === 'richelieu' || id === 'fuso' || id === 'kongo'
-      || id === 'scharnhorst' || id === 'soyuz' || id === 'mutsu') {
+      || id === 'scharnhorst' || id === 'soyuz' || id === 'mutsu' || id === 'takao') {
       let side = 0;
       for (let j = 0; j <= 10; j++) {
         side = Math.max(side, halfBeamAt(lines, -half * 0.2 + (half * 0.4 * j) / 10, waterTop(lines, 0.5)));
@@ -20019,8 +20024,10 @@ check('the Japanese ships are built the same on both sides', () => {
   for (const [id, parts, floor, spare] of [
     ['Yamato', yamatoParts, 150, new Set(['radar', 'airGroup'])],
     // (Her hull is the sculpt, checked slice by slice below, so what is
-    // paired is what is built on it.)
-    ['Takao', takaoParts, 25, new Set(['radar', 'aviation', 'fittings', 'airGroup'])],
+    // paired is what is built on it. Drawn off the Atago model, her bridge,
+    // funnels and decks are all in that sculpt and everything else on her
+    // trains, so only a handful of fittings are left standing on their own.)
+    ['Takao', takaoParts, 5, new Set(['radar', 'aviation', 'fittings', 'airGroup'])],
     ['Shinano', shinanoParts, 120, new Set(['island', 'airGroup', 'fittings'])],
   ]) {
     // A hull that is a sculpt (the Takao's, see takaoHull.js) is checked the

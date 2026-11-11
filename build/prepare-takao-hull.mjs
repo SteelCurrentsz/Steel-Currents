@@ -888,15 +888,28 @@ let hull = creaseNormals(reduce(hullRaw, +(process.env.HULL_TRIS || 60000), +(pr
   (x, y) => Math.abs(y - WATERLINE) < 1e-3));
 console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points');
 
+/** How many length-wise slices her hull is packed in (see pack in sculpt.mjs). */
+const BUCKETS = +(process.env.BUCKETS || 60);
+
 // Her underwater body cut across every two metres of her length. Decimated,
 // her flat midbody is a handful of plates forty metres long, and the damage
 // board reads her lines off her points: a station with no point of her in it
 // reads as no ship at all. A cut across a plate adds points along it and
 // changes nothing of her shape.
+//
+// And all of her, above water too, cut where one of the slices she is packed
+// in ends (BUCKETS, below): a slice takes a face by where its middle is, and
+// a plate reaching from her quarter to her stern landed whole in a slice at
+// her stern, as wide there as she is fifteen metres forward -- one side's
+// plate in one slice and the other side's in the next, and each slice
+// reading as a hull built crooked.
 {
   const STEP = 2;
   let cuts = 0;
-  for (let c = -Math.floor(LOA / 2 / STEP) * STEP; c < LOA / 2; c += STEP) {
+  const at = [];
+  for (let c = -Math.floor(LOA / 2 / STEP) * STEP; c < LOA / 2; c += STEP) at.push([c, false]);
+  for (let k = 1; k < BUCKETS; k++) at.push([-LOA / 2 + (k * LOA) / BUCKETS, true]);
+  for (const [c, all] of at) {
     const { P, N, T, C, S } = hull;
     const made = new Map();
     const cross = (a, b) => {
@@ -915,7 +928,10 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
     for (let t = 0; t < T.length / 3; t++) {
       const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
       const sd = v.map((i) => Math.sign(P[i * 3 + 2] - c));
-      const low = v.some((i) => P[i * 3 + 1] < 0.5);
+      // (A face under a metre long that crosses where a slice ends reaches
+      // too little way into the next to change its breadth.)
+      const zs = v.map((i) => P[i * 3 + 2]);
+      const low = all ? Math.max(...zs) - Math.min(...zs) > 1 : v.some((i) => P[i * 3 + 1] < 0.5);
       if (!low || !(sd.includes(1) && sd.includes(-1))) { T2.push(...v); C2.push(C[t]); S2.push(S[t]); continue; }
       cuts++;
       const fore = [], aft = [];
@@ -931,7 +947,7 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
     }
     hull = { P, N, T: T2, C: C2, S: S2 };
   }
-  console.log(`stations: ${cuts} triangles of her underwater body cut every ${STEP} m;`, hull.T.length / 3, 'triangles');
+  console.log(`stations: ${cuts} triangles cut, her underwater body every ${STEP} m and all of her where her slices end;`, hull.T.length / 3, 'triangles');
 }
 
 // The cracks the decimator leaves between her plates. Where two of the
@@ -1198,7 +1214,7 @@ for (let t = 0; t < hull.T.length / 3; t++) {
   for (let k = 0; k < 3; k++) col.set(PALETTE[hull.C[t]], hull.T[t * 3 + k] * 3);
 }
 const uv = new Float32Array(hull.P.length / 3 * 2);
-const packed = pack(hull, col, uv, { buckets: +(process.env.BUCKETS || 60), length: LOA, surfaceOf, kinds: 3, compact: true });
+const packed = pack(hull, col, uv, { buckets: BUCKETS, length: LOA, surfaceOf, kinds: 3, compact: true });
 console.log('packed hull', packed.blob.length, 'bytes in', packed.buckets, 'slices');
 
 // ---- her guns ----------------------------------------------------------------------------
