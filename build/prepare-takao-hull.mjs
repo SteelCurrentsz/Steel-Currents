@@ -400,6 +400,104 @@ const PAINTED = HULL_PIECES;
   }
   console.log(`decks: cut to ${AMAX} m2 a face, ${made} edges halved, ${model.T.length / 3} triangles`);
 }
+// ---- her after torpedo bays --------------------------------------------------------------
+// Each side of her carries two quadruple banks on her upper deck, under her
+// aircraft deck: the forward one stowed pointing forward in a bay open in her
+// side, the after one stowed pointing aft -- and the model gives only the
+// forward bank its bay. The after bank trains out through her plating. Each
+// gets one: the slab of her side and deck round the forward bay is copied,
+// turned end for end about the two banks' pivots, over the same slab round
+// the after bank, which is cut out of her first.
+{
+  const GUNS_OF_HERS = new Set([957, 959, 961, 963, 969, 971, 951, 953, 955, 965, 967, 1105, 1107, 1117, 1119, 1109,
+    1111, 1113, 1115, 1247, 1253, 1249, 1251, 1005, 1011, 1007, 1009]);
+  const FWD = 14.196, AFT = -2.302;
+  // The forward bay is open from 1.7 m abaft its bank's pivot to 5.3 m forward
+  // of it, between her upper deck and her aircraft deck's beams; half a metre
+  // of her side either end goes with it.
+  const ZA = FWD - 2.2, ZB = FWD + 5.8, YA = 4.5, YB = 6.45, XIN = 2.5;
+  const mapZ = (z) => AFT - (z - FWD);
+  const { P, UV } = model;
+  // A polygon is a list of points, each [x, y, z, u, v].
+  const pt = (i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2], UV[i * 2], UV[i * 2 + 1]];
+  /** The part of a polygon on each side of the plane where coordinate `c` is `k`: [>= k, < k]. */
+  const split = (poly, c, k) => {
+    const hi = [], lo = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const da = a[c] - k, db = b[c] - k;
+      (da >= 0 ? hi : lo).push(a);
+      if ((da >= 0) !== (db >= 0)) {
+        const f = da / (da - db);
+        const q = a.map((v, j) => v + (b[j] - v) * f);
+        q[c] = k;
+        hi.push(q); lo.push(q);
+      }
+    }
+    return [hi.length >= 3 ? hi : null, lo.length >= 3 ? lo : null];
+  };
+  /** A slab of one side of her: the planes it is inside of, as [coordinate, value, keep the high side]. */
+  const slab = (z0, z1, sgn) => [[2, z0, true], [2, z1, false], [1, YA, true], [1, YB, false], [0, sgn * XIN, sgn > 0]];
+  const inside = (poly, planes) => {
+    for (const [c, k, high] of planes) {
+      if (!poly) return null;
+      const [hi, lo] = split(poly, c, k);
+      poly = high ? hi : lo;
+    }
+    return poly;
+  };
+  const outside = (poly, planes) => {
+    const out = [];
+    for (const [c, k, high] of planes) {
+      if (!poly) break;
+      const [hi, lo] = split(poly, c, k);
+      const away = high ? lo : hi;
+      if (away) out.push(away);
+      poly = high ? hi : lo;
+    }
+    return out;
+  };
+  const target = [slab(mapZ(ZB), mapZ(ZA), 1), slab(mapZ(ZB), mapZ(ZA), -1)];
+  const source = [slab(ZA, ZB, 1), slab(ZA, ZB, -1)];
+  const T2 = [], G2 = [], L2 = [], M2 = [];
+  const emit = (poly, t, flip) => {
+    const base = P.length / 3;
+    for (const q of poly) { P.push(q[0], q[1], q[2]); UV.push(q[3], q[4]); model.N.push(0, 1, 0); }
+    for (let k = 1; k + 1 < poly.length; k++) {
+      if (flip) T2.push(base, base + k + 1, base + k); else T2.push(base, base + k, base + k + 1);
+      G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]);
+    }
+  };
+  let cut = 0, copied = 0;
+  const nf = model.T.length / 3;
+  for (let t = 0; t < nf; t++) {
+    const v = [model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]];
+    if (GUNS_OF_HERS.has(model.L[t])) { T2.push(...v); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]); continue; }
+    const tri = v.map(pt);
+    const lo = [0, 1, 2].map((c) => Math.min(tri[0][c], tri[1][c], tri[2][c]));
+    const hi = [0, 1, 2].map((c) => Math.max(tri[0][c], tri[1][c], tri[2][c]));
+    const near = (z0, z1) => hi[2] > z0 && lo[2] < z1 && hi[1] > YA && lo[1] < YB && (hi[0] > XIN || lo[0] < -XIN);
+    if (!near(mapZ(ZB), mapZ(ZA)) && !near(ZA, ZB)) { T2.push(...v); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]); continue; }
+    // Out of the after slab first: what of it is outside both sides' slabs stays.
+    let keep = [tri];
+    for (const planes of target) keep = keep.flatMap((poly) => outside(poly, planes));
+    const whole = !near(mapZ(ZB), mapZ(ZA));
+    if (whole) { T2.push(...v); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]); } else {
+      cut++;
+      for (const poly of keep) emit(poly, t, false);
+    }
+    // And what of it is in the forward slab, copied aft end for end.
+    for (const planes of source) {
+      const part = inside(tri, planes);
+      if (!part) continue;
+      emit(part.map((q) => [q[0], q[1], mapZ(q[2]), q[3], q[4]]), t, true);
+      copied++;
+    }
+  }
+  model.T = T2; model.G = G2; model.L = L2; model.M = M2;
+  console.log(`torpedo bays: ${cut} faces cut out round her after banks, ${copied} copied from round her forward ones`);
+}
+
 // ---- her paint ------------------------------------------------------------------------
 // The model is one grey, untextured: she is painted here, a face at a time,
 // in a handful of paints -- her Yokosuka grey; her weather decks in linoleum,
@@ -876,6 +974,124 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
     }
   }
   console.log(`cracks: ${plated} slivers between her plates closed, of ${open.length} open edges below ${MAXY} m`);
+}
+
+// ---- her two sides ---------------------------------------------------------------------
+// The model is the same ship either side of her centreline, and the
+// decimator is not: it takes a plate off one side and keeps its twin on the
+// other -- the starboard face of her bridge under its compass platform, a
+// slot through it a metre deep; gaps in the sides of her tower. She is put,
+// keel to truck, on a grid of her length and height a quarter metre square, how
+// far out each side of her reaches in each cell; and wherever one side
+// stops more than half a metre short of the other, every face of the other side's
+// skin that reaches into that cell is copied across her centreline.
+{
+  const { P, N, T, C, S } = hull;
+  const Y0 = -12, Y1 = 45, Z0 = -LOA / 2 - 2, CELL = 0.25;
+  const nz = Math.ceil((LOA + 4) / CELL), ny = Math.ceil((Y1 - Y0) / CELL);
+  const reach = [new Float32Array(nz * ny), new Float32Array(nz * ny)];
+  const cell = (y, z) => {
+    const i = Math.floor((z - Z0) / CELL), j = Math.floor((y - Y0) / CELL);
+    return i < 0 || i >= nz || j < 0 || j >= ny ? -1 : j * nz + i;
+  };
+  const nf = T.length / 3;
+  const samples = (t, fn) => {
+    const v = [T[t * 3] * 3, T[t * 3 + 1] * 3, T[t * 3 + 2] * 3];
+    const len = Math.max(...[0, 1, 2].map((k) => Math.hypot(P[v[k] + 1] - P[v[(k + 1) % 3] + 1], P[v[k] + 2] - P[v[(k + 1) % 3] + 2])));
+    const n = Math.max(1, Math.ceil(len / 0.2));
+    for (let a = 0; a <= n; a++) for (let b = 0; b <= n - a; b++) {
+      const u = a / n, w = b / n, r = 1 - u - w;
+      if (fn(P[v[0]] * r + P[v[1]] * u + P[v[2]] * w, P[v[0] + 1] * r + P[v[1] + 1] * u + P[v[2] + 1] * w,
+        P[v[0] + 2] * r + P[v[1] + 2] * u + P[v[2] + 2] * w)) return true;
+    }
+    return false;
+  };
+  for (let t = 0; t < nf; t++) {
+    samples(t, (x, y, z) => {
+      const c = cell(y, z);
+      if (c >= 0) { const sd = x < 0 ? 0 : 1; reach[sd][c] = Math.max(reach[sd][c], Math.abs(x)); }
+      return false;
+    });
+  }
+  const open = (c, sd) => reach[1 - sd][c] < reach[sd][c] - 0.6;
+  let copied = 0;
+  const holes = new Set();
+  for (let t = 0; t < nf; t++) {
+    const cx = (P[T[t * 3] * 3] + P[T[t * 3 + 1] * 3] + P[T[t * 3 + 2] * 3]) / 3;
+    if (Math.abs(cx) < 0.5) continue;
+    const sd = cx < 0 ? 0 : 1;
+    let hit = -1;
+    samples(t, (x, y, z) => {
+      const c = cell(y, z);
+      if (c >= 0 && open(c, sd) && Math.abs(x) > reach[sd][c] - 1) { hit = c; return true; }
+      return false;
+    });
+    if (hit < 0) continue;
+    holes.add(hit);
+    const base = P.length / 3;
+    for (const q of [T[t * 3], T[t * 3 + 2], T[t * 3 + 1]]) {
+      P.push(-P[q * 3], P[q * 3 + 1], P[q * 3 + 2]);
+      N.push(-N[q * 3], N[q * 3 + 1], N[q * 3 + 2]);
+    }
+    T.push(base, base + 1, base + 2); C.push(C[t]); S.push(S[t]);
+    copied++;
+  }
+  console.log(`sides: ${copied} faces copied across her centreline into ${holes.size} cells one side leaves open`);
+}
+
+// And a face that is the top of her where it is but faces down -- a roof of
+// her bridge the model drew inside out, seen through from above -- or the
+// outermost of her side where it is but faces in, is drawn from both sides.
+{
+  const { P, T, S } = hull;
+  const C2 = 0.5, X0 = -12, Z0 = -LOA / 2 - 2;
+  const nx = Math.ceil(24 / C2), nzc = Math.ceil((LOA + 4) / C2);
+  const top = new Float32Array(nx * nzc).fill(-99);
+  const at = (x, z) => {
+    const i = Math.floor((x - X0) / C2), k = Math.floor((z - Z0) / C2);
+    return i < 0 || i >= nx || k < 0 || k >= nzc ? -1 : k * nx + i;
+  };
+  const nf = T.length / 3;
+  const each = (t, fn) => {
+    const v = [T[t * 3] * 3, T[t * 3 + 1] * 3, T[t * 3 + 2] * 3];
+    const len = Math.max(...[0, 1, 2].map((k) => Math.hypot(P[v[k]] - P[v[(k + 1) % 3]], P[v[k] + 1] - P[v[(k + 1) % 3] + 1], P[v[k] + 2] - P[v[(k + 1) % 3] + 2])));
+    const n = Math.max(1, Math.ceil(len / 0.2));
+    for (let a = 0; a <= n; a++) for (let b = 0; b <= n - a; b++) {
+      const u = a / n, w = b / n, r = 1 - u - w;
+      fn(P[v[0]] * r + P[v[1]] * u + P[v[2]] * w, P[v[0] + 1] * r + P[v[1] + 1] * u + P[v[2] + 1] * w, P[v[0] + 2] * r + P[v[1] + 2] * u + P[v[2] + 2] * w);
+    }
+  };
+  for (let t = 0; t < nf; t++) each(t, (x, y, z) => { const c = at(x, z); if (c >= 0 && y > top[c]) top[c] = y; });
+  let roofs = 0;
+  for (let t = 0; t < nf; t++) {
+    if (S[t]) continue;
+    const [fx, fy, fz] = faceNormal(hull, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    if (!(fy < -0.5 * Math.hypot(fx, fy, fz))) continue;
+    let up = 0, all = 0;
+    each(t, (x, y, z) => { const c = at(x, z); all++; if (c >= 0 && y >= top[c] - 0.1) up++; });
+    if (up > all / 2) { S[t] = 1; roofs++; }
+  }
+  // Her sides likewise, on a grid of her length and height.
+  const Y0 = -10, nyc = Math.ceil(55 / C2);
+  const reach = [new Float32Array(nyc * nzc), new Float32Array(nyc * nzc)];
+  const side = (y, z) => {
+    const j = Math.floor((y - Y0) / C2), k = Math.floor((z - Z0) / C2);
+    return j < 0 || j >= nyc || k < 0 || k >= nzc ? -1 : j * nzc + k;
+  };
+  for (let t = 0; t < nf; t++) each(t, (x, y, z) => { const c = side(y, z); if (c >= 0) { const sd = x < 0 ? 0 : 1; reach[sd][c] = Math.max(reach[sd][c], Math.abs(x)); } });
+  let walls = 0;
+  for (let t = 0; t < nf; t++) {
+    if (S[t]) continue;
+    const [fx, fy, fz] = faceNormal(hull, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    if (!(Math.abs(fx) > 0.5 * Math.hypot(fx, fy, fz))) continue;
+    const cx = (P[T[t * 3] * 3] + P[T[t * 3 + 1] * 3] + P[T[t * 3 + 2] * 3]) / 3;
+    if (fx * cx >= 0) continue;
+    const sd = cx < 0 ? 0 : 1;
+    let out = 0, all = 0;
+    each(t, (x, y, z) => { const c = side(y, z); all++; if (c >= 0 && Math.abs(x) >= reach[sd][c] - 0.1) out++; });
+    if (out > all / 2) { S[t] = 1; walls++; }
+  }
+  console.log(`roofs: ${roofs} faces on top of her that face down, and ${walls} of her sides that face in, drawn from both sides`);
 }
 
 // Her weather decks are linoleum (1), held down with brass strips.

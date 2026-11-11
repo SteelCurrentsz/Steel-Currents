@@ -292,13 +292,16 @@ console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SC
 // her frame by her draught.
 {
   const G101 = model.G[model.L.indexOf(101)];
-  // Each face turned to look out of her: down off her bottom (`face` -1),
-  // up off her deck (+1), or outboard off her side (0).
+  // Each face turned to look out of her: off her bottom and bilge (`face`
+  // -1), up off her deck (+1), or outboard off her side (0).
   let face = -1;
   const put = (a, b, c) => {
     const u = b.map((v, k) => v - a[k]), w = c.map((v, k) => v - a[k]);
     const n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
-    const out = face ? n[1] * face : n[0] * Math.sign(a[0] + b[0] + c[0]);
+    // Her bottom and bilge face away from a line along her a few metres
+    // over her keel, down under her and out at her turn of bilge.
+    const cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3;
+    const out = face > 0 ? n[1] : face < 0 ? n[0] * cx + n[1] * (cy - 7) : n[0] * Math.sign(cx);
     if (out < 0) [b, c] = [c, b];
     const base = model.P.length / 3;
     for (const [x, y, z] of [a, b, c]) { model.P.push(x, y - DRAUGHT, z); model.N.push(0, 1, 0); model.UV.push(0, 0); }
@@ -341,6 +344,30 @@ console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SC
   const pts = [...edge.values()].sort((a, b) => a[2] - b[2]);
   const chine = [];
   for (const p of pts) if (!chine.length || p[2] - chine[chine.length - 1][2] > 0.05) chine.push(p);
+  // And her bilge over it: the piece's side plating stops along one straight
+  // edge, two to three metres over the line her bottom starts from, open the
+  // length of her midbody between the two. A strip of plating from that edge
+  // down to her bottom's edge, station by station.
+  {
+    const A = [-10.34, 3.49, -50.35], B = [-13.47, 3.98, 0.54];
+    const edge = (z) => { const f = (z - A[2]) / (B[2] - A[2]); return [A[0] + (B[0] - A[0]) * f, A[1] + (B[1] - A[1]) * f, z]; };
+    const run = chine.filter((p) => p[2] >= A[2] - 0.05);
+    for (let i = 0; i + 1 < run.length; i++) quad(run[i], run[i + 1], edge(run[i + 1][2]), edge(run[i][2]));
+    // And abaft it, back to her run: there the side's plating stops along
+    // another edge, rising forward from her waterline to meet the first, and
+    // her bilge under it is open as far as the run's section.
+    const up = (z) => { const f = (z + 60.55) / (60.55 - 50.35); return [-11.46 - 1.06 * f, 7.97 + 0.82 * f, z]; };
+    const at = (z) => {
+      for (let i = 0; i + 1 < chine.length; i++) {
+        const p = chine[i], q = chine[i + 1];
+        if (z >= p[2] && z <= q[2]) { const f = (z - p[2]) / (q[2] - p[2] || 1); return p.map((v, c) => v + (q[c] - v) * f); }
+      }
+      return chine[0];
+    };
+    loft([at(-54.1), up(-54.1)], [at(A[2]), A, up(A[2])], 8);
+    // And the sliver between this and the run's own section.
+    both(at(-54.1), [-12.09, 8.79, -55.45], up(-54.1));
+  }
   // And on two metres under her forebody's piece, a hand under its bottom, so
   // that the two overlap and nothing shows between them.
   const last = chine[chine.length - 1];
@@ -372,6 +399,10 @@ console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SC
   // And where her midbody's piece meets her forebody's, a hand over her
   // waterline: a sliver of her side four metres long left open between them.
   quad([-13.48, 8.6, -4.5], [-13.48, 8.6, 0.6], [-13.48, 9.8, 0.6], [-13.48, 9.8, -4.5]);
+  // And abaft her midships pair, on the line where her side's lower plates
+  // stop a hand over her waterline: a triangle of it two metres long open
+  // over the edge.
+  quad([-12.6, 8.7, -48.2], [-12.6, 8.7, -45], [-12.6, 9.45, -45], [-12.6, 9.45, -48.2]);
   face = 1;
   const deck = 13.26;
   quad([-11.65, deck, -61], [-8.3, deck, -61], [-8.3, deck, -55.8], [-11.65, deck, -55.8]);
@@ -1125,6 +1156,124 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
     }
   }
   console.log(`cracks: ${plated} slivers between her plates closed, of ${open.length} open edges below ${MAXY} m`);
+}
+
+// ---- her two sides ---------------------------------------------------------------------
+// The model is the same ship either side of her centreline, and the
+// decimator is not: it takes plates off one side and keeps their twins on
+// the other -- low on her starboard bilge amidships, it left her open to the
+// sea for forty metres; on her port quarter by her screws. She is put, keel to
+// truck, on a grid of her length and height a quarter metre square, how far out
+// each side of her reaches in each cell; and wherever one side
+// stops more than half a metre short of the other, every face of the other side's
+// skin that reaches into that cell is copied across her centreline.
+{
+  const { P, N, T, C, S } = hull;
+  const Y0 = -12, Y1 = 45, Z0 = -LOA / 2 - 2, CELL = 0.25;
+  const nz = Math.ceil((LOA + 4) / CELL), ny = Math.ceil((Y1 - Y0) / CELL);
+  const reach = [new Float32Array(nz * ny), new Float32Array(nz * ny)];
+  const cell = (y, z) => {
+    const i = Math.floor((z - Z0) / CELL), j = Math.floor((y - Y0) / CELL);
+    return i < 0 || i >= nz || j < 0 || j >= ny ? -1 : j * nz + i;
+  };
+  const nf = T.length / 3;
+  const samples = (t, fn) => {
+    const v = [T[t * 3] * 3, T[t * 3 + 1] * 3, T[t * 3 + 2] * 3];
+    const len = Math.max(...[0, 1, 2].map((k) => Math.hypot(P[v[k] + 1] - P[v[(k + 1) % 3] + 1], P[v[k] + 2] - P[v[(k + 1) % 3] + 2])));
+    const n = Math.max(1, Math.ceil(len / 0.2));
+    for (let a = 0; a <= n; a++) for (let b = 0; b <= n - a; b++) {
+      const u = a / n, w = b / n, r = 1 - u - w;
+      if (fn(P[v[0]] * r + P[v[1]] * u + P[v[2]] * w, P[v[0] + 1] * r + P[v[1] + 1] * u + P[v[2] + 1] * w,
+        P[v[0] + 2] * r + P[v[1] + 2] * u + P[v[2] + 2] * w)) return true;
+    }
+    return false;
+  };
+  for (let t = 0; t < nf; t++) {
+    samples(t, (x, y, z) => {
+      const c = cell(y, z);
+      if (c >= 0) { const sd = x < 0 ? 0 : 1; reach[sd][c] = Math.max(reach[sd][c], Math.abs(x)); }
+      return false;
+    });
+  }
+  const open = (c, sd) => reach[1 - sd][c] < reach[sd][c] - 0.6;
+  let copied = 0;
+  const holes = new Set();
+  for (let t = 0; t < nf; t++) {
+    const cx = (P[T[t * 3] * 3] + P[T[t * 3 + 1] * 3] + P[T[t * 3 + 2] * 3]) / 3;
+    if (Math.abs(cx) < 0.5) continue;
+    const sd = cx < 0 ? 0 : 1;
+    let hit = -1;
+    samples(t, (x, y, z) => {
+      const c = cell(y, z);
+      if (c >= 0 && open(c, sd) && Math.abs(x) > reach[sd][c] - 1) { hit = c; return true; }
+      return false;
+    });
+    if (hit < 0) continue;
+    holes.add(hit);
+    const base = P.length / 3;
+    for (const q of [T[t * 3], T[t * 3 + 2], T[t * 3 + 1]]) {
+      P.push(-P[q * 3], P[q * 3 + 1], P[q * 3 + 2]);
+      N.push(-N[q * 3], N[q * 3 + 1], N[q * 3 + 2]);
+    }
+    T.push(base, base + 1, base + 2); C.push(C[t]); S.push(S[t]);
+    copied++;
+  }
+  console.log(`sides: ${copied} faces copied across her centreline into ${holes.size} cells one side leaves open`);
+}
+
+// And a face that is the top of her where it is but faces down -- a roof
+// drawn inside out, seen through from above -- or the
+// outermost of her side where it is but faces in, is drawn from both sides.
+{
+  const { P, T, S } = hull;
+  const C2 = 0.5, X0 = -12, Z0 = -LOA / 2 - 2;
+  const nx = Math.ceil(24 / C2), nzc = Math.ceil((LOA + 4) / C2);
+  const top = new Float32Array(nx * nzc).fill(-99);
+  const at = (x, z) => {
+    const i = Math.floor((x - X0) / C2), k = Math.floor((z - Z0) / C2);
+    return i < 0 || i >= nx || k < 0 || k >= nzc ? -1 : k * nx + i;
+  };
+  const nf = T.length / 3;
+  const each = (t, fn) => {
+    const v = [T[t * 3] * 3, T[t * 3 + 1] * 3, T[t * 3 + 2] * 3];
+    const len = Math.max(...[0, 1, 2].map((k) => Math.hypot(P[v[k]] - P[v[(k + 1) % 3]], P[v[k] + 1] - P[v[(k + 1) % 3] + 1], P[v[k] + 2] - P[v[(k + 1) % 3] + 2])));
+    const n = Math.max(1, Math.ceil(len / 0.2));
+    for (let a = 0; a <= n; a++) for (let b = 0; b <= n - a; b++) {
+      const u = a / n, w = b / n, r = 1 - u - w;
+      fn(P[v[0]] * r + P[v[1]] * u + P[v[2]] * w, P[v[0] + 1] * r + P[v[1] + 1] * u + P[v[2] + 1] * w, P[v[0] + 2] * r + P[v[1] + 2] * u + P[v[2] + 2] * w);
+    }
+  };
+  for (let t = 0; t < nf; t++) each(t, (x, y, z) => { const c = at(x, z); if (c >= 0 && y > top[c]) top[c] = y; });
+  let roofs = 0;
+  for (let t = 0; t < nf; t++) {
+    if (S[t]) continue;
+    const [fx, fy, fz] = faceNormal(hull, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    if (!(fy < -0.5 * Math.hypot(fx, fy, fz))) continue;
+    let up = 0, all = 0;
+    each(t, (x, y, z) => { const c = at(x, z); all++; if (c >= 0 && y >= top[c] - 0.1) up++; });
+    if (up > all / 2) { S[t] = 1; roofs++; }
+  }
+  // Her sides likewise, on a grid of her length and height.
+  const Y0 = -10, nyc = Math.ceil(55 / C2);
+  const reach = [new Float32Array(nyc * nzc), new Float32Array(nyc * nzc)];
+  const side = (y, z) => {
+    const j = Math.floor((y - Y0) / C2), k = Math.floor((z - Z0) / C2);
+    return j < 0 || j >= nyc || k < 0 || k >= nzc ? -1 : j * nzc + k;
+  };
+  for (let t = 0; t < nf; t++) each(t, (x, y, z) => { const c = side(y, z); if (c >= 0) { const sd = x < 0 ? 0 : 1; reach[sd][c] = Math.max(reach[sd][c], Math.abs(x)); } });
+  let walls = 0;
+  for (let t = 0; t < nf; t++) {
+    if (S[t]) continue;
+    const [fx, fy, fz] = faceNormal(hull, T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
+    if (!(Math.abs(fx) > 0.5 * Math.hypot(fx, fy, fz))) continue;
+    const cx = (P[T[t * 3] * 3] + P[T[t * 3 + 1] * 3] + P[T[t * 3 + 2] * 3]) / 3;
+    if (fx * cx >= 0) continue;
+    const sd = cx < 0 ? 0 : 1;
+    let out = 0, all = 0;
+    each(t, (x, y, z) => { const c = side(y, z); all++; if (c >= 0 && Math.abs(x) >= reach[sd][c] - 0.1) out++; });
+    if (out > all / 2) { S[t] = 1; walls++; }
+  }
+  console.log(`roofs: ${roofs} faces on top of her that face down, and ${walls} of her sides that face in, drawn from both sides`);
 }
 
 // Her weather decks are teak (1).
