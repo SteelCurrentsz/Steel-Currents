@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, arado, kingfisher, besson, loire, walrus, kor1, ro43,
-  jake, mitchell, muzzlesOf, dressPlane,
+  jake, mitchell, f18, e2d, sh60, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -1017,7 +1017,7 @@ export function flightModels() {
       node.parent.remove(node);
       parts.push({
         name: spec.name, axis: spec.axis, open: spec.open, fall: spec.fall,
-        spin: spec.spin, gear: spec.gear, tuck: spec.tuck, slide: spec.slide,
+        spin: spec.spin, rate: spec.rate, gear: spec.gear, tuck: spec.tuck, slide: spec.slide,
         turret: spec.turret, at, rot, geo, mats,
       });
       if (spec.turret) KIT_GUNS[key] = { at: at.toArray(), rot: rot.clone(), muzzle: spec.muzzle };
@@ -1046,6 +1046,11 @@ export function flightModels() {
   // model of her. Built and welded like the kit's machines, but in her own
   // paint, which goes through the weld with her points.
   make('mitchell', (g) => mitchell(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  // And the Nimitz's air wing, off the owner's models of them: the Hornet,
+  // the Hawkeye with her rotodome turning over her back, and the Seahawk.
+  make('f18', (g) => f18(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  make('e2d', (g) => e2d(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  make('sh60', (g) => sh60(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Devastator the Hornet's torpedo squadron flew at Midway.
   out.devastator = devastatorFlightModel();
   MUZZLES.devastator = DEVASTATOR.guns.slice().sort((a, b) => a[0] - b[0]);
@@ -1110,7 +1115,7 @@ export const ROLE_TYPE = {
   fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'arado', 'kingfisher',
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'e2d', 'sh60', 'arado', 'kingfisher',
   'besson', 'loire', 'walrus', 'kor1', 'ro43', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
@@ -1562,7 +1567,7 @@ export class Flights {
       let ang = q.spec.open * bay;
       let tuck = 0;
       let slide = 0;
-      if (q.spec.spin) ang = turn;
+      if (q.spec.spin) ang = turn * (q.spec.rate ?? 1);
       else if (q.spec.brake) ang = q.spec.open * brake * brake * (3 - 2 * brake);
       else if (q.spec.gear) {
         // Up, with the doors shut over it: not drawn. See planekit's gearRig.

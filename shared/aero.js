@@ -100,6 +100,30 @@ export const AERO = {
     thrust: 41000, vMax: 125, name: 'B-25B',
     helix: 0.040, gLimit: 3.67,
   },
+  // The Nimitz's air wing. The F/A-18C Hornet: two F404s and a wing built
+  // for the deck, sixteen tonnes with a load on her; nothing in the air of the
+  // war she would meet could stay with her.
+  f18: {
+    mass: 16000, wing: 37.16, span: 12.31, clMax: 1.7, cd0: 0.0240,
+    thrust: 190000, vMax: 300, name: 'F/A-18C', jet: true,
+    helix: 0.16, gLimit: 7.5,
+  },
+  // The E-2D Advanced Hawkeye: two T56 turboprops and the rotodome over her
+  // back. She does not fight; she sees.
+  e2d: {
+    mass: 23000, wing: 65.03, span: 24.56, clMax: 1.8, cd0: 0.0330,
+    thrust: 72000, vMax: 180, name: 'E-2D',
+    helix: 0.05, gLimit: 3.0,
+  },
+  // The SH-60 Seahawk, flown as an aeroplane with a very big and very slow
+  // wing: her rotor holds her up at any speed she likes, which a wing area
+  // and a lift coefficient this large stand in for, and she tops out at a
+  // hundred and sixty knots.
+  sh60: {
+    mass: 9900, wing: 60, span: 16.36, clMax: 6.0, cd0: 0.0700,
+    thrust: 42000, vMax: 82, name: 'SH-60B',
+    helix: 0.07, gLimit: 3.0,
+  },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',

@@ -155,7 +155,7 @@ export function silhouette(classId, { flip = false, cls = '', badge = null } = {
   // Maya off the Takao, the Missouri off the Iowa, which she is with missiles
   // on her, and the Hornet off the Enterprise, the Yorktown she was built to
   // the drawings of.
-  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise' }[classId] || classId] || HULLS.fletcher;
+  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise', nimitz: 'enterprise' }[classId] || classId] || HULLS.fletcher;
   const mark = badge ? BADGES[badge] || '' : '';
   // Room either side for the arrow, and above for the cross. Equal margins, so
   // the box's centre line is the hull's centre line and the mirror below maps

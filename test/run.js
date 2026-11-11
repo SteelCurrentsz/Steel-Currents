@@ -38,7 +38,7 @@ import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_O
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine } from '../shared/sim.js';
 import {
-  normaliseAirGroup, defaultAirGroup, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
+  normaliseAirGroup, defaultAirGroup, setAirGroup, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, runwayLength, takeoffRoll, deckRunFate, resolveShellHit, buoyancy, launchOffset, gunLimits,
@@ -651,7 +651,9 @@ console.log('\nSteel Currents simulation tests\n');
 check('ballistic solution stays inside gun range', () => {
   for (const id of Object.keys(SHIP_CLASSES)) {
     const gun = SHIP_CLASSES[id].gun;
-    const near = solveBallistic(gun, 5000);
+    // Five kilometres, or half her reach for a gun that does not get that
+    // far: the Nimitz's only battery is her Phalanx.
+    const near = solveBallistic(gun, Math.min(5000, gun.range * 0.5));
     const far = solveBallistic(gun, gun.range * 0.98);
     assert.ok(near.tof > 1 && near.tof < 20, `${id} near tof ${near.tof}`);
     assert.ok(far.tof > near.tof, `${id} tof should grow with range`);
@@ -1753,10 +1755,70 @@ check('the Musashi is commissioned after her sister', () => {
   assert.equal(SHIP_ORDER[i + 1], 'musashi', `after the Yamato comes ${SHIP_ORDER[i + 1]}`);
 });
 
+check('the Nimitz is commissioned after the Missouri, with her air wing of ninety and her own weapons', () => {
+  const i = MODERN_ORDER.indexOf('nimitz');
+  assert.ok(i > 0, 'the Nimitz is not in the modern yard');
+  assert.equal(MODERN_ORDER[i - 1], 'missouri', `before the Nimitz comes ${MODERN_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.nimitz;
+  assert.equal(cls.fullName, 'USS Nimitz (CVN-68)');
+  assert.equal(cls.type, 'CV');
+  // Two Phalanx, four Sea Sparrow launchers and two RAM, each where the model stands it.
+  assert.equal(cls.aa.guns.filter((g) => g.ciws).reduce((n, g) => n + g.mounts.length, 0), 2);
+  const rails = cls.missiles.rails;
+  assert.equal(rails.filter((r) => r[4] === 'essm').length, 4, 'four Mk 29 Sea Sparrow launchers');
+  assert.equal(rails.filter((r) => r[4] === 'ram').length, 2, 'two Mk 49 RAM launchers');
+  // Sixty-six Hornets, five Hawkeyes and nineteen Seahawks: ninety, and fixed.
+  const g = defaultAirGroup(cls);
+  assert.deepEqual([g.fighters, g.dive, g.torpedo], [66, 5, 19]);
+  const forced = normaliseAirGroup(cls, { fighters: 90, dive: 0, torpedo: 0 });
+  assert.deepEqual([forced.fighters, forced.dive, forced.torpedo], [66, 5, 19], 'her mix can be changed');
+  // Four loads for the Hornet and two for the Seahawk, each kept as chosen.
+  const S = cls.planes.slots;
+  assert.deepEqual(Object.values(S.fighters.loadouts).map((l) => l.name).sort(),
+    ['Anti-Air Load Out', 'Anti-Ship Load Out', 'CAS Load Out', 'Multi-Role Load Out']);
+  assert.deepEqual(Object.values(S.torpedo.loadouts).map((l) => l.name).sort(), ['ASW Load Out', 'Anti-Ship Load Out']);
+  for (const fl of Object.keys(S.fighters.loadouts)) {
+    for (const tl of Object.keys(S.torpedo.loadouts)) {
+      const w = normaliseAirGroup(cls, { ...g, load: { fighters: fl, torpedo: tl } });
+      assert.deepEqual(w.load, { fighters: fl, torpedo: tl });
+    }
+  }
+  assert.equal(normaliseAirGroup(cls, { ...g, load: { fighters: 'nonsense' } }).load.fighters, S.fighters.default);
+});
+
+check('the Nimitz flies her Hornets, Hawkeyes and Seahawks as their loads say, and a Hawkeye up widens her side\'s picture', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Fletcher', classId: 'fletcher', team: 1, index: 0 });
+  c.x = 0; c.z = -9000; c.heading = 0; foe.x = 0; foe.z = 9000;
+  setAirGroup(c, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'as', torpedo: 'asw' } });
+  c.aimX = 0; c.aimZ = 9000;
+  assert.ok(launchStrike(state, c), 'she would not launch');
+  const kinds = new Set();
+  let harpoons = 0, aewUp = false, widened = false;
+  for (let i = 0; i < Math.ceil(240 / DT); i++) {
+    step(state, DT);
+    for (const p of state.planes) kinds.add(`${p.type}/${p.role}`);
+    for (const m of state.missiles) if (m.kind === 'agm84' && m.air) harpoons = Math.max(harpoons, 1);
+    if (state.planes.some((p) => p.role === 'aew' && p.phase === 'outbound')) {
+      aewUp = true;
+      if (foe.alive && foe.spottedBy[0] && Math.hypot(foe.x - c.x, foe.z - c.z) > 14000) widened = true;
+    }
+  }
+  assert.ok(kinds.has('f18/dive'), `no Hornet flew her anti-ship load: ${[...kinds]}`);
+  assert.ok(kinds.has('e2d/aew'), `no Hawkeye went up: ${[...kinds]}`);
+  assert.ok(kinds.has('sh60/torpedo'), `no Seahawk went up: ${[...kinds]}`);
+  assert.ok(harpoons > 0 || !foe.alive, 'her Hornets fired no Harpoons');
+  assert.ok(aewUp, 'her Hawkeye never took station');
+  assert.ok(widened || !foe.alive, 'her Hawkeye did not show her side a ship beyond her own sight');
+});
+
 check('the Kongo is commissioned before the Fuso, after the Missouri', () => {
   const i = SHIP_ORDER.indexOf('kongo');
   assert.ok(i >= 0, 'the Kongo is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'missouri', `before the Kongo comes ${SHIP_ORDER[i - 1]}`);
+  // The Nimitz is in the list between them, but in the missile age's yard.
+  assert.equal(SHIP_ORDER[i - 1], 'nimitz', `before the Kongo comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 2], 'missouri', `two before the Kongo comes ${SHIP_ORDER[i - 2]}`);
   assert.equal(SHIP_ORDER[i + 1], 'fuso', `after the Kongo comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.kongo;
   assert.equal(cls.fullName, 'IJN Kongo');

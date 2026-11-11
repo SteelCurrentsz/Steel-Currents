@@ -39,6 +39,7 @@ import { avengerModel } from './avengerModel.js';
 import { devastatorModel } from './devastatorModel.js';
 import { b25Model, B25 } from './b25Model.js';
 import { b29Model, b29Ready } from './b29Model.js';
+import { navalAirModel } from './navalAirModel.js';
 
 // ---------------------------------------------------------------------------
 // The skin of an aeroplane
@@ -4087,6 +4088,25 @@ function mitchell(g, x, y, z, ry, folded = false, opts = {}) {
   return p;
 }
 
+
+/**
+ * One of the Nimitz's air wing, off the owner's models of them: an F/A-18C
+ * Hornet ('f18'), an E-2D Hawkeye ('e2d') or an SH-60 Seahawk ('sh60'). None
+ * of them folds here; `opts.gear === false` has her legs up.
+ */
+function navalAir(kind, g, x, y, z, ry, opts = {}) {
+  const p = navalAirModel(kind, { solidGlass: opts.solidGlass });
+  p.position.set(x, y, z);
+  p.rotation.y = ry;
+  g.add(p);
+  p.userData.gear(opts.gear === false ? 1 : 0);
+  p.userData.wings = null;
+  return p;
+}
+const f18 = (g, x, y, z, ry, folded, opts = {}) => navalAir('f18', g, x, y, z, ry, opts);
+const e2d = (g, x, y, z, ry, folded, opts = {}) => navalAir('e2d', g, x, y, z, ry, opts);
+const sh60 = (g, x, y, z, ry, folded, opts = {}) => navalAir('sh60', g, x, y, z, ry, opts);
+
 // ------------------------------------------------------ the heavy squadrons --
 //
 // The bombers: the aircraft nobody flies off a deck.
@@ -5517,7 +5537,7 @@ function b29Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60 };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

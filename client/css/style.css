@@ -1821,6 +1821,37 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 }
 .ag-step:hover:not(:disabled) { background: rgba(230, 207, 156, 0.2); color: var(--sand-bright); }
 .ag-step:disabled { opacity: 0.28; cursor: default; }
+/* `display: flex` on a row would otherwise show one marked hidden: the
+   Hornet's deck bombers on every carrier. */
+.ag-row[hidden], .ag-loads[hidden] { display: none; }
+.ag-loads { margin-top: 0.3rem; }
+.ag-load {
+  padding: 0.4rem 0;
+  border-top: 1px solid rgba(154, 166, 178, 0.16);
+}
+.ag-load-name {
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  color: var(--sand);
+  margin-bottom: 0.3rem;
+}
+.ag-load-picks { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.ag-pick {
+  flex: 1 1 calc(50% - 0.3rem);
+  min-width: 7rem;
+  padding: 0.35rem 0.45rem;
+  background: rgba(154, 166, 178, 0.1);
+  border: 1px solid var(--panel-line);
+  color: var(--sand);
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-align: left;
+  cursor: pointer;
+}
+.ag-pick:hover { background: rgba(230, 207, 156, 0.16); }
+.ag-pick.on { background: rgba(230, 207, 156, 0.28); border-color: var(--sand); color: var(--sand-bright); }
+.ag-pick em { display: block; font-style: normal; font-size: 0.62rem; color: var(--steel); opacity: 0.9; }
 .ag-n {
   width: 1.6rem;
   text-align: center;

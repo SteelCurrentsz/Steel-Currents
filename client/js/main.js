@@ -872,7 +872,8 @@ function openAirGroup() {
   if (!spec) return;
   closeVls();
   const id = yardShip();
-  yardUi.ag = { ...currentAirGroup(SHIP_CLASSES[id]) };
+  const now = currentAirGroup(SHIP_CLASSES[id]);
+  yardUi.ag = { ...now, ...(now.load ? { load: { ...now.load } } : {}) };
   document.getElementById('airgroup').hidden = false;
   renderAirGroup();
 }
@@ -888,8 +889,21 @@ function renderAirGroup() {
   if (!spec || !g) return;
   const total = AG_KINDS.reduce((n, k) => n + g[k], 0);
   const strike = g.dive + g.torpedo;
-  document.getElementById('ag-sub').textContent =
-    `${spec.total} aircraft in the hangar. Any mix you like, all of one kind or none of another.`;
+  const SL = SHIP_CLASSES[yardShip()]?.planes?.slots || null;
+  const fixed = AG_KINDS.every((k) => spec.min[k] === spec.max[k]);
+  document.getElementById('ag-sub').textContent = fixed
+    ? `${spec.total} aircraft in the hangar, her air wing as it sails. Choose what each type is armed with.`
+    : `${spec.total} aircraft in the hangar. Any mix you like, all of one kind or none of another.`;
+  // Each row named for the machine it is, on a carrier that says so.
+  for (const k of AG_KINDS) {
+    const nm = document.querySelector(`.ag-row[data-kind="${k}"] .ag-name`);
+    if (!nm) continue;
+    if (nm.firstChild && nm.firstChild.nodeType === 3) {
+      nm.dataset.plain ??= nm.firstChild.textContent;
+      nm.firstChild.textContent = SL && SL[k] ? SL[k].label : nm.dataset.plain;
+    }
+  }
+  renderLoads(SL, g);
   // What she actually flies in each role: a Shinano's fighters are Zeros.
   const id = yardShip();
   const types = SHIP_CLASSES[id]?.planes?.types || {};
@@ -903,7 +917,9 @@ function renderAirGroup() {
   for (const k of AG_KINDS) {
     const [role, fallback, job] = ROLES[k];
     const em = document.querySelector(`.ag-row[data-kind="${k}"] em`);
-    if (em) em.textContent = `${NAMES[types[role]] || fallback} \u2014 ${job}`;
+    const sl = SL && SL[k];
+    const loaded = sl && sl.loadouts ? sl.loadouts[(g.load && g.load[k]) || sl.default] : null;
+    if (em) em.textContent = sl ? (loaded ? loaded.name : sl.note || '') : `${NAMES[types[role]] || fallback} \u2014 ${job}`;
   }
   for (const k of AG_KINDS) document.getElementById(`ag-n-${k}`).textContent = g[k];
   // Her deckload, if she has one: on her flight deck, not in her hangar, so
@@ -934,6 +950,34 @@ function renderAirGroup() {
   else if (strike < spec.minStrike) note.textContent = 'She needs strike aircraft to be worth sending.';
   else if (total < spec.total) note.textContent = `${spec.total - total} spaces empty in the hangar.`;
   else note.textContent = '';
+}
+
+/**
+ * The loads her types can be armed with, a row of choices a type: shown only
+ * for a carrier whose types have them.
+ */
+function renderLoads(SL, g) {
+  const box = document.getElementById('ag-loads');
+  if (!box) return;
+  const kinds = SL ? AG_KINDS.filter((k) => SL[k] && SL[k].loadouts) : [];
+  box.hidden = !kinds.length;
+  box.innerHTML = kinds.map((k) => {
+    const sl = SL[k];
+    const on = (g.load && g.load[k]) || sl.default;
+    return `<div class="ag-load"><div class="ag-load-name">${sl.label}</div><div class="ag-load-picks">`
+      + Object.entries(sl.loadouts).map(([key, L]) => `<button type="button" class="ag-pick${key === on ? ' on' : ''}" `
+        + `data-kind="${k}" data-load="${key}" aria-pressed="${key === on}">${L.name}<em>${L.note || ''}</em></button>`).join('')
+      + '</div></div>';
+  }).join('');
+  for (const b of box.querySelectorAll('.ag-pick')) {
+    b.onclick = () => {
+      audio.click();
+      const ag = yardUi.ag;
+      if (!ag) return;
+      ag.load = { ...(ag.load || {}), [b.dataset.kind]: b.dataset.load };
+      renderAirGroup();
+    };
+  }
 }
 
 function stepAirGroup(kind, d) {
@@ -1144,7 +1188,7 @@ document.getElementById('ag-done').onclick = () => {
     toast(`${name}'s air group is changed.`);
     return;
   }
-  if (yardUi.ag) setSettings({ airGroup: { ...yardUi.ag } });
+  if (yardUi.ag) setSettings({ airGroup: { ...yardUi.ag, ...(yardUi.ag.load ? { load: { ...yardUi.ag.load } } : {}) } });
   closeAirGroup();
   renderYard();
 };

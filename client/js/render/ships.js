@@ -29,6 +29,7 @@ import { loadHellcat } from './hellcatModel.js';
 import { loadAvenger } from './avengerModel.js';
 import { loadDevastator } from './devastatorModel.js';
 import { loadB25 } from './b25Model.js';
+import { loadNavalAir } from './navalAirModel.js';
 import { loadDauntless } from './dauntlessModel.js';
 
 /**
@@ -44,7 +45,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildHornet, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava;
+  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildLeviathan, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -52,7 +53,7 @@ const SCULPTED = {
   // are too -- and they come first, ahead of the ships, when everything is
   // fetched behind the title screen.
   planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n(), loadBf109(), loadJu87(),
-    loadHellcat(), loadDauntless(), loadAvenger(), loadDevastator(), loadB25(), loadB29()]),
+    loadHellcat(), loadDauntless(), loadAvenger(), loadDevastator(), loadB25(), loadB29(), loadNavalAir()]),
   // The Admiral Scheer and her sister the Graf Spee, both off the model of the Scheer.
   scheer: () => import('./scheer.js').then((m) => { buildSpee = m.buildSpee; buildScheer = m.buildScheer; }),
   // The Takao and her sister the Maya, both off the model of the Atago.
@@ -82,6 +83,7 @@ const SCULPTED = {
   grafzeppelin: () => import('./grafzeppelin.js').then((m) => { buildGrafZeppelin = m.buildGrafZeppelin; }),
   shokaku: () => import('./shokaku.js').then((m) => { buildShokaku = m.buildShokaku; }),
   hornet: () => import('./hornet.js').then((m) => { buildHornet = m.buildHornet; }),
+  nimitz: () => import('./nimitz.js').then((m) => { buildNimitz = m.buildNimitz; }),
   leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
   ticonderoga: () => import('./ticonderoga.js').then((m) => { buildTiconderoga = m.buildTiconderoga; }),
   guangzhou: () => import('./guangzhou.js').then((m) => { buildGuangzhou = m.buildGuangzhou; }),
@@ -108,7 +110,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(classId === 'shinano' || classId === 'shokaku' || classId === 'hornet' ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(classId === 'shinano' || classId === 'shokaku' || classId === 'hornet' || classId === 'nimitz' ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */
@@ -1284,6 +1286,22 @@ function buildModel(classId) {
   // it, three lifts that run, a hangar under them and sixteen B-25s on deck.
   if (cls.id === 'hornet') {
     const built = buildHornet();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      flightDeckY: built.flightDeckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
+    };
+  }
+
+  // And the Nimitz: the owner's model of her, her Phalanx, Sea Sparrow and
+  // RAM, and her deck cycle off her bow catapults.
+  if (cls.id === 'nimitz') {
+    const built = buildNimitz();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
       flightDeckY: built.flightDeckY,

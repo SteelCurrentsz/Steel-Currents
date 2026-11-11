@@ -265,6 +265,9 @@ const FLIGHT_NAME = {
   avenger: 'her torpedo bombers',
   devastator: 'her Devastators',
   mitchell: 'her B-25s',
+  f18: 'her Hornets',
+  e2d: 'her Hawkeye',
+  sh60: 'her Seahawks',
   arado: 'her Arados',
   kingfisher: 'her Kingfishers',
   besson: 'her Besson',
@@ -284,6 +287,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 const PLANE_NAME = {
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
+  f18: 'F/A-18C Hornet', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   walrus: 'Supermarine Walrus', kor1: 'Beriev KOR-1', ro43: 'IMAM Ro.43',
   zero: 'A6M Zero',
@@ -293,7 +297,7 @@ const PLANE_NAME = {
 
 /** What she has been sent to do, as the plate in the corner says it. */
 const ROLE_NAME = {
-  fighter: 'Fighter', dive: 'Dive bomber', torpedo: 'Torpedo bomber', scout: 'Scout',
+  fighter: 'Fighter', dive: 'Dive bomber', torpedo: 'Torpedo bomber', scout: 'Scout', aew: 'Early warning',
   level: 'Bomber',
 };
 
@@ -305,6 +309,8 @@ const GUN_CALIBRE = {
   avenger: 12.7,      // one in each wing
   devastator: 7.62,   // one thirty in the cowling
   mitchell: 12.7,     // the fifty in her nose
+  f18: 20,            // her M61 in the nose
+  sh60: 7.62,         // the door gun
   arado: 20,          // two MG FF in the wings and an MG 17 over the engine
   kingfisher: 7.62,   // the one thirty she had
   // The Besson has nothing forward at all. Her one gun is the observer's
@@ -338,7 +344,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, sh60: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
 };
@@ -2863,6 +2869,8 @@ export class Battle {
         }
         // A missile's launcher getting ready: on her own bridge, the word.
         case 'mslOrder':
+          // A trainable launcher swings onto the bearing it is firing on.
+          this.scene.shipViews.get(ev.ship)?.group.userData.trainLauncher?.(ev.at, ev.b);
           if (ev.ship === bridge) {
             audio.click();
             if (ev.ship === this.shipId) this.hud.missileOrdered?.(ev);

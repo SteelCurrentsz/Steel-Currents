@@ -449,8 +449,22 @@ export function armsSheet(cls, group = null, vls = null) {
     // B-25s, as many of them as she sails with.
     const DL = cls.planes.deckload;
     const dl = DL ? (g.deckload ?? DL.count) : 0;
-    rows.push(['Air group',
-      `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T${DL ? ` &middot; ${dl}B` : ''}`, 'airgroup']);
+    const SL = cls.planes.slots;
+    if (SL) {
+      // Her types by name, and what each is armed with.
+      const short = { f18: 'F/A-18C', e2d: 'E-2D', sh60: 'MH-60' };
+      rows.push(['Air group', ['fighters', 'dive', 'torpedo']
+        .map((k) => `${g[k]} ${short[SL[k].type] || SL[k].label}`).join(' &middot; '), 'airgroup']);
+      for (const k of ['fighters', 'dive', 'torpedo']) {
+        const sl = SL[k];
+        if (!sl.loadouts) continue;
+        const L = sl.loadouts[(g.load && g.load[k]) || sl.default];
+        rows.push([`${sl.label}s`, L.name, 'airgroup']);
+      }
+    } else {
+      rows.push(['Air group',
+        `${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T${DL ? ` &middot; ${dl}B` : ''}`, 'airgroup']);
+    }
     if (DL) rows.push(['B-25 Mitchells on deck', `${dl} / ${DL.count}`, 'airgroup']);
   } else if (cls.planes) {
     // How she gets them off. Every cruiser and battleship in the game shoots

@@ -236,7 +236,7 @@ export function arsenal(cls) {
     const cells = M.vls ? M.vls.cells.length : 0;
     Object.entries(M.kinds).forEach(([kind, K], slot) => {
       const launch = K.launch || (kind === 'tomahawk' ? 'box' : 'tube');
-      const launchers = K.launchers || (launch === 'box' ? M.boxes.length : launch === 'vls' ? 2 : launch === 'rail' ? M.rails.length
+      const launchers = K.launchers || (launch === 'box' ? M.boxes.length : launch === 'vls' ? 2 : launch === 'rail' ? M.rails.filter((rl) => !rl[4] || rl[4] === kind).length
         : Math.round(M.tubes.filter((t) => !t[5] || t[5] === kind).length / 4));
       const role = K.role === 'sam' || K.role === 'abm' ? 'aa' : K.role === 'asroc' ? 'sub' : 'surface';
       rows.push({

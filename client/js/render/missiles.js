@@ -61,6 +61,13 @@ export const MISSILE_SHAPES = {
   f: { name: 'S-300F', len: 7.25, r: 0.26, span: 0.5, chord: 0.5, fin: 0.55, wingZ: -2.9, body: MAT.fort },
   // The OSA-M: short and slim, its four wings well forward.
   m: { name: 'OSA-M', len: 3.16, r: 0.105, span: 0.65, chord: 0.45, fin: 0.3, wingZ: 0.9, body: MAT.osa },
+  // The Nimitz's: the Sea Sparrow, slim and white with its wings amidships;
+  // the RAM, smaller still, finned at the tail; and the two her aircraft fire
+  // at ships -- the Harpoon without its booster, and the Penguin.
+  r: { name: 'Sea Sparrow', len: 3.66, r: 0.1, span: 0.8, chord: 0.5, fin: 0.42, wingZ: 0.4, body: MAT.standard },
+  x: { name: 'RAM', len: 2.79, r: 0.064, span: 0.3, chord: 0.2, fin: 0.22, wingZ: -1.1, body: MAT.standard },
+  q: { name: 'AGM-84', len: 3.84, r: 0.17, span: 0.91, chord: 0.5, fin: 0.36, wingZ: 0.1, body: MAT.harpoon },
+  p: { name: 'Penguin', len: 3.0, r: 0.14, span: 1.0, chord: 0.4, fin: 0.3, wingZ: 0.0, body: MAT.harpoon },
 };
 /** A missile code the client has no shape for is drawn as a Harpoon. */
 const shapeOf = (k) => (MISSILE_SHAPES[k] ? k : 'h');
