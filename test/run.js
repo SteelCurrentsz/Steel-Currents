@@ -655,7 +655,7 @@ check('ballistic solution stays inside gun range', () => {
     // far: the Nimitz's only battery is her Phalanx.
     const near = solveBallistic(gun, Math.min(5000, gun.range * 0.5));
     const far = solveBallistic(gun, gun.range * 0.98);
-    assert.ok(near.tof > 1 && near.tof < 20, `${id} near tof ${near.tof}`);
+    assert.ok(near.tof > (gun.range < 5000 ? 0.2 : 1) && near.tof < 20, `${id} near tof ${near.tof}`);
     assert.ok(far.tof > near.tof, `${id} tof should grow with range`);
     assert.ok(far.elev < Math.PI / 4 + 0.01, `${id} elevation ${far.elev}`);
   }
