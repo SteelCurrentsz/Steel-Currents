@@ -409,6 +409,37 @@ export const AIR_MISSILES = {
     speed: 300, range: 12000, cruise: 8, turn: 0.6,
     damage: 2600, fire: 0.35, hp: 1, interval: 1, raise: 0, length: 3.0, popUp: 0,
   },
+  // What a Hornet carries for other aircraft. The Sidewinder goes for the
+  // heat of an engine and turns harder than anything it can be fired at; the
+  // AMRAAM finds its own way in on its own radar from a long way out. Both
+  // are flown as a ship's surface-to-air missile is once they are off the
+  // rail (see stepInterceptor in sim.js), at whatever they were locked on to.
+  aim9: {
+    name: 'AIM-9 Sidewinder', short: 'AIM-9', role: 'aam',
+    speed: 800, range: 6000, turn: 2.4, kill: 14, pk: 0.85,
+    hp: 1, interval: 1, length: 2.85,
+  },
+  aim120: {
+    name: 'AIM-120 AMRAAM', short: 'AIM-120', role: 'aam',
+    speed: 1100, range: 20000, turn: 1.5, kill: 16, pk: 0.8,
+    hp: 1, interval: 1, length: 3.65,
+  },
+  // And for something on the ground: the Maverick, which flies down its
+  // seeker's line onto a gun position ashore, or into a ship's side if it is
+  // put on one.
+  agm65: {
+    name: 'AGM-65 Maverick', short: 'AGM-65', role: 'ground',
+    speed: 330, range: 14000, cruise: 40, turn: 0.9,
+    damage: 2400, fire: 0.3, hp: 1, interval: 1, raise: 0, length: 2.49, popUp: 0,
+  },
+};
+
+/**
+ * What each air-launched missile can be locked on to: `a` an aircraft, `s` a
+ * ship, `b` a gun position ashore.
+ */
+export const AIR_MISSILE_HITS = {
+  agm84: ['s'], penguin: ['s'], aim9: ['a'], aim120: ['a'], agm65: ['b', 's'],
 };
 
 export const SHIP_CLASSES = {
@@ -7321,8 +7352,11 @@ export const SHIP_CLASSES = {
       // onto it from the hover.
       helipad: { x: 0, z: 2, y: 20.1 },
       // Each one up a lift from the hangar, along the deck and off a bow
-      // catapult: a lift down and up, the taxi and the shot.
-      deckRun: 18, deckNext: 15, deckCycle: 12,
+      // catapult: a lift down and up, the taxi and the shot. With four
+      // catapults and two lifts forward she gets one off every nine seconds,
+      // so a squadron of twenty-odd Hornets is up in three and a half minutes
+      // rather than the six it took at fifteen.
+      deckRun: 14, deckNext: 9, deckCycle: 14,
       // An aeroplane of hers that comes home with her load gone is struck
       // below, loaded again and fuelled, and sent back out while there is
       // still an enemy to send her at: this long on the hangar deck.
@@ -7346,10 +7380,12 @@ export const SHIP_CLASSES = {
         fighters: {
           type: 'f18', label: 'F/A-18C Hornet', default: 'mr',
           loadouts: {
-            as: { name: 'Anti-Ship Load Out', note: 'two AGM-84 Harpoons, fired from twenty kilometres', role: 'dive', standoff: { kind: 'agm84', n: 2 } },
-            aa: { name: 'Anti-Air Load Out', note: 'Sidewinders and Sparrows: she clears the air', role: 'fighter' },
-            mr: { name: 'Multi-Role Load Out', note: 'missiles for the air and two bombs for a ship', role: 'fighter', bomb: 2 },
-            cas: { name: 'CAS Load Out', note: 'four guided five-hundred-pounders', role: 'dive', bomb: 4 },
+            // `rack` is what a pilot can lock on and fire by hand (see
+            // fireLocked in sim.js); a standoff load can be too.
+            as: { name: 'Anti-Ship Load Out', note: 'two AGM-84 Harpoons, fired from twenty kilometres, and two Sidewinders', role: 'dive', standoff: { kind: 'agm84', n: 2 }, rack: { aim9: 2 } },
+            aa: { name: 'Anti-Air Load Out', note: 'four AMRAAMs and two Sidewinders: she clears the air', role: 'fighter', rack: { aim120: 4, aim9: 2 } },
+            mr: { name: 'Multi-Role Load Out', note: 'AMRAAMs and Sidewinders for the air, two Mavericks and two bombs', role: 'fighter', bomb: 2, rack: { aim120: 2, aim9: 2, agm65: 2 } },
+            cas: { name: 'CAS Load Out', note: 'four guided five-hundred-pounders, four Mavericks and two Sidewinders', role: 'dive', bomb: 4, rack: { agm65: 4, aim9: 2 } },
           },
         },
         dive: {

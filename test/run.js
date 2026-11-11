@@ -193,8 +193,9 @@ import { buildMissouri } from '../client/js/render/missouri.js';
 import { missouriSurfaceY, MOUNT_SEATS as MISSOURI_SEATS } from '../client/js/render/missouriHull.js';
 import {
   fireMissile, retargetMissile, normaliseVls, defaultVls, setVlsLoad, setAegisAuto, vlsCells, vlsKinds, MISSILE_CODE,
-  samKinds,
+  samKinds, fireLocked, planeRack,
 } from '../shared/sim.js';
+import { pickLockKind } from '../client/js/lockon.js';
 import {
   buildKongo, shellAt as kongoShellAt, keelY as kongoKeel, deckOver as kongoSheer, zAt as kongoZAt, LOA as KONGO_LOA,
   CAT_X as KONGO_CAT_X, CAT_Z as KONGO_CAT_Z,
@@ -1853,6 +1854,225 @@ check('the Nimitz brings each aircraft up a lift to her catapults, takes each do
   let below = false;
   run(72, 95, () => { if (!hr.done && hr.m.body.position.y < NZ_HANGAR + 1) below = true; });
   assert.ok(below && hr.done, 'she was not taken below');
+});
+
+check('a Nimitz launch still on her deck when the next order or a trap comes in goes on off the bow, and says where she left it', () => {
+  const ud = buildShip('nimitz').group.userData;
+  const d = ud.deck;
+  const run = (t0, t1) => { for (let t = t0; t <= t1 + 1e-9; t += 0.05) ud.step(t); };
+  ud.step(0);
+  // The simulation's word that she is up and its order for the next one come
+  // in the same breath, and the game strikes the deck plane below for each
+  // (see recallDeckPlane). Here they come a moment before her own clock has
+  // her off the bow -- on the catapult, at full power.
+  ud.launch(0, 'fighter', 18, 'f18');
+  const a = d.actors[d.actors.length - 1];
+  run(0, 16.5);
+  assert.ok(!a.done && a.m.body.visible, 'she was gone before her shot');
+  // A trap meanwhile, and then the next order.
+  ud.stow(); ud.recover(16.5, 'fighter', 'f18');
+  ud.stow(); ud.launch(16.6, 'aew', 15, 'e2d');
+  const b = d.actors[d.actors.length - 1];
+  assert.ok(!a.done && a.m.body.visible, 'the next order struck her below on the catapult');
+  assert.ok(!d.airborne || d.launchAt !== a.t0, 'she was said to be up before she was');
+  let seenOff = false;
+  for (let t = 16.65; t <= 18.3; t += 0.05) {
+    ud.step(t);
+    if (a.done && !seenOff) {
+      seenOff = true;
+      // Off the bow, and the deck says it was her that went, from her catapult.
+      assert.ok(d.airborne, 'she went off the bow and the deck never said so');
+      assert.equal(d.launchAt, a.t0, 'the deck reported the wrong launch');
+      assert.equal(d.plane.kind, 'f18', `the deck said a ${d.plane.kind} went`);
+      assert.ok(d.endPose.z > 150, `she was handed over at ${d.endPose.z.toFixed(0)} m along her deck, not off the bow`);
+      assert.ok(Math.abs(t - 18) < 0.1, `she went at ${t.toFixed(2)} s, not when the simulation put her up`);
+    }
+  }
+  assert.ok(seenOff, 'she never went');
+  assert.ok(!b.done && b.m.body.visible, 'the next one did not carry on');
+  // The game's own stow after it has handed her over leaves the word alone.
+  ud.stow();
+  assert.ok(d.airborne && d.launchAt === a.t0, 'the word that she was up was lost');
+  // And her deck is worked on the battle's clock, so that a battle running
+  // behind real time does not have her off the bow before the simulation
+  // puts her in the air (see the game's deckClock).
+  assert.equal(ud.simClock, true, 'her deck is worked on the screen\'s clock');
+  const src = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  for (const call of ['userData.step?.(this.deckClock(view))', 'userData.launch?.(this.deckClock(v)', 'userData.recover(this.deckClock(v)']) {
+    assert.ok(src.includes(call), `the game does not work her deck on its clock: ${call}`);
+  }
+});
+
+check('a Nimitz launch the picture still has on her deck when her flight is up is put off the bow, not drawn twice', () => {
+  const ud = buildShip('nimitz').group.userData;
+  const d = ud.deck;
+  ud.step(0);
+  ud.launch(0, 'fighter', 18, 'f18');
+  const a = d.actors[d.actors.length - 1];
+  for (let t = 0; t <= 6; t += 0.05) ud.step(t);
+  assert.ok(!a.done, 'she was off before her time');
+  // The battle's clock has run on and her flight is in the air: the game
+  // puts her off the bow there and then and hands her over from it.
+  assert.equal(ud.forceOff(), true, 'there was no launch to put off');
+  assert.ok(a.done && d.airborne && d.launchAt === a.t0, 'she was not reported off the bow');
+  assert.ok(d.endPose.z > 150, 'she was handed over from somewhere other than the bow');
+  assert.equal(ud.forceOff(), false, 'a launch was put off twice');
+  // And the game waits for her flight for as long as she is drawn climbing
+  // out, rather than giving up on her after a fixed few seconds.
+  const src = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('v.group.userData.forceOff?.()'), 'the game never puts a stalled launch off the bow');
+  assert.ok(/const CLIMB_OUT_MAX = (\d+)/.test(src) && Number(src.match(/const CLIMB_OUT_MAX = (\d+)/)[1]) >= 8,
+    'the climb-out is let go of too soon');
+  assert.ok(!src.includes('this.time - left.t > 4)'), 'the climb-out still vanishes after four seconds');
+});
+
+check('pressing launch again while a Nimitz launch is on her deck does not throw it away', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Iowa', classId: 'iowa', team: 1, index: 0 });
+  c.x = 0; c.z = -9000; c.heading = 0; foe.x = 0; foe.z = 14000;
+  setAirGroup(c, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19 });
+  c.aimX = foe.x; c.aimZ = foe.z;
+  assert.ok(launchStrike(state, c), 'the first launch did not go');
+  const first = c.launching.sqId;
+  // The captain keeps pressing the key, every few seconds, for two minutes.
+  let up = 0;
+  for (let i = 0; i < 120 / DT; i++) {
+    if (i % Math.round(3 / DT) === 0) { c.aimX = foe.x; c.aimZ = foe.z; launchStrike(state, c); }
+    step(state, DT);
+  }
+  up = state.planes.filter((p) => p.owner === c.id && p.sqId === first).length;
+  assert.ok(up >= 8, `only ${up} of the first squadron got off the deck`);
+  assert.ok(!c.squadrons.some((q) => q.id !== first && q.state === 'flying' && !(c.launching && c.launching.sqId === q.id)
+    && !state.planes.some((p) => p.sqId === q.id && p.owner === c.id)), 'a squadron was marked flying with nothing in the air');
+});
+
+check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun ashore, an AMRAAM at an aeroplane', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Iowa', classId: 'iowa', team: 1, index: 0 });
+  c.x = 0; c.z = -6000; c.heading = 0; foe.x = 0; foe.z = 4000;
+  setAirGroup(c, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'mr' } });
+  c.aimX = 0; c.aimZ = 8000; c.sel = 0;
+  launchStrike(state, c);
+  let p = null;
+  for (let i = 0; i < 25 / DT && !p; i++) { step(state, DT); p = state.planes.find((q) => q.owner === c.id); }
+  assert.ok(p, 'no Hornet went');
+  assert.deepEqual(planeRack(p), { aim120: 2, aim9: 2, agm65: 2 }, 'her multi-role rails are not what the load says');
+  const wire = buildSnapshot(state, 0, c.id).planes.find((q) => q.i === p.id);
+  assert.deepEqual(wire.rk, { aim120: 2, aim9: 2, agm65: 2 }, 'her pilot is not told what is on her rails');
+  assert.equal(buildSnapshot(state, 1, foe.id).planes.find((q) => q.i === p.id).rk, undefined, 'the enemy is told what she carries');
+  p.pilot = c.id; p.flown = true;
+  const aim = (tx, ty, tz) => { p.heading = Math.atan2(tx - p.x, tz - p.z); p.pitch = Math.atan2(ty - p.y, Math.hypot(tx - p.x, tz - p.z)); };
+  const fly = (secs, until) => {
+    for (let i = 0; i < secs / DT; i++) {
+      p.flownAt = state.t;
+      const ev = step(state, DT);
+      const hit = ev.find(until);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  // A ship: the wrong missile, off her nose, and out of reach are each refused.
+  p.x = 0; p.z = -1000; p.y = 300; p.speed = 200;
+  aim(foe.x, 6, foe.z);
+  assert.equal(fireLocked(state, c, { i: p.id, k: 'aim9', tk: 's', tg: foe.id }), 'kind');
+  p.heading += Math.PI;
+  assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 's', tg: foe.id }), 'cone');
+  p.z = -20000; aim(foe.x, 6, foe.z);
+  assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 's', tg: foe.id }), 'range');
+  p.z = -1000; aim(foe.x, 6, foe.z);
+  const hp0 = foe.hp;
+  const m = fireLocked(state, c, { i: p.id, k: 'agm65', tk: 's', tg: foe.id });
+  assert.ok(m && m.id, `the Maverick did not go: ${m}`);
+  assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 's', tg: foe.id }), 'wait', 'two went off the one rail at once');
+  const hit = fly(40, (e) => e.e === 'mslHit' || e.e === 'mslDown');
+  assert.ok(hit && hit.e === 'mslHit' && hit.victim === foe.id, `the Maverick did not find the Iowa: ${JSON.stringify(hit)}`);
+  assert.ok(foe.hp < hp0, 'the Iowa took nothing');
+  // A gun ashore.
+  const bat = addBattery(state, { batteryId: BATTERY_ORDER[0], team: 1, x: 3000, z: 0, heading: 0 });
+  p.x = 3000; p.z = -6000; p.y = 800; aim(bat.x, bat.y || 0, bat.z); p.lockCool = 0;
+  assert.ok(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 'b', tg: bat.id })?.id, 'the Maverick would not go at a gun');
+  const bh = bat.hp;
+  const got = fly(40, (e) => (e.e === 'mslHit' && e.bat === bat.id) || e.e === 'mslDown');
+  assert.ok(got && got.e === 'mslHit', `the Maverick did not find the gun: ${JSON.stringify(got)}`);
+  assert.ok(bat.hp < bh, 'the gun took nothing');
+  assert.equal(planeRack(p).agm65 || 0, 0, 'her Mavericks were not taken off her rails');
+  // An aeroplane: an enemy carrier's Hornet.
+  const foe2 = addShip(state, { name: 'N2', classId: 'nimitz', team: 1, index: 1 });
+  foe2.x = 8000; foe2.z = 8000; foe2.aimX = c.x; foe2.aimZ = c.z; foe2.sel = 0;
+  launchStrike(state, foe2);
+  let e = null;
+  for (let i = 0; i < 60 / DT && !e; i++) { p.flownAt = state.t; step(state, DT); e = state.planes.find((q) => q.team === 1 && !q.dead); }
+  assert.ok(e, 'the enemy put nothing up');
+  p.x = e.x - 2500; p.z = e.z; p.y = e.y ?? 300; aim(e.x, e.y ?? 300, e.z); p.lockCool = 0;
+  assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 'a', tg: e.id }), 'kind', 'a Maverick went at an aeroplane');
+  assert.ok(fireLocked(state, c, { i: p.id, k: 'aim120', tk: 'a', tg: e.id })?.id, 'the AMRAAM would not go');
+  const burst = fly(20, (x) => x.e === 'samBurst' || x.e === 'mslDown');
+  assert.ok(burst && burst.e === 'samBurst' && burst.k === 'aim120', `the AMRAAM never reached her: ${JSON.stringify(burst)}`);
+  assert.equal(planeRack(p).aim120, 1);
+  // And the client's seeker sends the missile that suits what it has.
+  assert.equal(pickLockKind({ aim9: 2, aim120: 2 }, 'a', 3000), 'aim9');
+  assert.equal(pickLockKind({ aim9: 2, aim120: 2 }, 'a', 12000), 'aim120');
+  assert.equal(pickLockKind({ aim9: 2 }, 'a', 12000), null);
+  assert.equal(pickLockKind({ agm65: 1, aim9: 2 }, 's', 9000), 'agm65');
+  assert.equal(pickLockKind({ agm65: 1 }, 'b', 9000), 'agm65');
+  assert.equal(pickLockKind({ agm84: 2, agm65: 1 }, 's', 18000), 'agm84');
+  for (const k of ['aim9', 'aim120', 'agm65']) assert.ok(MISSILE_CODE[k], `${k} has no name on the wire`);
+});
+
+check('the Nimitz\'s lifts go down whole: nothing of a lift is left in her deck for it to come up through', () => {
+  const g = buildShip('nimitz').group;
+  const d = g.userData.deck;
+  g.updateMatrixWorld(true);
+  const lifts = new Set(d.lifts.map((l) => l.group));
+  const under = (o) => { for (let q = o; q; q = q.parent) if (lifts.has(q)) return true; return false; };
+  for (const l of d.lifts) {
+    const s = l.spec;
+    const x0 = s.x - s.hw - 0.5, x1 = s.x + s.hw + 0.5, z0 = s.z - s.hd - 0.5, z1 = s.z + s.hd + 0.5;
+    // The lift's own plan, off the top of its plate: it is not a rectangle,
+    // its leading edge is cut on the slant.
+    const top = [];
+    l.group.traverse((o) => {
+      if (!o.isMesh || !o.geometry.attributes.uv) return;
+      const P = o.geometry.attributes.position, I = o.geometry.index;
+      for (let t = 0; t < (I ? I.count : P.count); t += 3) {
+        const q = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(P, I ? I.getX(t + k) : t + k));
+        if (q.every((v) => v.y > -0.1)) top.push(q.map((v) => [v.x + s.x, v.z + s.z]));
+      }
+    });
+    const inside = (x, z) => top.some(([a, b, c]) => {
+      const dd = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+      if (Math.abs(dd) < 1e-9) return false;
+      const u = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (z - c[1])) / dd;
+      const v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (z - c[1])) / dd;
+      return u > 0.02 && v > 0.02 && 1 - u - v > 0.02;
+    });
+    assert.ok(top.length > 4, 'the lift has no top');
+    // Her hull's faces lying flat under the lift, between her hangar deck and
+    // her flight deck: the lift would go through every one.
+    let area = 0;
+    g.traverse((o) => {
+      if (!o.isMesh || !o.geometry || under(o) || o.userData.inside) return;
+      const P = o.geometry.attributes.position;
+      const I = o.geometry.index;
+      const n = I ? I.count : P.count;
+      const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      for (let t = 0; t < n; t += 3) {
+        for (let k = 0; k < 3; k++) v[k].fromBufferAttribute(P, I ? I.getX(t + k) : t + k).applyMatrix4(o.matrixWorld);
+        if (v.some((p) => p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1 || p.y < NZ_HANGAR + 1 || p.y > NZ_FD - 0.1)) continue;
+        if (!inside((v[0].x + v[1].x + v[2].x) / 3, (v[0].z + v[1].z + v[2].z) / 3)) continue;
+        const u = v[1].clone().sub(v[0]), w = v[2].clone().sub(v[0]);
+        const c = u.cross(w);
+        if (Math.abs(c.y) > 0.9 * c.length()) area += c.length() / 2;
+      }
+    });
+    assert.ok(area < 2, `${area.toFixed(0)} m² of her deck is left where the lift at ${s.z.toFixed(0)} goes down`);
+    // And the slab goes down with the lift: its underside is drawn under it.
+    l.group.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(l.group);
+    assert.ok(bb.min.y < NZ_FD - 1.5, `the lift at ${s.z.toFixed(0)} is a plate, not the model's slab`);
+  }
 });
 
 check('a Seahawk comes home to a hover over the Nimitz and straight down onto her deck, and what comes home is turned round and sent out again', () => {
@@ -13009,8 +13229,13 @@ check('only one aircraft uses the deck at a time', () => {
   ship.aimX = ship.x + 5000; ship.aimZ = ship.z + 5000;
   assert.ok(launchStrike(state, ship), 'she would not launch at all');
   assert.ok(!launchStrike(state, ship), 'a second squadron went while the deck was busy');
-  // Wind the clock past the evolution and the next one can go.
+  // Nor once the deck's own clock has run out while the first of them is
+  // still going off it: a new order then overwrote the launch under way.
   ship.deckBusy = 0;
+  assert.ok(!launchStrike(state, ship), 'a second squadron overwrote the launch still on her deck');
+  // Wind the clock past the evolution -- the last of it off -- and the next one can go.
+  for (let i = 0; i < 400 / DT && (ship.launching || ship.deckBusy > 0); i++) step(state, DT);
+  assert.ok(!ship.launching && state.planes.some((p) => p.owner === ship.id), 'the first launch never got off');
   assert.ok(launchStrike(state, ship), 'she would not launch once the deck was clear');
   assert.ok(ship.deckBusy > 10, 'the deck was not marked busy for the launch');
 });
@@ -17185,7 +17410,7 @@ check('the cockpit says what happened, not what was hoped', () => {
   g.team = 0;
   g.hud = {
     alert: (t) => said.push(t), paintCockpit() {}, setSightHot() {},
-    paintFlightDamage() {}, setAmmo() {}, setThrottle() {},
+    paintFlightDamage() {}, setAmmo() {}, setThrottle() {}, setMissiles() {}, placeLock() {},
     fly: { throttle: 1, aimX: 0, aimY: 0 },
   };
   g.net = { send: (m) => sent.push(m) };
@@ -26190,6 +26415,28 @@ check('the instructor pulls her out of a dive onto a marker behind her, rather t
   assert.ok(p.alive, 'she flew into the sea');
   assert.ok(off < 0.15, `still ${(off * 57.3).toFixed(0)} degrees off the marker after nine seconds`);
   assert.ok(p.pitch > -0.3, `still diving at ${(p.pitch * 57.3).toFixed(0)} degrees`);
+});
+
+check('the instructor does not leave her hanging on her side or her back once she is on the marker', () => {
+  // Rolled over to put her lift on a marker below, she used to stay on her
+  // back all the way down the dive; and a marker low and off to one side had
+  // her banked eighty degrees and pushing herself round the wrong way.
+  const dir = (yaw, pitch) => ({
+    x: Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch),
+  });
+  for (const kind of ['wildcat', 'hellcat', 'avenger']) {
+    for (const [yaw, pitch, bank, secs] of [[0, -0.7, -1.2, 5], [0.6, -0.4, 0, 4], [0.2, -0.5, 0, 3]]) {
+      const p = new Pilot(AERO[kind], { y: 3000 });
+      p.bank = bank;
+      const a = dir(yaw, pitch);
+      let off = Math.PI;
+      for (let i = 0; i < secs * 60; i++) { off = instruct(p, a); p.step(1 / 60, 0); }
+      for (let i = 0; i < 120; i++) { off = instruct(p, a); p.step(1 / 60, 0); }
+      assert.ok(off < 0.05, `${kind} to ${yaw},${pitch}: still ${(off * 57.3).toFixed(0)} deg off`);
+      assert.ok(Math.abs(wrapAngle(p.bank)) < 0.15,
+        `${kind} to ${yaw},${pitch}: left at ${(p.bank * 57.3).toFixed(0)} degrees of bank`);
+    }
+  }
 });
 
 check('an enemy fighter on her tail is shaken off, not flown away from in a straight line', () => {

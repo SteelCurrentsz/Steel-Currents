@@ -8,7 +8,7 @@ import {
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack,
-  fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE,
+  fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE, fireLocked,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -777,6 +777,14 @@ export class Room {
         // been lied to about the one thing he came for.
         if (!dropOrdnance(this.state, ship, msg.i)) player.send({ t: 'nodrop', i: msg.i });
         break;
+      // A missile off a modern aeroplane's rail at what her pilot has locked:
+      // `k` the kind, `tk` what sort of thing it is and `tg` which one. Said
+      // back when it does not go, and why.
+      case 'amsl': {
+        const got = fireLocked(this.state, ship, msg);
+        if (typeof got === 'string') player.send({ t: 'nomsl', i: msg.i, why: got });
+        break;
+      }
       case 'land': releasePlane(this.state, msg.i, ship); break;
       // And the same three for a heavy squadron, which is flown by hand the
       // same way a flight is: where she is, let the stick go, and hand her
@@ -829,7 +837,9 @@ export class Room {
         if (foe) { from.aimX = foe.x; from.aimZ = foe.z; }
         // Somewhere her aircraft can actually go: see strikeAim.
         strikeAim(this.state, from);
-        launchStrike(this.state, from);
+        if (!launchStrike(this.state, from) && from.launching && !from.launching.hold) {
+          player.send({ t: 'nostrike', why: 'launching' });
+        }
         break;
       }
       default: break;

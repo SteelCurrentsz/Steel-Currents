@@ -378,6 +378,8 @@ class HudBase {
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
       flyArms: $('fly-arms'), flyBombCam: $('fly-bombcam'), flyMoves: $('fly-moves'),
       flyBrakes: $('fly-brakes'),
+      flyLock: $('fly-lock'), flyLockLabel: $('fly-lock-label'),
+      flyLockOn: $('fly-lockon'), flyMsl: $('fly-msl'),
       connBody: $('conn-panel-body'),
       timer: $('battle-timer'),
       killfeed: $('killfeed'),
@@ -1416,6 +1418,8 @@ class HudBase {
     if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
     if (el.flyBombCam) el.flyBombCam.onclick = () => this.flyFns.bombCam?.();
     if (el.flyBrakes) el.flyBrakes.onclick = () => this.flyFns.brakes?.();
+    if (el.flyLockOn) el.flyLockOn.onclick = () => this.flyFns.lock?.();
+    if (el.flyMsl) el.flyMsl.onclick = () => this.flyFns.missile?.();
     el.flyTake.onclick = () => this.flyFns.take?.();
     // The gunner's seat, and his trigger: held down for as long as the thumb
     // is on it, the same as the cockpit's.
@@ -1610,6 +1614,32 @@ class HudBase {
       // in practice is the one the fire is in.
       const seat = fire > 0.02 ? this.dmgChips[1] : null;
       for (const el of this.dmgChips) el.classList.toggle('fire', el === seat);
+    }
+  }
+
+  /**
+   * The missile seeker's box, at a point in screen pixels, or null to take it
+   * down: open and amber while it is taking the target, closed and red once
+   * it has it.
+   */
+  placeLock(at, locked = false, label = '') {
+    const el = this.el;
+    if (!el.flyLock) return;
+    el.flyLock.hidden = !at;
+    if (!at) return;
+    el.flyLock.style.transform = `translate(${at.x}px, ${at.y}px)`;
+    el.flyLock.classList.toggle('locked', !!locked);
+    if (el.flyLockLabel && el.flyLockLabel.textContent !== label) el.flyLockLabel.textContent = label;
+  }
+
+  /** The missile keys: there only on an aeroplane with missiles, and what is left on her rails. */
+  setMissiles(has, label = '') {
+    const el = this.el;
+    if (el.flyLockOn) el.flyLockOn.hidden = !has;
+    if (el.flyMsl) {
+      el.flyMsl.hidden = !has;
+      el.flyMsl.title = label;
+      el.flyMsl.classList.toggle('spent', has && !label);
     }
   }
 

@@ -95,6 +95,12 @@ export function nimitzMaterials() {
     deck: new THREE.MeshPhongMaterial({
       vertexColors: true, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5,
     }),
+    // Her lifts: the model's slab, its top her flight deck and its underside
+    // seen from below whenever one is up and an aeroplane is not on it.
+    lift: new THREE.MeshPhongMaterial({
+      vertexColors: true, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5,
+      side: THREE.DoubleSide,
+    }),
     // What the model drew as single sheets, seen from both sides; and every
     // one of her mountings.
     sheet: new THREE.MeshPhongMaterial({
@@ -105,6 +111,7 @@ export function nimitzMaterials() {
   finish(mats.plating);
   finish(mats.sheet);
   finish(mats.deck, 'wood');
+  finish(mats.lift, 'wood');
   return mats;
 }
 
@@ -395,6 +402,8 @@ export const LIFTS = NIMITZ_LIFTS.map((l, i) => ({
 }));
 /** How far a lift runs: from her flight deck down to her hangar deck. */
 export const LIFT_DROP = FD - HANGAR;
+/** How deep the model's lift slab is, from her flight deck to its underside. */
+const LIFT_DEPTH = 1.83;
 /** How long a lift takes to run its length, in seconds. */
 const LIFT_T = 3.4;
 
@@ -406,11 +415,13 @@ function elevators(g) {
     lift.position.set(l.x, FD, l.z);
     lift.userData.dynamic = true;
     g.add(lift);
-    lift.add(new THREE.Mesh(decodePiece(l.piece), m.deck));
-    // The platform under the plate, and its girders.
-    box(lift, M.steelDark, 2 * l.hw - 0.3, 0.55, 2 * l.hd - 0.3, 0, -0.3, 0);
-    for (let k = -3; k <= 3; k++) box(lift, M.steel, 0.3, 0.3, 2 * l.hd - 1.2, k * (l.hw - 1) / 3, -0.72, 0);
-    box(lift, M.steel, 2 * l.hw - 0.8, 0.3, 0.4, 0, -0.72, 0);
+    // The model's slab, top, sides and underside (see LIFT_UNDER in
+    // build/prepare-nimitz-hull.mjs): it goes down whole, and nothing of it is
+    // left in her deck for it to come up through.
+    lift.add(new THREE.Mesh(decodePiece(l.piece), m.lift));
+    // Its girders, under the slab.
+    for (let k = -3; k <= 3; k++) box(lift, M.steel, 0.3, 0.3, 2 * l.hd - 1.2, k * (l.hw - 1) / 3, -LIFT_DEPTH - 0.15, 0);
+    box(lift, M.steel, 2 * l.hw - 0.8, 0.3, 0.4, 0, -LIFT_DEPTH - 0.15, 0);
     mergeStatic(lift);
     return { group: lift, y: FD, want: FD, rate: LIFT_DROP / LIFT_T, by: null, spec: l };
   });
@@ -697,7 +708,7 @@ function poseActor(deck, a, t, plan) {
       p.position.set(HELO.x, FD + ON + HELO_RISE * ease(e), HELO.z);
       p.rotation.set(-0.04 * e, 0, 0);
       turn(32);
-      if (ph.over >= RISE_T) done(deck, a, t);
+      if (ph.over >= RISE_T) { a.off = true; done(deck, a, t); }
       return;
     }
     const cat = CATS[a.cat || 0];
@@ -713,7 +724,7 @@ function poseActor(deck, a, t, plan) {
     p.rotation.set(-s.pitch, 0, 0);
     p.userData.gear(ph.over > CAT_T ? Math.min(1, (ph.over - CAT_T) / 2) : 0);
     turn(16);
-    if (ph.over >= CAT_T + OFF_T) done(deck, a, t);
+    if (ph.over >= CAT_T + OFF_T) { a.off = true; done(deck, a, t); }
     return;
   }
   // Coming home. Nose aft on an after lift and forward on a forward one, so
@@ -755,14 +766,27 @@ function poseActor(deck, a, t, plan) {
   done(deck, a, t);
 }
 
-/** The end of an evolution: off the deck one way or the other, and her model put away. */
+/**
+ * The end of an evolution: off the deck one way or the other, and her model
+ * put away.
+ *
+ * One that has just gone off the bow, or up off the spot, says so on the deck
+ * herself -- where she left it, when, and what she is -- for the game to hand
+ * her to the flight the simulation put up (see flyLaunched). Her own, not
+ * whichever launch was called last: the order for the next one comes in the
+ * same breath as the word that she is up, and it used to overwrite her, or
+ * strike her below while she was still on the catapult, and she vanished.
+ */
 function done(deck, a, t) {
   if (a.done) return;
   a.done = true;
   if (a.lift && a.lift.by === a) a.lift.by = null;
   release(a.m);
-  if (a === deck.current) {
-    if (!deck.airborne) deck.airborneAt = t;
+  if (a.endPose && a.off) {
+    deck.endPose = a.endPose;
+    deck.plane = a.planeInfo;
+    deck.launchAt = a.t0;
+    deck.airborneAt = t;
     deck.airborne = true;
   }
 }
@@ -819,6 +843,10 @@ export function buildNimitz() {
   g.userData.deckPlane = planes;
   g.userData.landingSpot = [LAND.x, FD + ON, LAND.z];
   g.userData.step = (t) => stepDeck(deck, t);
+  // Her deck is worked on the battle's clock, not the screen's: each of her
+  // launches leaves the bow when the simulation has her leave it (see the
+  // game's deckClock).
+  g.userData.simClock = true;
   /**
    * A launcher told to fire: rail `at` of her datasheet swings onto the
    * bearing `b` (off her bow) and holds it while its missile goes.
@@ -836,17 +864,18 @@ export function buildNimitz() {
     const helo = k === 'sh60';
     const a = begin(deck, t, helo ? 'heloLaunch' : 'launch', k, role, dur);
     deck.current = a;
-    deck.launchAt = t;
     deck.stowed = false;
-    deck.airborne = false;
     deck.dur = dur;
-    deck.plane = { role, kind: k, group: a.m.body };
+    // Where she will leave the deck, and what she is: hers, published on the
+    // deck when she goes (see done). One still on her way to the bow from an
+    // earlier order keeps hers.
+    a.planeInfo = { role, kind: k, group: a.m.body };
     if (helo) {
-      deck.endPose = { x: HELO.x, y: FD + ON + HELO_RISE, z: HELO.z, pitch: 0, v: 6 };
+      a.endPose = { x: HELO.x, y: FD + ON + HELO_RISE, z: HELO.z, pitch: 0, v: 6 };
     } else {
       const s = shot(CAT_T + OFF_T);
       const cat = CATS[a.cat];
-      deck.endPose = { x: cat.x, y: FD + ON + s.h, z: cat.z + s.s, pitch: s.pitch };
+      a.endPose = { x: cat.x, y: FD + ON + s.h, z: cat.z + s.s, pitch: s.pitch };
     }
   };
   // One of hers down: a jet in the wires, or a Seahawk on the spot.
@@ -854,16 +883,30 @@ export function buildNimitz() {
     const k = kind && kind in { f18: 1, e2d: 1, sh60: 1 } ? kind : KIND_OF[role] || 'f18';
     begin(deck, t, k === 'sh60' ? 'heloRecover' : 'recover', k, role, 0);
   };
-  // The launch going on is over, one way or another. What is coming home,
-  // and going down her lifts, carries on.
+  // Told the deck is done with the launch it was on. Every aeroplane on her
+  // deck has her own evolution and her own clock, so there is nothing to
+  // strike below: one still on her way to a catapult goes on to it and off
+  // the bow, which is where the simulation has put her. Striking her below
+  // here is what made a launch vanish whenever the next order, or a trap,
+  // came in while she was still on the deck. And the word of the last one to
+  // go is left for the game to read, however soon after it this comes.
   g.userData.stow = () => {
-    if (deck.current && !deck.current.done) done(deck, deck.current, deck.lastT);
     deck.current = null;
-    deck.airborne = false;
-    deck.launchAt = null;
     deck.stowed = true;
   };
-  g.userData.stow();
+  // The simulation has her in the air and the picture still has her on the
+  // deck -- the battle's clock jumped, or the picture fell behind it. The one
+  // furthest on of those still going is put off the bow now, so she is never
+  // drawn twice and never lost between the two: the game hands her from there
+  // to her flight (see flyLaunched). Says whether there was one.
+  g.userData.forceOff = () => {
+    const a = (deck.actors || []).filter((q) => !q.done && !q.off
+      && (q.plan === 'launch' || q.plan === 'heloLaunch')).sort((x, y) => x.t0 - y.t0)[0];
+    if (!a) return false;
+    a.off = true;
+    done(deck, a, deck.lastT ?? a.t0);
+    return true;
+  };
 
   dressShip(g);
   return {

@@ -642,6 +642,8 @@
     <div class="fly-reticle" id="fly-reticle"></div>
     <!-- The lead: where to put the ring to hit the aeroplane she is after. -->
     <div class="fly-lead" id="fly-lead" hidden><i></i></div>
+    <!-- The missile seeker: a box round whatever it has, closing to LOCK. -->
+    <div class="fly-lock" id="fly-lock" hidden><b id="fly-lock-label"></b></div>
     <p class="fly-far" id="fly-far" hidden>Enemy is too far, fly closer</p>
     <div class="fly-readout" id="fly-readout">
       <div><i>SPD</i><b id="fly-speed">0</b><i>km/h</i></div>
@@ -699,8 +701,15 @@
       <button class="fly-btn brakes" id="fly-brakes" type="button" hidden>DIVE<br>BRAKES</button>
       <button class="fly-btn drop" id="fly-drop" type="button">DROP</button>
     </div>
+    <!-- A modern aeroplane's missiles, in a column of their own beside the
+         others: step the seeker on to the next thing in its cone (R), and
+         fire at what it has locked (F). -->
+    <div class="fly-missiles">
+      <button class="fly-btn msl" id="fly-msl" type="button" hidden>MSL<br>F</button>
+      <button class="fly-btn lockon" id="fly-lockon" type="button" hidden>LOCK<br>R</button>
+    </div>
     <button class="fly-leave" id="fly-leave" type="button">LEAVE THE COCKPIT</button>
-    <p class="fly-hint" id="fly-hint">Drag to look — she flies where you look, loops and all · two fingers or right-drag to look around · Q/E roll · X dive brakes</p>
+    <p class="fly-hint" id="fly-hint">Drag to look — she flies where you look, loops and all · two fingers or right-drag to look around · Q/E roll · X dive brakes · R lock · F missile</p>
     <!-- Her name, and her condition along the bottom: which aeroplane this is
          and how much of her is left. -->
     <div class="fly-ident" id="fly-ident">

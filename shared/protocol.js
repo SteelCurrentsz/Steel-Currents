@@ -4,7 +4,7 @@
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
-  slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds,
+  slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds, planeRack,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -280,6 +280,12 @@ export function shipSnapshot(ship, full, state = null) {
   return s;
 }
 
+/** An aeroplane's rack on the wire: `{ kind: n }`, or nothing when it is empty. */
+function rackWire(p) {
+  const r = planeRack(p);
+  return Object.keys(r).length ? r : undefined;
+}
+
 export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = false) {
   const ships = [];
   // What a captain can see out of the bridge windows, and what the plot knows.
@@ -370,7 +376,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     i: m.id, x: r1(m.x), y: r1(m.y), z: r1(m.z), h: r3(m.heading), p: r3(m.pitch),
     k: MISSILE_CODE[m.kind] || 'h', tm: m.team, o: m.owner,
     // The ship it is laid on; an interceptor's quarry is in the air, not a ship.
-    tg: m.tk === 'm' || m.tk === 'a' ? undefined : m.target,
+    tg: m.tk === 'm' || m.tk === 'a' || m.tk === 'b' ? undefined : m.target,
     // Still aboard, on its rail: drawn in its box or its canister.
     a: m.aboard ? 1 : undefined,
     // How long since it left, for its booster's flame.
@@ -523,6 +529,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // Whether she still has anything to drop, so a pilot's release button
       // can go dead once she has let go of it.
       d: p.dropped ? 1 : 0,
+      // The missiles still on her rails, kind by kind, to her own side: what
+      // a pilot has to lock on and fire (see fireLocked).
+      rk: p.team === team && (p.rack || p.standoff) ? rackWire(p) : undefined,
       // Her wheels down and her hook out: in the groove coming in to land.
       gd: p.land && (p.land.leg === 'final' || p.land.leg === 'base') ? 1 : undefined,
       // How she has been knocked about: how many of her machines are trailing

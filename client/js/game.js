@@ -26,7 +26,8 @@ import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { getSettings } from './settings.js';
 import { Director } from './director.js';
-import { SHIP_CLASSES, getClass } from '../../shared/ships.js';
+import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
+import { stepLock, nextLock, lockLabel, rackLabel, hasRack } from './lockon.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
@@ -90,6 +91,8 @@ const CLOCK_WINDOW = 4;
 const FIRE_AT = new THREE.Vector3();
 /** How long an aeroplane fresh off the deck takes to settle onto her own track, in seconds. */
 const HANDOVER = 1.6;
+/** How long an aeroplane just off a deck is drawn flying on by herself, waiting for her flight to come on the wire. */
+const CLIMB_OUT_MAX = 12;
 /** A snapshot's aeroplanes by id, worked out once for each snapshot. */
 function planeMap(snap) {
   if (!snap) return null;
@@ -386,6 +389,17 @@ const GUN_CONVERGE = 1200;
 const GUN_REACH = 2400;
 /** How fast they go, for the lead: muzzle velocity, plus her own speed. */
 const GUN_V = 810;
+
+/** Why a missile off an aeroplane's rail did not go, as the pilot is told it. */
+const NOMSL = {
+  range: 'Out of reach — fly closer',
+  cone: 'Lost it off the nose — hold her on it',
+  lost: 'Target gone',
+  kind: 'Wrong missile for that target',
+  none: 'No missiles of that kind left',
+  wait: 'Rail not ready',
+  gone: 'Missile did not go',
+};
 
 const LOAD = {
   dive: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
@@ -925,6 +939,8 @@ export class Battle {
       gunner: () => this.toggleGunner(),
       leave: () => this.leaveFlight(),
       drop: () => this.letGo(),
+      lock: () => this.cycleLock(),
+      missile: () => this.fireLockedMissile(),
       bombCam: () => this.toggleShellCam(),
       brakes: () => this.toggleBrakes(),
       move: (kind) => this.flyMove(kind),
@@ -1050,6 +1066,20 @@ export class Battle {
         if (!f || f.id !== m.i) return;
         f.asked = 0;
         this.hud.alert('She could not drop — press home');
+      }),
+      // A missile off her rail that did not go: the simulation says why, and
+      // the count goes back to what the wire says.
+      this.net.on('nomsl', (m) => {
+        const f = this.flight;
+        if (!f || f.id !== m.i) return;
+        f.rackHeld = 0;
+        this.hud.alert(NOMSL[m.why] || 'Missile did not go');
+      }),
+      // A launch ordered while the last one is still going off her deck: it
+      // goes when that one is up, and the key does nothing till then.
+      this.net.on('nostrike', (m) => {
+        this.hud.alert(m && m.why === 'launching' ? 'Deck busy — a launch is still going off'
+          : 'Deck not ready to launch');
       }),
       // And the racks refusing. Either there is nothing left in the stowage or
       // the party has not finished reloading, and a captain who pressed the
@@ -3521,7 +3551,7 @@ export class Battle {
           // Which of her three types is going, and how long the deck has to get
           // her off: the first of a strike comes up from the hangar with the
           // whole evolution to go through, and the ones after her are quicker.
-          v.group.userData.launch?.(this.time, ev.r, ev.d, ev.k, ev.n);
+          v.group.userData.launch?.(this.deckClock(v), ev.r, ev.d, ev.k, ev.n);
           break;
         }
         case 'trap': {
@@ -3533,7 +3563,7 @@ export class Battle {
           const v = this.scene.shipViews.get(ev.ship);
           if (!v || !v.group.userData.recover) break;
           this.recallDeckPlane(v);
-          v.group.userData.recover(this.time, ev.r, ev.k);
+          v.group.userData.recover(this.deckClock(v), ev.r, ev.k);
           break;
         }
         case 'waveOff': {
@@ -3959,6 +3989,9 @@ export class Battle {
     if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'KeyQ', 'KeyE', 'KeyC'].includes(code)) return;
     // Her dive brakes, out and in.
     if (this.flight && !this.flight.heavy && code === 'KeyX') { this.toggleBrakes(); return; }
+    // Her missiles: step the seeker on, and fire at what it has locked.
+    if (this.flight && !this.flight.heavy && !this.turret && code === 'KeyR') { this.cycleLock(); return; }
+    if (this.flight && !this.flight.heavy && !this.turret && code === 'KeyF') { this.fireLockedMissile(); return; }
     // A heavy's bombs off the keyboard as well as the DROP key, and out of the
     // bomb bay without leaving the battle.
     if (this.flight && this.flight.heavy && code === 'KeyG') { this.letGo(); return; }
@@ -4861,6 +4894,12 @@ export class Battle {
       // which a yaw and a pitch cannot do -- they run out at the vertical.
       aimF: { x: Math.sin(pl.h), y: 0, z: Math.cos(pl.h) },
       aimU: { x: 0, y: 1, z: 0 },
+      // The missiles on her rails, off the wire, and what her seeker has
+      // (see lockon.js). `rackHeld` keeps a missile just fired off the count
+      // until the wire has caught up with it.
+      rack: pl.rk ? { ...pl.rk } : null,
+      rackHeld: 0,
+      lock: null,
       // What is left in her guns.
       ammo: PLANE_ROUNDS,
       guns_n: GUN_COUNT[kind] ?? 2,
@@ -4872,6 +4911,8 @@ export class Battle {
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament(this.flight.load && this.flight.load.key);
+    this.hud.setMissiles(hasRack(this.flight.rack), rackLabel(this.flight.rack));
+    if (hasRack(this.flight.rack)) this.hud.alert('Missiles armed — nose on a target, R to lock, F to fire');
     // Her dive brakes, on a type that has them -- and out already, if the
     // autopilot was half way down a dive with them when she was taken.
     if (pl.db > 0) {
@@ -5264,7 +5305,7 @@ export class Battle {
         x: bm.x, y: bm.y, z: bm.z, heading: bm.h, speed: aero.vMax * 0.70,
         // Thirty tonnes is thirty tonnes: livelier under a player, but not a
         // fighter.
-        agility: 1.15,
+        agility: 1.35,
       }),
       from: 0,
       dm: bm.dm || null,
@@ -5420,6 +5461,8 @@ export class Battle {
     }
     const heavy = this.flight.heavy;
     this.closeBombSight();
+    this.hud.placeLock(null);
+    this.hud.setMissiles(false);
     this.flight = null;
     this.turret = null;
     this.hud.setAirGun(null);
@@ -5702,6 +5745,14 @@ export class Battle {
     // rather than near it.
     this.hud.setSightHot(this.sightOn(f, p, snap));
     this.hud.setAmmo(Number.isFinite(f.ammo) ? f.ammo : 0);
+    // Her missiles: what is on her rails, off the wire, and her seeker.
+    if (!f.heavy) {
+      if (f.rackHeld > 0) f.rackHeld -= dt;
+      else if (pl) f.rack = pl.rk ? { ...pl.rk } : null;
+      stepLock(this, f, p, dt);
+      this.hud.setMissiles(hasRack(f.rack) || !!f.rackSeen, rackLabel(f.rack));
+      if (hasRack(f.rack)) f.rackSeen = true;
+    }
 
     f.sent -= dt;
     if (f.sent <= 0) {
@@ -6042,6 +6093,41 @@ export class Battle {
       }
     }
     this.hud.placeSights(aim, ring, lead, far);
+    // The seeker's box, round whatever it has.
+    const L = !this.turret && f.lock && f.lock.at ? f.lock : null;
+    const box = L ? project(L.at.x, L.at.y, L.at.z) : null;
+    this.hud.placeLock(box, !!(L && L.locked), lockLabel(L));
+  }
+
+  /** The lock key: the seeker stepped on to the next thing in its cone. */
+  cycleLock() {
+    const f = this.flight;
+    if (!f || f.heavy) return;
+    if (!hasRack(f.rack)) { this.hud.alert('No missiles aboard'); return; }
+    if (!nextLock(this, f, f.pilot)) this.hud.alert('Nothing in the seeker — put her nose on a target');
+    audio.click();
+  }
+
+  /** The tone in the pilot's ears as the seeker locks. */
+  lockTone() { audio.click(); }
+
+  /**
+   * The missile key: the one that suits what the seeker has locked, at it.
+   * Said out loud when nothing goes, and why.
+   */
+  fireLockedMissile() {
+    const f = this.flight;
+    if (!f || f.heavy) return;
+    if (!hasRack(f.rack)) { this.hud.alert('No missiles left'); return; }
+    const L = f.lock;
+    if (!L || !L.at) { this.hud.alert('No target — put her nose on one'); return; }
+    if (!L.locked) { this.hud.alert('Not locked yet — hold her on it'); return; }
+    if (!L.kind) { this.hud.alert('Out of reach — fly closer'); return; }
+    this.net.send({ t: 'amsl', i: f.id, k: L.kind, tk: L.tk, tg: L.id });
+    f.rack = { ...f.rack, [L.kind]: Math.max(0, (f.rack[L.kind] || 0) - 1) };
+    f.rackHeld = 1.2;
+    this.hud.alert(`${AIR_MISSILES[L.kind]?.short || 'Missile'} away`);
+    audio.click();
   }
 
   /**
@@ -7495,7 +7581,7 @@ export class Battle {
       if (s.wk) view.setKnocked(s.wk);
 
       // Anything on her that works itself -- a carrier's lifts, so far.
-      view.group.userData.step?.(this.time);
+      view.group.userData.step?.(this.deckClock(view));
       // And anything it has dropped into the sea: a fish off her tubes going
       // in alongside, in her own frame -- a splash where it goes in, and the
       // running torpedo picked up from that spot and that depth. One pushed
@@ -8537,7 +8623,9 @@ export class Battle {
       ? (P.launchSpeed[role] ?? P.launchSpeed.torpedo) : P.launchSpeed;
     const rotor = !!(AERO[type] && AERO[type].rotor);
     return {
-      at, t: deck.airborneAt ?? this.time,
+      // On the battle's own clock (see deckClock) the moment she left is now,
+      // on this one: she is latched the frame she goes.
+      at, t: v.group.userData.simClock ? this.time : deck.airborneAt ?? this.time,
       h: Math.atan2(fwd.x, fwd.z), pitch: clamp(pitch, -0.2, 0.35),
       v: rotor ? Math.max(ls ?? 4, (v.speedNow || 0) + 2) : ls ?? 44,
       role, kind: typeOf(type, role), handed: false,
@@ -8549,7 +8637,7 @@ export class Battle {
    * she left it on, working up from her take-off speed, and climbing.
    */
   climbOutAt(left) {
-    const since = Math.max(0, Math.min(6, this.time - left.t));
+    const since = Math.max(0, Math.min(CLIMB_OUT_MAX, this.time - left.t));
     const run = left.v * since + 0.8 * since * since;
     const flat = Math.cos(left.pitch);
     return {
@@ -8575,7 +8663,10 @@ export class Battle {
       const deck = v.group.userData.deck;
       const left = deck && deck.left;
       if (!left || left.handed || !v.group.parent) continue;
-      if (this.time - left.t > 4) continue;
+      // Until her flight is drawn and she has been handed to it: she is not
+      // let go of after a fixed few seconds, which is the take-off where she
+      // went off the bow, flew a little way and vanished.
+      if (this.time - left.t > CLIMB_OUT_MAX) continue;
       const e = this.climbOutAt(left);
       left.prop = (left.prop || 0) + 1.6;
       this.scene.flights.one(left.role, e.x, e.y, e.z, left.h, 0, left.pitch, 0,
@@ -8614,19 +8705,29 @@ export class Battle {
       // Once a launch: `airborne` stays up until the next one is called, and
       // latching her again after she had been handed over drew her climbing
       // out a second time.
-      if (deck.airborne && (deck.endPose || deck.endMatrix) && !deck.left
+      if (deck.airborne && (deck.endPose || deck.endMatrix) && (!deck.left || deck.left.handed)
         && deck.leftOf !== deck.launchAt) {
         deck.leftOf = deck.launchAt;
         deck.left = this.leftDeck(v, deck);
       }
-      if (deck.left && this.time - deck.left.t > 6) deck.left = null;
+      if (deck.left && this.time - deck.left.t > (deck.left.handed ? 6 : CLIMB_OUT_MAX)) deck.left = null;
       if (!deck.pending.length) continue;
+      // Her flight is already on the screen and the picture still has the
+      // aeroplane she is on the deck: the battle's clock and the deck's have
+      // come apart (a stall, a jump, a busy phone). She is put off the bow now
+      // and handed over from there, rather than drawn twice and then lost.
+      if ((!deck.left || deck.left.handed)
+        && deck.pending.some((id) => planes.some((q) => q.i === id) && !this.handover.has(id))
+        && v.group.userData.forceOff?.()) {
+        deck.leftOf = deck.launchAt;
+        deck.left = this.leftDeck(v, deck);
+      }
       // The difference between that and where the simulation has her is
       // carried on her for a moment and eased out, so the aeroplane that went
       // off the bow is the one that flies on. A flight not on the wire yet is
-      // waited for, but not for long.
+      // waited for, for as long as the climb-out is drawn.
       const left = deck.left;
-      if (left) {
+      if (left && !left.handed) {
         for (const id of deck.pending) {
           const pl = planes.find((q) => q.i === id);
           if (!pl || this.handover.has(id)) continue;
@@ -8640,16 +8741,23 @@ export class Battle {
           // And at the attitude she is drawn at, eased from there onto her own.
           this.planePitch.set(id, left.pitch);
           left.handed = true;
+          deck.pending.splice(deck.pending.indexOf(id), 1);
+          break;
         }
       }
-      const waiting = deck.pending.some((id) => !planes.some((q) => q.i === id));
-      if ((waiting || !left) && this.time - (deck.pendingAt ?? this.time) < 2.5) {
+      // One whose flight is on the screen with nothing of hers left to hand
+      // to it is drawn by her flight alone.
+      if (!deck.left || deck.left.handed) {
+        for (let i = deck.pending.length - 1; i >= 0; i--) {
+          if (planes.some((q) => q.i === deck.pending[i])) deck.pending.splice(i, 1);
+        }
+      }
+      if (deck.pending.length) {
         deck.pendingAt = deck.pendingAt ?? this.time;
-        continue;
+        if (this.time - deck.pendingAt < CLIMB_OUT_MAX) continue;
+        deck.pending.length = 0;
       }
       deck.pendingAt = undefined;
-      deck.pending.length = 0;
-      deck.left = null;
       deck.flightId = 0;
       deck.endMatrix = null;
       if (deck.launchAt === null) v.group.userData.stow?.();
@@ -8743,6 +8851,23 @@ export class Battle {
    * have her back in the ship's frame first or it will be positioning a
    * world-space object with ship-space numbers.
    */
+  /**
+   * The clock a ship's deck is worked on.
+   *
+   * A deck whose aeroplanes are each a launch of their own (the Nimitz's: see
+   * `simClock`) is worked on the battle's own clock, the moment the picture
+   * on the screen is of. Worked on the screen's clock, a battle running behind
+   * real time -- a busy phone, a slow worker -- had her off the bow seconds
+   * before the simulation put her in the air: she flew her few seconds of
+   * climb-out, vanished, and the flight she was came on later somewhere else.
+   * On the battle's clock she goes off the bow in the picture the flight first
+   * appears in, whatever pace the battle is going at, and stops when it stops.
+   */
+  deckClock(v) {
+    if (!v.group.userData.simClock) return this.time;
+    return this.renderST ?? this.time;
+  }
+
   recallDeckPlane(v) {
     // Anything of hers still climbing out from an earlier run keeps flying:
     // those are copies, and the ship's own model is not out there with them.

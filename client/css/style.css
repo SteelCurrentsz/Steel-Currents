@@ -791,6 +791,20 @@ input[type="range"] { accent-color: var(--red); }
 .fly-btn.drop { border-color: rgba(226, 86, 79, 0.9); color: #ffd2cf; }
 .fly-btn.drop:active { background: rgba(226, 86, 79, 0.34); }
 .fly-btn.drop.spent { opacity: 0.35; }
+/* Over the throttle, clear of the trigger beside it and the column of keys
+   at the edge. */
+.fly-missiles {
+  position: absolute; right: calc(max(4.2rem, calc(env(safe-area-inset-right) + 3.8rem)) + 4px);
+  bottom: calc(max(1.4rem, calc(env(safe-area-inset-bottom) + 1rem)) + min(30vh, 220px) + 0.9rem);
+  display: flex; flex-direction: column; gap: 0.6rem;
+  align-items: center; pointer-events: auto;
+}
+.fly-btn.lockon, .fly-btn.msl { font-size: 0.5rem; line-height: 1.25; }
+.fly-btn.lockon { border-color: rgba(255, 196, 64, 0.9); color: #ffe2a8; }
+.fly-btn.lockon:active { background: rgba(255, 196, 64, 0.3); }
+.fly-btn.msl { border-color: rgba(255, 96, 88, 0.95); color: #ffd2cf; }
+.fly-btn.msl:active { background: rgba(255, 96, 88, 0.34); }
+.fly-btn.msl.spent { opacity: 0.35; }
 .fly-btn.bombcam { font-size: 0.5rem; line-height: 1.25; }
 .fly-btn.brakes { font-size: 0.5rem; line-height: 1.25; }
 .fly-btn.brakes.on {
@@ -899,6 +913,28 @@ input[type="range"] { accent-color: var(--red); }
   margin: -2px 0 0 -2px; border-radius: 50%; background: #ff5048;
 }
 .fly-lead.near { border-width: 3px; }
+
+/* The missile seeker's box: amber and open while it takes the target, red
+   and drawn in tight once it has it. */
+.fly-lock {
+  position: absolute; left: 0; top: 0; width: 46px; height: 46px;
+  margin: -23px 0 0 -23px; pointer-events: none; will-change: transform;
+  border: 2px dashed rgba(255, 196, 64, 0.95);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+  transition: width 0.2s, height 0.2s, margin 0.2s;
+}
+.fly-lock[hidden] { display: none; }
+.fly-lock.locked {
+  width: 34px; height: 34px; margin: -17px 0 0 -17px;
+  border: 2.5px solid rgba(255, 64, 56, 0.98);
+}
+.fly-lock > b {
+  position: absolute; left: 50%; top: 100%; transform: translateX(-50%);
+  margin-top: 4px; white-space: nowrap;
+  font-family: var(--ui); font-size: 0.62rem; font-weight: 600; letter-spacing: 0.08em;
+  color: #ffd48a; text-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+}
+.fly-lock.locked > b { color: #ff7a72; }
 
 .fly-far {
   position: absolute; left: 50%; bottom: 22vh; transform: translateX(-50%);
