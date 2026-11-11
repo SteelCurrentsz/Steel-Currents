@@ -228,7 +228,10 @@ export function mergeStatic(group, keyOf = null, opts = null) {
     }
   };
   walk(group, null);
-  if (found.length < 2) return 0;
+  // One mesh has nothing to be welded to -- unless she is to be split by
+  // compartment, which a hull drawn as one mesh (the LCM's) still has to be,
+  // or a battle has no plating of hers to cut up.
+  if (found.length < (keyOf ? 1 : 2)) return 0;
 
   const byMat = new Map();
   const m = new THREE.Matrix4();
