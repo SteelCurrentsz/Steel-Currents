@@ -36,7 +36,11 @@ const HULLS = path.join(ROOT, 'client/js/render');
 const CHUNKS = out('chunks');
 fs.rmSync(CHUNKS, { recursive: true, force: true });
 execFileSync('npx', [
-  'esbuild', 'client/js/main.js',
+  // Split, the battle's own thread (simworker.js) is an entry of its own,
+  // sharing its chunks with the page; a single file cannot start one, and
+  // hosts the battle in the page instead.
+  'esbuild', 'client/js/main.js', ...(SPLIT ? ['client/js/simworker.js'] : []),
+  `--define:__SIM_WORKER__=${SPLIT ? '"./simworker.js"' : '""'}`,
   // MINIFY=0 leaves the names in, for a profile that can be read.
   '--bundle', ...(process.env.MINIFY === '0' ? [] : ['--minify']),
   ...(SPLIT
@@ -50,6 +54,7 @@ let html = fs.readFileSync(path.join(ROOT, 'client/index.html'), 'utf8');
 const css = fs.readFileSync(path.join(ROOT, 'client/css/style.css'), 'utf8');
 const js = fs.readFileSync(SPLIT ? path.join(CHUNKS, 'main.js') : out('bundle.js'), 'utf8');
 const chunks = SPLIT ? fs.readdirSync(CHUNKS).filter((f) => f.startsWith('chunk-')) : [];
+const simWorker = SPLIT ? fs.readFileSync(path.join(CHUNKS, 'simworker.js'), 'utf8') : '';
 
 // Drop the two tags that point at files this page will not be able to fetch.
 html = html.replace(/\s*<link rel="stylesheet" href="css\/style\.css" \/>/, '');
@@ -135,12 +140,14 @@ if (!SPLIT) {
 } else {
   // Every hull the module imports, and no other: a data file it does not
   // name would be dead weight, and one it names that is missing a blank sea.
-  const every = [js, ...chunks.map((f) => fs.readFileSync(path.join(CHUNKS, f), 'utf8'))].join('\n');
+  const every = [js, simWorker, ...chunks.map((f) => fs.readFileSync(path.join(CHUNKS, f), 'utf8'))].join('\n');
   const named = [...new Set([...every.matchAll(/["']\.\/([A-Za-z0-9]+\.data\.js)["']/g)].map((m) => m[1]))].sort();
   fs.rmSync(out('split'), { recursive: true, force: true });
   fs.mkdirSync(out('split'));
   fs.writeFileSync(out('split', 'index.html'), html);
   console.log(`build/split/index.html — ${Math.round(html.length / 1024)} KB`);
+  fs.writeFileSync(out('split', 'simworker.js'), simWorker);
+  console.log(`build/split/simworker.js — ${Math.round(simWorker.length / 1024)} KB`);
   for (const f of chunks) {
     fs.copyFileSync(path.join(CHUNKS, f), out('split', f));
     console.log(`build/split/${f} — ${Math.round(fs.statSync(out('split', f)).size / 1024)} KB`);
@@ -161,7 +168,7 @@ if (!SPLIT) {
   // written in, as the server writes it into its own: the page, its chunks and
   // the aircraft to take over with, then the hulls behind them.
   // A page put up anywhere as these files plays with no signal once opened.
-  const files = ['./', './unpack.js', ...chunks.map((f) => `./${f}`), ...named.map((f) => `./${f}`)];
+  const files = ['./', './unpack.js', './simworker.js', ...chunks.map((f) => `./${f}`), ...named.map((f) => `./${f}`)];
   const shell = files.filter((f) => !/\.data\.js$/.test(f) || /Model\.data\.js$/.test(f));
   // Over what every file holds, the data files' too: a hull rebuilt under
   // the same name is a new version, or the worker would hand out the old one.

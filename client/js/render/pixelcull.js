@@ -32,17 +32,20 @@ function judged(object) {
 }
 
 THREE.Frustum.prototype.intersectsObject = function intersectsObject(object) {
-  if (!base.call(this, object)) return false;
-  if (!state.on || !judged(object)) return true;
   const g = object.geometry;
-  if (!g) return true;
+  if (!state.on || !g || object.boundingSphere !== undefined || !judged(object)) return base.call(this, object);
+  // The same sphere the frustum test puts into the world, put there once for
+  // both questions rather than once for each -- there are thousands of these a
+  // frame in a fleet action -- and the cheaper question asked first, since at
+  // the ranges a battle is fought over most of what is in view is under a
+  // pixel. What is drawn is what was drawn: it has to pass both.
   if (g.boundingSphere === null) g.computeBoundingSphere();
   sphere.copy(g.boundingSphere).applyMatrix4(object.matrixWorld);
   const dx = sphere.center.x - state.x, dy = sphere.center.y - state.y, dz = sphere.center.z - state.z;
   const d = Math.sqrt(dx * dx + dy * dy + dz * dz) - sphere.radius;
-  if (d <= 0) return true;
   // Its radius on the screen, in pixels of the drawing buffer.
-  return sphere.radius * state.k >= state.min * d;
+  if (d > 0 && sphere.radius * state.k < state.min * d) return false;
+  return this.intersectsSphere(sphere);
 };
 
 /**

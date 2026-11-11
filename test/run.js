@@ -61,6 +61,7 @@ import { twoFingerGesture, TouchControls } from '../client/js/touch.js';
 import { startManeuver, flyManeuver, pathOf } from '../shared/pilot.js';
 import { suiseiGeometries, SUISEI, SUISEI_SEGS, SUISEI_PARTS } from '../client/js/render/suiseiModel.js';
 import { Bombs, bombScale } from '../client/js/render/ordnance.js';
+import { Nukes } from '../client/js/render/nuke.js';
 import { enterDogfight, stepDogfight } from '../shared/dogfight.js';
 import { cleanScript, previewAt, unitKey } from '../shared/stage.js';
 import { ReplayNet } from '../client/js/replaynet.js';
@@ -28546,6 +28547,28 @@ function atomicRun(classId = 'iowa', seed = 3301) {
   return { st, ship, far, bm };
 }
 
+check('an atomic burst lights the sea without bringing a light into the battle', () => {
+  // A light added to a scene, or taken out of it, recompiles every lit shader
+  // in it -- the whole fleet -- in the frame it happens. The flash borrows one
+  // of the scene's own lights and gives it back.
+  const scene = new THREE.Scene();
+  const lamp = new THREE.PointLight(0xffbb66, 0, 900, 2);
+  scene.add(lamp);
+  let held = 0;
+  const lender = { holdLight() { held++; return lamp; }, releaseLight(l) { assert.equal(l, lamp); held--; } };
+  const lights = () => { let n = 0; scene.traverse((o) => { if (o.isLight) n++; }); return n; };
+  const nukes = new Nukes(scene, lender);
+  nukes.add(0, 400, 0, false);
+  assert.equal(lights(), 1, 'the burst brought a light of its own');
+  assert.equal(held, 1, 'the flash lights nothing');
+  nukes.update(0.3);
+  assert.ok(lamp.intensity > 1e6, 'the flash is not bright');
+  for (let t = 0; t < 160; t += 0.5) nukes.update(0.5);
+  assert.equal(nukes.live.length, 0, 'the burst never went');
+  assert.equal(held, 0, 'the light was never given back');
+  assert.equal(lights(), 1);
+});
+
 check('a Silverplate opens her doors, lets go of her one bomb and it goes off on the target', () => pinned(() => {
   const { st, ship, far, bm } = atomicRun();
   assert.equal(bm.loads, 1, 'a Silverplate formation went up with more than one weapon');
@@ -28606,6 +28629,66 @@ check('flak, fighters and a Phalanx cannot touch an atomic bomb on its way down'
   assert.ok(at.t > 12 && at.t < 16, `a bomb from a thousand metres took ${at.t.toFixed(1)} s to fall`);
 }));
 
+check('the wave off a burst capsizes a ship it takes on the beam, and a ship bows-on rides it', () => {
+  const world = generateWorld(91, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  // Beam-on: the burst is square off her side.
+  const dd = addShip(st, { name: 'Beam', classId: 'fletcher', team: 0, index: 0 });
+  dd.x = 3000; dd.z = 0; dd.speed = 0; dd.heading = 0;
+  // Bows-on (stern-on, here): the burst is right astern of her.
+  const bb = addShip(st, { name: 'Ahead', classId: 'iowa', team: 0, index: 1 });
+  bb.x = 0; bb.z = 2400; bb.speed = 0; bb.heading = 0;
+  nukeBlast(st, 0, 0, 0, null);
+  let cap = null;
+  let wave = 0;
+  let lifted = 0;
+  for (let i = 0; i < 30 * 90 && !(cap && wave >= 2); i++) {
+    for (const e of step(st, DT)) {
+      if (e.e === 'nukeWave') { wave++; if (e.cap === 2) cap = e.ship; }
+    }
+    // The sea the simulation floats her on has the wave in it.
+    if (st.nukeSea && st.nukeSea.bursts.length) lifted++;
+  }
+  assert.ok(wave >= 2, 'the wave never reached them');
+  assert.ok(lifted > 0, 'the wave is not in the sea the battle floats ships on');
+  assert.equal(cap, dd.id, 'the destroyer beam-on to it did not capsize');
+  assert.ok(dd.sinking && dd.sinking.capsize, 'she is not going over');
+  assert.ok(!(bb.sinking && bb.sinking.capsize), 'the battleship bows-on to it capsized');
+  // Over in seconds, and out of the fight bottom up.
+  for (let i = 0; i < 30 * 30; i++) step(st, DT);
+  assert.ok(Math.abs(dd.heel) > 2.5, `she is lying at ${dd.heel.toFixed(2)} rad, not bottom up`);
+  assert.ok(!dd.alive, 'a ship bottom up is still in the fight');
+});
+
+check('a burst wrecks the light guns on the side it comes from, and the wire carries them', () => {
+  const world = generateWorld(91, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'Near', classId: 'baltimore', team: 0, index: 0 });
+  s.x = 1500; s.z = 0; s.speed = 0; s.heading = 0;
+  nukeBlast(st, 0, 0, 0, null);
+  for (let i = 0; i < 30 * 4; i++) step(st, DT);
+  const ko = Object.keys(s.ko || {});
+  assert.ok(ko.length > 3, `only ${ko.length} mountings wrecked by a burst a mile off`);
+  assert.ok(ko.some((k) => k.startsWith('aa:')), 'not one close-range mounting wrecked');
+});
+
+check('a Silverplate\'s two escorts lay their own sticks with the weapon', () => pinned(() => {
+  const { st, bm } = atomicRun();
+  let atomic = 0, bombs = 0;
+  for (let i = 0; i < 30 * 240 && !(atomic && bm.loads === 0); i++) {
+    const before = new Set(st.shells.map((q) => q.id));
+    step(st, DT);
+    for (const q of st.shells) {
+      if (before.has(q.id) || q.bomber !== bm.id) continue;
+      if (q.atomic) atomic++; else bombs++;
+    }
+  }
+  assert.equal(atomic, 1, `${atomic} atomic weapons left the formation`);
+  assert.equal(bombs, 16, `the escorts laid ${bombs} bombs, not two sticks of eight`);
+}));
+
 check('the shock goes out where nukeFront has it, and wrecks by distance', () => {
   const world = generateWorld(91, 'open_ocean');
   world.islands = [];
@@ -28649,7 +28732,7 @@ check('after the flash and the shock comes the wave: slower, big close in, and n
   const st = createState(world, { mode: 'deathmatch' });
   // A destroyer outside the blast, where only the water reaches her.
   const dd = addShip(st, { name: 'Tin can', classId: 'fletcher', team: 0, index: 0 });
-  dd.x = 4800; dd.z = 0; dd.speed = 0; dd.heading = 0;
+  dd.x = 6500; dd.z = 0; dd.speed = 0; dd.heading = 0;
   const hp0 = dd.hp;
   nukeBlast(st, 0, 0, 0, null);
   let shock = null, wave = null, rolled = 0;
@@ -28663,20 +28746,21 @@ check('after the flash and the shock comes the wave: slower, big close in, and n
   }
   assert.equal(shock, null, 'the shock reached a ship outside its reach');
   assert.ok(wave, 'the wave never reached her');
-  const d = 4800 - getClass('fletcher').hull.beam / 2;
+  const d = 6500 - getClass('fletcher').hull.beam / 2;
   const due = -NUKE.waveTau * Math.log(1 - d / NUKE.waveReach);
   assert.ok(Math.abs(wave.t - due) < 0.5, `the wave got to her at ${wave.t.toFixed(1)} s, it was due at ${due.toFixed(1)} s`);
   // Slower than the shock by a long way: the shock is across that distance
   // in a few seconds, the sea takes the better part of two minutes.
   assert.ok(wave.t > 20 * NUKE.tau, 'the wave came at the speed of the shock');
   // A heavy sea, not a wall a hundred metres high, and lower the further out.
-  assert.ok(wave.h >= 3 && wave.h <= 15, `a ${wave.h} m sea at nearly five kilometres`);
+  assert.ok(wave.h >= 3 && wave.h <= 15, `a ${wave.h} m sea at six and a half kilometres`);
   assert.ok(waveHeight(500) > waveHeight(3000) && waveHeight(3000) > waveHeight(6000));
-  assert.ok(waveHeight(0) < 30, `the wave stands ${waveHeight(0).toFixed(0)} m at the burst`);
+  // Baker's was near thirty metres a thousand feet out; the game's is bigger.
+  assert.ok(waveHeight(0) < 50, `the wave stands ${waveHeight(0).toFixed(0)} m at the burst`);
   for (let i = 0; i < 30 * 6; i++) { step(st, DT); rolled = Math.max(rolled, Math.abs(dd.rock || 0)); }
   assert.ok(rolled > 0.02, `it rolled her ${rolled.toFixed(3)} rad`);
   assert.ok(dd.alive && dd.hp > hp0 * 0.9, 'a five-metre sea sank a destroyer');
-  for (let i = 0; i < 30 * 40; i++) step(st, DT);
+  for (let i = 0; i < 30 * 90; i++) step(st, DT);
   assert.equal(st.nukes.length, 0, 'the burst is still being stepped long after it is done');
 });
 
@@ -28710,6 +28794,62 @@ check("a Silverplate's gunners fight her five positions at the fighters on her",
     if (/lower/.test(posts[k])) assert.ok(p[0] < 0, `her ${posts[k]} is not under her`);
   }
 }));
+
+check('an atomic burst on the ground digs a crater with a rim, and a later shell does not fill it', () => {
+  const world = generateWorld(7, 'coral_shelf');
+  const isle = [...world.islands].sort((a, b) => b.r - a.r)[0];
+  const st = createState(world, { mode: 'deathmatch' });
+  const { x, z } = isle;
+  const g0 = groundHeight(world, x, z);
+  const rim0 = groundHeight(world, x + 200, z);
+  const events = [];
+  nukeBlast(st, x, g0 + 2, z, null);
+  events.push(...st.events);
+  const c = world.craters.find((q) => q.nuke);
+  assert.ok(c, 'no atomic crater was dug');
+  assert.ok(c.r > 150 && c.r < 260, `crater ${c.r} m across the wrong size`);
+  assert.ok(g0 - groundHeight(world, x, z) > 15, 'the middle of it is not a hole');
+  assert.ok(groundHeight(world, x + c.r * 1.05, z) > rim0 - 1, 'it has no rim');
+  assert.ok(events.some((e) => e.e === 'crater' && e.c.n === 1 && e.c.l > 0), 'the crater is not on the wire');
+  // A shell into it afterwards digs its own hole, and leaves the bowl as deep.
+  const d0 = c.depth;
+  landStrike(st, x + 10, z, 0.406, 'shell');
+  assert.equal(c.depth, d0, 'a shell made the atomic crater shallower');
+  // A burst at sea digs nothing.
+  const sea = generateWorld(91, 'open_ocean');
+  sea.islands = [];
+  const s2 = createState(sea, { mode: 'deathmatch' });
+  nukeBlast(s2, 0, 0, 0, null);
+  assert.ok(!(sea.craters || []).some((q) => q.nuke), 'a burst on the sea dug a crater');
+});
+
+check('an atomic crater on the shore fills with the sea, and one inland stays a dry pan', () => {
+  const world = generateWorld(7, 'coral_shelf');
+  const isle = [...world.islands].sort((a, b) => b.r - a.r)[0];
+  const R = islandRadius(isle, 1.1) * 0.85;
+  const x = isle.x + Math.sin(1.1) * R;
+  const z = isle.z + Math.cos(1.1) * R;
+  const st = createState(world, { mode: 'deathmatch' });
+  nukeBlast(st, x, groundHeight(world, x, z) + 2, z, null);
+  const c = world.craters.find((q) => q.nuke);
+  assert.ok(c && c.wet, 'the sea did not get into a crater dug through the shore');
+  // Somewhere in the bowl is now under the water, and a shell there splashes.
+  let under = 0;
+  for (let k = 0; k < 64; k++) {
+    const a = (k / 64) * Math.PI * 2;
+    if (groundHeight(world, x + Math.sin(a) * c.r * 0.6, z + Math.cos(a) * c.r * 0.6) < -1) under++;
+  }
+  assert.ok(under > 4, `only ${under} of the bowl is under water`);
+  assert.ok(st.events.some((e) => e.e === 'crater' && e.c.n === 1 && e.c.w === 1), 'the wire does not say it flooded');
+  // And on top of the island, behind a whole rim, it does not.
+  const w2 = generateWorld(7, 'coral_shelf');
+  const i2 = [...w2.islands].sort((a, b) => b.r - a.r)[0];
+  const s2 = createState(w2, { mode: 'deathmatch' });
+  nukeBlast(s2, i2.x, groundHeight(w2, i2.x, i2.z) + 2, i2.z, null);
+  const c2 = w2.craters.find((q) => q.nuke);
+  assert.ok(c2 && !c2.wet, 'a crater on the summit filled with sea');
+  assert.ok(groundHeight(w2, i2.x, i2.z) > 0.5, 'the summit crater is under water');
+});
 
 check('the wire carries the atomic bomb and the open bay', () => {
   const { st, bm } = atomicRun('iowa', 812);

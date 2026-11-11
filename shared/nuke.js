@@ -23,25 +23,46 @@ export const NUKE = {
   /** Radius of the fireball, metres: inside it nothing survives. */
   fireball: 380,
   /** Everything afloat within this is lost. */
-  lethal: 900,
+  lethal: 1300,
   /** Out to here the blast wrecks a ship's upperworks and sets her alight. */
-  heavy: 2200,
+  heavy: 3000,
   /** And out to here it still does harm. */
-  reach: 4200,
+  reach: 5400,
   /** How far an aeroplane can be from it, in the air, and live. */
   air: 2600,
   /** The front's time constant, seconds: see nukeFront. */
-  tau: 3.2,
+  tau: 2.0,
+  /**
+   * On the ground the same weapon is worse: nothing of it goes into lifting
+   * the sea, and the ground reflects the shock back up into the one going
+   * out. Every radius of the blast is this much longer on land, and what it
+   * does inside them this much heavier.
+   */
+  landReach: 1.35,
+  landBite: 1.3,
+  // The crater a burst on the ground digs: radius, depth and the height of
+  // the spoil thrown up round it, in metres, for middling ground. Soft ground
+  // gives a wider hole; rock a narrower one.
+  craterR: 190,
+  craterDepth: 34,
+  craterLip: 9,
   /** How long the whole thing is worth drawing, seconds. */
   life: 150,
   /** The surface wave: how far out it ever gets, metres. */
-  waveReach: 6500,
+  waveReach: 9000,
   /** Its time constant, seconds: see nukeWave. */
-  waveTau: 110,
+  waveTau: 75,
   /** How tall it stands where it is thrown up, and how fast that falls away. */
-  waveHigh: 22,
-  waveFall: 2500,
+  // Off Baker: a wave nearly thirty metres from crest to trough a thousand
+  // feet from the burst, and still five or six two miles out.
+  // Made bigger than that for the game: a wall of water forty-five metres
+  // high at the burst, and still ten or so three miles out.
+  waveHigh: 45,
+  waveFall: 3600,
 };
+
+/** The most bursts the sea carries at once: the ocean shader's array is this long. */
+export const MAX_BURSTS = 4;
 
 /**
  * How far out the shock front is, `age` seconds after the burst.
@@ -50,12 +71,12 @@ export const NUKE = {
  * spherical shock loses its strength as the square of the distance and its
  * speed with it -- and the curve that does that, close enough to the measured
  * one for anyone watching, is an exponential approach to its furthest reach.
- * Two and a half kilometres in the first three seconds, and done in fifteen.
+ * Three kilometres in the first two seconds, and done in ten.
  * The water comes after it, a great deal slower: see nukeWave.
  */
-export function nukeFront(age) {
+export function nukeFront(age, land = false) {
   if (!(age > 0)) return 0;
-  return NUKE.reach * (1 - Math.exp(-age / NUKE.tau));
+  return NUKE.reach * (land ? NUKE.landReach : 1) * (1 - Math.exp(-age / NUKE.tau));
 }
 
 /**
@@ -88,7 +109,8 @@ export function waveHeight(r) {
  * past one, she is lost. Falls away from the fireball's edge to the reach,
  * steeply at first -- which is what overpressure does -- and to nothing.
  */
-export function nukeBite(d) {
+export function nukeBite(d, land = false) {
+  if (land) return NUKE.landBite * nukeBite(d / NUKE.landReach);
   if (d <= NUKE.fireball) return 2.5;
   if (d <= NUKE.lethal) return 1.6;
   if (d >= NUKE.reach) return 0;
@@ -98,4 +120,62 @@ export function nukeBite(d) {
   }
   const k = (d - NUKE.heavy) / (NUKE.reach - NUKE.heavy);
   return 0.3 * (1 - k) * (1 - k);
+}
+
+// ------------------------------------------------------------ the sea itself
+
+/**
+ * The wave as water: how high the sea stands, `r` metres from a burst `age`
+ * seconds old, and how fast that changes outward (dh/dr). Zero away from it.
+ *
+ * Not a ring painted on the sea but the sea: the ocean's vertex shader lifts
+ * the surface by exactly this (see BURST_GLSL in ocean.js), and the same
+ * function is what a hull is floated on, on the screen (seaAttitude) and in
+ * the simulation (seaOver) -- so a ship is seen to climb the face of it, hang
+ * on the crest and drop into the trough behind it, and the water that comes
+ * over her deck edge is the water drawn there.
+ *
+ * A short train rather than one hump: a steep leading crest standing taller
+ * than the troughs are deep, the way a breaking wave does, and two or three
+ * smaller ones behind it, lengthening as the train runs out.
+ */
+export function burstSwell(age, r, out) {
+  out.y = 0; out.dr = 0;
+  if (!(age > 0)) return out;
+  const R = nukeWave(age);
+  const lam = 160 + 0.06 * R;
+  const s = r - R;
+  // Nothing more than four of its lengths behind the front or one ahead.
+  if (s > lam * 1.2 || s < -lam * 4.2) return out;
+  const grow = Math.min(1, age / 5);
+  const fade = Math.min(1, Math.max(0, (NUKE.life - age) / 40));
+  const A = 0.5 * waveHeight(R) * grow * grow * (3 - 2 * grow) * fade;
+  if (!(A > 0)) return out;
+  const k = (Math.PI * 2) / lam;
+  const sig = s > 0 ? 0.3 * lam : 1.25 * lam;
+  const env = Math.exp(-(s * s) / (sig * sig));
+  const c = Math.cos(k * s), c2 = Math.cos(2 * k * s);
+  const y = A * (c + 0.3 * c2) * env;
+  out.y = y;
+  out.dr = A * env * (-k * Math.sin(k * s) - 0.6 * k * Math.sin(2 * k * s)) + y * (-2 * s / (sig * sig));
+  return out;
+}
+
+const SW = { y: 0, dr: 0 };
+/**
+ * Every burst's wave at a point: `bursts` is [{ x, z, t0 }], `time` the
+ * clock they were set off on. Adds into `out.y` and the slope `out.gx`,
+ * `out.gz`.
+ */
+export function burstSea(bursts, x, z, time, out) {
+  for (let i = 0; i < bursts.length; i++) {
+    const b = bursts[i];
+    const dx = x - b.x, dz = z - b.z;
+    const r = Math.sqrt(dx * dx + dz * dz);
+    burstSwell(time - b.t0, r, SW);
+    if (SW.y === 0 && SW.dr === 0) continue;
+    out.y += SW.y;
+    if (r > 1e-3) { out.gx += SW.dr * dx / r; out.gz += SW.dr * dz / r; }
+  }
+  return out;
 }

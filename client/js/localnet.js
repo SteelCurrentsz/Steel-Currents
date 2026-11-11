@@ -20,12 +20,28 @@ import { cleanAsk } from '../../shared/works.js';
 // memory, and says so.
 const RECORD_CAP = 160e6;
 
+// Where the battle's own thread is (see simworker.js), beside the page. The
+// standalone build says where it put it, or that there is none -- a page
+// opened from a file cannot start one -- and unbuilt, it is in js/.
+const WORKER_URL = typeof __SIM_WORKER__ !== 'undefined' ? __SIM_WORKER__ : 'js/simworker.js';
+// How long a battle asked for waits on the thread to come up before it is
+// hosted in the page after all.
+const WORKER_PATIENCE = 8000;
+
 export class LocalNet extends EventTarget {
-  constructor() {
+  /**
+   * `worker: false` hosts the battle here, on the page's own thread, as it
+   * always was. Otherwise, where the browser can, it is hosted on a thread of
+   * its own (simworker.js) and this passes messages to and fro -- and falls
+   * back to hosting it here if that thread cannot be started.
+   */
+  constructor(opts = {}) {
     super();
     this.connected = false;
     this.ping = 0;
     this.room = null;
+    this.worker = null;
+    if (opts.worker !== false) this.spawn();
     this.player = {
       id: 1,
       name: 'Captain',
@@ -37,6 +53,62 @@ export class LocalNet extends EventTarget {
       // that lands straight in the client's event bus.
       send: (msg) => this.deliver(msg),
     };
+  }
+
+  // -- the battle's own thread ----------------------------------------------
+
+  spawn() {
+    if (!WORKER_URL || typeof Worker === 'undefined' || typeof window === 'undefined') return;
+    let w;
+    try { w = new Worker(WORKER_URL, { type: 'module' }); } catch { return; }
+    this.worker = w;
+    this.workerReady = false;
+    this.pending = [];
+    w.onmessage = (e) => this.fromWorker(e.data);
+    w.onerror = (e) => {
+      if (!this.workerReady) { e.preventDefault?.(); this.fallBack(); return; }
+      console.error('Steel Currents: the battle thread failed', e.message || e);
+    };
+    // The heartbeat: the room there is stepped only while this page draws.
+    let last = 0;
+    const beat = (now) => {
+      if (this.worker !== w) return;
+      if (now - last > 100) { last = now; w.postMessage({ k: 'beat' }); }
+      requestAnimationFrame(beat);
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(beat);
+  }
+
+  /** The thread would not start: everything goes on in the page, as it used to. */
+  fallBack() {
+    const queued = this.pending || [];
+    clearTimeout(this.patience);
+    try { this.worker?.terminate(); } catch { /* gone */ }
+    this.worker = null;
+    this.pending = null;
+    for (const m of queued) this.send(m);
+  }
+
+  fromWorker(d) {
+    if (!d) return;
+    if (d.k === 'msg') { this.deliver(d.msg); return; }
+    if (d.k === 'ready') {
+      this.workerReady = true;
+      clearTimeout(this.patience);
+      const queued = this.pending || [];
+      this.pending = [];
+      for (const m of queued) this.worker.postMessage({ k: 'send', msg: m });
+      return;
+    }
+    if (d.k === 'rec') {
+      // The replay, kept here where it is played from.
+      if (d.start || !this.recording) {
+        this.recording = { title: d.start?.title, joined: d.start?.joined, frames: [], size: 0, full: false, end: 0 };
+      }
+      const rec = this.recording;
+      for (const f of d.frames) rec.frames.push(f);
+      rec.size = d.size; rec.full = d.full; rec.end = d.end;
+    }
   }
 
   connect() {
@@ -62,6 +134,13 @@ export class LocalNet extends EventTarget {
   // -- the server's dispatch, minus the socket -------------------------------
 
   send(msg) {
+    if (this.worker) {
+      if (msg.t === 'ping') { this.deliver({ t: 'pong', c: msg.c }); return; }
+      if (this.workerReady) { this.worker.postMessage({ k: 'send', msg }); return; }
+      this.pending.push(msg);
+      if (!this.patience) this.patience = setTimeout(() => { if (!this.workerReady) this.fallBack(); }, WORKER_PATIENCE);
+      return;
+    }
     switch (msg.t) {
       case 'ping':
         this.deliver({ t: 'pong', c: msg.c });

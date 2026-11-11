@@ -386,6 +386,23 @@ export class OilField {
     renderer.setClearColor(prevClear, prevAlpha);
   }
 
+  /**
+   * Its shader, compiled now: the first wreck to leak oil in a battle used to
+   * compile it on the spot, and when a whole fleet goes at once -- an atomic
+   * burst -- that is the worst frame there is to do it in. Compiled into the
+   * map it draws into, which is part of what the program is.
+   */
+  warm(renderer) {
+    if (!renderer || this.warmed) return;
+    this.warmed = true;
+    const prev = renderer.getRenderTarget();
+    try {
+      renderer.setRenderTarget(this.rt);
+      renderer.compile(this.scene, this.cam);
+    } catch { /* compiled when it is first drawn instead */ }
+    renderer.setRenderTarget(prev);
+  }
+
   /** Hand the map to the ocean, which is the only thing that reads it. */
   bind(uniforms) {
     if (!uniforms.uOilMap) return;

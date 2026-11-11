@@ -11,7 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt } from './formation.js';
-import { NUKE, nukeFront, nukeBite, nukeWave, waveHeight } from './nuke.js';
+import { NUKE, MAX_BURSTS, nukeFront, nukeBite, nukeWave, waveHeight } from './nuke.js';
 import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO,
@@ -29,7 +29,7 @@ import {
 } from './batteries.js';
 import {
   MAP_HALF, blockedByLand, islandAt, islandRadius, landAt, spawnPoint, getWeather,
-  groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
+  groundHeight, keelGround, addGouge, gougeWire, soilAt, addCrater, addNukeCrater, floodNear, craterWire, landCeiling, sightOf, drawnGround, shoreDistance,
 } from './world.js';
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
@@ -824,7 +824,11 @@ function stepMovement(state, ship, dt) {
   if (ship.rock || ship.rockRate) {
     const w = (Math.PI * 2) / rollPeriod(cls);
     ship.rockRate += (-w * w * ship.rock - 2 * ROLL_DAMPING * w * ship.rockRate) * dt;
-    ship.rock = clamp(ship.rock + ship.rockRate * dt, -0.35, 0.35);
+    // A ship laid over by a wall of water swings further than any sea she
+    // was built for, and works back to her own limit as it dies away.
+    const most = ship.rockMax > 0.35 ? ship.rockMax : 0.35;
+    if (ship.rockMax > 0.35) ship.rockMax = Math.max(0.35, ship.rockMax - dt * 0.012);
+    ship.rock = clamp(ship.rock + ship.rockRate * dt, -most, most);
     if (Math.abs(ship.rock) < 1e-5 && Math.abs(ship.rockRate) < 1e-5) { ship.rock = 0; ship.rockRate = 0; }
   }
   // And a set a wave has given her comes off her as the water takes it back.
@@ -5905,6 +5909,8 @@ function collapseGround(state, c, soft) {
     r: r(c.r), drop: r(drop),
   });
 
+  // A slip on the seaward side of an atomic crater can open it to the sea.
+  floodNear(state.world, c.x, c.z, c.r);
   // And anything standing on it goes down with it.
   settleBatteries(state, c.x, c.z, c.r);
 }
@@ -6010,6 +6016,13 @@ export const SWAMP_HOLD = 2.5;
 
 /** The waves of a storm big enough to come aboard, or null in any other sea. */
 export function stormSea(state) {
+  // A burst's wave is a sea that comes aboard whatever the weather.
+  if (state.nukeSea && state.nukeSea.bursts.length) return state.nukeSea;
+  return weatherSea(state);
+}
+
+/** The weather's own sea, when it is a storm's; null in any other. */
+function weatherSea(state) {
   if (state.seaTerms !== undefined) return state.seaTerms;
   const wx = getWeather(state.world?.weather);
   if (!((wx.swell || 1) > 1)) { state.seaTerms = null; return null; }
@@ -6078,7 +6091,7 @@ function stepSwamp(state, ship, dt) {
   if (submerged(ship)) return;
   // Nor is a ship in a sea that is only rough: she pitches and throws spray,
   // but nothing short of a storm stands green water over her gun houses.
-  if (getWeather(state.world?.weather).swamp === false) return;
+  if (getWeather(state.world?.weather).swamp === false && W !== state.nukeSea) return;
   const cls = shipClass(ship);
   const deck = freeboardOf(cls);
   const wet = (m, spec, kind = null, i = 0) => {
@@ -6354,13 +6367,28 @@ function atomicArrives(state, sh, px, py, pz) {
 export function nukeBlast(state, x, y, z, sh = null) {
   const id = eid();
   const team = sh ? sh.team : -1;
-  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0,
-    sea: groundHeight(state.world, x, z) <= 0.5 };
+  const sea = groundHeight(state.world, x, z) <= 0.5;
+  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0, sea, land: !sea };
   (state.nukes || (state.nukes = [])).push(n);
   const ashore = groundHeight(state.world, x, z) > 0.5;
-  state.events.push({ e: 'nuke', i: id, x: r(x), y: r(y), z: r(z), tm: team, land: ashore ? 1 : 0, tk: state.tick });
-  // The hole it leaves in the ground, if it went off on the ground.
-  if (ashore) landStrike(state, x, z, 1.52, 'bomb', 1);
+  // With the moment on the battle's clock, which is the clock the sea runs on:
+  // the wave it throws is the water from then on (see burstSwell), on every
+  // screen and here.
+  state.events.push({ e: 'nuke', i: id, x: r(x), y: r(y), z: r(z), tm: team, land: ashore ? 1 : 0, tk: state.tick,
+    t: Math.round(state.t * 100) / 100 });
+  // The hole it leaves in the ground, if it went off on the ground: what it
+  // does to anything built there, and then the crater itself.
+  if (ashore) {
+    landStrike(state, x, z, 1.52, 'bomb', 1);
+    const soft = soilAt(state.world, x, z);
+    const k = 0.85 + soft * 0.3;
+    const c = addNukeCrater(state.world, x, z, NUKE.craterR * k, NUKE.craterDepth * k, NUKE.craterLip * k);
+    if (c) {
+      state.events.push({ e: 'crater', c: craterWire(c), soft: Math.round(soft * 100) / 100 });
+      // Every gun on the ground it moved goes down into it or up onto its rim.
+      settleBatteries(state, x, z, c.r * 1.4);
+    }
+  }
   stepNukes(state, 0);
   return n;
 }
@@ -6378,13 +6406,34 @@ export function nukeBlast(state, x, y, z, sh = null) {
  */
 function stepNukes(state, dt) {
   const list = state.nukes;
-  if (!list || !list.length) return;
+  if (!list || !list.length) {
+    if (state.nukeSea && state.nukeSea.bursts.length) {
+      state.nukeSea.bursts.length = 0;
+      // The wave has run out. In a sea that is not a storm's nothing carries
+      // a hull's motion on from here, so what the wave left in it goes.
+      if (!weatherSea(state)) for (const s of state.ships) s.seaway = null;
+    }
+    return;
+  }
   void dt;
+  // The sea, as the bursts on it have left it: the same water the screen
+  // draws, so what comes in through a hole in her and over her deck edge as
+  // the wave goes by is the wave (see holeHead and stormSea).
+  {
+    if (!state.nukeSea) {
+      const S = seaOf(state.world);
+      state.nukeSea = waveTerms(S.amp, S.steep, S.short);
+      state.nukeSea.bursts = [];
+    }
+    const B = state.nukeSea.bursts;
+    B.length = 0;
+    for (const n of list) if (n.sea && B.length < MAX_BURSTS) B.push({ x: n.x, z: n.z, t0: n.t0 });
+  }
   for (let i = list.length - 1; i >= 0; i--) {
     const n = list[i];
     const age = state.t - n.t0;
     const r0 = n.r;
-    const r1 = nukeFront(age);
+    const r1 = nukeFront(age, n.land);
     const crossed = (d) => d <= r1 && (d > r0 || (r0 === 0 && d >= 0));
     for (const s of state.ships) {
       if (!s.alive) continue;
@@ -6394,9 +6443,10 @@ function stepNukes(state, dt) {
       // A boat deep under is spared a little of it by the water over her;
       // not much, because a shock in water is worse than one in air.
       const deep = (s.depth || 0) > 8 ? 0.7 : 1;
-      const bite = nukeBite(d) * deep;
+      const bite = nukeBite(d, n.land) * deep;
       if (bite <= 0) continue;
       damageShip(state, s, null, cls.hp * bite, 'nuke');
+      if (s.alive) blastMounts(state, s, cls, n, bite);
       if (s.alive) {
         // Everything on her upper deck that will burn is alight.
         startFire(state, s, 'works', Math.min(1, bite * 1.6));
@@ -6406,33 +6456,34 @@ function stepNukes(state, dt) {
       }
       // The shock is a blow, not a wave: it jolts her and that is all. The
       // water comes later (see the wave, below).
-      nukeShove(s, cls, n, 0.25 * Math.max(0, 1 - d / NUKE.reach));
+      nukeShove(s, cls, n, 0.45 * Math.max(0, 1 - d / (NUKE.reach * (n.land ? NUKE.landReach : 1))));
       state.events.push({ e: 'nukeHit', ship: s.id, i: n.id, b: Math.round(bite * 100) / 100 });
     }
     // In the air.
     const air = (q) => Math.hypot(q.x - n.x, (q.y ?? 220) - n.y, q.z - n.z);
+    const reachAir = NUKE.air * (n.land ? NUKE.landReach : 1);
     for (const q of state.planes) {
       if (q.dead) continue;
       const d = air(q);
-      if (!crossed(d) || d > NUKE.air) continue;
-      if (d < NUKE.air * 0.45) killFlight(state, q, 'blast');
+      if (!crossed(d) || d > reachAir) continue;
+      if (d < reachAir * 0.45) killFlight(state, q, 'blast');
       else {
-        hurtFlight(state, q, 900 * Math.pow(1 - d / NUKE.air, 1.5), 'blast');
+        hurtFlight(state, q, 900 * Math.pow(1 - d / reachAir, 1.5), 'blast');
         if (q.hp <= 0 && !q.dead) killFlight(state, q, 'blast');
       }
     }
     for (const bm of state.bombers) {
       if (!bm.alive) continue;
       const d = air(bm);
-      if (!crossed(d) || d > NUKE.air) continue;
-      if (d < NUKE.air * 0.45) heavyGone(state, bm, 'blast');
-      else hurtBomber(state, bm, 2400 * Math.pow(1 - d / NUKE.air, 2), 'blast');
+      if (!crossed(d) || d > reachAir) continue;
+      if (d < reachAir * 0.45) heavyGone(state, bm, 'blast');
+      else hurtBomber(state, bm, 2400 * Math.pow(1 - d / reachAir, 2), 'blast');
     }
     for (const bat of state.batteries) {
       if (!bat.alive) continue;
       const d = Math.hypot(bat.x - n.x, bat.z - n.z);
       if (!crossed(d)) continue;
-      const bite = nukeBite(d);
+      const bite = nukeBite(d, n.land);
       if (bite > 0) hurtBattery(state, bat, batteryHp(BATTERIES[bat.batteryId]) * bite * 1.2);
     }
     // What is in the water near it does not survive the shock in the water.
@@ -6448,7 +6499,7 @@ function stepNukes(state, dt) {
         for (const b of plan.byId.values()) {
           const d = Math.hypot(b.x - n.x, b.z - n.z);
           if (!crossed(d)) continue;
-          const bite = nukeBite(d);
+          const bite = nukeBite(d, n.land);
           if (bite > 0) hurtBuilding(state.world, b, b.hp * bite * 1.6, state.events, worksDice(state), { x: n.x, z: n.z, he: true });
         }
       }
@@ -6468,13 +6519,106 @@ function stepNukes(state, dt) {
         nukeShove(s, cls, n, h / NUKE.waveHigh);
         // Over her deck edge: a sea aboard, and what it does to what is there.
         const over = h - freeboardOf(cls);
-        if (over > 0) damageShip(state, s, null, cls.hp * Math.min(0.12, over * 0.008), 'flood');
-        state.events.push({ e: 'nukeWave', ship: s.id, i: n.id, h: Math.round(h) });
+        // The blow of it against her side, which a big enough sea is on its
+        // own: plates started, frames buckled, boats and rafts gone.
+        const slam = Math.min(0.18, Math.max(0, h - 6) / 160);
+        if (slam > 0) damageShip(state, s, null, cls.hp * slam, 'wave');
+        if (over > 0 && s.alive) {
+          damageShip(state, s, null, cls.hp * Math.min(0.25, over * 0.012), 'flood');
+          // And what green water sweeping her deck takes with it.
+          if (s.alive) blastMounts(state, s, cls, n, Math.min(0.5, over * 0.035));
+        }
+        // And over on her beam ends, if it took her the wrong way.
+        const cap = s.alive ? waveRoll(state, s, cls, n, h) : 0;
+        state.events.push({ e: 'nukeWave', ship: s.id, i: n.id, h: Math.round(h), ...(cap ? { cap } : {}) });
       }
       n.w = w1;
     }
     n.r = r1;
     if (age > NUKE.tau * 6 && (!n.sea || age > NUKE.life)) list.splice(i, 1);
+  }
+}
+
+/**
+ * What a wave of `h` metres, crest to trough, does to the way she lies.
+ *
+ * A wall of water does not roll every ship the same. Taken on the bow she
+ * climbs it, hangs and comes down the back of it; taken on the beam the crest
+ * lifts one side of her and drops the other, and if the sea is high enough
+ * against how wide she is and how much of her stands out of it, she goes over
+ * and does not come back. So it is how square on she meets it, how tall it is
+ * against her beam and her freeboard, and what she is already carrying --
+ * water in her, a list, half her strength shot away -- that decide it: a
+ * destroyer taking the wave square on her beam a few miles out is in more
+ * danger than a battleship meeting it bows-on a mile from the burst.
+ *
+ * Returns 2 when she capsizes, 1 when she is laid right over and comes back,
+ * and 0 when it was only a big sea.
+ */
+function waveRoll(state, s, cls, n, h) {
+  const dist = Math.hypot(s.x - n.x, s.z - n.z) || 1;
+  const lx = worldToLocal(n.x - s.x, n.z - s.z, s.heading).x;
+  const square = Math.abs(lx) / dist;
+  const B = cls.hull.beam;
+  const fb = freeboardOf(cls);
+  // Top-weight: a destroyer is narrow for her hamper, a carrier carries her
+  // hangar and her flight deck high, and a submarine on the surface has
+  // nothing to stand on at all.
+  const tender = cls.type === 'DD' || cls.type === 'SS' ? 1.25 : cls.type === 'CV' ? 1.12 : 1;
+  const wrecked = 1 - clamp(s.hp / Math.max(1, cls.hp), 0, 1);
+  // And how steep it is. Close in it is short and standing up, breaking as it
+  // comes; miles out the same water is a long low swell that lifts a ship and
+  // puts her down again. Its length is burstSwell's.
+  const lam = 160 + 0.06 * dist;
+  const steep = clamp((h / lam) / 0.05, 0.3, 1.6);
+  const risk = h * Math.pow(square, 1.5) * tender * steep
+    * (1 + 0.8 * wrecked + 2 * Math.abs(s.heel || 0)) / (0.36 * B + 0.4 * fb);
+  // Away from the side the wave came on.
+  const way = -Math.sign(lx || 1);
+  if (risk >= 1) {
+    if (!s.sinking) startSinking(state, s, 'capsize');
+    const S = s.sinking;
+    if (S) {
+      S.capsize = true;
+      S.way = way;
+      S.rollFrom = s.heel || 0;
+      // Over in seconds, not minutes: she is thrown, not flooded.
+      S.rollFor = 7 + B * 0.25;
+      S.roll = Math.max(S.roll || 0, 0.12);
+    }
+    return 2;
+  }
+  if (risk > 0.35) {
+    // Laid over and swinging: further than any sea she was built for, and
+    // back on her own period.
+    const k = Math.min(1, (risk - 0.35) / 0.65);
+    s.rockMax = Math.max(s.rockMax || 0.35, 0.35 + 0.6 * k);
+    const w = (Math.PI * 2) / rollPeriod(cls);
+    s.rockRate = way * s.rockMax * w;
+    return k > 0.5 ? 1 : 0;
+  }
+  return 0;
+}
+
+/**
+ * The blast across her upper deck: what it finds standing there it bends,
+ * strips and sets alight, and the lighter the mounting the less of it is left.
+ * A close-range mounting is a shield and a pedestal; a battleship's turret is
+ * a building of armour plate. And the side facing the burst takes it first.
+ * What is wrecked is wrecked for the battle, and on the wire the way a bomb
+ * through a roof is (see bombOnMount): every screen shows it canted over,
+ * guns down, burnt out.
+ */
+function blastMounts(state, s, cls, n, bite) {
+  if (bite < 0.12) return;
+  const lx = worldToLocal(n.x - s.x, n.z - s.z, s.heading).x;
+  for (const q of standing(s, cls)) {
+    if (mountFell(s, q.k, q.i)) continue;
+    const near = Math.sign(q.s.x || 0) === Math.sign(lx || 1) ? 1.25 : 0.8;
+    const p = (q.k === 'aa' ? bite * 2.4 : q.k === 'sec' ? bite * 1.6 : bite * 1.0 - 0.15) * near;
+    if (state.rng() >= p) continue;
+    (s.ko || (s.ko = {}))[`${q.k}:${q.i}`] = 1;
+    if (q.m) { q.m.hurt = 3; q.m.laid = false; }
   }
 }
 
@@ -13555,6 +13699,9 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
   return bm;
 }
 
+/** How many bodies each escort of an atomic strike lays in her stick. */
+const ESCORT_STICK = 8;
+
 /** What her bombs do, off her own datasheet rather than off a carrier's. */
 function heavyLoad(bm) {
   const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
@@ -13564,11 +13711,22 @@ function heavyLoad(bm) {
   // what it is, in the wreck of a Superfortress that went in with it still
   // aboard. The weapon was not armed until it was on its way down.
   if (b.atomic) {
+    // And her two escorts are bombers too, with a bomber's load: the weapon
+    // goes from the leader's bay and theirs follow it down, a stick from each.
+    const escorts = Math.max(0, (bm.count ?? HEAVY_VIC) - 1);
+    const each = (b.escortPayload || 0) / ESCORT_STICK;
     return {
-      n: 1, atomic: true,
+      n: 1 + (each > 0 ? escorts * ESCORT_STICK : 0), atomic: true,
       bombDamage: 700 + b.payload * 3.4 * 0.25,
       bombPen: 60, bombBore: 1.2, bombFire: 0.6,
       caliber: 1520,
+      escort: each > 0 ? {
+        bombDamage: 700 + each * 3.4,
+        bombPen: 30 + each * 0.035,
+        bombBore: 0.20 + each * 0.00012,
+        bombFire: 0.34,
+        caliber: Math.round(180 + each * 0.10),
+      } : null,
     };
   }
   // Pounds of bombs, spread over the stick she lays. A Lancaster's fourteen
@@ -13652,15 +13810,23 @@ function dropBomb(state, bm, L) {
   // where. Spread over the fall they are the same miss at the bottom.
   const fall = Math.sqrt(2 * Math.max(50, bm.y) / 9.81);
   // The weapon goes from the bay of the machine carrying it: the formation's
-  // leader, or whichever of the three is leading it now.
+  // leader, or whichever of the three is leading it now. On an atomic run the
+  // first body is the weapon and the rest are the escorts' sticks.
+  const body = L.n - bm.stick;
+  const atomic = !!L.atomic && body === 0;
+  const P = L.atomic && !atomic ? L.escort : L;
+  if (!P) return;
   let ox = 0, oy = 0, oz = 0;
   if (L.atomic) {
-    const carrier = (bm.machines || []).find((a) => a.alive && !a.left);
-    if (carrier) {
-      const at = vicAt(machineSlot(bm, carrier), bm.heading || 0);
+    const up = (bm.machines || []).filter((a) => a.alive && !a.left);
+    const from = atomic ? up[0] : up.slice(1)[(body - 1) % Math.max(1, up.length - 1)];
+    // An escort that has gone down took her stick with her.
+    if (!atomic && !from) return;
+    if (from) {
+      const at = vicAt(machineSlot(bm, from), bm.heading || 0);
       ox = at.x; oy = at.y; oz = at.z;
     }
-    state.events.push({ e: 'nukeAway', i: bm.id, tm: bm.team, x: r(bm.x + ox), y: r(bm.y + oy), z: r(bm.z + oz) });
+    if (atomic) state.events.push({ e: 'nukeAway', i: bm.id, tm: bm.team, x: r(bm.x + ox), y: r(bm.y + oy), z: r(bm.z + oz) });
   }
   fireShell(state, {
     id: eid(), owner: 0, bomber: bm.id, team: bm.team,
@@ -13668,15 +13834,15 @@ function dropBomb(state, bm, L) {
     // An atomic bomb. Nothing in the game can shoot one down: it is not an
     // aeroplane, the flak has nothing to say to it, and a Phalanx looks for
     // missiles. It falls until it hits something, and then it goes off.
-    atomic: L.atomic ? 1 : undefined,
+    atomic: atomic ? 1 : undefined,
     vx: sn * bm.speed + (e.x + sx) / fall, vy: 0, vz: cs * bm.speed + (e.z + sz) / fall,
     g: 9.81,
-    caliber: L.caliber,
+    caliber: P.caliber,
     // What tells the shell pipeline this is a bomb rather than a round of
     // gunfire: it beats a deck rather than a belt, and it digs a bomb's hole
     // in the ground rather than a shell's.
-    bomb: { bombDamage: L.bombDamage, bombPen: L.bombPen, bombBore: L.bombBore,
-      bombFire: L.bombFire },
+    bomb: { bombDamage: P.bombDamage, bombPen: P.bombPen, bombBore: P.bombBore,
+      bombFire: P.bombFire },
     life: 0, type: 'he',
   });
 }
@@ -13877,6 +14043,9 @@ function heavyGone(state, bm, why = 'shot') {
 function loseHeavy(state, bm, a, why) {
   if (a.gone) return;
   const was = bm.machines.filter((m) => m.alive && (!m.left || m === a)).length;
+  // Whether she was the one leading -- on an atomic strike, the one with the
+  // weapon in her bay.
+  const wasLead = bm.machines.find((m) => m === a || (m.alive && !m.left)) === a;
   if (bm.flown && was > 1) keepLeader(bm, a);
   a.gone = true;
   a.alive = false;
@@ -13898,7 +14067,8 @@ function loseHeavy(state, bm, a, why) {
       vy: limp ? -4 - state.rng() * 3 : -6 - state.rng() * 8,
       mass: HEAVY_RAM,
       // Her share of a stick she never got to lay.
-      load: bm.loads > 0 && !(bm.stick > 0 && bm.stick < L.n) ? L.bombDamage * (L.atomic ? 1 : 2.5) : 0,
+      load: bm.loads > 0 && !(bm.stick > 0 && bm.stick < L.n)
+        ? (L.atomic && L.escort && !wasLead ? L.escort.bombDamage * 2.5 : L.bombDamage * (L.atomic ? 1 : 2.5)) : 0,
     });
     ev.f = f.id;
     ev.vx = r(f.vx); ev.vy = r(f.vy); ev.vz = r(f.vz);
@@ -14330,8 +14500,13 @@ function stepBombers(state, dt) {
       // Straight and level. Nothing is allowed to move her off this course --
       // this is the bombing run, and a run that jinks is a run wasted.
       if (bm.stickT <= 0 && bm.stick > 0) {
-        dropBomb(state, bm, L);
-        bm.stick -= 1;
+        // The escorts of an atomic strike salvo theirs on the leader's word,
+        // with the weapon, so the formation is round and away the instant it
+        // has gone -- the turn is what gets them home.
+        do {
+          dropBomb(state, bm, L);
+          bm.stick -= 1;
+        } while (L.atomic && bm.stick > 0);
         bm.stickT = 0.28;
         if (bm.stick === 0) {
           bm.loads -= 1;
@@ -14558,6 +14733,7 @@ export function holeHead(state, ship, h) {
     const S = seaOf(state.world);
     return waveTerms(S.amp, S.steep, S.short);
   })());
+  W.bursts = state.nukeSea ? state.nukeSea.bursts : null;
   return seaOver(state, ship, W, h.x, h.y, h.z);
 }
 
@@ -14987,7 +15163,7 @@ function stepSinking(state, ship, dt) {
   if (S.capsize) {
     // Over, slowly at first and then all at once, and then she lies there
     // bottom up while the air trapped in her lets go.
-    S.roll = Math.min(1, S.roll + dt / Math.min(140, S.T * 0.45));
+    S.roll = Math.min(1, S.roll + dt / (S.rollFor ?? Math.min(140, S.T * 0.45)));
     const e = S.roll * S.roll * (3 - 2 * S.roll);
     const from = S.rollFrom ?? held;
     S.heel = from + (S.way * Math.PI - from) * e - base;

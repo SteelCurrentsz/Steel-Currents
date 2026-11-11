@@ -44,7 +44,7 @@ import { renderCulled } from './pixelcull.js';
 import { Scars, scarUniforms, cutLand } from './scars.js';
 import {
   MAP_HALF, landMask, groundHeight, keelGround, getWeather, islandRadius, islandHeight,
-  isleRings, isleSpokes, isleVertex, coastGrid, coastSplit, SHELF_DEEP, drawnGround,
+  isleRings, isleSpokes, isleVertex, coastGrid, coastSplit, SHELF_DEEP, drawnGround, LIP_OUT,
 } from '../../../shared/world.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { clamp } from '../../../shared/math.js';
@@ -154,12 +154,116 @@ function coastShade(h) {
   return mix(SCRUB, HIGH, Math.min(1, (h - 60) / 40));
 }
 
+/**
+ * The burn an atomic burst on the ground leaves, as a colour laid over the
+ * ground's own: glassed black-green on the crater floor, char up its walls,
+ * grey ash on the rim, and blackened country going out from it.
+ */
+function burnsOf(world) {
+  return (world.craters || []).filter((c) => c.nuke);
+}
+
+const CHAR = [0.055, 0.048, 0.042];
+const GLASS = [0.07, 0.10, 0.08];
+const ASH = [0.40, 0.37, 0.33];
+const BURNT = [0.15, 0.12, 0.09];
+
+function scorch(burns, x, z, c) {
+  if (!burns.length) return c;
+  let bd = Infinity;
+  for (const b of burns) bd = Math.min(bd, Math.hypot(x - b.x, z - b.z) / b.r);
+  if (bd >= 2.8) return c;
+  // The floor, fused to glass where the fireball sat on it.
+  if (bd < 0.45) return mix(GLASS, CHAR, bd / 0.45);
+  if (bd < 0.86) return CHAR;
+  // Up the inside wall to the spoil on the rim, which is what fell back pale.
+  if (bd < 1.0) return mix(CHAR, ASH, (bd - 0.86) / 0.14);
+  if (bd < 1.18) return ASH;
+  // Then the country it burnt: the thrown-out spoil gives way to blackened
+  // scrub, which goes back to the ground's own colour.
+  if (bd < 1.6) return mix(ASH, BURNT, (bd - 1.18) / 0.42);
+  const t = (bd - 1.6) / 1.2;
+  return mix(BURNT, c, t * t * (3 - 2 * t));
+}
+
+/**
+ * The crater itself, at its own detail.
+ *
+ * The land meshes are a hundred-odd metres between vertices on a coastline and
+ * a few dozen on an island, which draws a crater a few hundred metres across
+ * as a dent. So each one is lofted again here as a fine radial mesh on the
+ * same height field, laid a hand's breadth over the ground as drawn wherever
+ * the drawn ground stands above the true one -- so it is never under it -- and
+ * running out past its rim onto the scorched country, where it meets the
+ * terrain's own colour and stops.
+ */
+function buildCraters(world, tint) {
+  const burns = burnsOf(world);
+  if (!burns.length) return null;
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const SP = 96;
+  // Rings packed towards the rim, where the shape is.
+  const RF = [0, 0.12, 0.24, 0.36, 0.48, 0.58, 0.67, 0.75, 0.82, 0.88, 0.93, 0.97, 1.0,
+    1.03, 1.07, 1.12, 1.18, 1.25, 1.33, LIP_OUT, LIP_OUT + 0.12, LIP_OUT + 0.25];
+  const NR = RF.length;
+  for (const b of burns) {
+    const base = pos.length / 3;
+    const dry = new Uint8Array(SP * NR);
+    for (let i = 0; i < SP; i++) {
+      const a = (i / SP) * Math.PI * 2;
+      for (let j = 0; j < NR; j++) {
+        const f = RF[j];
+        const x = b.x + Math.sin(a) * b.r * f;
+        const z = b.z + Math.cos(a) * b.r * f;
+        const g = keelGround(world, x, z);
+        const h = Math.max(g, drawnGround(world, x, z)) + 0.35;
+        // Under the water too, where the sea has got into it: the floor is
+        // still burnt glass, seen through the sea that has filled it.
+        dry[i * NR + j] = g > 0.15 || (b.wet && f < LIP_OUT) ? 1 : 0;
+        pos.push(x, h, z);
+        // The outermost ring is the terrain's own colour, so it ends in it.
+        const ground = tint(x, z);
+        const grain = 1 + ((((i * 131 + j * 977 + b.id * 7) * 2654435761) >>> 0) % 1000 / 1000 - 0.5) * 0.16;
+        const c = j === NR - 1 ? ground : scorch([b], x, z, ground);
+        col.push(clamp(c[0] * grain, 0, 1), clamp(c[1] * grain, 0, 1), clamp(c[2] * grain, 0, 1));
+      }
+    }
+    for (let i = 0; i < SP; i++) {
+      const i2 = (i + 1) % SP;
+      for (let j = 0; j < NR - 1; j++) {
+        const a = i * NR + j;
+        const bb = i * NR + j + 1;
+        const c = i2 * NR + j;
+        const d = i2 * NR + j + 1;
+        // Not out over the sea: a burst on a beach does not glass the water.
+        if (!(dry[a] && dry[bb] && dry[c] && dry[d])) continue;
+        idx.push(base + a, base + d, base + bb, base + a, base + c, base + d);
+      }
+    }
+  }
+  if (!idx.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.97, metalness: 0,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+  }));
+  m.renderOrder = 0;
+  return m;
+}
+
 function buildCoast(world, mat = null) {
   const g = coastGrid(world);
   if (!g.m.any) return null;
   const { m, n, o, cell } = g;
   const N = n + 1;
   const hs = new Float32Array(N * N);
+  const burns = burnsOf(world);
   for (let j = 0; j <= n; j++) {
     for (let i = 0; i <= n; i++) {
       // Two cells and more out to sea it is the open seabed, and nothing
@@ -182,7 +286,7 @@ function buildCoast(world, mat = null) {
       vid[k] = pos.length / 3;
       const h = hs[k];
       pos.push(o + i * cell, h, o + j * cell);
-      const c = coastShade(h);
+      const c = scorch(burns, o + i * cell, o + j * cell, coastShade(h));
       col.push(c[0], c[1], c[2]);
     }
     return vid[k];
@@ -283,6 +387,7 @@ function isleShade(h, slope = 0, grain = 0) {
 function buildIslands(world, mat = null) {
   const islands = world.islands || [];
   if (!islands.length) return null;
+  const burns = burnsOf(world);
   const g = new THREE.Group();
   const pos = [];
   const col = [];
@@ -333,7 +438,7 @@ function buildIslands(world, mat = null) {
     const put = (i, j) => {
       const k = i * nr + j;
       pos.push(px[k], py[k], pz[k]);
-      const c = isleShade(py[k], slopeAt(i, j), grain(k + isle.shape));
+      const c = scorch(burns, px[k], pz[k], isleShade(py[k], slopeAt(i, j), grain(k + isle.shape)));
       col.push(c[0], c[1], c[2]);
     };
     put(0, 0);                               // the summit, once
@@ -397,11 +502,12 @@ function buildIslands(world, mat = null) {
  */
 function terrainTint(world, x, z) {
   const h = drawnGround(world, x, z);
-  if (world.land?.length && !(world.islands || []).length) return coastShade(h);
+  const burns = burnsOf(world);
+  if (world.land?.length && !(world.islands || []).length) return scorch(burns, x, z, coastShade(h));
   const d = 14;
   const gx = (drawnGround(world, x + d, z) - drawnGround(world, x - d, z)) / (2 * d);
   const gz = (drawnGround(world, x, z + d) - drawnGround(world, x, z - d)) / (2 * d);
-  return isleShade(h, Math.hypot(gx, gz), 0);
+  return scorch(burns, x, z, isleShade(h, Math.hypot(gx, gz), 0));
 }
 
 /**
@@ -1607,6 +1713,113 @@ export class ShipView {
   }
 
   /**
+   * An atomic blast across her, from a burst at (bx, bz) in the world, as
+   * hard as `bite` (its share of her life; one and over is her finished).
+   *
+   * The one thing that does mark her paint: the side of her facing the burst
+   * is charred black by the flash, her plating is dished in along it by the
+   * shock, what is standing loose on her deck -- boats, rafts, rails, ready-use
+   * lockers -- is torn off and thrown downwind into the sea, and close in her
+   * upperworks are holed. Her mountings are wrecked by the battle and come
+   * over the wire (see blastMounts in sim.js).
+   *
+   * A generator, worked a little at a time (see Battle.stepBlasts): a whole
+   * fleet is struck in the same second, and each ship of it is a few hundred
+   * thousand triangles to go over.
+   */
+  *blastSteps(bx, bz, bite) {
+    if (this.rupture || !this.group) return;
+    const k = Math.min(1, Math.max(0, bite));
+    if (k < 0.04) return;
+    this.group.updateMatrixWorld(true);
+    const at = new THREE.Vector3(bx, Math.max(40, this.group.position.y + 60), bz);
+    this.group.worldToLocal(at);
+    const side = Math.sign(at.x) || 1;
+    const half = this.cls.hull.length / 2;
+    const beam = this.cls.hull.beam / 2;
+    const fb = freeboardOf(this.cls);
+    const top = fb + 8 + 10 * (this.cls.hull.superstructure || 1);
+    // Where along her a point is in reach of the flash: the bow and the stern
+    // that point at the burst get it too, but the side does most.
+    const step = Math.max(8, half / 14);
+    // The flash: charred along the side facing it and across her decks.
+    for (let z = -half; z <= half; z += step) {
+      const taper = 1 - 0.55 * Math.pow(Math.abs(z) / half, 3);
+      const x = side * beam * taper;
+      for (const y of [fb * 0.55, fb + 4, top - 4]) {
+        const r = step * 1.25;
+        const amt = Math.min(0.92, 0.35 + 0.8 * k) * (y > fb + 2 ? 1 : 0.85);
+        if (this.plating) this.plating.scorch(x * (y > fb + 2 ? 0.4 : 1), y, z, r, amt);
+        if (this.fittings) this.fittings.scorch(x * 0.5, y, z, r * 1.4, amt);
+        yield;
+      }
+    }
+    // The shock: her side dished in between the frames, along its length.
+    if (this.plating && GPU.marks) {
+      const dents = Math.round(8 + 26 * k);
+      for (let i = 0; i < dents; i++) {
+        const u = ((i * 0.6180339) % 1) * 2 - 1;
+        const z = u * half * 0.9;
+        const taper = 1 - 0.55 * Math.pow(Math.abs(z) / half, 3);
+        const y = fb * (0.35 + 0.6 * (((i * 0.7548776) % 1)));
+        this.plating.dent(side * beam * taper, y, z, 2.6 + 3.5 * k, 0.12 + 0.5 * k);
+        yield;
+      }
+    }
+    yield;
+    // What is standing loose on her, torn off and thrown downwind.
+    if (this.fittings && this.wreck) {
+      const out = [];
+      const from = { x: at.x, y: Math.max(fb, at.y * 0.2), z: at.z };
+      let looked = 0;
+      for (const piece of [...this.fittings.pieces]) {
+        if (++looked % 40 === 0) yield;
+        if (!piece.on || !piece.fitting) continue;
+        // The side facing the burst first, and the higher the more exposed.
+        const facing = Math.sign(piece.cx || side) === side ? 1 : 0.45;
+        const high = Math.min(1.4, 0.7 + Math.max(0, piece.cy - fb) / 20);
+        const roll = ((Math.abs(piece.cx * 13.7 + piece.cz * 7.3 + piece.cy * 3.1)) % 1);
+        if (roll > k * 1.25 * facing * high) continue;
+        out.push(this.fittings.shed(piece, from.x, from.y, from.z, 1.2 + 2.8 * k));
+        yield;
+      }
+      if (out.length) {
+        // Thrown with the wind of it: away from the burst, as hard as it was.
+        const dx = this.group.position.x - bx, dz = this.group.position.z - bz;
+        const d = Math.hypot(dx, dz) || 1;
+        const v = 18 + 45 * k;
+        const h = this.group.rotation.y;
+        const sv = this.speedNow || 0;
+        for (const cut of out) {
+          this.wreck.add(cut, this.group, Math.sin(h) * sv + (dx / d) * v, Math.cos(h) * sv + (dz / d) * v);
+          yield;
+        }
+      }
+    }
+    yield;
+    // Close in, her upperworks holed through on the side it came from.
+    if (k > 0.45 && this.plating) {
+      const holes = Math.round(3 + 10 * (k - 0.45));
+      for (let i = 0; i < holes; i++) {
+        const u = ((i * 0.3819660 + 0.17) % 1) * 2 - 1;
+        const z = u * half * 0.55;
+        const y = fb + 2 + (top - fb - 4) * ((i * 0.7548776) % 1);
+        // Torn out of her rather than cut by the hole shader, which would
+        // put the plate back in its own paint and take the char off it.
+        const near = this.plating.nearest(side * beam * 0.5, y, z, 8);
+        if (near) {
+          const r = 1.4 + 2.6 * k;
+          if (this.plating.punch(near[0], near[1], near[2], r, 0.5) > 0) {
+            this.dropUnsupported(near[0], near[1], near[2], r);
+            this.opened(near[0], near[1], near[2], r);
+          }
+        }
+        yield;
+      }
+    }
+  }
+
+  /**
    * Fire on her: whatever is standing in it blackens, and goes on blackening.
    *
    * Called every frame a compartment is alight, with the heat, so a fire that
@@ -2126,6 +2339,9 @@ export class BattleScene {
     const coast = world.land?.length ? buildCoast(world, this.coastMat) : null;
     if (coast) this.scene.add(coast);
     this.coastMesh = coast;
+    // And any atomic crater in it, at its own detail.
+    this.craterMesh = buildCraters(world, (x, z) => terrainTint(world, x, z));
+    if (this.craterMesh) this.scene.add(this.craterMesh);
     // And the trenches keels have cut in it.
     this.scars = new Scars(this.scene, world, (x, z) => terrainTint(world, x, z), this.scarU);
     // What the ground looked like when it was last drawn. The simulation bumps
@@ -2231,7 +2447,12 @@ export class BattleScene {
     this.heavies = new Heavies(this.scene, 27);
     // And an atomic bomb going off, which is nothing like anything else here.
     // See nuke.js.
-    this.nukes = new Nukes(this.scene);
+    this.nukes = new Nukes(this.scene, this.effects);
+    // Its shaders compiled now, in the background, rather than in the frame
+    // the bomb goes off.
+    this.nukes.warm(this.renderer, this.camera);
+    // And the oil a wreck leaves, which a burst makes a great deal of at once.
+    this.oil?.warm?.(this.renderer);
 
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the
@@ -2476,7 +2697,7 @@ export class BattleScene {
     this.wreck.update(dt);
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
-    this.nukes.update(dt, this.camera);
+    this.nukes.update(dt, this.camera, this.ocean?.clock);
     this.torpedoes.update(dt, this.torpsNow || []);
     this.missiles.update(this.missilesNow || [], dt);
     this.charges.update(dt, this.chargesNow || []);
@@ -2537,6 +2758,17 @@ export class BattleScene {
     if (this.groundWait > 0) return false;
     this.groundRev = rev;
     this.groundWait = 0.45;
+    // The crater meshes are rebuilt only when there is a crater to draw or one
+    // to take away, which is to say almost never.
+    if (this.craterMesh || this.world.craters?.some((c) => c.nuke)) {
+      if (this.craterMesh) {
+        this.scene.remove(this.craterMesh);
+        this.craterMesh.geometry.dispose();
+        this.craterMesh.material.dispose();
+      }
+      this.craterMesh = buildCraters(this.world, (x, z) => terrainTint(this.world, x, z));
+      if (this.craterMesh) this.scene.add(this.craterMesh);
+    }
     for (const [old, add] of [[this.isleMesh, () => buildIslands(this.world, this.isleMat)],
       [this.coastMesh, () => (this.world.land?.length ? buildCoast(this.world, this.coastMat) : null)]]) {
       if (!old) continue;
@@ -2561,6 +2793,8 @@ export class BattleScene {
     this.oil.render(this.renderer, this.camera);
     this.oil.bind(this.ocean.material.uniforms);
     renderCulled(this.renderer, this.scene, this.camera);
+    // And the shock of an atomic burst, over all of it (see nuke.js).
+    this.nukes.renderShock(this.renderer, this.camera);
   }
 
   /**
@@ -2588,6 +2822,16 @@ export class BattleScene {
           const key = `${q.uuid}|${o.isInstancedMesh ? 1 : 0}`;
           if (w.seen.has(key)) continue;
           w.seen.add(key);
+          // And as it is drawn once a blast has charred her (see blastSteps):
+          // the same material, coloured per vertex.
+          if (!q.vertexColors && !q.isShaderMaterial && !o.isInstancedMesh) {
+            const vc = q.clone();
+            vc.vertexColors = true;
+            w.mats.push(vc);
+            const vm = new THREE.Mesh(o.geometry, vc);
+            vm.frustumCulled = false;
+            scene.add(vm);
+          }
           // Once, and cut again: a magazine tears her across twice, and a
           // piece of a piece is cut a third time -- each its own shader.
           let m = q;
