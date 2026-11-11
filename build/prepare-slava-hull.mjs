@@ -699,6 +699,13 @@ console.log('palette:', PAL.cent.map((c) => c.map((v) => Math.round(v * 255).toS
       return [k, theirs.reduce((b2, e) => (Math.abs(lum(e.c) - want) < Math.abs(lum(b2.c) - want) ? e : b2)).c];
     }));
   }
+  // Her hull side is one grey, the grey most of the Sovremenny's side is: the
+  // model's lighter panels along it, carried across as lighter paints, came
+  // out as white patches on her plating.
+  if (to.side) {
+    const grey = SOV.side.reduce((b2, e) => (e.w > b2.w ? e : b2)).c;
+    for (const k of to.side.keys()) to.side.set(k, grey);
+  }
   const nearest = (list, c) => list.reduce((b2, e) => {
     const d = (q) => srgb(q.c).reduce((s2, v, i) => s2 + (v - srgb(c)[i]) ** 2, 0);
     return d(e) < d(b2) ? e : b2;
@@ -888,11 +895,12 @@ const KINDS = {
     within: [[-0.8, 0.8, 15.3, 16.2, 52.3, 54.5], [-0.8, 0.8, 16.0, 16.9, 46.6, 48.9],
       ...pair([7.9, 10.2, 11.85, 12.7, -1.45, 0.25]), ...pair([7.9, 10.2, 11.85, 12.7, -8.5, -6.8])],
   }),
-  // Her two RBU-6000s, one either side of her hangar: twelve barrels in a
-  // horseshoe on a cradle, on a pedestal that trains.
+  // Her two RBU-6000s, side by side on her forward superstructure ahead of
+  // her bridge: twelve barrels in a horseshoe on a cradle, on a pedestal that
+  // trains, over the plate it is bolted to, which stays with her.
   rbu: mountsOf('rbu', {
     house: FITTINGS, gap: 1.2, count: 2,
-    within: pair([4.4, 6.6, 9.8, 11.4, -59.5, -55.4]),
+    within: pair([1.05, 2.95, 14.46, 16.9, 39.4, 41.7]),
   }),
   // Her two screws.
   screw: mountsOf('screw', { house: FITTINGS, gap: 0.3, count: 2, within: pair([3.5, 8.5, -7.3, -2.3, -79.6, -77.5]) }),

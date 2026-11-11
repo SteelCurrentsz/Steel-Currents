@@ -1442,7 +1442,7 @@ export const SHIP_CLASSES = {
     // gun on her forecastle; six AK-630 six-barrelled close-in guns, two on
     // her forward superstructure looking forward and two a side on her after
     // deckhouse, which stop missiles as well as aeroplanes (see stepCiws);
-    // two twelve-barrelled RBU-6000 rocket launchers either side of her hangar,
+    // two twelve-barrelled RBU-6000 rocket launchers ahead of her bridge,
     // whose bombs go off on whatever they come down on -- a ship, a
     // submarine, or a torpedo running at her (see stepRbu); sixteen P-1000
     // Vulcan anti-ship missiles in eight pairs of tubes along her forecastle,
@@ -1530,7 +1530,7 @@ export const SHIP_CLASSES = {
           ] },
       ],
     },
-    // Her two RBU-6000 launchers, one either side of her hangar: twelve 212 mm
+    // Her two RBU-6000 launchers, side by side ahead of her bridge: twelve 212 mm
     // barrels each, in a horseshoe, throwing a ripple of rocket-propelled bombs out to six
     // kilometres. Her own fire control works them (see stepRbu) -- onto a
     // torpedo running at her first, then onto a submarine her sonar holds,
@@ -1550,8 +1550,11 @@ export const SHIP_CLASSES = {
       // Her hull sonar, which hears a boat under her and a fish coming at her.
       sonar: 3200, sonarSpeed: 24 * KNOTS,
       mounts: [
-        { id: 0, x: 5.404, z: -57.93, angle: Math.PI / 2, arc: 2.6, rest: -0.3, my: 11.09 },
-        { id: 1, x: -5.363, z: -57.93, angle: -Math.PI / 2, arc: 2.6, rest: 0.28, my: 11.09 },
+        // Side by side on her forward superstructure, ahead of her bridge, where
+        // the model stands them: they train round to either beam and ahead,
+        // and not back over the bridge behind them.
+        { id: 0, x: 1.994, z: 40.52, angle: 0, arc: 2.6, rest: 0, my: 15.9 },
+        { id: 1, x: -1.994, z: 40.52, angle: 0, arc: 2.6, rest: 0, my: 15.9 },
       ],
     },
     // What she fires that flies itself: her Vulcans out of their tubes,

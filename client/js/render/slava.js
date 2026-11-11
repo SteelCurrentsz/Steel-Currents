@@ -3,8 +3,8 @@
 // A missile cruiser armed as the owner asked: a twin AK-130 130 mm
 // dual-purpose gun on her forecastle; six AK-630 six-barrelled close-in guns,
 // two on her forward superstructure and four on her after deckhouse, which
-// stop missiles as well as aeroplanes; two RBU-6000 rocket launchers either
-// side of her hangar, which throw their bombs at ships, at submarines and at
+// stop missiles as well as aeroplanes; two RBU-6000 rocket launchers ahead of
+// her bridge, which throw their bombs at ships, at submarines and at
 // torpedoes coming at her; sixteen P-1000 Vulcan anti-ship missiles in eight
 // pairs of tubes along her forecastle; sixty-four S-300F surface-to-air
 // missiles in eight revolving launchers under hatches abaft her funnel; and
