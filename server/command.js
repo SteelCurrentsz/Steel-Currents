@@ -29,10 +29,10 @@ const STALE = 45;
 const THINK = 1.0;
 
 /** What a hull is worth as a target, before range is taken into account. */
-const WORTH = { CV: 100, BB: 78, CA: 55, CL: 42, DD: 26, SS: 34 };
+const WORTH = { CV: 100, BB: 78, CA: 55, CL: 42, DD: 26, SS: 34, AK: 20 };
 
 /** And where each kind belongs in a fleet under way. */
-const ORDER = { BB: 0, CA: 1, CL: 2, CV: 3, DD: 4, SS: 5 };
+const ORDER = { BB: 0, CA: 1, CL: 2, CV: 3, DD: 4, SS: 5, AK: 6 };
 
 export function createStaff(team, skill = 0.7) {
   return {

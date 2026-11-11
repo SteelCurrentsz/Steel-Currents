@@ -379,6 +379,11 @@ export function hullSheet(cls, group = null) {
     ['Citadel', `${cls.armor.citadel} mm`],
     ['Bow', `${cls.armor.bow} mm`],
   );
+  // A merchantman's holds: what she can carry, which nothing embarks yet.
+  if (cls.cargo) {
+    rows.push(['Cargo', `${num(cls.cargo.tanks)} tanks or ${num(cls.cargo.troops)} troops`
+      + (cls.cargo.ready ? '' : ' (future update)')]);
+  }
   return rows;
 }
 

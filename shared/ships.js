@@ -11664,6 +11664,117 @@ export const SHIP_CLASSES = {
       ],
     },
   },
+
+  liberty: {
+    // A Liberty ship: one of the 2,710 emergency cargo ships the United
+    // States built to the one British design between 1941 and 1945, welded up
+    // in as little as a few days each, that carried the war across the
+    // Atlantic and the Pacific. Armed as the owner asked: two single 4-inch
+    // dual-purpose guns, one on the platform on her forecastle and one on her
+    // poop, which go for ships and aeroplanes alike; and eight single 20 mm
+    // Oerlikons, which go for aeroplanes and nothing else -- four in the tubs
+    // at the corners of her flying bridge, two in the tubs on the fore end of
+    // her poop deckhouse and two on her forecastle gun platform abaft the
+    // 4-inch.
+    //
+    // She is drawn from the owner's model of her (see liberty.js) -- "Liberty
+    // ship" by AlanTinka, under Creative Commons Attribution 4.0, credited on
+    // the Credits screen -- at her length of 134.57 m, floated at her load
+    // draught of 8.46 m, in the model's own paint; her Oerlikons are the
+    // owner's own model of one.
+    id: 'liberty',
+    name: 'Liberty Ship',
+    fullName: 'Liberty Ship',
+    className: 'Liberty',
+    type: 'AK',
+    typeName: 'Cargo Ship',
+    nation: 'usa',
+    blurb: 'Ten thousand tons of cargo at eleven knots, two 4-inch and eight Oerlikons to see it through. Built by the thousand.',
+    hull: {
+      // Where her funnel comes out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -0.8, 15.4]],
+      length: 134.57, beam: 17.4, draft: 8.46, superstructure: 1.0,
+    },
+    // A merchant hull: no armour, no subdivision to speak of, but a great deal
+    // of ship, and ten thousand tons of cargo in her holds to soak it up.
+    hp: 24000,
+    // Eleven knots out of her one triple-expansion engine on one shaft.
+    maxSpeed: 11 * KNOTS,
+    reverseSpeed: 4 * KNOTS,
+    accel: 0.22,
+    turnRate: 0.055,
+    rudderShift: 7,
+    speedLossInTurn: 0.22,
+    // A big, tall, slow ship with her masts and booms over everything.
+    concealment: 11000,
+    fireDetectPenalty: 3800,
+    radarRange: 9000,
+    repairCooldown: 80,
+    repairHeal: 0.08,
+    smokeCharges: 0,
+    // Her plating, and the splinter shields round her guns.
+    armor: { belt: 19, deck: 13, citadel: 19, bow: 16, superstructure: 8 },
+    turrets: [
+      // Where the model stood them (see build/prepare-liberty-hull.mjs): on the
+      // platform on her forecastle, and on her poop. Each trains round to either
+      // beam and well past it, and not back over her masts and booms.
+      { id: 0, name: 'A', x: 0, z: 58.287, angle: 0, arc: 2.4, guns: 1, my: 9.69 },
+      { id: 1, name: 'Y', x: 0, z: -63.675, angle: Math.PI, arc: 2.4, guns: 1, my: 6.78 },
+    ],
+    gun: {
+      name: '4"/50 Mk 9', role: 'dp',
+      // Dual-purpose, as the owner asked: laid as much at aeroplanes as at
+      // ships.
+      elev: { min: -0.17, max: 1.31 },
+      // Pivot to muzzle on the model's gun.
+      reach: 3.62,
+      // Hand-worked by her Naval Armed Guard: a single bag-loaded gun.
+      caliber: 102, reload: 4.2, traverse: 0.35, range: 14500, sigma: 2.4,
+      shells: shells(102, 1500, 1300, 62, 884, 0.06),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 1800, dps: 6,
+      guns: [
+        // Eight single Oerlikons, which go for aeroplanes and nothing else.
+        // Written one mounting to a gun, because that is how she carried them
+        // and how a captain picks one out of the arsenal.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          elev: { min: -0.17, max: 1.5 },
+          mounts: [
+            // At the corners of her flying bridge, each looking out over its
+            // own quarter of the sky.
+            { x: 4.489, z: -6.251, angle: 2.2, arc: 2.0, rest: 1.57, guns: 1, my: 11.94 },
+            { x: -5.129, z: -6.214, angle: -2.2, arc: 2.0, rest: -1.57, guns: 1, my: 12.03 },
+            { x: 4.325, z: 5.368, angle: 0.9, arc: 2.0, rest: 1.57, guns: 1, my: 12.08 },
+            { x: -4.292, z: 5.359, angle: -0.9, arc: 2.0, rest: -1.57, guns: 1, my: 12.06 },
+            // On the fore end of her poop deckhouse, a side each.
+            { x: 2.731, z: -55.387, angle: 1.57, arc: 2.0, rest: 1.57, guns: 1, my: 7.4 },
+            { x: -2.862, z: -55.387, angle: -1.57, arc: 2.0, rest: -1.57, guns: 1, my: 7.39 },
+            // And on her forecastle gun platform, abaft the 4-inch.
+            { x: 2.6, z: 54, angle: 1.57, arc: 2.0, rest: 1.57, guns: 1, my: 9.88 },
+            { x: -2.6, z: 54, angle: -1.57, arc: 2.0, rest: -1.57, guns: 1, my: 9.87 },
+          ] },
+      ],
+    },
+    // What she is for: her five holds. A Liberty ship could carry 440 light
+    // tanks, or be fitted out to carry some 550 troops. For a future update:
+    // nothing embarks them yet, and the yard says so.
+    cargo: { tanks: 440, troops: 550, ready: false },
+    planes: null,
+    datasheet: {
+      displacement: 14245,
+      aircraft: 0,
+      mainRounds: 600,
+      torpedoesCarried: 0,
+      secondary: null,
+      tertiary: [
+        { caliber: 20, label: '20mm', barrels: 8, rounds: 19200 },
+      ],
+    },
+  },
 };
 
 // The Yamato is her sister's hull: the owner's sculpts of the Musashi, her
@@ -11813,7 +11924,7 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
-  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt'];
+  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
@@ -11826,9 +11937,14 @@ export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovrem
 export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'burke', 'ticonderoga', 'leviathan', 'missouri', 'nimitz']);
 // And the Great War's: the dreadnoughts that sailed as they were before 1919.
 export const WWI_SHIPS = new Set(['agincourt']);
+// And the ships that are not warships at all, whatever war they sailed in:
+// the merchantmen and the transports, in a yard of their own beside the
+// Modern one.
+export const CIVIL_SHIPS = new Set(['liberty']);
 export const WWI_ORDER = SHIP_ORDER.filter((id) => WWI_SHIPS.has(id));
-export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id) && !WWI_SHIPS.has(id));
+export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id) && !WWI_SHIPS.has(id) && !CIVIL_SHIPS.has(id));
 export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));
+export const CIVIL_ORDER = SHIP_ORDER.filter((id) => CIVIL_SHIPS.has(id));
 
 /**
  * The hulls in the Premium Equipment store, and not in the yard's list: a

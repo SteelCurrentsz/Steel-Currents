@@ -34,7 +34,7 @@ import {
   BATTERIES, batteryGun, batteryArc, batteryReach, BATTERY_REACH, BATTERY_ORDER, mortarFlight,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
-import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER } from '../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER, CIVIL_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine } from '../shared/sim.js';
 import {
@@ -177,6 +177,8 @@ import { buildAgincourt } from '../client/js/render/agincourt.js';
 import { agincourtSurfaceY, MOUNT_SEATS as AGINCOURT_SEATS } from '../client/js/render/agincourtHull.js';
 import { sovremennySurfaceY, MOUNT_SEATS as SOV_SEATS } from '../client/js/render/sovremennyHull.js';
 import { buildSlava } from '../client/js/render/slava.js';
+import { buildLiberty } from '../client/js/render/liberty.js';
+import { libertySurfaceY, MOUNT_SEATS as LIBERTY_SEATS } from '../client/js/render/libertyHull.js';
 import { slavaSurfaceY, MOUNT_SEATS as SLAVA_SEATS } from '../client/js/render/slavaHull.js';
 import { AK630 } from '../client/js/render/ak630.data.js';
 import { decodePiece as decodeSculptPiece } from '../client/js/render/sculpt.js';
@@ -3963,6 +3965,75 @@ check('the RF Slava is commissioned after the Sovremenny, in the Modern yard, ar
   }
 });
 
+check('the Liberty ship is in a yard of her own, Civilian and Cargo, beside the Modern one', () => {
+  assert.ok(SHIP_ORDER.includes('liberty'), 'the Liberty ship is not in the yard');
+  assert.deepEqual(CIVIL_ORDER, ['liberty'], `the Civilian and Cargo yard is ${CIVIL_ORDER}`);
+  for (const [era, list] of [['WWI', WWI_ORDER], ['WWII', WWII_ORDER], ['Modern', MODERN_ORDER]]) {
+    assert.ok(!list.includes('liberty'), `she is in the ${era} yard`);
+  }
+  // The ship icon offers it right of the Modern yard, and it opens hers.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const eras = [...html.matchAll(/data-era="(\w+)"/g)].map((m) => m[1]);
+  assert.equal(eras[eras.indexOf('modern') + 1], 'civil', `the eras on offer are ${eras}`);
+  assert.match(html, /data-era="civil">Civilian and Cargo</);
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/civil: CIVIL_ORDER/.test(main), 'the Civilian and Cargo button opens no yard');
+});
+
+check('the Liberty ship is an American cargo ship, armed as the owner asked', () => {
+  const cls = SHIP_CLASSES.liberty;
+  assert.equal(cls.name, 'Liberty Ship');
+  assert.equal(cls.nation, 'usa');
+  assert.equal(cls.typeName, 'Cargo Ship');
+  // Two single 4-inch, dual-purpose: ships and aeroplanes both.
+  assert.equal(cls.turrets.length, 2);
+  assert.ok(cls.turrets.every((t) => t.guns === 1), 'a 4-inch of hers is not a single');
+  assert.equal(cls.gun.caliber, 102);
+  assert.match(cls.gun.name, /4"/);
+  assert.equal(cls.gun.role, 'dp');
+  // Eight single 20 mm Oerlikons, which go for aeroplanes only.
+  assert.equal(cls.aa.guns.length, 1);
+  const oe = cls.aa.guns[0];
+  assert.match(oe.name, /20mm Oerlikon/);
+  assert.equal(oe.caliber, 20);
+  assert.equal(oe.role, 'aa');
+  assert.equal(oe.mounts.length, 8);
+  assert.ok(oe.mounts.every((m) => m.guns === 1), 'an Oerlikon of hers is not a single');
+  assert.equal(lightMounts(cls).length, 8);
+  assert.equal(cls.torpedoes, null);
+  assert.equal(cls.secondary, null);
+  assert.ok(!cls.missiles && !cls.planes, 'she carries what a cargo ship does not');
+  // And her holds: tanks and troops, for when something embarks them.
+  assert.ok(cls.cargo.tanks > 0 && cls.cargo.troops > 0, 'she has no room for tanks and troops');
+  const built = buildLiberty();
+  assert.equal(built.turrets.length, 2);
+  assert.equal(built.aaMounts.length, 8);
+  // Every gun of hers stands on her: nothing under it but air is not a seat.
+  for (const [kind, list] of Object.entries(LIBERTY_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 1.5; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, libertySurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.0, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+  // Her Oerlikons are the owner's model of one, the King George V's.
+  const P = kgvGunPiece('oerlikon').house.attributes.position.count;
+  for (const m of built.aaMounts) {
+    assert.ok(m.children.some((o) => o.isMesh && o.geometry.attributes.position.count === P),
+      'an Oerlikon of hers is not the owner\'s model');
+  }
+});
+
+check('the Credits screen credits the model the Liberty ship is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('>Liberty ship</a>'), 'the model is not credited');
+  assert.ok(screen.includes('https://skfb.ly/oIxAL') && screen.includes('AlanTinka'), 'the credit is not as its licence asks');
+  assert.ok(/skfb\.ly\/oIxAL[\s\S]{0,300}creativecommons\.org\/licenses\/by\/4\.0/.test(screen), 'the credit does not name its licence');
+});
+
 check("the Slava's AK-630s are the owner's AK-630 model: the turret alone, off its pedestal", () => {
   // A gunhouse under a metre tall and under two across, its barrels out in
   // front of it -- nothing of the cone, the rail or the deck it stood on.
@@ -4081,7 +4152,7 @@ check('HMS Agincourt is in a yard of her own, the Great War\'s, armed with seven
   // And the ship icon offers the Great War first, left of the Second.
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   const eras = [...html.matchAll(/data-era="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(eras, ['ww1', 'wwii', 'modern'], `the eras on offer are ${eras}`);
+  assert.deepEqual(eras, ['ww1', 'wwii', 'modern', 'civil'], `the eras on offer are ${eras}`);
   const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
   assert.ok(/ww1: WWI_ORDER/.test(main), 'the WWI button opens no yard');
   const cls = SHIP_CLASSES.agincourt;
@@ -6875,7 +6946,7 @@ check('a shell leaves the muzzle it was fired from', () => {
   const O = new THREE.Vector3();
   for (const id of ['fletcher', 'u48', 'surcouf', 'sboat', 'cleveland', 'hipper', 'takao', 'hood', 'kgv', 'rodney', 'baltimore',
     'massachusetts', 'spee', 'iowa', 'kongo', 'matsu', 'yukikaze', 'fuso', 'yamato', 'musashi', 'scharnhorst', 'bismarck', 'tirpitz', 'soyuz', 'richelieu', 'enterprise',
-    'shinano', 'grafzeppelin', 'shokaku', 'hornet']) {
+    'shinano', 'grafzeppelin', 'shokaku', 'hornet', 'liberty']) {
     const cls = SHIP_CLASSES[id];
     const b = buildShip(id);
     b.group.updateMatrixWorld(true);

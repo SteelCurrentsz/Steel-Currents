@@ -3,6 +3,24 @@
 // hull class, so the shape alone tells a captain what they have selected.
 
 const HULLS = {
+  // A Liberty ship: a long, low three-island merchantman -- forecastle, the
+  // house amidships with its one funnel, poop -- two masts forward of the
+  // house and one abaft it, and a gun at either end.
+  liberty: `
+    <path d="M3 28 L97 26 L94 36 L6 36 Z"/>
+    <rect x="36" y="20" width="19" height="8"/>
+    <rect x="38" y="16" width="11" height="4"/>
+    <rect x="43" y="10" width="5" height="6"/>
+    <rect x="76" y="7" width="1.6" height="20"/>
+    <rect x="65" y="10" width="1.6" height="17"/>
+    <rect x="23" y="9" width="1.6" height="19"/>
+    <rect x="73" y="12" width="7.6" height="1.4"/>
+    <rect x="62" y="14" width="7.6" height="1.4"/>
+    <rect x="20" y="13" width="7.6" height="1.4"/>
+    <rect x="86" y="22" width="8" height="4"/>
+    <rect x="89" y="20.5" width="7" height="1.4"/>
+    <rect x="4" y="24" width="10" height="4"/>
+    <rect x="1" y="22.5" width="7" height="1.4"/>`,
   // A flush-decked destroyer: low, two stacks, a light director forward.
   fletcher: `
     <path d="M4 30 L96 30 L92 36 L10 36 Z"/>

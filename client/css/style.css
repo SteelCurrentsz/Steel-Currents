@@ -3007,7 +3007,7 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
 }
 .era-pick[hidden] { display: none; }
 .era-box {
-  width: min(24rem, 100%);
+  width: min(34rem, 100%);
   padding: 1.1rem 1.2rem 1rem;
   background: var(--panel);
   border: 1px solid var(--panel-line);
@@ -3020,9 +3020,11 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
   letter-spacing: 0.22em; text-transform: uppercase; color: var(--sand);
 }
 .era-sub { margin: 0 0 0.9rem; font-size: 0.8rem; letter-spacing: 0.06em; color: var(--steel); }
-.era-choices { display: flex; gap: 0.6rem; }
+/* Four navies to choose from: in a row where there is room, two by two
+   where there is not. */
+.era-choices { display: flex; flex-wrap: wrap; gap: 0.6rem; }
 .era-btn {
-  flex: 1; display: flex; flex-direction: column; align-items: center;
+  flex: 1 1 6.5rem; display: flex; flex-direction: column; align-items: center;
   padding: 0.8rem 0.6rem;
 }
 .era-btn em {
