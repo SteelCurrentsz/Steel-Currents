@@ -17326,7 +17326,7 @@ check('the cockpit says what happened, not what was hoped', () => {
   g.team = 0;
   g.hud = {
     alert: (t) => said.push(t), paintCockpit() {}, setSightHot() {},
-    paintFlightDamage() {}, setAmmo() {}, setThrottle() {},
+    paintFlightDamage() {}, setAmmo() {}, setThrottle() {}, setMissiles() {}, placeLock() {},
     fly: { throttle: 1, aimX: 0, aimY: 0 },
   };
   g.net = { send: (m) => sent.push(m) };
