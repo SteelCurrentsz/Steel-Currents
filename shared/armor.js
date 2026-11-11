@@ -135,6 +135,8 @@ const TURRET_ROOF = {
   takao: 25, maya: 25, baltimore: 76, ticonderoga: 51, leviathan: 102, shinano: 6, shokaku: 6, hornet: 3, enterprise: 3, grafzeppelin: 20,
   // A Liberty ship's 4-inch: an open gun behind a splinter shield.
   liberty: 6,
+  // A Higgins boat's Brownings: a thin shield on the pintle, and the sky.
+  higgins: 3,
 };
 const SEC_ROOF = {
   guangzhou: 6, sovremenny: 6, slava: 6, burke: 6, iowa: 25, missouri: 25, massachusetts: 25, cleveland: 25, baltimore: 25, ticonderoga: 13, leviathan: 25, bismarck: 35, tirpitz: 35, soyuz: 50,

@@ -10,7 +10,7 @@
 // back on the spawn line and no artillery at all. One copy, and that cannot
 // happen again.
 
-import { setAirGroup, setVlsLoad } from '../shared/sim.js';
+import { setAirGroup, setVlsLoad, troopsFor } from '../shared/sim.js';
 import { getClass } from '../shared/ships.js';
 import { isOpenSea } from '../shared/world.js';
 import { BOMBER_MAX } from '../shared/bombers.js';
@@ -36,6 +36,8 @@ export function berthsFrom(v, cap) {
  */
 export function wingOf(v) {
   if (!v || typeof v !== 'object') return null;
+  // A landing craft's record is only how many soldiers she carries.
+  if (v.troops != null && Number.isFinite(Number(v.troops))) return { troops: Number(v.troops) };
   const ok = ['fighters', 'dive', 'torpedo'].every((k) => Number.isFinite(Number(v[k])));
   if (!ok) return null;
   const w = { fighters: Number(v.fighters), dive: Number(v.dive), torpedo: Number(v.torpedo) };
@@ -95,6 +97,13 @@ export function crewBattle(room, req, seat, limits = {}) {
     for (const sh of room.state.ships) {
       if (sh.team !== team || sh.isBot || !sh.squadrons || !sh.squadrons.length) continue;
       setAirGroup(sh, getClass(sh.classId), req.wing);
+    }
+  }
+  // And the soldiers in her own landing craft, if that is what she is.
+  if (wingOf(req.wing)?.troops != null) {
+    for (const sh of room.state.ships) {
+      if (sh.team !== team || sh.isBot) continue;
+      sh.troops = troopsFor(getClass(sh.classId), req.wing.troops);
     }
   }
   const allyWings = Array.isArray(req.allyWings) ? req.allyWings : [];

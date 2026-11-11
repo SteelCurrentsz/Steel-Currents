@@ -23,6 +23,9 @@ const DEFAULTS = {
   airGroup: null,
   // How the captain loads a VLS: { kind: cells }, or null for the datasheet's.
   vls: null,
+  // How many soldiers the next landing craft commissioned embarks, or null
+  // for a full well.
+  troops: null,
 };
 
 let cache = null;

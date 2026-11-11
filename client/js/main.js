@@ -741,7 +741,7 @@ document.getElementById('deploy-close').onclick = () => { audio.click(); show('c
 // `order` is the list the yard walks: the fleet's hulls, or the Premium
 // Equipment store's when it was opened from there (`from`: the screen it goes
 // back to).
-const yardUi = { side: 'ally', index: 0, ag: null, refit: null, order: SHIP_ORDER, from: null };
+const yardUi = { side: 'ally', index: 0, ag: null, troops: null, refit: null, order: SHIP_ORDER, from: null };
 
 /** The hull on the water, or the one `d` along the yard's list from her. */
 function yardShip(d = 0) {
@@ -770,8 +770,8 @@ function openYard(side, { order = SHIP_ORDER, at = null, from = null } = {}) {
 }
 
 // The ship icon asks first which navy to look at: the Great War's hulls, the
-// Second World War's, the missile age's, or the merchantmen's -- the ships
-// that are not warships at all. The yard then walks that list alone.
+// Second World War's, the missile age's, or Transport and Cargo -- the
+// merchantmen and the landing craft. The yard then walks that list alone.
 const ERA_ORDER = { ww1: WWI_ORDER, wwii: WWII_ORDER, modern: MODERN_ORDER, civil: CIVIL_ORDER };
 const eraEl = document.getElementById('era-pick');
 let eraSide = 'ally';
@@ -795,6 +795,7 @@ eraEl.addEventListener('click', (e) => { if (e.target === eraEl) closeEra(); });
 function closeYard() {
   closeAirGroup();
   closeVls();
+  closeTroops();
   yardUi.refit = null;
   yard?.detach();
   show(yardUi.from || 'custom');
@@ -809,12 +810,13 @@ function openRefit(side, i) {
   const order = PREMIUM_ORDER.includes(id) ? PREMIUM_ORDER
     : MODERN_ORDER.includes(id) ? MODERN_ORDER : WWI_ORDER.includes(id) ? WWI_ORDER
       : CIVIL_ORDER.includes(id) ? CIVIL_ORDER : WWII_ORDER;
-  if (!order.includes(id) || !SHIP_CLASSES[id]?.planes?.group) return;
+  const troops = SHIP_CLASSES[id]?.cargo?.adjustable;
+  if (!order.includes(id) || !(SHIP_CLASSES[id]?.planes?.group || troops)) return;
   audio.click();
   openYard(side, { order, at: id });
   yardUi.refit = { side, i, id };
   renderYard();
-  openAirGroup();
+  if (troops) openTroops(); else openAirGroup();
 }
 
 function sheet(el, heading, rows) {
@@ -827,6 +829,7 @@ function sheet(el, heading, rows) {
       audio.click();
       if (row.dataset.act === 'airgroup') openAirGroup();
       if (row.dataset.act === 'vls') openVls();
+      if (row.dataset.act === 'troops') openTroops();
     };
   }
 }
@@ -933,7 +936,7 @@ function renderAirGroup() {
   document.getElementById('ag-total').classList.toggle('full', total === spec.total);
   // Every stepper says for itself whether it can be pressed, so a captain is
   // never left wondering which limit stopped him.
-  for (const btn of document.querySelectorAll('.ag-step')) {
+  for (const btn of document.querySelectorAll('.ag-step:not(.troops-step)')) {
     const k = btn.dataset.kind;
     const d = Number(btn.dataset.step);
     if (k === 'deckload') {
@@ -1001,6 +1004,70 @@ function stepAirGroup(kind, d) {
   if (d < 0 && kind !== 'fighters' && g.dive + g.torpedo - 1 < spec.minStrike) return;
   g[kind] = n;
   renderAirGroup();
+}
+
+// --------------------------------------------------------------- soldiers --
+
+/**
+ * How many soldiers a landing craft carries, and the panel that sets it.
+ *
+ * Any number from none to a full well. The choice for the next craft
+ * commissioned is kept in settings; each craft already in a fleet keeps her
+ * own on her record in the briefing (the record a carrier's air group rides
+ * on), which goes out with the sortie request -- see wingOf in setup.js.
+ */
+function currentTroops(cls) {
+  if (!cls?.cargo?.adjustable) return null;
+  const r = yardUi.refit;
+  const want = r && SHIP_CLASSES[r.id] === cls
+    ? (briefing.wingOf(r.side, r.i)?.troops ?? getSettings().troops)
+    : getSettings().troops;
+  const n = Number(want);
+  return want == null || !Number.isFinite(n) ? cls.cargo.troops
+    : Math.max(0, Math.min(cls.cargo.troops, Math.round(n)));
+}
+
+function openTroops() {
+  const cls = SHIP_CLASSES[yardShip()];
+  if (!cls?.cargo?.adjustable) return;
+  closeAirGroup();
+  closeVls();
+  yardUi.troops = currentTroops(cls);
+  document.getElementById('troopspanel').hidden = false;
+  renderTroops();
+}
+
+function closeTroops() {
+  const el = document.getElementById('troopspanel');
+  if (el) el.hidden = true;
+  yardUi.troops = null;
+}
+
+function renderTroops() {
+  const cls = SHIP_CLASSES[yardShip()];
+  const n = yardUi.troops;
+  if (!cls?.cargo?.adjustable || n == null) return;
+  const most = cls.cargo.troops;
+  document.getElementById('troops-sub').textContent =
+    `Her well holds ${most} men. Embark as many as you like.`
+    + (cls.cargo.ready ? '' : ' They go ashore in a future update.');
+  document.getElementById('troops-n').textContent = n;
+  document.getElementById('troops-total-n').textContent = `${n} / ${most}`;
+  document.getElementById('troops-total').classList.toggle('full', n === most);
+  for (const btn of document.querySelectorAll('.troops-step')) {
+    const to = n + Number(btn.dataset.step);
+    btn.disabled = to < 0 || to > most;
+  }
+  document.getElementById('troops-note').textContent = n === 0 ? 'Her well is empty: she goes in with nobody to put ashore.' : '';
+}
+
+function stepTroops(d) {
+  const cls = SHIP_CLASSES[yardShip()];
+  if (!cls?.cargo?.adjustable || yardUi.troops == null) return;
+  const to = yardUi.troops + d;
+  if (to < 0 || to > cls.cargo.troops) return;
+  yardUi.troops = to;
+  renderTroops();
 }
 
 // ------------------------------------------------------------ VLS loadout --
@@ -1129,7 +1196,7 @@ function renderYard() {
     document.getElementById(el).style.visibility = yardUi.order.length > 1 ? '' : 'hidden';
   }
   const group = currentAirGroup(cls);
-  sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls, group));
+  sheet(document.getElementById('yard-hull'), 'Hull', hullSheet(cls, group, currentTroops(cls)));
   sheet(document.getElementById('yard-arms'), 'Armament', armsSheet(cls, group, currentVls(cls)));
 }
 
@@ -1139,6 +1206,7 @@ function stepYard(dir) {
   yardUi.index = (yardUi.index + dir + yardUi.order.length) % yardUi.order.length;
   closeAirGroup();
   closeVls();
+  closeTroops();
   renderYard();
 }
 
@@ -1170,9 +1238,34 @@ function holdable(btn, step) {
   // The keyboard still gets one step a press.
   btn.onclick = (e) => { if (e.detail === 0) { audio.click(); step(); } };
 }
-for (const btn of document.querySelectorAll('.ag-step')) {
+for (const btn of document.querySelectorAll('.ag-step:not(.troops-step)')) {
   holdable(btn, () => stepAirGroup(btn.dataset.kind, Number(btn.dataset.step)));
 }
+for (const btn of document.querySelectorAll('.troops-step')) {
+  holdable(btn, () => stepTroops(Number(btn.dataset.step)));
+}
+document.getElementById('troops-reset').onclick = () => {
+  audio.click();
+  const cls = SHIP_CLASSES[yardShip()];
+  if (cls?.cargo?.adjustable && yardUi.troops != null) { yardUi.troops = cls.cargo.troops; renderTroops(); }
+};
+document.getElementById('troops-done').onclick = () => {
+  audio.click();
+  // A refit is that one craft's: it goes on her, and the captain goes back
+  // to the chart he came from. Otherwise it is what the next one embarks.
+  const r = yardUi.refit;
+  if (r) {
+    if (yardUi.troops != null) briefing.setWing(r.side, r.i, { troops: yardUi.troops });
+    const name = SHIP_CLASSES[r.id]?.name || 'She';
+    const n = yardUi.troops;
+    closeYard();
+    toast(`${name} now carries ${n} soldier${n === 1 ? '' : 's'}.`);
+    return;
+  }
+  if (yardUi.troops != null) setSettings({ troops: yardUi.troops });
+  closeTroops();
+  renderYard();
+};
 document.getElementById('ag-reset').onclick = () => {
   audio.click();
   const spec = airGroupSpec();
@@ -1205,7 +1298,9 @@ document.getElementById('yard-commission').onclick = () => {
   // A carrier goes with the air group the yard has her balanced at, and keeps
   // it: the next one commissioned can be given a different one.
   if (yardUi.refit) { yardUi.refit = null; }
-  const wing = SHIP_CLASSES[id]?.planes?.group ? currentAirGroup(SHIP_CLASSES[id]) : null;
+  // And a landing craft with the soldiers the yard has her embarking.
+  const wing = SHIP_CLASSES[id]?.planes?.group ? currentAirGroup(SHIP_CLASSES[id])
+    : SHIP_CLASSES[id]?.cargo?.adjustable ? { troops: currentTroops(SHIP_CLASSES[id]) } : null;
   if (!briefing.commission(yardUi.side, id, wing)) {
     toast(`${FLEET_MAX} ships is all ${whose} fleet will take.`);
     return;

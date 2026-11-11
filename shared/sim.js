@@ -341,6 +341,10 @@ export function addShip(state, {
         ...(cls.planes.deckload ? [{ id: cls.planes.squadrons, state: 'deck', cooldown: 0, deckload: true }] : [])]
       : [],
     airGroup: cls.planes ? normaliseAirGroup(cls, airGroup) : null,
+    // The soldiers in a landing craft's well, as many as her captain embarked
+    // (`troops` on her own record off the briefing, the same record a
+    // carrier's air group rides on), up to what she has room for.
+    troops: troopsFor(cls, airGroup && airGroup.troops),
     // How long her deck is still busy with the last launch. One aeroplane goes
     // at a time: the lift has to fetch her, she has to taxi aft and run up, and
     // nothing else can use the deck while she is on it.
@@ -850,6 +854,8 @@ function stepMovement(state, ship, dt) {
   // The bottom. She draws so many metres and the sea is so deep here; where
   // the ground comes up higher than her keel she is on it.
   if (!touchBottom(state, ship, cls, h0, nx, nz, dt)) { ship.x = nx; ship.z = nz; }
+  // A landing craft run up on the beach lets her ramp go.
+  if (cls.ramp) rampStep(state, ship, cls);
 
   // Map border acts like a shoal: you slow and take damage rather than leave.
   const edge = (state.world.half || MAP_HALF) - 120;
@@ -1007,6 +1013,45 @@ function groundRaise(ship, cls, k) {
   return (ship.groundLift || 0) - (ship.groundTrim || 0) * k * cls.hull.length * 0.5;
 }
 
+/**
+ * How many soldiers a landing craft sails with: what her captain asked for,
+ * as a whole number of men between none and her capacity, and a full well
+ * if he did not say. Nothing else carries any.
+ */
+export function troopsFor(cls, want) {
+  const most = cls.cargo ? cls.cargo.troops || 0 : 0;
+  if (!most || !cls.cargo.adjustable) return 0;
+  if (want == null) return most;
+  const n = Number(want);
+  return Number.isFinite(n) ? clamp(Math.round(n), 0, most) : most;
+}
+
+/**
+ * A landing craft's ramp.
+ *
+ * Run up on solid ground -- her bow on the beach, the bottom under her stem
+ * out of the water or near enough, and her way off her -- she lets her ramp
+ * go, and it falls forward onto the sand for whatever she carries to go out
+ * over. It comes up again when she goes astern to come off, or when she is
+ * afloat again. Anyone can see it: it goes on the wire as `rp`.
+ */
+export function rampStep(state, ship, cls) {
+  const half = cls.hull.length * 0.5;
+  const sx = ship.x + Math.sin(ship.heading) * half * 0.98;
+  const sz = ship.z + Math.cos(ship.heading) * half * 0.98;
+  const beached = ship.aground > 0 && (ship.groundAt || 0) > 0.3
+    && bedAt(state.world, sx, sz) > -cls.hull.draft * 0.7;
+  if (!ship.rampDown) {
+    if (beached && Math.abs(ship.speed) < 1.5 && ship.speed > -0.2) {
+      ship.rampDown = true;
+      state.events.push({ e: 'ramp', i: ship.id, d: 1, x: r(sx), z: r(sz) });
+    }
+  } else if (!ship.aground || ship.speed < -0.2) {
+    ship.rampDown = false;
+    state.events.push({ e: 'ramp', i: ship.id, d: 0, x: r(sx), z: r(sz) });
+  }
+}
+
 /** Where along her keel the trench she cuts is taken from: as KEEL, and her stem and sternpost. */
 const SCORE = [-1, -0.92, -0.62, -0.32, 0, 0.32, 0.62, 0.92, 1];
 
@@ -1079,6 +1124,9 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
   // she has nothing to drive with, ahead or astern: she is stranded, and she
   // stays stranded.
   const strand = (c) => {
+    // A landing craft is built to be put on a beach and come off it again:
+    // her screw is under her tunnel stern, in the water she backs off into.
+    if (cls.beaches) return;
     if (ship.stranded || c.pen <= 0 || c.screws >= T * 0.3) return;
     ship.stranded = true;
     state.events.push({ e: 'stranded', i: ship.id, team: ship.team, x: r(ship.x), z: r(ship.z) });
@@ -1101,7 +1149,9 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
   // plating meeting rock or sand at whatever speed she was making.
   if (was.pen <= 0) {
     const hard = clamp(v / 12, 0, 1);
-    if (v > 1) {
+    // A landing craft takes the ground the way she was built to: on her
+    // flat bottom, at the speed she drove onto it, and none the worse.
+    if (v > 1 && !cls.beaches) {
       damageShip(state, ship, null, ship.maxHp * 0.07 * hard, 'grounding', where(now.at));
       if (v > 2.5) {
         openHull(state, ship, where(now.at), (v - 2.5) * 0.12, now.at >= 0 ? 1 : -1, T * 0.95);
@@ -1166,7 +1216,7 @@ function touchBottom(state, ship, cls, h0, nx, nz, dt) {
   // the sand she is shoving aside takes her way off her the harder the
   // further on she is.
   if (was.pen > 0) {
-    damageShip(state, ship, null, ship.maxHp * 0.0045 * (deeper / T), 'grounding', where(now.at));
+    if (!cls.beaches) damageShip(state, ship, null, ship.maxHp * 0.0045 * (deeper / T), 'grounding', where(now.at));
     const brake = dt * (0.45 + 1.7 * now.max / T);
     ship.speed = Math.sign(ship.speed) * Math.max(0, Math.abs(ship.speed) * Math.exp(-deeper / (T * 2.2)) - brake);
     // Way all but gone and still being pushed on: the ground has her. She

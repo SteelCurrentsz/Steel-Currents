@@ -7516,6 +7516,8 @@ export class Battle {
       // has gone over it.
       // The B-25s still on her flight deck: one fewer for each that has gone.
       if (s.dl != null) view.group.userData.deckload?.(s.dl);
+      // A landing craft's ramp, down on the beach or wound up.
+      if (cls.ramp) view.group.userData.ramp?.(Boolean(s.rp), dt);
       if (cls.mines && view.mineRack && s.mnl != null) {
         const gone = cls.mines.carried - s.mnl;
         view.mineRack.forEach((m, k) => { m.visible = k >= gone; });

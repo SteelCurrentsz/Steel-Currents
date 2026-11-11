@@ -76,6 +76,10 @@ export function shipSnapshot(ship, full, state = null) {
     // Aground: how hard, and stranded with her screws out of the water.
     ag: ship.aground ? r3(ship.aground) : undefined,
     sd: ship.stranded ? 1 : undefined,
+    // A landing craft's ramp, down on the beach.
+    rp: ship.rampDown ? 1 : undefined,
+    // And how many men are in her well: anyone can see a boat full of them.
+    tr: ship.troops ? ship.troops : undefined,
     // A submarine, and nothing else, carries these: how deep she is and how
     // long her tubes' outer doors have been open. Everybody who can see her
     // gets them -- a boat's depth is not private information to anyone close

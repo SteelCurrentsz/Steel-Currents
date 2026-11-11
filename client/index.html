@@ -458,6 +458,9 @@
       <p class="credit">"<a href="https://skfb.ly/oIxAL" target="_blank" rel="noopener">Liberty ship</a>"
         by AlanTinka is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oKNtE" target="_blank" rel="noopener">LCVP Higgins boat (1945)</a>"
+        by RedC130 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/ptQuP" target="_blank" rel="noopener">Japanese Cruiser Atago</a>"
         by kriss50 is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
@@ -1106,6 +1109,26 @@
     </div>
   </div>
 
+  <!-- How many soldiers a landing craft carries in her well: any number up
+       to what she has room for. Opens off the Soldiers row of her hull sheet,
+       or off her row in a fleet. -->
+  <div class="airgroup" id="troopspanel" hidden>
+    <h3>Soldiers</h3>
+    <p class="ag-sub" id="troops-sub">As many men as you like, up to what her well holds.</p>
+    <div class="ag-row" data-kind="troops">
+      <span class="ag-name">Soldiers<em>Infantry &mdash; ashore over the ramp</em></span>
+      <button class="ag-step troops-step" type="button" data-step="-1" aria-label="Fewer soldiers">&minus;</button>
+      <span class="ag-n" id="troops-n">36</span>
+      <button class="ag-step troops-step" type="button" data-step="1" aria-label="More soldiers">+</button>
+    </div>
+    <div class="ag-total" id="troops-total"><span>Embarked</span><span id="troops-total-n">36 / 36</span></div>
+    <p class="ag-note" id="troops-note"></p>
+    <div class="ag-actions">
+      <button class="btn ghost" id="troops-reset" type="button">Full</button>
+      <button class="btn" id="troops-done" type="button">Done</button>
+    </div>
+  </div>
+
   <button class="btn ghost yard-back" id="yard-back" type="button">Back</button>
 </section>
 
@@ -1201,7 +1224,7 @@
       <button class="btn era-btn" type="button" data-era="ww1">WWI<em>1914&ndash;1918</em></button>
       <button class="btn era-btn" type="button" data-era="wwii">WWII<em>1939&ndash;1945</em></button>
       <button class="btn era-btn" type="button" data-era="modern">Modern<em>Cold War&ndash;Missile Age</em></button>
-      <button class="btn era-btn" type="button" data-era="civil">Civilian and Cargo<em>Merchantmen &amp; Transports</em></button>
+      <button class="btn era-btn" type="button" data-era="civil">Transport and Cargo<em>Merchantmen &amp; Transports</em></button>
     </div>
     <button class="btn ghost era-cancel" id="era-cancel" type="button">Cancel</button>
   </div>

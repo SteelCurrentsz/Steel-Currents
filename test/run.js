@@ -36,7 +36,7 @@ import {
 import { mountRoof } from '../shared/armor.js';
 import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER, CIVIL_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
-import { layMine } from '../shared/sim.js';
+import { layMine, troopsFor } from '../shared/sim.js';
 import {
   normaliseAirGroup, defaultAirGroup, setAirGroup, rotary, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
@@ -178,6 +178,7 @@ import { agincourtSurfaceY, MOUNT_SEATS as AGINCOURT_SEATS } from '../client/js/
 import { sovremennySurfaceY, MOUNT_SEATS as SOV_SEATS } from '../client/js/render/sovremennyHull.js';
 import { buildSlava } from '../client/js/render/slava.js';
 import { buildLiberty } from '../client/js/render/liberty.js';
+import { buildHiggins, higginsSurfaceY } from '../client/js/render/higgins.js';
 import { libertySurfaceY, MOUNT_SEATS as LIBERTY_SEATS } from '../client/js/render/libertyHull.js';
 import { slavaSurfaceY, MOUNT_SEATS as SLAVA_SEATS } from '../client/js/render/slavaHull.js';
 import { AK630 } from '../client/js/render/ak630.data.js';
@@ -4185,19 +4186,21 @@ check('the RF Slava is commissioned after the Sovremenny, in the Modern yard, ar
   }
 });
 
-check('the Liberty ship is in a yard of her own, Civilian and Cargo, beside the Modern one', () => {
+check('the Transport and Cargo yard, beside the Modern one, has the Liberty ship and then the Higgins boat', () => {
   assert.ok(SHIP_ORDER.includes('liberty'), 'the Liberty ship is not in the yard');
-  assert.deepEqual(CIVIL_ORDER, ['liberty'], `the Civilian and Cargo yard is ${CIVIL_ORDER}`);
+  assert.deepEqual(CIVIL_ORDER, ['liberty', 'higgins'], `the Transport and Cargo yard is ${CIVIL_ORDER}`);
   for (const [era, list] of [['WWI', WWI_ORDER], ['WWII', WWII_ORDER], ['Modern', MODERN_ORDER]]) {
-    assert.ok(!list.includes('liberty'), `she is in the ${era} yard`);
+    assert.ok(!list.includes('liberty') && !list.includes('higgins'), `a transport is in the ${era} yard`);
   }
-  // The ship icon offers it right of the Modern yard, and it opens hers.
+  // The ship icon offers it right of the Modern yard, under its new name, and
+  // it opens hers.
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   const eras = [...html.matchAll(/data-era="(\w+)"/g)].map((m) => m[1]);
   assert.equal(eras[eras.indexOf('modern') + 1], 'civil', `the eras on offer are ${eras}`);
-  assert.match(html, /data-era="civil">Civilian and Cargo</);
+  assert.match(html, /data-era="civil">Transport and Cargo</);
+  assert.ok(!/Civilian and Cargo/.test(html), 'the yard is still called Civilian and Cargo');
   const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
-  assert.ok(/civil: CIVIL_ORDER/.test(main), 'the Civilian and Cargo button opens no yard');
+  assert.ok(/civil: CIVIL_ORDER/.test(main), 'the Transport and Cargo button opens no yard');
 });
 
 check('the Liberty ship is an American cargo ship, armed as the owner asked', () => {
@@ -4244,6 +4247,101 @@ check('the Liberty ship is an American cargo ship, armed as the owner asked', ()
     assert.ok(m.children.some((o) => o.isMesh && o.geometry.attributes.position.count === P),
       'an Oerlikon of hers is not the owner\'s model');
   }
+});
+
+check('the Higgins boat is an American landing craft with two Brownings, after the Liberty ship', () => {
+  const cls = SHIP_CLASSES.higgins;
+  assert.equal(cls.name, 'Higgins Landing Craft');
+  assert.equal(cls.nation, 'usa');
+  assert.equal(cls.typeName, 'Landing Craft');
+  assert.equal(SHIP_ORDER.indexOf('higgins'), SHIP_ORDER.indexOf('liberty') + 1, 'she does not come after the Liberty ship');
+  assert.ok(PLAYABLE.includes('higgins'), 'a captain cannot take her to sea');
+  // Two single M1919 Brownings, one in each gun cockpit, which the captain
+  // lays and fires as her main battery.
+  assert.equal(cls.turrets.length, 2);
+  assert.ok(cls.turrets.every((t) => t.guns === 1), 'a Browning of hers is not a single');
+  assert.equal(cls.gun.name, 'M1919 Browning Machine Gun');
+  assert.equal(cls.gun.caliber, 7.62);
+  assert.equal(cls.torpedoes, null);
+  assert.equal(cls.secondary, null);
+  assert.equal(lightMounts(cls).length, 0);
+  // No searchlights: a destroyer's four on posts stood up out of her well.
+  assert.equal(lampCount(cls), 0);
+  // Up to thirty-six soldiers, as many as her captain embarks.
+  assert.equal(cls.cargo.troops, 36);
+  assert.ok(cls.cargo.adjustable, 'her captain cannot choose how many she carries');
+  assert.ok(!cls.cargo.tanks, 'she carries tanks');
+  // Credited.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.match(html, /href="https:\/\/skfb\.ly\/oKNtE"[^>]*>LCVP Higgins boat \(1945\)<\/a>"\s*by RedC130 is licensed under/);
+  // Drawn from the owner's model: her guns and her ramp are pieces of it.
+  const built = buildHiggins();
+  assert.equal(built.turrets.length, 2);
+  for (const [i, t] of built.turrets.entries()) {
+    assert.ok(t.userData.muzzles.length === 1, `her ${cls.turrets[i].name} has no muzzle`);
+    const spec = cls.turrets[i];
+    assert.ok(Math.hypot(t.position.x - spec.x, t.position.z - spec.z) < 0.05, `her ${spec.name} is not where the datasheet says`);
+    // And stands in her, on her gun cockpit's rim.
+    assert.ok(higginsSurfaceY(spec.x, spec.z) > 1.5, `her ${spec.name} stands over nothing`);
+  }
+  assert.equal(typeof built.group.userData.ramp, 'function', 'her ramp does not move');
+});
+
+check('the Higgins boat sails with the soldiers her captain embarked, and no more than thirty-six', () => {
+  const cls = SHIP_CLASSES.higgins;
+  assert.equal(troopsFor(cls, undefined), 36, 'a craft with no orders goes in empty');
+  assert.equal(troopsFor(cls, 12), 12);
+  assert.equal(troopsFor(cls, 0), 0);
+  assert.equal(troopsFor(cls, 99), 36);
+  assert.equal(troopsFor(cls, -4), 0);
+  assert.equal(troopsFor(cls, 7.6), 8);
+  assert.equal(troopsFor(SHIP_CLASSES.fletcher, 20), 0, 'a destroyer carries soldiers');
+  const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(st, { name: 'A', classId: 'higgins', team: 0, index: 0, airGroup: { troops: 20 } });
+  const b = addShip(st, { name: 'B', classId: 'higgins', team: 0, index: 1 });
+  assert.equal(a.troops, 20);
+  assert.equal(b.troops, 36);
+  // Anyone can see how many are in her well.
+  assert.equal(shipSnapshot(a, false).tr, 20);
+  // Each craft's own count rides the sortie on her own record.
+  assert.deepEqual(setupWingOf({ troops: 14 }), { troops: 14 });
+  // The yard has a panel for it, and the fleet list says what she carries.
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(/id="troopspanel"/.test(html) && /class="ag-step troops-step"/.test(html), 'the yard has no soldiers panel');
+  const brief = readFileSync(new URL('../client/js/briefing.js', import.meta.url), 'utf8');
+  assert.ok(/soldiers<\/span>/.test(brief), 'the fleet list does not say how many soldiers she carries');
+});
+
+check('a Higgins boat run up on a beach drops her ramp, takes no harm, and backs off it again', () => {
+  const world = generateWorld(4242, 'coral_shelf');
+  const st = createState(world, { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'A', classId: 'higgins', team: 0, index: 0 });
+  // Pointed at the nearest land.
+  let best = null;
+  for (let a = 0; a < 64; a++) {
+    for (let d = 50; d < 6000; d += 25) {
+      const h = (a / 64) * Math.PI * 2;
+      if (islandAt(world, s.x + Math.sin(h) * d, s.z + Math.cos(h) * d, 0)) { if (!best || d < best.d) best = { h, d }; break; }
+    }
+  }
+  assert.ok(best, 'no land to beach her on');
+  s.heading = best.h;
+  s.notch = 5;
+  const hp = s.hp;
+  let t = 0;
+  for (; t < 1200 && !s.rampDown; t += 1 / 30) step(st, 1 / 30);
+  assert.ok(s.rampDown, 'she never let her ramp go');
+  assert.ok(s.aground > 0 && s.groundAt > 0.3, 'her ramp went down off the beach');
+  assert.ok(!s.stranded, 'she is stranded on the beach she was built for');
+  assert.equal(s.hp, hp, 'the beach tore her bottom out');
+  assert.equal(shipSnapshot(s, false).rp, 1, 'nobody can see her ramp is down');
+  // Astern: the ramp comes up, and she comes off.
+  s.notch = 0;
+  for (let i = 0; i < 30 * 40; i++) step(st, 1 / 30);
+  assert.ok(!s.rampDown, 'her ramp is still down going astern');
+  assert.ok(!s.aground, 'she could not get off the beach');
+  // A destroyer driven onto the same beach drops nothing.
+  assert.ok(!SHIP_CLASSES.fletcher.ramp && !SHIP_CLASSES.fletcher.beaches);
 });
 
 check('the Credits screen credits the model the Liberty ship is drawn from', () => {

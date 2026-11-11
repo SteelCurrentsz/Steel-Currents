@@ -11811,6 +11811,96 @@ export const SHIP_CLASSES = {
       ],
     },
   },
+  higgins: {
+    // The Higgins boat: the LCVP, Landing Craft, Vehicle, Personnel, that
+    // Andrew Higgins built in New Orleans by the twenty thousand and that put
+    // the troops ashore at Normandy, at Tarawa, at Okinawa and on every beach
+    // in between. Thirty-six feet of plywood with a steel ramp for a bow: she
+    // is driven straight up onto the beach, the ramp drops, and the men she
+    // is carrying go out over it and up the sand. Armed as the owner asked:
+    // two .30-calibre M1919 Brownings, one in each of the gun cockpits either
+    // side of her coxswain aft, which go for boats, men and aeroplanes alike.
+    //
+    // She is drawn from the owner's model of her (see higgins.js) -- "LCVP
+    // Higgins boat (1945)" by RedC130, under Creative Commons Attribution
+    // 4.0, credited on the Credits screen -- at her 3.29 m beam, floated at
+    // her 0.9 m draught aft, in the model's own colours.
+    id: 'higgins',
+    name: 'Higgins Landing Craft',
+    fullName: 'Higgins Landing Craft',
+    className: 'LCVP',
+    type: 'LC',
+    typeName: 'Landing Craft',
+    nation: 'usa',
+    blurb: 'A plywood boat with a steel ramp for a bow: run her up the beach, drop the ramp, and up to thirty-six men go ashore. Two Brownings to cover them.',
+    // Where her diesel's exhaust comes out, on her stern.
+    hull: { funnels: [[0.9, -5.2, 2.6]], length: 10.97, beam: 3.29, draft: 0.9, superstructure: 0.3, heavePeriod: 1.6 },
+    hp: 900,
+    // Nine knots loaded out of her one Gray Marine diesel on one screw, and
+    // a good deal astern: she has to come off the beach again on it.
+    maxSpeed: 9 * KNOTS,
+    reverseSpeed: 5 * KNOTS,
+    accel: 1.2,
+    turnRate: 0.32,
+    rudderShift: 1.0,
+    speedLossInTurn: 0.2,
+    // A box barely a man's height out of the water.
+    concealment: 2400,
+    fireDetectPenalty: 2600,
+    radarRange: 0,
+    repairCooldown: 60,
+    repairHeal: 0.10,
+    smokeCharges: 0,
+    // No searchlight: a landing craft went in on the dark without one.
+    lampSpots: [],
+    // Plywood, but a quarter-inch of steel on her ramp, on the sides of her
+    // well and round her gun cockpits.
+    armor: { belt: 6, deck: 3, citadel: 6, bow: 6, superstructure: 6 },
+    // She is meant to go aground: driven onto a beach she takes the ground
+    // without tearing her bottom out, and she backs off it again on her screw.
+    beaches: true,
+    // Her ramp: hinged across the foot of her bow, and let go when she is
+    // run up on solid ground. See rampStep in the simulation.
+    ramp: { hinge: 4.85 },
+    // Her two Brownings, on their pintles in the gun cockpits aft, a side
+    // each, where the model has them (see build/prepare-higgins-hull.mjs),
+    // resting on the bearing the model trains them to. Each fights forward
+    // over her well and out to its own beam and round astern on its own side.
+    turrets: [
+      { id: 0, name: 'Starboard gun', x: 0.98, z: -3.12, angle: 0.5, arc: 2.5, rest: 0.522, guns: 1, my: 2.55, open: true },
+      { id: 1, name: 'Port gun', x: -1.09, z: -3.23, angle: -0.5, arc: 2.5, rest: -1.049, guns: 1, my: 2.55, open: true },
+    ],
+    gun: {
+      name: 'M1919 Browning Machine Gun', role: 'dp',
+      elev: { min: -0.25, max: 1.3 },
+      // Pintle to muzzle.
+      reach: 0.58,
+      // Belt-fed, air-cooled, four hundred and fifty rounds a minute.
+      caliber: 7.62, reload: 0.15, traverse: 2.2, range: 1600, sigma: 1.4,
+      shells: shells(7.62, 18, 14, 9, 850, 0.004),
+    },
+    torpedoes: null,
+    secondary: null,
+    // No light battery of her own: the two Brownings are her flak as well,
+    // and a short reach of it.
+    aa: { range: 1400, dps: 2, guns: [] },
+    // What she is for: up to thirty-six men in her well, as many as her
+    // captain embarks in the yard (`adjustable`). They go out over her ramp
+    // when it is down on the beach. For a future update: there are no soldiers
+    // to put ashore yet, and the yard says so; her ramp goes down on the beach
+    // all the same.
+    cargo: { troops: 36, adjustable: true, ready: false },
+    planes: null,
+    datasheet: {
+      displacement: 13,
+      aircraft: 0,
+      mainRounds: 2000,
+      torpedoesCarried: 0,
+      secondary: null,
+      tertiary: [],
+    },
+  },
+
 };
 
 // The Yamato is her sister's hull: the owner's sculpts of the Musashi, her
@@ -11960,7 +12050,7 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
-  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty'];
+  'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
@@ -11976,7 +12066,7 @@ export const WWI_SHIPS = new Set(['agincourt']);
 // And the ships that are not warships at all, whatever war they sailed in:
 // the merchantmen and the transports, in a yard of their own beside the
 // Modern one.
-export const CIVIL_SHIPS = new Set(['liberty']);
+export const CIVIL_SHIPS = new Set(['liberty', 'higgins']);
 export const WWI_ORDER = SHIP_ORDER.filter((id) => WWI_SHIPS.has(id));
 export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id) && !WWI_SHIPS.has(id) && !CIVIL_SHIPS.has(id));
 export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));

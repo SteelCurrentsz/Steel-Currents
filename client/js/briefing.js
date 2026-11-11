@@ -195,11 +195,15 @@ export class Briefing {
       // A carrier says what she has embarked, under her name, and is the
       // key to change it.
       const g = cls?.planes?.group ? (wings[i] || cls.planes.group.default) : null;
-      const wing = g ? ' wing' : '';
+      // And a landing craft how many soldiers are in her well, and is the
+      // key to change that.
+      const men = cls?.cargo?.adjustable ? (wings[i]?.troops ?? cls.cargo.troops) : null;
+      const wing = g || men != null ? ' wing' : '';
       const air = g
-        ? `<span class="hull-wing">${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T${cls.planes.deckload ? ` &middot; ${g.deckload ?? cls.planes.deckload.count}B` : ''}</span>` : '';
+        ? `<span class="hull-wing">${g.fighters}F &middot; ${g.dive}D &middot; ${g.torpedo}T${cls.planes.deckload ? ` &middot; ${g.deckload ?? cls.planes.deckload.count}B` : ''}</span>`
+        : men != null ? `<span class="hull-wing">${men} soldiers</span>` : '';
       return `<li class="fleet-ship${flag}${wing}" data-i="${i}"`
-        + `${g ? ' title="Change her air group"' : ''}>`
+        + `${g ? ' title="Change her air group"' : men != null ? ' title="Change how many soldiers she carries"' : ''}>`
         + `<b class="hull-code">${code}</b>`
         + `<span class="hull-name">${name}</span>${air}</li>`;
     }).join('');

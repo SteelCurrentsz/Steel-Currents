@@ -3,6 +3,16 @@
 // hull class, so the shape alone tells a captain what they have selected.
 
 const HULLS = {
+  // A Higgins boat: a low open box, her ramp standing square at her bow, her
+  // coxswain's shield and the two Brownings aft.
+  higgins: `
+    <path d="M6 24 L86 22 L90 22 L90 34 L84 37 L10 37 L5 33 Z"/>
+    <rect x="86" y="12" width="5" height="12"/>
+    <rect x="20" y="16" width="9" height="7"/>
+    <rect x="12" y="18" width="6" height="5"/>
+    <rect x="31" y="18" width="6" height="5"/>
+    <rect x="11" y="15.5" width="9" height="1.4"/>
+    <rect x="30" y="15.5" width="9" height="1.4"/>`,
   // A Liberty ship: a long, low three-island merchantman -- forecastle, the
   // house amidships with its one funnel, poop -- two masts forward of the
   // house and one abaft it, and a gun at either end.

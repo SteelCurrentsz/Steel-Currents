@@ -359,7 +359,7 @@ const barrels = (cls) => cls.turrets.reduce((n, t) => n + t.guns, 0);
 const tubes = (cls) => (cls.torpedoes?.mounts || []).reduce((n, m) => n + m.tubes, 0);
 
 /** Weight, speed, aircraft and how thick she is where it counts. */
-export function hullSheet(cls, group = null) {
+export function hullSheet(cls, group = null, troops = null) {
   const d = cls.datasheet;
   const rows = [
     ['Displacement', `${num(d.displacement)} t`],
@@ -381,8 +381,15 @@ export function hullSheet(cls, group = null) {
   );
   // A merchantman's holds: what she can carry, which nothing embarks yet.
   if (cls.cargo) {
-    rows.push(['Cargo', `${num(cls.cargo.tanks)} tanks or ${num(cls.cargo.troops)} troops`
-      + (cls.cargo.ready ? '' : ' (future update)')]);
+    if (cls.cargo.adjustable) {
+      // A landing craft's well: as many soldiers as her captain embarks.
+      const n = troops ?? cls.cargo.troops;
+      rows.push(['Soldiers', `${num(n)} of ${num(cls.cargo.troops)}`
+        + (cls.cargo.ready ? '' : ' (future update)'), 'troops']);
+    } else {
+      rows.push(['Cargo', `${num(cls.cargo.tanks)} tanks or ${num(cls.cargo.troops)} troops`
+        + (cls.cargo.ready ? '' : ' (future update)')]);
+    }
   }
   return rows;
 }
