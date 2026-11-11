@@ -350,6 +350,59 @@ export class LayoutMap {
       .map((t) => ({ team: t.team, x: t.x, z: t.z, heading: t.heading }));
   }
 
+  // ------------------------------------------------------------ load outs --
+
+  /**
+   * Everything laid out on the chart, to keep with a load out: where each
+   * hull, gun, tank and squadron starts and which way it faces (a tank in a
+   * landing craft by which craft and which slot), the works, and the barracks.
+   */
+  snapshot() {
+    if (!this.req) return null;
+    const key = (t) => ({ kind: t.kind, classId: t.classId, team: t.team, index: t.index });
+    return {
+      where: this.worksSig,
+      tokens: this.tokens.filter((t) => t.kind !== 'barracks').map((t) => ({
+        ...key(t), x: Math.round(t.x), z: Math.round(t.z), heading: Math.round(t.heading * 1000) / 1000,
+        ...(t.tank && t.craft ? { craft: key(t.craft), slot: t.slot } : {}),
+      })),
+      works: { cities: this.works.cities.slice(), walls: this.works.walls.slice() },
+      barracks: this.tokens.filter((t) => t.kind === 'barracks')
+        .map((t) => ({ team: t.team, x: Math.round(t.x), z: Math.round(t.z), heading: t.heading })),
+    };
+  }
+
+  /** Lay the chart out as a load out had it. Called after `show` with the same request. */
+  restore(plan) {
+    if (!plan || !this.req) return;
+    if (plan.where && plan.where !== this.worksSig) return;
+    const same = (a, b) => a && b && a.kind === b.kind && a.classId === b.classId && a.team === b.team && a.index === b.index;
+    this.works = {
+      cities: Array.isArray(plan.works?.cities) ? plan.works.cities.slice() : [],
+      walls: Array.isArray(plan.works?.walls) ? plan.works.walls.slice() : [],
+    };
+    this.raise();
+    this.tokens = this.tokens.filter((t) => t.kind !== 'barracks');
+    for (const p of plan.tokens || []) {
+      const t = this.tokens.find((o) => same(o, p));
+      if (!t || !Number.isFinite(p.x) || !Number.isFinite(p.z)) continue;
+      t.x = p.x; t.z = p.z;
+      if (Number.isFinite(p.heading)) t.heading = p.heading;
+      if (t.tank) {
+        t.craft = p.craft ? this.tokens.find((o) => same(o, p.craft)) || null : null;
+        t.slot = p.slot || 0;
+      }
+    }
+    for (const b of (plan.barracks || []).slice(0, MAX_BARRACKS)) {
+      if (Number.isFinite(b.x) && Number.isFinite(b.z)) this.tokens.push(this.barracksToken(b.team === 1 ? 1 : 0, b.x, b.z, b.heading));
+    }
+    this.keepBarracks();
+    for (const t of this.tokens) this.check(t);
+    this.worksUi();
+    this.dirty = true;
+    this.paint();
+  }
+
   /** Is this point on the screen inside a town? Returns a drag that moves it, or null. */
   onTown(p) {
     const w = this.fromScreen(p.x, p.y);

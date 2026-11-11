@@ -317,6 +317,7 @@
     <p class="sortie-note" id="sortie-note" role="status"></p>
     <div class="briefing-actions">
       <button class="btn ghost" data-action="back">Back</button>
+      <button class="btn ghost" id="custom-loadouts" type="button" title="Save this battle, or load one you kept">Load Outs</button>
       <button class="btn" id="custom-start">Sortie</button>
     </div>
   </footer>
@@ -1065,6 +1066,7 @@
   <div class="lay-actions">
     <button class="btn ghost" id="lay-back" type="button">Back</button>
     <button class="btn ghost" id="lay-auto" type="button">Form Up</button>
+    <button class="btn ghost" id="lay-loadouts" type="button" title="Save this battle, positions and all, or load one you kept">Load Outs</button>
     <!-- A staged battle is scripted on this same chart. See scripteditor.js. -->
     <button class="btn ghost" id="lay-mode" type="button" hidden>Script</button>
     <button class="btn" id="lay-go" type="button">Sortie</button>
@@ -1283,6 +1285,17 @@
       <button class="btn era-btn" type="button" data-arm="tanks">Tanks<em>Armour that drives, or lands from the sea</em></button>
     </div>
     <button class="btn ghost era-cancel" id="arm-cancel" type="button">Cancel</button>
+  </div>
+</div>
+
+<!-- Load outs: five battles kept on this device, both sides' forces and
+     where they start, to be fought again. See loadouts.js. -->
+<div id="loadout-pick" class="era-pick" hidden role="dialog" aria-modal="true" aria-labelledby="loadout-title">
+  <div class="era-box lo-box">
+    <h3 id="loadout-title">Load Outs</h3>
+    <p class="era-sub" id="loadout-sub"></p>
+    <ol class="lo-list" id="loadout-list"></ol>
+    <button class="btn ghost era-cancel" id="loadout-cancel" type="button">Close</button>
   </div>
 </div>
 
