@@ -7869,7 +7869,7 @@ const BOX_CELL = 1.19;
  * The one-letter name each missile goes by on the wire, and back. Every kind
  * any class carries has one.
  */
-export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g' };
+export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g', vulcan: 'v', s300: 'f', osa: 'm' };
 export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(([k, c]) => [c, k]));
 
 /** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc'. */
@@ -8152,7 +8152,8 @@ function launchLine(cls, ship, kind, at, bearing = 0) {
     return { lx: x, lz: z, y: y + 0.4, bearing, elev: 0.62 };
   }
   // A canister: out over her side unless it says which way it points -- a
-  // Moskit's point forward -- and cocked up as her canisters are.
+  // Moskit's point forward -- and cocked up as her canisters are, unless it
+  // says how far: a Slava's S-300F goes straight up.
   const [x, y, z, b, e] = M.tubes[at];
   const along = Number.isFinite(b) ? b : x < 0 ? -Math.PI / 2 : Math.PI / 2;
   return { lx: x, lz: z, y, bearing: along, elev: Number.isFinite(e) ? e : M.tubeElev || 0.55 };
@@ -8256,7 +8257,10 @@ export function fireMissile(state, ship, kind, targetId = 0, air = null) {
     let best = Infinity;
     S.tubes.forEach((full, i) => {
       if (!full) return;
-      const [x, , , b] = M.tubes[i];
+      const [x, , , b, , holds] = M.tubes[i];
+      // A tube marked with the kind it holds -- a ship with more than one kind
+      // in canisters -- lets go of that kind only.
+      if (holds && holds !== kind) return;
       const point = Number.isFinite(b) ? b : x < 0 ? -Math.PI / 2 : Math.PI / 2;
       const local = angleDelta(ship.heading, bearing);
       const off = Math.abs(angleDelta(wrapAngle(ship.heading + point), bearing))

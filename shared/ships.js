@@ -1436,6 +1436,191 @@ export const SHIP_CLASSES = {
     },
   },
 
+  slava: {
+    // RF Slava, the first of the Russian Navy's Project 1164 missile
+    // cruisers, armed as the owner asked: a twin AK-130 130 mm dual-purpose
+    // gun on her forecastle; six AK-630 six-barrelled close-in guns, two on
+    // her forward superstructure looking forward and two a side on her after
+    // deckhouse, which stop missiles as well as aeroplanes (see stepCiws);
+    // two six-barrelled RBU-6000 rocket launchers either side of her hangar,
+    // whose bombs go off on whatever they come down on -- a ship, a
+    // submarine, or a torpedo running at her (see stepRbu); sixteen P-1000
+    // Vulcan anti-ship missiles in eight pairs of tubes along her forecastle,
+    // pointed forward and cocked up; sixty-four S-300F surface-to-air
+    // missiles, eight to each of the revolving launchers under the eight
+    // hatches abaft her funnel, that go straight up out of them; and forty
+    // OSA-M surface-to-air missiles off the two launchers either side of her
+    // hangar. Her S-300Fs and her OSA-Ms both go for aeroplanes and for
+    // missiles, put up by her own fire control at whatever comes at her out
+    // of the sky (see stepAegis).
+    //
+    // She is drawn from the owner's model of her (see slava.js) -- "Project
+    // 1164" by KlyushnikovAI, under Creative Commons Attribution 4.0,
+    // credited on the Credits screen -- at her length of 186.4 m, floated
+    // where the model paints her boot-topping, 8.4 m over her keel, and
+    // painted in the Sovremenny's colours; her AK-630s are the owner's own
+    // model of one.
+    id: 'slava',
+    name: 'Slava',
+    fullName: 'RF Slava',
+    className: 'Slava',
+    type: 'CA',
+    typeName: 'Missile Cruiser',
+    nation: 'sov',
+    blurb: 'Sixteen P-1000 Vulcan anti-ship missiles, sixty-four S-300F and forty OSA-M surface-to-air missiles, a twin 130 mm gun, six AK-630s and RBU-6000 rocket launchers.',
+    hull: {
+      // Where her funnel uptakes come out, [across, along, up] in metres off
+      // her model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[3.7, -18.5, 20], [-3.7, -18.5, 20]],
+      length: 186.4, beam: 20.8, draft: 8.4, superstructure: 1.2,
+    },
+    hp: 32000,
+    // Thirty-two knots out of her gas turbines on two shafts.
+    maxSpeed: 32 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.8,
+    turnRate: 0.088,
+    rudderShift: 6.4,
+    speedLossInTurn: 0.19,
+    // A big ship with a great deal of radar on her.
+    concealment: 10600,
+    fireDetectPenalty: 4300,
+    radarRange: 20000,
+    repairCooldown: 70,
+    repairHeal: 0.1,
+    smokeCharges: 2,
+    // A cruiser's plating, and splinter protection over her magazines.
+    armor: { belt: 25, deck: 18, citadel: 25, bow: 13, superstructure: 10 },
+    turrets: [
+      // Where the model stood it (see build/prepare-slava-hull.mjs), on her
+      // forecastle.
+      { id: 0, name: 'A', x: -0.006, z: 62.843, angle: 0, arc: 2.6, guns: 2, my: 12.59 },
+    ],
+    gun: {
+      name: '130 mm/70 AK-130', role: 'dp',
+      // Five below the horizontal to eighty up: as much at aeroplanes as at
+      // ships.
+      elev: { min: -0.087, max: 1.4 },
+      // Pivot to muzzle on the model's gun.
+      reach: 9.11,
+      // Fed automatically from the magazine under it, both barrels together.
+      caliber: 130, reload: 2.6, traverse: 0.6, range: 16500, sigma: 1.5,
+      shells: shells(130, 2100, 1850, 95, 850, 0.09),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 4500, dps: 72,
+      guns: [
+        // Her six AK-630s: six 30 mm barrels turning in one casing, five
+        // thousand rounds a minute, laid by their own radar. Like a Phalanx,
+        // what they shoot at, they hit -- missiles included. See stepCiws.
+        { name: 'AK-630 CIWS', caliber: 30, role: 'aa', reload: 0.012, range: 2000, piece: 'ciws', ciws: true,
+          elev: { min: -0.21, max: 1.54 },
+          mounts: [
+            // On her forward superstructure, one over the other, looking
+            // forward: her bridge is behind both.
+            { x: 0, z: 53.154, angle: 0, arc: 2.2, rest: 0, guns: 6, my: 15.8 },
+            { x: 0, z: 47.485, angle: 0, arc: 2.2, rest: 0, guns: 6, my: 16.48 },
+            // Two a side on her after deckhouse, abreast her mast.
+            { x: 8.818, z: -0.559, angle: 1.57, arc: 1.5, rest: 1.57, guns: 6, my: 12.31 },
+            { x: -8.785, z: -0.559, angle: -1.57, arc: 1.5, rest: -1.57, guns: 6, my: 12.31 },
+            { x: 8.818, z: -7.642, angle: 1.57, arc: 1.5, rest: 1.57, guns: 6, my: 12.31 },
+            { x: -8.785, z: -7.642, angle: -1.57, arc: 1.5, rest: -1.57, guns: 6, my: 12.31 },
+          ] },
+      ],
+    },
+    // Her two RBU-6000 launchers, one either side of her hangar: six 212 mm
+    // barrels each, throwing a ripple of rocket-propelled bombs out to six
+    // kilometres. Her own fire control works them (see stepRbu) -- onto a
+    // torpedo running at her first, then onto a submarine her sonar holds,
+    // then onto a ship close aboard -- unless somebody has gone down to one
+    // and is laying it himself.
+    rbu: {
+      name: 'RBU-6000', caliber: 212, tubes: 6,
+      reload: 30, traverse: 0.6, range: 5800, minRange: 300,
+      // How fast its bombs leave the barrels, and how far apart a ripple falls.
+      speed: 240, spread: 30, ripple: 0.25,
+      // Against a ship: the bomb's warhead going off on her.
+      shells: shells(212, 1700, 1700, 14, 240, 0.1),
+      // In the water: how quickly it sinks, and what its warhead does there.
+      sink: 11.5, damage: 6500, lethal: 8, hurt: 20, arming: 4,
+      // How close to a torpedo it must go off to break it up.
+      kill: 30,
+      // Her hull sonar, which hears a boat under her and a fish coming at her.
+      sonar: 3200, sonarSpeed: 24 * KNOTS,
+      mounts: [
+        { id: 0, x: 5.404, z: -57.93, angle: Math.PI / 2, arc: 2.6, rest: -0.3, my: 11.09 },
+        { id: 1, x: -5.363, z: -57.93, angle: -Math.PI / 2, arc: 2.6, rest: 0.28, my: 11.09 },
+      ],
+    },
+    // What she fires that flies itself: her Vulcans out of their tubes,
+    // forward and cocked up; her S-300Fs straight up out of the hatches of
+    // their revolving launchers; and her OSA-Ms off the arms of her two
+    // launchers, which train onto what they are firing at and are reloaded
+    // from the magazine under each. Each tube is marked with the kind it
+    // holds.
+    missiles: {
+      kinds: {
+        vulcan: {
+          name: 'P-1000 Vulcan (SS-N-12 Sandbox)', short: 'VULCAN', code: 'v', role: 'surface', launch: 'tube', rounds: 16,
+          launchers: 8, note: '16 in 8 twin tubes',
+          // Better than twice the speed of sound, a long way, and a very heavy
+          // warhead: what a cruiser carries to sink a carrier.
+          speed: 760, range: 50000, cruise: 14, turn: 0.45,
+          damage: 9800, fire: 0.6, hp: 1, interval: 2.5, raise: 0,
+          length: 11.7, popUp: 0,
+        },
+        s300: {
+          name: 'S-300F Fort (SA-N-6 Grumble)', short: 'S-300F', code: 'f', role: 'sam', launch: 'tube', rounds: 64,
+          launchers: 8, note: '64 in 8 revolving launchers of 8',
+          speed: 1300, range: 75000, cruise: 900, turn: 1.3, damage: 0, hp: 1, interval: 3.0,
+          length: 7.25, kill: 22, pk: 0.8, air: true,
+        },
+        osa: {
+          name: '9M33 OSA-M (SA-N-4 Gecko)', short: 'OSA-M', code: 'm', role: 'sam', launch: 'rail', rounds: 40,
+          note: '40 for 2 twin-arm launchers',
+          speed: 520, range: 10000, cruise: 500, turn: 1.8, damage: 0, hp: 1, interval: 4.0,
+          length: 3.16, kill: 10, pk: 0.65, air: true,
+        },
+      },
+      // [across, up, along, bearing, elevation, kind]. The mouths of her
+      // sixteen Vulcan tubes, as the model draws them (SLAVA_VULCAN in
+      // slavaHull.data.js), each pointed forward and cocked fifteen degrees
+      // up; and under each of her eight S-300F hatches (SLAVA_S300), the eight
+      // rounds of its drum, each going straight up out of it.
+      tubes: [
+        ...[52.523, 41.29, 30.058, 18.826].flatMap((z) => [8.729, 6.274, -6.325, -8.78].map((x) => [x, 13.435, z, 0, 0.262, 'vulcan'])),
+        ...[[3.142, -34.894], [-3.154, -34.894], [3.142, -38.88], [-3.154, -38.88],
+          [3.142, -42.867], [-3.154, -42.867], [3.142, -46.853], [-3.154, -46.853]]
+          .flatMap(([x, z]) => Array.from({ length: 8 }, () => [x, 9.2, z, 0, Math.PI / 2 - 0.02, 's300'])),
+      ],
+      tubeElev: 0.262,
+      // The tops of her two OSA-M launchers, [across, up, along, stowed
+      // bearing] (SLAVA_OSA): either side of her hangar, stowed outboard.
+      rails: [[5.68, 12.218, -63.941, Math.PI / 2], [-5.618, 12.218, -63.941, -Math.PI / 2]],
+      // What her own fire control is called, on the switch that holds it.
+      fcs: 'SAM',
+    },
+    planes: null,
+    datasheet: {
+      displacement: 11490,
+      aircraft: 0,
+      mainRounds: 2000,
+      torpedoesCarried: 0,
+      secondary: null,
+      tertiary: [
+        { caliber: 30, label: 'AK-630 CIWS', barrels: 36, mounts: 6, rounds: 18000 },
+        { caliber: 212, label: 'RBU-6000', barrels: 12, mounts: 2, rounds: 96 },
+      ],
+      missiles: [
+        { label: 'P-1000 Vulcan (SS-N-12 Sandbox)', rounds: 16 },
+        { label: 'S-300F Fort (SA-N-6)', rounds: 64 },
+        { label: '9M33 OSA-M (SA-N-4)', rounds: 40 },
+      ],
+    },
+  },
+
   burke: {
     // USS Arleigh Burke (DDG-51), the first of the US Navy's guided-missile
     // destroyers of her name, armed as the owner asked: a single 5-inch/54
@@ -11128,7 +11313,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano'];
 
@@ -11136,10 +11321,10 @@ export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovrem
  * The yard's list split by era, for the choice the ship icon offers before the
  * yard opens: the war's hulls, or the missile age's. A hull is modern if she
  * sails as she was after 1945 (Missouri as recommissioned in 1991, Leviathan, the
- * Ticonderoga, the Guangzhou, the Sovremenny and the Arleigh Burke); everything
+ * Ticonderoga, the Guangzhou, the Sovremenny, the Slava and the Arleigh Burke); everything
  * else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'burke', 'ticonderoga', 'leviathan', 'missouri']);
+export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'burke', 'ticonderoga', 'leviathan', 'missouri']);
 export const WWII_ORDER = SHIP_ORDER.filter((id) => !MODERN_SHIPS.has(id));
 export const MODERN_ORDER = SHIP_ORDER.filter((id) => MODERN_SHIPS.has(id));
 

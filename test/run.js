@@ -174,6 +174,10 @@ import { buildSovremenny } from '../client/js/render/sovremenny.js';
 import { buildMutsu } from '../client/js/render/mutsu.js';
 import { mutsuSurfaceY, MOUNT_SEATS as MUTSU_SEATS } from '../client/js/render/mutsuHull.js';
 import { sovremennySurfaceY, MOUNT_SEATS as SOV_SEATS } from '../client/js/render/sovremennyHull.js';
+import { buildSlava } from '../client/js/render/slava.js';
+import { slavaSurfaceY, MOUNT_SEATS as SLAVA_SEATS } from '../client/js/render/slavaHull.js';
+import { AK630 } from '../client/js/render/ak630.data.js';
+import { decodePiece as decodeSculptPiece } from '../client/js/render/sculpt.js';
 import { burkeSurfaceY, MOUNT_SEATS as BURKE_SEATS } from '../client/js/render/burkeHull.js';
 import {
   buildTillman, shellAt as tillmanShellAt, keelY as tillmanKeel, deckOver as tillmanSheer, zAt as tillmanZAt,
@@ -3593,12 +3597,12 @@ check("the Guangzhou's shell has no holes in it", () => {
   assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
 });
 
-check('the USS Arleigh Burke is commissioned after the Sovremenny, in the Modern yard, armed as the owner asked', () => {
+check('the USS Arleigh Burke is commissioned after the Slava, in the Modern yard, armed as the owner asked', () => {
   const i = SHIP_ORDER.indexOf('burke');
   assert.ok(i >= 0, 'the Burke is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'sovremenny', `before the Burke comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 1], 'slava', `before the Burke comes ${SHIP_ORDER[i - 1]}`);
   const m = MODERN_ORDER.indexOf('burke');
-  assert.ok(m > 0 && MODERN_ORDER[m - 1] === 'sovremenny', 'she is not in the Modern yard after the Sovremenny');
+  assert.ok(m > 0 && MODERN_ORDER[m - 1] === 'slava', 'she is not in the Modern yard after the Slava');
   assert.ok(!WWII_ORDER.includes('burke'), 'she is in the Second World War yard');
   const cls = SHIP_CLASSES.burke;
   assert.equal(cls.fullName, 'USS Arleigh Burke (DDG-51)');
@@ -3653,12 +3657,12 @@ check('the Credits screen credits the model the Arleigh Burke is drawn from', ()
   assert.ok(screen.includes('https://skfb.ly/o7TNV') && screen.includes('Yi Tsung Lee'), 'the credit is not as its licence asks');
 });
 
-check('the RF Sovremenny is commissioned before the Arleigh Burke, in the Modern yard, armed as the owner asked', () => {
+check('the RF Sovremenny is commissioned before the Slava, in the Modern yard, armed as the owner asked', () => {
   const i = SHIP_ORDER.indexOf('sovremenny');
   assert.ok(i >= 0, 'the Sovremenny is not in the yard');
-  assert.equal(SHIP_ORDER[i + 1], 'burke', `after the Sovremenny comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'slava', `after the Sovremenny comes ${SHIP_ORDER[i + 1]}`);
   const m = MODERN_ORDER.indexOf('sovremenny');
-  assert.ok(m >= 0 && MODERN_ORDER[m + 1] === 'burke', 'she is not in the Modern yard before the Arleigh Burke');
+  assert.ok(m >= 0 && MODERN_ORDER[m + 1] === 'slava', 'she is not in the Modern yard before the Slava');
   assert.ok(!WWII_ORDER.includes('sovremenny'), 'she is in the Second World War yard');
   const cls = SHIP_CLASSES.sovremenny;
   assert.equal(cls.fullName, 'RF Sovremenny');
@@ -3722,6 +3726,103 @@ check('the Credits screen credits the model the Sovremenny is drawn from', () =>
   const screen = html.slice(html.indexOf('id="screen-credits"'));
   assert.ok(screen.includes('Sovremenny-class destroyer'), 'the model is not credited');
   assert.ok(screen.includes('https://skfb.ly/pBN6X') && screen.includes('SB-129'), 'the credit is not as its licence asks');
+});
+
+check('the RF Slava is commissioned after the Sovremenny, in the Modern yard, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('slava');
+  assert.ok(i >= 0, 'the Slava is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'sovremenny', `before the Slava comes ${SHIP_ORDER[i - 1]}`);
+  const m = MODERN_ORDER.indexOf('slava');
+  assert.ok(m > 0 && MODERN_ORDER[m - 1] === 'sovremenny', 'she is not in the Modern yard after the Sovremenny');
+  assert.ok(!WWII_ORDER.includes('slava'), 'she is in the Second World War yard');
+  const cls = SHIP_CLASSES.slava;
+  assert.equal(cls.fullName, 'RF Slava');
+  assert.equal(cls.nation, 'sov');
+  // One twin AK-130, dual-purpose.
+  assert.equal(cls.turrets.length, 1);
+  assert.equal(cls.turrets[0].guns, 2);
+  assert.equal(cls.gun.caliber, 130);
+  assert.match(cls.gun.name, /AK-130/);
+  assert.equal(cls.gun.role, 'dp');
+  // Six AK-630s, which stop missiles.
+  const ciws = cls.aa.guns.filter((g) => g.ciws);
+  assert.equal(ciws.length, 1);
+  assert.match(ciws[0].name, /AK-630/);
+  assert.equal(ciws[0].mounts.length, 6);
+  // Two six-barrelled RBU-6000s.
+  assert.equal(cls.rbu.name, 'RBU-6000');
+  assert.equal(cls.rbu.tubes, 6);
+  assert.equal(cls.rbu.mounts.length, 2);
+  // Sixteen Vulcans, sixty-four S-300Fs and forty OSA-Ms, both of those at
+  // aeroplanes and missiles alike.
+  const K = cls.missiles.kinds;
+  assert.match(K.vulcan.name, /P-1000 Vulcan/);
+  assert.equal(K.vulcan.rounds, 16);
+  assert.equal(K.vulcan.role, 'surface');
+  assert.equal(cls.missiles.tubes.filter((t) => t[5] === 'vulcan').length, 16);
+  assert.match(K.s300.name, /S-300F/);
+  assert.equal(K.s300.rounds, 64);
+  assert.equal(cls.missiles.tubes.filter((t) => t[5] === 's300').length, 64);
+  assert.match(K.osa.name, /OSA-M/);
+  assert.equal(K.osa.rounds, 40);
+  assert.equal(K.osa.launch, 'rail');
+  assert.equal(cls.missiles.rails.length, 2);
+  for (const k of ['s300', 'osa']) {
+    assert.equal(K[k].role, 'sam', `her ${k} does not go up at the sky`);
+    assert.ok(K[k].air, `her ${k} does not go for aeroplanes`);
+  }
+  assert.deepEqual(samKinds(cls).sort(), ['osa', 's300']);
+  assert.equal(cls.torpedoes, null);
+  const built = buildSlava();
+  assert.equal(built.turrets.length, 1);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  assert.equal(built.rbuMounts.length, 2);
+  for (const [kind, list] of Object.entries(SLAVA_SEATS)) {
+    for (const st of list) {
+      let top = -99;
+      for (let r = 0; r <= 3; r += 0.5) {
+        for (let a = 0; a < 8; a++) top = Math.max(top, slavaSurfaceY(st.x + r * Math.sin(a), st.z + r * Math.cos(a)));
+      }
+      assert.ok(top > st.y - 1.5, `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over nothing (${top})`);
+    }
+  }
+});
+
+check("the Slava's AK-630s are the owner's AK-630 model: the turret alone, off its pedestal", () => {
+  // A gunhouse under a metre tall and under two across, its barrels out in
+  // front of it -- nothing of the cone, the rail or the deck it stood on.
+  const P = decodeSculptPiece(AK630.house).attributes.position.array;
+  let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < P.length; i++) { lo[i % 3] = Math.min(lo[i % 3], P[i]); hi[i % 3] = Math.max(hi[i % 3], P[i]); }
+  assert.ok(lo[1] > -0.05 && hi[1] < 1.0, `the gunhouse runs ${lo[1].toFixed(2)}..${hi[1].toFixed(2)} m up`);
+  assert.ok(hi[0] - lo[0] < 2.0, `the gunhouse is ${(hi[0] - lo[0]).toFixed(2)} m across`);
+  assert.ok(AK630.muzzles[0][2] > 0.5, 'its barrels do not stand out in front of it');
+  const built = buildSlava();
+  for (const m of built.aaMounts) {
+    const houses = m.children.filter((o) => o.isMesh);
+    assert.ok(houses.some((o) => o.geometry.attributes.position.count === decodeSculptPiece(AK630.house).attributes.position.count),
+      'an AK-630 of hers is not the owner\'s model');
+  }
+});
+
+check('the Slava fires each missile out of its own tubes: Vulcans forward, S-300Fs straight up', () => {
+  const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(state, { name: 'S', classId: 'slava', team: 0, index: 0 });
+  const e = addShip(state, { name: 'E', classId: 'fletcher', team: 1, index: 0 });
+  s.x = 0; s.z = 0; s.heading = 0; e.x = 0; e.z = 20000; e.spottedBy = { 0: true };
+  const v = fireMissile(state, s, 'vulcan', e.id);
+  assert.ok(v, 'no Vulcan went');
+  assert.equal(SHIP_CLASSES.slava.missiles.tubes[v.from][5], 'vulcan', 'a Vulcan left a tube that is not a Vulcan\'s');
+  assert.ok(v.pitch < 0.4, 'the Vulcan did not leave its tube cocked forward');
+  assert.equal(s.missiles.left.vulcan, 15);
+  assert.equal(s.missiles.left.s300, 64, 'firing a Vulcan spent an S-300F');
+});
+
+check('the Credits screen credits the model the Slava is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  assert.ok(screen.includes('Project 1164'), 'the model is not credited');
+  assert.ok(screen.includes('KlyushnikovAI'), 'the credit is not as its licence asks');
 });
 
 check('the IJN Mutsu is commissioned after the Fuso, in the Second World War yard, armed as she was built', () => {

@@ -13,7 +13,7 @@ import { MISSILE_SHAPES } from './render/missiles.js';
 
 /** The key each missile is fired on, by kind (see onKey in game.js). */
 export const MISSILE_KEYS = {
-  tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y', sunburn: 'V', uragan: 'I',
+  tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y', sunburn: 'V', uragan: 'I', vulcan: 'V', s300: 'O', osa: 'I',
 };
 import {
   worksTargets, townTargetId, wallTargetId, wallSections, sectionSpan, wallDamage, cityToWorld,
@@ -236,8 +236,8 @@ export function arsenal(cls) {
     const cells = M.vls ? M.vls.cells.length : 0;
     Object.entries(M.kinds).forEach(([kind, K], slot) => {
       const launch = K.launch || (kind === 'tomahawk' ? 'box' : 'tube');
-      const launchers = launch === 'box' ? M.boxes.length : launch === 'vls' ? 2 : launch === 'rail' ? M.rails.length
-        : Math.round(M.tubes.length / 4);
+      const launchers = K.launchers || (launch === 'box' ? M.boxes.length : launch === 'vls' ? 2 : launch === 'rail' ? M.rails.length
+        : Math.round(M.tubes.filter((t) => !t[5] || t[5] === kind).length / 4));
       const role = K.role === 'sam' || K.role === 'abm' ? 'aa' : K.role === 'asroc' ? 'sub' : 'surface';
       rows.push({
         name: K.name,
@@ -249,10 +249,10 @@ export function arsenal(cls) {
         role,
         pen: null,
         band: 'Missiles',
-        note: launch === 'box' ? `${K.rounds} in ${launchers} armoured box launchers`
+        note: K.note || (launch === 'box' ? `${K.rounds} in ${launchers} armoured box launchers`
           : launch === 'vls' ? `${K.rounds} as sailed, in her ${cells}-cell Mk 41 VLS (loaded in the yard)`
             : launch === 'rail' ? `${K.rounds} for ${launchers} single-arm launchers`
-              : `${K.rounds} in ${launchers} quadruple canisters`,
+              : `${K.rounds} in ${launchers} quadruple canisters`),
         missile: kind,
         vls: launch === 'vls',
         slot,
