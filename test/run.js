@@ -12061,7 +12061,12 @@ check('an aeroplane in the air is flying on her wings', () => {
     const b = geo.boundingBox;
     const s = b.max.x - b.min.x;
     const len = b.max.z - b.min.z;
-    assert.ok(s > len * 0.9, `the ${key} in the air is ${s.toFixed(1)} m across and ${len.toFixed(1)} m long`);
+    // A jet is longer than she is wide -- a Hornet is 12.3 m across and
+    // 17.1 m long -- so hers is held to two thirds of her length.
+    // And a helicopter flies on her rotor, not on wings: there is none to measure.
+    if (AERO[key] && AERO[key].rotor) continue;
+    const want = AERO[key] && AERO[key].jet ? 0.65 : 0.9;
+    assert.ok(s > len * want, `the ${key} in the air is ${s.toFixed(1)} m across and ${len.toFixed(1)} m long`);
   }
 });
 
