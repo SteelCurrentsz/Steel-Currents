@@ -1009,7 +1009,9 @@ export class LayoutMap {
         const dh = Math.hypot(p.x - hx, p.y - hy);
         if (dh < HANDLE_R + 8 && dh < bestD) { best = { t, mode: 'turn' }; bestD = dh; }
         const db = Math.hypot(p.x - s.x, p.y - s.y);
-        if (db < this.bodyR(t) + 8 && db < bestD) { best = { t, mode: 'move' }; bestD = db; }
+        // Ties go to the one on top -- the last drawn -- so a counter lying
+        // over another can always be picked back up.
+        if (db < this.bodyR(t) + 8 && db <= bestD) { best = { t, mode: 'move' }; bestD = db; }
       }
       return best;
     };
@@ -1048,6 +1050,9 @@ export class LayoutMap {
       const town = !hit ? this.onTown(p) : null;
       // Nothing under the finger: the chart itself is dragged instead.
       this.drag = hit || town || { mode: 'pan', from: p };
+      // Where a tank was picked up from, to go back to if it is let go over a
+      // landing craft that cannot take it.
+      if (hit && hit.t.tank) hit.from = { x: hit.t.x, z: hit.t.z, craft: hit.t.craft, slot: hit.t.slot };
       if (hit) {
         // The one being moved is drawn last, so it is on top of whatever it is
         // being dragged over.
@@ -1139,6 +1144,13 @@ export class LayoutMap {
           d.t.slot = c.slot;
         } else if (c) {
           this.flash = `${c.t.name} cannot carry a ${d.t.name}${tankRoom(SHIP_CLASSES[c.t.classId], d.t.classId) ? ': her well is full' : ''}.`;
+          // Back where it came from.
+          if (d.from) {
+            d.t.x = d.from.x;
+            d.t.z = d.from.z;
+            d.t.craft = d.from.craft;
+            d.t.slot = d.from.slot;
+          }
         }
         this.check(d.t);
       }

@@ -11925,7 +11925,7 @@ export const SHIP_CLASSES = {
     typeName: 'Landing Craft',
     nation: 'usa',
     blurb: 'One tank, or as many men as her well will hold. Run her up the beach, the ramp drops, and her load goes ashore. No guns, and no going back.',
-    hull: { funnels: [[3.6, -7.0, 6.0]], length: 22, beam: 9.5, draft: 1.2, superstructure: 0.5, heavePeriod: 2.6 },
+    hull: { funnels: [[3.6, -7.0, 6.0]], length: 22, beam: 9.5, draft: 1.6, superstructure: 0.5, heavePeriod: 2.6 },
     hp: 2600,
     maxSpeed: 9 * KNOTS,
     reverseSpeed: 4 * KNOTS,
