@@ -27,7 +27,7 @@ import {
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
   siteBattery, batteryPad, afloatAt, seabedRoom,
   commandBattery, pinBattery, layBattery, triggerBattery, readTrack, predictTrack, PLOT_WATCH,
-  trainBattery, orderAttack, embarkTank, driveTank, tankGround,
+  trainBattery, orderAttack, embarkTank, driveTank, tankGround, TANK_MAX_GRADE,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
@@ -35,6 +35,7 @@ import {
   TANKS, TANK_ORDER, isTank, tankRoom,
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
+import { TANK_ARMOUR, tankStrike } from '../shared/tankarmor.js';
 import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER, CIVIL_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { layMine, troopsFor } from '../shared/sim.js';
@@ -4423,7 +4424,7 @@ check('a Higgins boat run up on a beach drops her ramp the moment she takes it, 
   assert.ok(!SHIP_CLASSES.fletcher.ramp && !SHIP_CLASSES.fletcher.beaches);
 });
 
-check('the Landing Craft Mechanized comes after the Higgins boat, carries one tank or a load of soldiers, and no guns', () => {
+check('the Landing Craft Mechanized comes after the Higgins boat, carries two tanks and a load of soldiers, and no guns', () => {
   const cls = SHIP_CLASSES.lcm;
   assert.equal(cls.name, 'Landing Craft Mechanized');
   assert.equal(SHIP_ORDER.indexOf('lcm'), SHIP_ORDER.indexOf('higgins') + 1, 'she does not come after the Higgins boat');
@@ -4431,7 +4432,7 @@ check('the Landing Craft Mechanized comes after the Higgins boat, carries one ta
   assert.equal(cls.turrets.length, 0, 'she has guns');
   assert.equal(lightMounts(cls).length, 0, 'she has light guns');
   assert.ok(cls.ramp && cls.beaches, 'she has no ramp to put her load out over');
-  assert.equal(tankRoom(cls, 'sherman'), 1, 'she does not take exactly one Sherman');
+  assert.equal(tankRoom(cls, 'sherman'), 2, 'she does not take two Shermans');
   assert.ok(cls.cargo.adjustable && cls.cargo.troops > 36, 'she does not carry soldiers in place of it');
   // The Higgins boat cannot take a Sherman, nor can anything without a ramp.
   assert.equal(tankRoom(SHIP_CLASSES.higgins, 'sherman'), 0, 'a Higgins boat carries a Sherman');
@@ -4463,12 +4464,18 @@ check('a Sherman is a tank, not a coast battery: chosen from its own list, and d
   assert.ok(buildSnapshot(st, 0).batteries.find((g) => g.i === bat.id).sp > 0, 'nobody can see it moving');
 });
 
-check('a Sherman loaded into a Landing Craft Mechanized goes ashore over her ramp, and she stays on the beach', () => {
+check('two Shermans loaded into a Landing Craft Mechanized go ashore over her ramp, and she stays on the beach', () => {
   const { st, s } = beachRun('lcm');
   const t = addBattery(st, { batteryId: 'sherman', team: 0, x: s.x, z: s.z });
+  const t2 = addBattery(st, { batteryId: 'sherman', team: 0, x: s.x, z: s.z });
   const spare = addBattery(st, { batteryId: 'sherman', team: 0, x: s.x, z: s.z });
   assert.ok(embarkTank(st, t, s, 0), 'she would not take a Sherman');
-  assert.ok(!embarkTank(st, spare, s, 0), 'she took two');
+  assert.ok(!embarkTank(st, spare, s, 0), 'she took two into one place');
+  assert.ok(embarkTank(st, t2, s, 1), 'she would not take a second Sherman behind the first');
+  assert.ok(!embarkTank(st, spare, s, 2), 'she took three');
+  // The two of them fit in her well, nose to tail and clear of each other.
+  const sl = SHIP_CLASSES.lcm.cargo.vehicles.slots;
+  assert.ok(Math.abs(sl[0][1] - sl[1][1]) > TANKS.sherman.tank.length + 0.2, 'the two tanks overlap');
   const higgins = addShip(st, { name: 'H', classId: 'higgins', team: 0, index: 1 });
   assert.ok(!embarkTank(st, spare, higgins, 0), 'a Higgins boat took a Sherman');
   assert.equal(buildSnapshot(st, 0).batteries.find((g) => g.i === t.id).ab, s.id, 'nobody can see it is aboard');
@@ -4477,14 +4484,227 @@ check('a Sherman loaded into a Landing Craft Mechanized goes ashore over her ram
     if (!s.rampDown) assert.ok(t.aboard === s.id && Math.hypot(t.x - s.x, t.z - s.z) < 15, 'it fell out of her');
   }
   assert.ok(s.rampDown, 'she never dropped her ramp');
-  for (let i = 0; i < 30 * 30; i++) step(st, 1 / 30);
+  // Driven out down the ramp, not put down on the beach all at once.
+  let jump = 0;
+  let last = { x: t.x, z: t.z };
+  for (let i = 0; i < 30 * 40; i++) {
+    step(st, 1 / 30);
+    if (t.alive) jump = Math.max(jump, Math.hypot(t.x - last.x, t.z - last.z) - Math.hypot(s.x - s.x, 0));
+    last = { x: t.x, z: t.z };
+  }
+  assert.ok(jump < 1, `it jumped ${jump.toFixed(1)} m in a tick coming off her`);
   assert.ok(!t.aboard, 'it never came off her');
+  assert.ok(!t2.aboard, 'the second one never came off her');
   assert.ok(t.alive);
   assert.ok(tankGround(st.world, t.x, t.z) > -1, 'it went off her into deep water');
   const at = { x: s.x, z: s.z };
   s.notch = 0;
   for (let i = 0; i < 30 * 20; i++) step(st, 1 / 30);
   assert.ok(Math.hypot(s.x - at.x, s.z - at.z) < 2, 'she left the beach');
+});
+
+check('a tank steered right turns to the right on the screen: its heading falls', () => {
+  const world = generateWorld(77, 'archipelago');
+  const st = createState(world, { mode: 'deathmatch' });
+  const land = world.islands.find((i) => groundHeight(world, i.x, i.z) > 5);
+  const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: land.x, z: land.z, heading: 0 });
+  commandBattery(st, bat, 99);
+  driveTank(st, bat, 0, 1);
+  for (let i = 0; i < 30 * 2; i++) step(st);
+  assert.ok(bat.heading < -0.1, `steered right, its heading went to ${bat.heading.toFixed(2)}`);
+  driveTank(st, bat, 0, -1);
+  const was = bat.heading;
+  for (let i = 0; i < 30 * 3; i++) step(st);
+  assert.ok(bat.heading > was + 0.1, 'steered left, it did not come back the other way');
+});
+
+check('a tank climbs a bank steeper than forty-five degrees, and is slowed by it', () => {
+  assert.ok(TANK_MAX_GRADE > 1, `it will climb only ${TANK_MAX_GRADE} in 1`);
+});
+
+check('a tank nobody has taken drives itself at the enemy and fights', () => {
+  const world = generateWorld(77, 'archipelago');
+  const st = createState(world, { mode: 'deathmatch' });
+  // Two tanks across the biggest island from each other.
+  const land = world.islands.reduce((p, q) => ((q.r || 0) > (p.r || 0) ? q : p));
+  const spot = (th) => {
+    for (let r = land.r * 0.7; r > 50; r -= 20) {
+      const x = land.x + Math.sin(th) * r;
+      const z = land.z + Math.cos(th) * r;
+      if (tankGround(world, x, z) > 2) return { x, z };
+    }
+    return null;
+  };
+  const mine = spot(0);
+  const far = spot(Math.PI);
+  assert.ok(mine && far, 'no ground for the tanks');
+  const a = addBattery(st, { batteryId: 'sherman', team: 0, x: mine.x, z: mine.z, heading: 0 });
+  const e = addBattery(st, { batteryId: 'sherman', team: 1, x: far.x, z: far.z, heading: 0 });
+  const d0 = Math.hypot(a.x - e.x, a.z - e.z);
+  let fired = false;
+  let moved = 0;
+  let lx = a.x;
+  let lz = a.z;
+  for (let i = 0; i < 30 * 150 && !fired; i++) {
+    step(st);
+    moved += Math.hypot(a.x - lx, a.z - lz);
+    lx = a.x;
+    lz = a.z;
+    if (a.lastFiredAt > 0 || e.lastFiredAt > 0) fired = true;
+    assert.ok(tankGround(world, a.x, a.z) > -TANKS.sherman.tank.wade, 'it drove into the sea');
+  }
+  assert.ok(moved > 30, `it went ${moved.toFixed(1)} m with an enemy across the island`);
+  assert.ok(fired, 'neither tank fired');
+  assert.ok(a.ai && a.ai.foe === e.id, 'it was not after the enemy tank');
+  assert.ok(Math.hypot(a.x - e.x, a.z - e.z) < d0, 'it did not close the range');
+});
+
+// A Sherman held still over open water, for shooting at: nothing between it
+// and the round but the plate.
+function tankRange() {
+  const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: 0, z: 0, heading: 0 });
+  bat.y = 20;
+  commandBattery(st, bat, 99);
+  return { st, bat };
+}
+
+/**
+ * Fire a round at it: from `brg` (radians, world bearing from the tank to
+ * the gun) at height `dy` over the tank's ground, having flown `range` metres
+ * (that is what it has lost of its penetration), going `down` metres a second.
+ */
+function shootTank(st, bat, { brg, dy = 1.4, range = 500, spec, cal = 75, down = 0, lat = 0 }) {
+  const v = spec.velocity || 619;
+  const sx = bat.x + Math.sin(brg) * 30 + Math.cos(brg) * lat;
+  const sz = bat.z + Math.cos(brg) * 30 - Math.sin(brg) * lat;
+  st.shells.push({
+    id: 900000 + st.shells.length + Math.floor(st.t * 1000), owner: 777, team: 1, fromBattery: true,
+    x: sx, y: bat.y + dy + down * (30 / v), z: sz,
+    vx: -Math.sin(brg) * v, vy: -down, vz: -Math.cos(brg) * v, g: 0,
+    spec: { ...spec, type: spec.type }, caliber: cal, classId: null, life: 0,
+    from: [bat.x + Math.sin(brg) * range, bat.z + Math.cos(brg) * range],
+  });
+  const ev = [];
+  for (let i = 0; i < 6; i++) ev.push(...step(st, 1 / 30));
+  return ev.find((e) => e.e === 'hit' && e.victim === bat.id);
+}
+
+check("a tank's armour is met where a round reaches it, at the angle it really meets it", () => {
+  const A = TANK_ARMOUR.sherman;
+  const bat = { x: 0, y: 0, z: 0, heading: 0, angle: 0 };
+  const at = (p0, p1) => tankStrike(bat, A, p0, p1);
+  const deg = (s) => (Math.acos(s.cos) * 180) / Math.PI;
+  // Square on from in front: the glacis, laid back fifty-six degrees.
+  let s = at({ x: 0, y: 1.5, z: 60 }, { x: 0, y: 1.5, z: -60 });
+  assert.equal(s.plates[0].k, 'glacis');
+  assert.ok(Math.abs(deg(s) - 56) < 1, `the glacis is met at ${deg(s).toFixed(1)} degrees`);
+  // Low on the side: the track and the bogies, then the hull side.
+  s = at({ x: -60, y: 0.6, z: 0 }, { x: 60, y: 0.6, z: 0 });
+  assert.deepEqual(s.plates.map((p) => p.k), ['trackR', 'side']);
+  // The turret, square on: the mantlet.
+  s = at({ x: 0, y: 2.3, z: 60 }, { x: 0, y: 2.3, z: -60 });
+  assert.equal(s.part, 'turret');
+  assert.equal(s.plates[0].k, 'mantlet');
+  // Turned to the beam, its side faces the same shot.
+  bat.angle = Math.PI / 2;
+  s = at({ x: 0, y: 2.3, z: 60 }, { x: 0, y: 2.3, z: -60 });
+  assert.equal(s.plates[0].k, 'tside');
+  bat.angle = 0;
+  // Angled forty-five degrees to the gun, the side is met at forty-five.
+  bat.heading = Math.PI / 4;
+  s = at({ x: 0.3, y: 1.5, z: 60 }, { x: 0.3, y: 1.5, z: -60 });
+  assert.ok(Math.abs(deg(s) - 45) < 2, `angled, the plate is met at ${deg(s).toFixed(1)}`);
+  // And nosed up a bank, the belly shows to a round coming level at it.
+  bat.heading = 0;
+  bat.pitch = 0.5;
+  s = at({ x: 0, y: 1.2, z: 60 }, { x: 0, y: 1.2, z: -60 });
+  assert.ok(deg(s) > 56 || s.plates[0].k === 'belly', 'a tank nosed up a bank is met the same way as one on the level');
+  // A round going past it is not a hit.
+  assert.equal(at({ x: 5, y: 1.5, z: 60 }, { x: 5, y: 1.5, z: -60 }), null);
+});
+
+check("a Sherman's own round goes through another's side, but not its glacis at a thousand metres", () => {
+  const ap = batteryGun('sherman').shells.ap;
+  let side = 0;
+  let front = 0;
+  for (let k = 0; k < 6; k++) {
+    const a = tankRange();
+    const h = shootTank(a.st, a.bat, { brg: Math.PI / 2, range: 500, spec: ap });
+    assert.ok(h, 'the round into its side never arrived');
+    if (h.kind === 'pen' || h.kind === 'overpen') side++;
+    const b = tankRange();
+    const f = shootTank(b.st, b.bat, { brg: 0, range: 1000, spec: ap, dy: 1.5 });
+    assert.ok(f, 'the round into its front never arrived');
+    if (f.kind === 'pen' || f.kind === 'overpen') front++;
+    assert.equal(f.pl, undefined, 'a tank hit carries a penetration-camera walk');
+  }
+  assert.equal(side, 6, `${side} of 6 into the side got through`);
+  assert.equal(front, 0, `${front} of 6 into the glacis at a thousand metres got through`);
+  // Point blank, the glacis goes too: 91 mm against its 91 mm in line of fire.
+  let close = 0;
+  for (let k = 0; k < 6; k++) {
+    const b = tankRange();
+    const f = shootTank(b.st, b.bat, { brg: 0, range: 20, spec: { ...ap, pen: 110 }, dy: 1.5 });
+    if (f && (f.kind === 'pen' || f.kind === 'overpen')) close++;
+  }
+  assert.ok(close >= 5, `a 110 mm round through the glacis ${close} of 6 times`);
+});
+
+check('what a round does inside a tank is what it reaches: the engine stops it, the crew silence it', () => {
+  const ap = batteryGun('sherman').shells.ap;
+  // Into the engine room, from astern.
+  let stopped = 0;
+  for (let k = 0; k < 5; k++) {
+    const { st, bat } = tankRange();
+    const h = shootTank(st, bat, { brg: Math.PI, range: 300, spec: ap, dy: 1.1 });
+    assert.ok(h && h.kind === 'pen', `from astern it was ${h?.kind}`);
+    if (bat.tk.parts.engine >= 0.5) stopped++;
+    step(st, 1 / 30);
+    if (bat.tk.parts.engine >= 1) {
+      driveTank(st, bat, 1, 0);
+      for (let i = 0; i < 60; i++) step(st, 1 / 30);
+      assert.ok(Math.hypot(bat.x, bat.z) < 0.5, 'it drove off with its engine wrecked');
+    }
+  }
+  assert.ok(stopped >= 4, `the engine was reached ${stopped} of 5 times`);
+  // Into the turret side: the men in it.
+  let men = 0;
+  for (let k = 0; k < 5; k++) {
+    const { st, bat } = tankRange();
+    shootTank(st, bat, { brg: -Math.PI / 2, range: 300, spec: ap, dy: 2.2 });
+    if (['gunner', 'commander', 'loader'].some((q) => bat.tk.parts[q] >= 1)) men++;
+  }
+  assert.ok(men >= 3, `a round through the turret killed nobody in it ${5 - men} of 5 times`);
+});
+
+check('a round low into the running gear breaks a track, and the crew put it back on', () => {
+  const he = batteryGun('sherman').shells.he;
+  const { st, bat } = tankRange();
+  for (let k = 0; k < 4 && bat.tk.parts.trackR < 1; k++) shootTank(st, bat, { brg: -Math.PI / 2, range: 300, spec: he, dy: 0.6 });
+  assert.ok(bat.tk.parts.trackR >= 1, 'the track is still on');
+  assert.ok(bat.alive, 'a track hit knocked it out');
+  driveTank(st, bat, 1, 0);
+  for (let i = 0; i < 30 * 3; i++) step(st, 1 / 30);
+  assert.ok(Math.hypot(bat.x, bat.z) < 0.5, 'it drove on a broken track');
+  assert.ok(buildSnapshot(st, 0).batteries.find((g) => g.i === bat.id).td[0] & 8, 'its own side is not told the track is off');
+  for (let i = 0; i < 30 * 25; i++) step(st, 1 / 30);
+  assert.ok(bat.tk.parts.trackR < 1, 'the crew never put the track back on');
+});
+
+check('a battleship shell is the end of a tank, and a machine gun is nothing to it', () => {
+  const big = { ...SHIP_CLASSES.iowa.gun.shells.ap, type: 'ap' };
+  const { st, bat } = tankRange();
+  const h = shootTank(st, bat, { brg: 0.3, range: 15000, spec: big, cal: 406, dy: 1.5 });
+  assert.ok(h, 'it was not hit');
+  for (let i = 0; i < 30 * 12; i++) step(st, 1 / 30);
+  assert.ok(!bat.alive, 'a sixteen-inch shell left it fighting');
+  const b = tankRange();
+  const hp = b.bat.hp;
+  for (let i = 0; i < 20; i++) {
+    shootTank(b.st, b.bat, { brg: i * 0.3, range: 300, spec: { type: 'ap', pen: 25, damage: 30, caliber: 12.7, velocity: 850 }, cal: 12.7, dy: 1.5 });
+  }
+  assert.ok(b.bat.alive && b.bat.hp > hp * 0.97, `twenty half-inch rounds took it to ${b.bat.hp} of ${hp}`);
 });
 
 check('a tank in a landing craft that goes down goes down with her', () => {
@@ -14447,7 +14667,11 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // guns, abreast her bridge and round her mainmast, and every one of them
     // is masked from the wave tops dead ahead by her bridge and her forward
     // turrets. She fights an aeroplane on the beam.
-    const noBow = blindAhead || cls.id === 'agincourt';
+    //
+    // And the Higgins boat: her ramp stands up across her bow higher than the
+    // muzzles of her two Brownings aft, so the wave tops dead ahead are hidden
+    // from both. She fights an aeroplane off either bow and on the beam.
+    const noBow = blindAhead || cls.id === 'agincourt' || cls.id === 'higgins';
     assert.ok(only ? (ahead.barrels > 0 || beam.barrels > 0)
       : ((ahead.barrels > 0 || noBow) && beam.barrels > 0),
       `${cls.id} cannot shoot at an aeroplane at all`);
@@ -14623,8 +14847,10 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
   for (const cls of Object.values(SHIP_CLASSES)) {
     const rows = arsenal(cls);
     // A warship carries three kinds at least; a merchantman -- the Liberty
-    // ship's 4-inch and her Oerlikons -- may carry two.
-    assert.ok(rows.length >= (cls.cargo ? 2 : 3), `${cls.id} lists only ${rows.length} weapons`);
+    // ship's 4-inch and her Oerlikons -- may carry two, and a landing craft
+    // -- the Higgins boat's pair of Brownings -- one.
+    const least = cls.type === 'LC' ? 1 : cls.cargo ? 2 : 3;
+    assert.ok(rows.length >= least, `${cls.id} lists only ${rows.length} weapons`);
     for (const w of rows) {
       assert.ok(w.name && w.name.length > 2, `${cls.id} has an unnamed weapon`);
       assert.ok(ROLES.has(w.role), `${cls.id} ${w.name} may engage "${w.role}"`);
@@ -14635,7 +14861,10 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     // A light battery may be dual-purpose throughout -- the Leviathan's is all
     // 76 mm DP -- and is no less an anti-aircraft battery for it.
     const light = rows.filter((w) => w.band === 'Light battery' && (w.role === 'aa' || w.role === 'dp'));
-    assert.ok(light.length > 0, `${cls.id} has no anti-aircraft guns listed`);
+    // A landing craft has no light battery: the Higgins boat's two Brownings
+    // are her main battery, and dual-purpose -- they are her flak.
+    const flak = cls.type === 'LC' ? rows.filter((w) => w.role === 'dp') : light;
+    assert.ok(flak.length > 0, `${cls.id} has no anti-aircraft guns listed`);
     for (const t of cls.datasheet.tertiary || []) {
       // A calibre she carries in more than one kind of mounting -- the
       // Yukikaze's 25 mm, triples and singles -- is listed a row to a kind,
@@ -28499,6 +28728,20 @@ check('a battery put down in the town has the houses on its site pulled down, an
   assert.ok(!worksFloor(world, b.x, b.z).blocked, 'the cleared site is still in the way');
 });
 
+check('a tank put down in the town pulls down the house it was put on, and drives off', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const plan = cityPlan(world);
+  const b = plan.buildings.find((q) => q.kind === 'house') || plan.buildings[0];
+  const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: b.x, z: b.z });
+  assert.ok(world.ruin.b[b.id]?.c, 'the house was left standing round the tank');
+  assert.ok(!worksFloor(world, b.x, b.z).blocked, 'the cleared site is still in the way');
+  assert.ok(bat.y >= plan.level - 0.5, `the tank stands at ${bat.y} in a town at ${plan.level}`);
+  commandBattery(st, bat, 99);
+  for (let i = 0; i < 30 * 5; i++) step(st);
+  assert.ok(bat.alive);
+});
+
 check('a shell falling on a building bursts in it and knocks it about rather than digging a crater', () => {
   const world = islandTown();
   const st = createState(world, {});
@@ -29804,6 +30047,31 @@ function infantryField(seed = 77) {
   assert.ok(at, 'no dry ground on the field');
   return { world, st, at };
 }
+
+check('a soldier stands on the ground as it is drawn, not in the air over it', () => {
+  const { st, at } = infantryField();
+  for (let k = 0; k < 40; k++) {
+    const x = at.x + (k % 8) * 13.7 - 50, z = at.z + Math.floor(k / 8) * 17.3 - 40;
+    const d = drawnGround(st.world, x, z);
+    assert.ok(Math.abs(footing(st.world, x, z) - d) < 0.35, `he stands ${(footing(st.world, x, z) - d).toFixed(2)} m off the ground as drawn`);
+  }
+});
+
+check('a tank left to its crew goes forward with its own infantry', () => {
+  const { st, at } = infantryField();
+  const b = addBarracks(st, { team: 0, x: at.x, z: at.z, h: 0 });
+  assert.ok(b, 'no barracks');
+  const t = addBattery(st, { batteryId: 'sherman', team: 0, x: at.x - 110, z: at.z, heading: 0 });
+  const men = () => {
+    const m = st.soldiers.filter((s) => s.alive && s.team === 0);
+    return { x: m.reduce((a, s) => a + s.x, 0) / m.length, z: m.reduce((a, s) => a + s.z, 0) / m.length };
+  };
+  const d0 = Math.hypot(t.x - men().x, t.z - men().z);
+  for (let i = 0; i < 30 * 40; i++) step(st, 1 / 30);
+  const c = men();
+  const d1 = Math.hypot(t.x - c.x, t.z - c.z);
+  assert.ok(d1 < Math.max(60, d0 * 0.7), `it was ${d0.toFixed(0)} m from them and is ${d1.toFixed(0)} m now`);
+});
 
 check('a barracks puts fifty soldiers on the ground in squads of ten, on dry land, on its side', () => {
   const { st, at } = infantryField();

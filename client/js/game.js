@@ -33,7 +33,7 @@ import { stepLock, nextLock, lockLabel, rackLabel, hasRack } from './lockon.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE,
+  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE, RAMP_RUN,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -571,6 +571,42 @@ function unpackLamps(lp) {
 
 /** The kinds of hit that got into her and burst inside. */
 const PENETRATING_KINDS = new Set(['pen', 'citadel', 'overpen', 'he']);
+
+/** What a round on a tank is called, by the one who fired it and the one it struck. */
+const TANK_HIT = { pen: 'PENETRATION', overpen: 'OVERPENETRATION', he: 'HIT', blast: 'HIT', shatter: 'NO PENETRATION', ricochet: 'RICOCHET' };
+const TANK_TAKEN = { pen: 'Penetrated', overpen: 'Shot through', he: 'Hit', blast: 'Hit', shatter: 'Hit · no penetration', ricochet: 'Ricochet' };
+
+/** What broke in a tank, as one line: 'Gunner killed · Engine knocked out'. */
+function tankBroke(br) {
+  const men = { driver: 'Driver', codriver: 'Co-driver', gunner: 'Gunner', commander: 'Commander', loader: 'Loader' };
+  const parts = {
+    engine: 'Engine knocked out', transmission: 'Transmission wrecked', trackL: 'Left track off', trackR: 'Right track off',
+    breech: 'Gun knocked out', ring: 'Turret jammed', fuelL: 'Fuel tank holed', fuelR: 'Fuel tank holed',
+    ammoL: 'Ammunition hit', ammoR: 'Ammunition hit',
+  };
+  return [...new Set(br.map((k) => (men[k] ? `${men[k]} killed` : parts[k] || k)))].join(' · ');
+}
+
+/** What a tank's own crew report about it, off the snapshot's `td` (see tankReport in protocol.js). */
+function tankState(td, fi) {
+  if (!td) return [];
+  const [m, c, mend] = td;
+  const out = [];
+  if (fi === 2) out.push('AMMUNITION BURNING');
+  else if (fi) out.push('ON FIRE');
+  if (m & 1) out.push('Engine out');
+  else if (m & 64) out.push('Engine damaged');
+  if (m & 2) out.push('Transmission out');
+  if (m & 12) out.push(`${(m & 12) === 12 ? 'Both tracks' : (m & 4) ? 'Left track' : 'Right track'} off${mend ? ` · back on in ${mend} s` : ''}`);
+  if (m & 16) out.push('Gun out');
+  else if (m & 256) out.push('Gun damaged');
+  if (m & 32) out.push('Turret jammed');
+  else if (m & 128) out.push('Turret ring damaged');
+  let n = 0;
+  for (let b = c; b; b >>= 1) n += b & 1;
+  if (n < 5) out.push(`Crew ${n}/5`);
+  return out;
+}
 
 /**
  * How big the explosion of a round that got in is drawn, off the damage it
@@ -3145,7 +3181,39 @@ export class Battle {
           fx.explosion(ev.x, (ev.y || 0) + 6, ev.z, 1.6);
           audio.explosion(1.6, { x: ev.x, y: (ev.y || 0) + 6, z: ev.z });
           break;
+        case 'tankBrewUp':
+          // Its ammunition going up: the turret lifted off it on the flash.
+          fx.magazine(ev.x, (ev.y || 0) + 2, ev.z, 0.3);
+          fx.debris(ev.x, (ev.y || 0) + 2.5, ev.z, 12, 0.5);
+          audio.explosion(2.2, { x: ev.x, y: (ev.y || 0) + 2, z: ev.z });
+          if (this.commandBat && ev.id === this.commandBat.id) this.hud.ribbon('Ammunition explosion', 'miss');
+          break;
+        case 'tankHarm':
+          if (this.commandBat && ev.id === this.commandBat.id && ev.br?.length) {
+            this.hud.ribbon(tankBroke(ev.br), 'miss');
+            this.shake = Math.max(this.shake, 0.4);
+          }
+          break;
+        case 'tankMended':
+          if (this.commandBat && ev.id === this.commandBat.id) this.hud.ribbon('Track back on');
+          break;
         case 'hit': {
+          // A round on a tank: a flash and a puff where it struck, and a word
+          // for whoever fired it and whoever took it. There is no section to
+          // cut to and no plating to mark -- see shared/tankarmor.js.
+          if (ev.tank) {
+            fx.hit(ev.x, ev.y ?? 2, ev.z, PENETRATING_KINDS.has(ev.kind) ? 'pen' : 'shatter', Math.min(ev.cal || 75, 120));
+            audio.hit(ev.kind === 'blast' ? 'he' : ev.kind, ev.cal, { x: ev.x, y: ev.y ?? 2, z: ev.z });
+            const label = TANK_HIT[ev.kind] || 'HIT';
+            const what = ev.br?.length ? `  ${tankBroke(ev.br)}` : '';
+            const mine = ev.owner === this.shipId || (this.commandBat && ev.owner === this.commandBat.id);
+            if (mine) this.hud.ribbon(`${label}${what}`, (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
+            if (this.commandBat && ev.victim === this.commandBat.id) {
+              this.shake = Math.max(this.shake, PENETRATING_KINDS.has(ev.kind) ? 0.8 : 0.4);
+              this.hud.ribbon(`${TANK_TAKEN[ev.kind] || 'Hit'}${what}`, 'miss');
+            }
+            break;
+          }
           // A round that got into her goes off inside her: an explosion, as
           // big as the damage it did. One that did not get in is a flash and
           // a puff against her armour. Neither leaves a mark on the ship.
@@ -4882,24 +4950,104 @@ export class Battle {
     if (craft && slot) {
       const v = cls.cargo.vehicles;
       craft.group.updateMatrixWorld(true);
-      const p = new THREE.Vector3(slot[0], v.deck, slot[1]);
+      // Driving out: along her well, then down her ramp to the sand.
+      const out = prev && prev.ab === g.ab ? lerp(g.ox || 0, prev.ox || 0, t) : (g.ox || 0);
+      const lz = slot[1] + out;
+      const hinge = cls.ramp?.hinge ?? cls.hull.length * 0.5;
+      const p = new THREE.Vector3(slot[0], v.deck, Math.min(lz, hinge));
       craft.group.localToWorld(p);
-      grp.position.copy(p);
       craft.group.getWorldQuaternion(grp.quaternion);
+      if (lz > hinge) {
+        // Down the ramp, from her deck at the hinge to the ground at the
+        // foot of it, nose down; then on along the sand, level.
+        const w = this.scene.world;
+        const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(grp.quaternion);
+        fwd.y = 0;
+        fwd.normalize();
+        const run = lz - hinge;
+        const top = p.y;
+        p.x += fwd.x * run;
+        p.z += fwd.z * run;
+        const footX = p.x - fwd.x * Math.max(0, run - RAMP_RUN);
+        const footZ = p.z - fwd.z * Math.max(0, run - RAMP_RUN);
+        const foot = w ? drawnGround(w, footX, footZ) : top;
+        if (run < RAMP_RUN) {
+          p.y = top + (foot - top) * (run / RAMP_RUN);
+          grp.rotation.set(Math.atan2(top - foot, RAMP_RUN) * Math.min(1, run * 0.6), g.h, 0, 'YXZ');
+        } else {
+          p.y = w ? drawnGround(w, p.x, p.z) : foot;
+          grp.rotation.set(0, g.h, 0, 'YXZ');
+        }
+      }
+      grp.position.copy(p);
+      view.ride = null;
     } else {
       const x = prev && !prev.ab ? lerp(g.x, prev.x, t) : g.x;
       const z = prev && !prev.ab ? lerp(g.z, prev.z, t) : g.z;
       const y = prev && !prev.ab ? lerp(g.y, prev.y, t) : g.y;
       const h = prev && !prev.ab ? g.h + angleDelta(g.h, prev.h) * t : g.h;
       // Sat on the ground as it is drawn, so it is not half buried in a
-      // slope the simulation reads a little lower than the mesh.
+      // slope the simulation reads a little lower than the mesh -- and laid
+      // over to it: nose up a bank, down into a dip, and canted on a hillside
+      // it is driving across, read off the ground under each end of its
+      // tracks rather than the one point in the middle.
       const w = this.scene.world;
-      const gy = w ? Math.max(y, drawnGround(w, x, z)) : y;
-      grp.position.set(x, gy, z);
+      const T = BATTERIES[g.b]?.tank;
+      let gy = y;
+      let pitch = 0;
+      let roll = 0;
+      if (w) {
+        const L = (T?.length || 6) * 0.45;
+        const W = (T?.width || 2.6) * 0.45;
+        const sh = Math.sin(h);
+        const ch = Math.cos(h);
+        // The ground as drawn: on a hillside the true field can stand metres
+        // clear of the coarse mesh, and a tank sat on that floats.
+        const at = (px, pz) => drawnGround(w, px, pz);
+        const front = at(x + sh * L, z + ch * L);
+        const back = at(x - sh * L, z - ch * L);
+        // Screen right is a falling heading in this world.
+        const right = at(x - ch * W, z + sh * W);
+        const left = at(x + ch * W, z - sh * W);
+        pitch = Math.atan2(front - back, 2 * L);
+        roll = Math.atan2(left - right, 2 * W);
+        // What the simulation has it riding on above the ground itself --
+        // a kerb, a heap of rubble in a town -- it rides on here too.
+        const exact = Math.max(groundHeight(w, x, z), Math.min(0, drawnGround(w, x, z)));
+        const rise = clamp(y - exact, 0, 3);
+        gy = Math.max(drawnGround(w, x, z), (front + back + left + right) / 4) + rise;
+      }
+      // Eased into the new attitude over a tenth of a second or so, the way a
+      // hull on its suspension settles, rather than snapping to every change
+      // in the ground under it.
+      const now = performance.now();
+      const s = view.ride || (view.ride = { p: pitch, r: roll, y: gy, at: now });
+      const k = 1 - Math.exp(-Math.min(0.1, (now - s.at) / 1000) / 0.11);
+      s.at = now;
+      s.p += (pitch - s.p) * k;
+      s.r += (roll - s.r) * k;
+      // Up a step it rides up at once (never into the ground); down one it settles.
+      s.y = gy > s.y ? gy : s.y + (gy - s.y) * Math.min(1, k * 1.6);
+      grp.position.set(x, s.y, z);
       grp.quaternion.identity();
-      grp.rotation.set(0, h, 0);
+      grp.rotation.set(-s.p, h, s.r, 'YXZ');
     }
     if (g.al) for (const m of view.spin) m.rotation.y = ang;
+    // Burning and still fighting: smoke and flame off the engine deck. A
+    // wreck burns where it stands (see the battery views in the snapshot loop).
+    if (!g.ab && g.al && g.fi) {
+      const now = performance.now();
+      const every = g.fi === 2 ? 90 : 160;
+      if (!view.smokeAt || now - view.smokeAt > every) {
+        view.smokeAt = now;
+        const p = grp.position;
+        const fx = this.scene.effects;
+        const back = BATTERIES[g.b]?.tank?.length * 0.3 || 1.8;
+        const hx = p.x - Math.sin(g.h) * back;
+        const hz = p.z - Math.cos(g.h) * back;
+        fx.fire(hx, p.y + 2.2, hz, g.fi === 2 ? 0.7 : 0.35);
+      }
+    }
   }
 
   /** Is the thing being watched a flight or a squadron of ours we could fly? */
@@ -5397,6 +5545,7 @@ export class Battle {
     if (c.tank) {
       parts.unshift(g.ab ? 'In the landing craft · drives off when her ramp is down'
         : `${Math.round(Math.abs(g.sp || 0) * 3.6)} km/h${(g.sp || 0) < -0.1 ? ' astern' : ''}`);
+      parts.push(...tankState(g.td, g.fi));
     }
     if (g.cd > 0) parts.push(`Loading ${Math.ceil(g.cd)} s`);
     else parts.push('Loaded');

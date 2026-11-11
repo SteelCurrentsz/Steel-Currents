@@ -11864,11 +11864,13 @@ export const SHIP_CLASSES = {
     ramp: { hinge: 4.85 },
     // Her two Brownings, on their pintles in the gun cockpits aft, a side
     // each, where the model has them (see build/prepare-higgins-hull.mjs),
-    // resting on the bearing the model trains them to. Each fights forward
-    // over her well and out to its own beam and round astern on its own side.
+    // resting on the bearing the model trains them to. Each fights from just
+    // off her bow, out over her well, to its own beam and round astern on its
+    // own side. Dead ahead, low down, neither bears: her ramp stands up across
+    // her bow higher than their muzzles.
     turrets: [
-      { id: 0, name: 'Starboard gun', x: 0.98, z: -3.12, angle: 0.5, arc: 2.5, rest: 0.522, guns: 1, my: 2.55, open: true },
-      { id: 1, name: 'Port gun', x: -1.09, z: -3.23, angle: -0.5, arc: 2.5, rest: -1.049, guns: 1, my: 2.55, open: true },
+      { id: 0, name: 'Starboard gun', x: 0.98, z: -3.12, angle: 1.6, arc: 1.45, rest: 0.522, guns: 1, my: 2.55, open: true },
+      { id: 1, name: 'Port gun', x: -1.09, z: -3.23, angle: -1.6, arc: 1.45, rest: -1.049, guns: 1, my: 2.55, open: true },
     ],
     gun: {
       name: 'M1919 Browning Machine Gun', role: 'dp',
@@ -11892,7 +11894,11 @@ export const SHIP_CLASSES = {
     // Or one light vehicle -- a jeep, a 37 mm gun on its carriage -- in
     // place of the men: three and a half tons at the most, which is no
     // tank's weight (see tankRoom in batteries.js).
-    cargo: { troops: 36, adjustable: true, ready: false, vehicles: { tons: 3.6, deck: 1.0, slots: [[0, 1.0]] } },
+    cargo: {
+      troops: 36, adjustable: true, ready: false, vehicles: { tons: 3.6, deck: 1.0, slots: [[0, 1.0]] },
+      // The open floor of her well, where the men stand: see the LCM.
+      well: { deck: 1.1, areas: [[-0.9, 0.9, -0.6, 4.4]] },
+    },
     planes: null,
     datasheet: {
       displacement: 13,
@@ -11909,8 +11915,8 @@ export const SHIP_CLASSES = {
     // ramp for a bow, an open well down the length of her and her coxswain's
     // deckhouse along one side aft. She is run up the beach, her ramp goes
     // down the moment her bow takes the ground, and whatever is in her well
-    // -- one tank, or as many soldiers as can stand in it -- goes out over it
-    // onto the sand. She carries no guns at all, and once she has put her
+    // -- two tanks nose to tail, and as many soldiers as can stand round
+    // them -- goes out over it onto the sand. She carries no guns at all, and once she has put her
     // load ashore she stays where she is.
     //
     // She is drawn from the owner's model of her (see vehicles.js) -- "US
@@ -11924,7 +11930,7 @@ export const SHIP_CLASSES = {
     type: 'LC',
     typeName: 'Landing Craft',
     nation: 'usa',
-    blurb: 'One tank, or as many men as her well will hold. Run her up the beach, the ramp drops, and her load goes ashore. No guns, and no going back.',
+    blurb: 'Two tanks nose to tail, and as many men as her well will hold round them. Run her up the beach, the ramp drops, and her load goes ashore. No guns, and no going back.',
     hull: { funnels: [[3.6, -7.0, 6.0]], length: 22, beam: 9.5, draft: 1.6, superstructure: 0.5, heavePeriod: 2.6 },
     hp: 2600,
     maxSpeed: 9 * KNOTS,
@@ -11961,15 +11967,21 @@ export const SHIP_CLASSES = {
     torpedoes: null,
     secondary: null,
     aa: { range: 0, dps: 0, guns: [] },
-    // What she is for: one tank in her well, loaded on the order-of-battle
+    // What she is for: tanks in her well, loaded on the order-of-battle
     // chart (see tankRoom in batteries.js), standing at [across, along] in
-    // metres of her frame on her well deck `deck` metres up it -- or, in
-    // place of it, as many soldiers as her captain embarks in the yard.
+    // metres of her frame on her well deck `deck` metres up it. Her well is
+    // eighteen metres from her stern plate to her ramp and five and a half
+    // across between her side and her deckhouse, which is room for two
+    // Shermans nose to tail with a little to spare -- the front one first
+    // off. And as many soldiers as her captain embarks in the yard, standing
+    // in what is left of it (`well`: the open floor of it as rectangles
+    // [x0, x1, z0, z1] of her frame, `deck` metres up it).
     cargo: {
       troops: 150,
       adjustable: true,
       ready: false,
-      vehicles: { tons: 60, deck: 1.0, slots: [[-1.3, -1.5]] },
+      vehicles: { tons: 60, deck: 1.0, slots: [[-0.2, 3.6], [-0.9, -3.4]] },
+      well: { deck: 1.04, areas: [[-3.0, 2.0, -10.2, 3.4], [-2.3, 2.3, 3.4, 7.1]] },
     },
     planes: null,
     datasheet: {

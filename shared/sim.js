@@ -35,8 +35,11 @@ import {
 import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
   wallAt, hurtBuilding, hurtWall, wallHp, solidGround, solidAt, solidHit, buildingAt, worksTarget,
-  cityPlans,
+  cityPlans, worksFloor,
 } from './works.js';
+import {
+  TANK_ARMOUR, SHERMAN_ARMOUR, tankStrike, insideHarm, outsideHarm, crewRoles, freshTankDamage, CREW, partTough,
+} from './tankarmor.js';
 import {
   seaOf, waveTerms, seaHeight, seaAttitude, seaSupport, rollHeed, pitchHeed, windAt, rideOf, SEAWAY,
 } from './sea.js';
@@ -3615,7 +3618,9 @@ function stepBullets(state, dt) {
       if (!inPit) continue;
       // Rifle calibre against a gun in an emplacement does very little, and
       // that is right: it is what strafing a coast battery was actually like.
-      hurtBattery(state, bat, b.hurt * 0.25);
+      // And against a tank, next to nothing at all: rifle calibre and
+      // half-inch rounds go off armour like hail off a roof.
+      hurtBattery(state, bat, b.hurt * 0.25 * (bat.tank ? 0.04 : 1));
       state.events.push({ e: 'airHit', x: r(b.x), y: r(b.y), z: r(b.z), air: 0 });
       done = true;
       break;
@@ -4746,6 +4751,12 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
     bat.aboard = 0;
     bat.slot = 0;
     bat.roll = 0;
+    // How it is lying on the ground, and what is broken in it. See
+    // tankarmor.js and stepTankCrew.
+    bat.pitch = 0;
+    bat.lean = 0;
+    bat.tk = freshTankDamage(batteryId);
+    bat.lastAngle = 0;
   }
   // A rocket launcher fires its whole load as one ripple and is loaded again by
   // hand: how many rockets are on the rails, and the ripple it is in, if any.
@@ -4757,7 +4768,12 @@ export function addBattery(state, { id, batteryId, team, x, z, heading = 0 }) {
   }
   // A gun put down in the town has the houses on its site pulled down first,
   // and the emplacement dug where they stood.
-  if (!b.tank && state.world?.works?.cities?.length) clearForBattery(state.world, x, z, b.span * 0.75 + 4, state.events);
+  // A tank put down in the town has the house it was put on pulled down, and
+  // stands in the lot where it was.
+  if (state.world?.works?.cities?.length) {
+    const clear = b.tank ? Math.max(b.tank.length, b.tank.width) * 0.6 + 2 : b.span * 0.75 + 4;
+    clearForBattery(state.world, x, z, clear, state.events);
+  }
   state.batteries.push(bat);
   return bat;
 }
@@ -4795,6 +4811,7 @@ export function embarkTank(state, bat, ship, slot = 0) {
   if (state.batteries.some((o) => o !== bat && o.alive && o.aboard === ship.id && o.slot === slot)) return false;
   bat.aboard = ship.id;
   bat.slot = slot;
+  bat.out = 0;
   bat.speed = 0;
   bat.roll = 0;
   rideCraft(bat, ship, cls);
@@ -4829,32 +4846,61 @@ export function driveTank(state, bat, th, st) {
   return true;
 }
 
+/** How far forward of her hinge a landing craft's ramp reaches when it is down on the sand, in metres. */
+export const RAMP_RUN = 4.6;
+
 /**
- * Out over the ramp of the craft she is in, if it is down: onto the point
- * just past the end of it, if that is ground the tank can stand in.
+ * Where a tank driving out of a landing craft is, `out` metres forward of
+ * its place in her well: on her well deck, then down her ramp to the sand at
+ * the foot of it, then on the beach. Its height is its hull's on the deck, the
+ * ramp or the ground under it.
  */
-function leaveCraft(state, bat, b, ship, cls) {
-  if (!ship.rampDown) return false;
-  const half = cls.hull.length * 0.5;
-  const lx = (cls.cargo.vehicles.slots[bat.slot] || [0, 0])[0];
-  for (const past of [4, 9, 15]) {
-    const w = localToWorld(lx, half + past, ship.heading);
-    const x = ship.x + w.x;
-    const z = ship.z + w.z;
-    const g = tankGround(state.world, x, z);
-    if (g < -b.tank.wade) continue;
-    bat.aboard = 0;
-    bat.x = x;
-    bat.z = z;
-    bat.y = g;
-    bat.heading = ship.heading;
-    bat.speed = b.tank.speed * 0.3;
-    // Left to its own crew, it goes on up the beach to get off it.
-    bat.roll = bat.ctl ? 0 : TANK_LANDING_RUN;
-    state.events.push({ e: 'tankAshore', id: bat.id, ship: ship.id, x: r(x), z: r(z) });
-    return true;
+export function rampSpot(world, ship, cls, slot, out) {
+  const v = cls.cargo.vehicles;
+  const [lx, lz0] = v.slots[slot] || v.slots[0];
+  const lz = lz0 + out;
+  const w = localToWorld(lx, lz, ship.heading);
+  const x = ship.x + w.x;
+  const z = ship.z + w.z;
+  const hinge = cls.ramp?.hinge ?? cls.hull.length * 0.5;
+  const deck = v.deck - 1.0;
+  if (lz <= hinge) return { x, z, y: deck, lz, off: false };
+  const foot = localToWorld(lx, hinge + RAMP_RUN, ship.heading);
+  const footG = tankGround(world, ship.x + foot.x, ship.z + foot.z);
+  if (lz <= hinge + RAMP_RUN) {
+    const f = (lz - hinge) / RAMP_RUN;
+    return { x, z, y: deck + (footG - deck) * f, lz, off: false };
   }
-  return false;
+  return { x, z, y: tankGround(world, x, z), lz, off: true };
+}
+
+/**
+ * Driving out over the ramp of the craft it is in: along her well, down the
+ * ramp and onto the sand, at a crawl, rather than being put down on the beach
+ * all at once. Ashore once the whole of it is past the foot of her ramp on
+ * ground it can stand in; true when it is.
+ */
+function leaveCraft(state, bat, b, ship, cls, dt) {
+  if (!ship.rampDown) return false;
+  const T = b.tank;
+  bat.speed = approach(bat.speed || 0, T.speed * 0.3, T.accel * dt);
+  bat.out = (bat.out || 0) + bat.speed * dt;
+  const at = rampSpot(state.world, ship, cls, bat.slot, bat.out);
+  bat.x = at.x;
+  bat.z = at.z;
+  bat.y = at.y;
+  bat.heading = ship.heading;
+  if (!at.off) return false;
+  // Clear of the ramp by half its own length: on the beach, if it can stand there.
+  const hinge = cls.ramp?.hinge ?? cls.hull.length * 0.5;
+  if (at.lz < hinge + RAMP_RUN + T.length * 0.5) return false;
+  if (at.y < -T.wade && bat.out < cls.hull.length + 20) return false;
+  bat.aboard = 0;
+  bat.out = 0;
+  // Left to its own crew, it goes on up the beach to get off it.
+  bat.roll = bat.ctl ? 0 : TANK_LANDING_RUN;
+  state.events.push({ e: 'tankAshore', id: bat.id, ship: ship.id, x: r(at.x), z: r(at.z) });
+  return true;
 }
 
 /** One tick of a tank's hull: riding in its craft, coming off it, or driving. */
@@ -4871,53 +4917,688 @@ function stepTank(state, bat, b, dt) {
       return;
     }
     const cls = getClass(ship.classId);
-    rideCraft(bat, ship, cls);
     // Her ramp down: driven off by a player who puts his foot down, and by
-    // its own crew one after another, front rank first.
+    // its own crew one after another, front rank first -- the one behind
+    // waiting until the one in front of it is well down the ramp.
     if (ship.rampDown) {
-      const go = bat.ctl ? bat.drive.th > 0.2
-        : (ship.rampAt == null || state.t - ship.rampAt > 1.5 + bat.slot * 2.5);
-      if (go) leaveCraft(state, bat, b, ship, cls);
+      const go = bat.out > 0 || (bat.ctl ? bat.drive.th > 0.2
+        : (ship.rampAt == null || state.t - ship.rampAt > 2.2 + bat.slot * 4));
+      if (go) {
+        leaveCraft(state, bat, b, ship, cls, dt);
+        return;
+      }
     }
+    rideCraft(bat, ship, cls);
     return;
   }
+  stepTankCrew(state, bat, b, dt);
+  if (!bat.alive) return;
+  const ok = bat.tk.st;
+  // The turret comes round no faster than what is left of its drive will
+  // turn it, and not at all on a jammed ring.
+  const swing = angleDelta(bat.lastAngle ?? bat.angle, bat.angle);
+  const most = batteryGun(bat.batteryId).traverse * dt * ok.traverse;
+  if (Math.abs(swing) > most + 1e-9) bat.angle = wrapAngle((bat.lastAngle ?? bat.angle) + clamp(swing, -most, most));
+  bat.lastAngle = bat.angle;
   let th = 0;
   let st = 0;
   if (bat.ctl) {
     th = bat.drive.th;
     st = bat.drive.st;
   } else if (bat.roll > 0) th = 0.6;
-  const want = th >= 0 ? th * T.speed : th * T.reverse;
-  bat.speed = approach(bat.speed, want, T.accel * dt * (Math.sign(want) !== Math.sign(bat.speed) ? 2 : 1));
+  else ({ th, st } = tankBrain(state, bat, b, dt));
+  // Nobody at the sticks, the engine wrecked, the transmission gone or a
+  // track off: it goes nowhere, and slews round nowhere either.
+  if (!ok.drive) { th = 0; st = 0; }
+  // How steep the ground is along the hull, read over the tank's own length
+  // rather than over the few centimetres it moves in a tick: what stops a
+  // tank is a bank, not a pebble in the height field. Positive is uphill in
+  // the direction it is going.
+  const dir = th < -0.05 || bat.speed < -0.05 ? -1 : 1;
+  const grade = tankGrade(state.world, bat, T, dir);
+  // A tank labours up a slope and runs on down one: what the engine can give
+  // it on the level falls away as the hill steepens.
+  const up = Math.max(0, grade) / TANK_MAX_GRADE;
+  const pull = clamp(1 - up * 0.6, 0.38, 1) * (1 + clamp(-grade, 0, 0.6) * 0.35);
+  const want = (th >= 0 ? th * T.speed : th * T.reverse) * pull * ok.speed;
+  // Easing on and off the throttle rather than snapping to it, and harder
+  // on the brakes than on the gas.
+  const braking = Math.sign(want) !== Math.sign(bat.speed) || Math.abs(want) < Math.abs(bat.speed);
+  bat.speed = approach(bat.speed, want, T.accel * dt * (braking ? 2.2 : 1));
   // Steered on its tracks: a good rate of turn on the move, a slow slew
-  // standing.
+  // standing. Steering right is a falling heading in this world (see
+  // steerAim on the client), and the hull is got swinging, and stopped
+  // swinging, over a fraction of a second rather than all at once.
   const moving = clamp(Math.abs(bat.speed) / 3, 0, 1);
   const rate = T.pivot + (T.turn - T.pivot) * moving;
-  bat.heading = wrapAngle(bat.heading + st * rate * dt);
-  if (Math.abs(bat.speed) < 0.01) { bat.speed = 0; return; }
+  bat.yaw = (bat.yaw || 0) + (-st * rate - (bat.yaw || 0)) * (1 - Math.exp(-dt / TANK_YAW_LAG));
+  if (Math.abs(bat.yaw) < 1e-4 && !st) bat.yaw = 0;
+  bat.heading = wrapAngle(bat.heading + bat.yaw * dt);
+  if (Math.abs(bat.speed) < 0.01 && Math.abs(want) < 0.01) { bat.speed = 0; return; }
   const step = bat.speed * dt;
   const nx = bat.x + Math.sin(bat.heading) * step;
   const nz = bat.z + Math.cos(bat.heading) * step;
   const g = tankGround(state.world, nx, nz);
   const edge = (state.world.half || MAP_HALF) - 60;
-  // Deeper than it can ford, too steep to climb, or off the edge of the
-  // battlefield: it stops where it is.
-  // The slope is read over the tank's own length, not over the few
-  // centimetres it moves in a tick: what stops a tank is a bank, not a
-  // pebble in the height field.
-  const ahead = Math.sign(step) * T.length * 0.5;
-  const fx = bat.x + Math.sin(bat.heading) * ahead;
-  const fz = bat.z + Math.cos(bat.heading) * ahead;
-  const climb = (tankGround(state.world, fx, fz) - tankGround(state.world, bat.x, bat.z)) / Math.abs(ahead);
-  if (g < -T.wade || climb > 0.7 || Math.abs(nx) > edge || Math.abs(nz) > edge) {
-    bat.speed = 0;
+  const moveGrade = tankGrade(state.world, bat, T, Math.sign(step) || 1);
+  // Deeper than it can ford, a bank steeper than the tracks will climb, a
+  // house in the way, or off the edge of the battlefield: it stops there.
+  const wall = tankWall(state, bat, nx, nz, T, th, dt);
+  if (g < -T.wade || moveGrade > TANK_MAX_GRADE || wall || Math.abs(nx) > edge || Math.abs(nz) > edge) {
+    bat.speed = approach(bat.speed, 0, T.accel * 6 * dt);
+    if (Math.abs(bat.speed) < 0.3) bat.speed = 0;
     bat.roll = 0;
+    if (bat.ai) bat.ai.blocked = (bat.ai.blocked || 0) + dt;
     return;
   }
+  if (bat.ai) bat.ai.blocked = 0;
   bat.x = nx;
   bat.z = nz;
-  bat.y = g;
+  bat.y = g + worksRise(state.world, nx, nz);
   if (bat.roll > 0) bat.roll = Math.max(0, bat.roll - Math.abs(step));
+  layTank(state.world, bat, T);
+}
+
+/**
+ * How the hull is lying on the ground under it: nose up or down, and canted
+ * across a slope. It is what a round meets it at (see tankStrike), so a
+ * tank coming over a crest shows its belly and one on a reverse slope only
+ * its turret.
+ */
+function layTank(world, bat, T) {
+  const L = T.length * 0.45;
+  const W = T.width * 0.45;
+  const sh = Math.sin(bat.heading);
+  const ch = Math.cos(bat.heading);
+  const at = (px, pz) => tankGround(world, px, pz);
+  const front = at(bat.x + sh * L, bat.z + ch * L);
+  const back = at(bat.x - sh * L, bat.z - ch * L);
+  const left = at(bat.x + ch * W, bat.z - sh * W);
+  const right = at(bat.x - ch * W, bat.z + sh * W);
+  bat.pitch = Math.atan2(front - back, 2 * L);
+  bat.lean = Math.atan2(left - right, 2 * W);
+}
+
+// ---------------------------------------------------------------------------
+// A tank's crew and what is broken in it
+// ---------------------------------------------------------------------------
+//
+// Hits go into tankarmor.js and come out as harm to the men and the parts
+// they reached (see resolveTankHit). This is what that harm means, tick by
+// tick: who is doing which job now the gunner is dead, whether it can move
+// with a track off or the engine wrecked, whether the gun will fire, how fast
+// it is loaded with the loader gone, whether a fire is put out or reaches the
+// ammunition -- and when it is all over: the last man dead, or the
+// ammunition gone up.
+
+/** How long the crew take to shift seats when a man is hit, in seconds. */
+const CREW_SHIFT = 5;
+
+/** How long a crew take to put a broken track back on, in seconds, when nobody is shooting at them. */
+const TRACK_MEND = 20;
+
+/** A tank's own crew, every tick: who does what, what works, and what is burning. */
+function stepTankCrew(state, bat, b, dt) {
+  const tk = bat.tk || (bat.tk = freshTankDamage(bat.batteryId));
+  const P = tk.parts;
+  if (!tk.roles || tk.swap <= 0) tk.roles = crewRoles(P).roles;
+  else tk.swap -= dt;
+  // Anyone in a job who has since been killed has left it empty.
+  for (const k of Object.keys(tk.roles)) if (tk.roles[k] && P[tk.roles[k]] >= 1) tk.roles[k] = null;
+  const R = tk.roles;
+  const alive = CREW.filter((k) => P[k] < 1).length;
+  // Fire: an engine or a fuel fire may be put out -- the M4A2 carried fixed
+  // extinguishers into its engine room -- and if it is not, it gets to the
+  // ammunition. An ammunition fire is not put out by anybody.
+  if (tk.fire) {
+    tk.fire.t += dt;
+    bat.hp -= 5 * dt;
+    if (tk.fire.where !== 'ammo') {
+      if (alive >= 1 && tk.fire.t > 2 && state.rng() < 0.12 * dt) tk.fire = null;
+      else if (tk.fire.t > 35) { tk.fire = { where: 'ammo', t: 0 }; tk.cook = 1 + state.rng() * 3; }
+    }
+  }
+  if (tk.cook >= 0) {
+    tk.cook -= dt;
+    if (tk.cook <= 0) { knockOutTank(state, bat, true); return; }
+  }
+  // A track off, put back on by whoever can get out and do it -- not while
+  // the tank is being shot at.
+  const broke = P.trackL >= 1 || P.trackR >= 1;
+  if (broke && alive >= 2 && !tk.fire && state.t - (bat.hitT ?? -99) > 4) {
+    tk.repair += dt;
+    if (tk.repair >= TRACK_MEND) {
+      if (P.trackL >= 1) P.trackL = 0.4;
+      if (P.trackR >= 1) P.trackR = 0.4;
+      tk.repair = 0;
+      state.events.push({ e: 'tankMended', id: bat.id });
+    }
+  } else if (!broke) tk.repair = 0;
+  if (!alive || bat.hp <= 0) { knockOutTank(state, bat, false); return; }
+  tk.st = {
+    drive: !!R.driver && P.engine < 1 && P.transmission < 1 && P.trackL < 1 && P.trackR < 1,
+    speed: (P.engine >= 0.5 ? 0.55 : 1) * (P.transmission >= 0.5 ? 0.7 : 1) * (R.driver === 'driver' ? 1 : 0.85),
+    fire: !!R.gunner && P.breech < 1,
+    reload: (R.loader ? (R.loader === 'loader' ? 1 : 1.35) : 2.6) * (P.breech >= 0.4 ? 1.3 : 1),
+    traverse: P.ring >= 1 ? 0 : P.ring >= 0.5 ? 0.4 : 1,
+    spread: (R.gunner === 'gunner' ? 1 : 1.35) * (R.commander ? 1 : 1.2),
+    think: R.commander ? 1 : 2,
+  };
+}
+
+/** The tank is finished: its crew all dead or gone, or its ammunition gone up. */
+function knockOutTank(state, bat, brewUp) {
+  if (!bat.alive) return;
+  bat.alive = false;
+  bat.hp = 0;
+  const by = bat.lastHitBy ? findShooter(state, bat.lastHitBy) : null;
+  if (by) by.kills++;
+  if (brewUp) state.events.push({ e: 'tankBrewUp', id: bat.id, x: r(bat.x), y: r(bat.y), z: r(bat.z) });
+  state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
+}
+
+function findShooter(state, id) {
+  return state.ships.find((q) => q.id === id) || state.batteries.find((q) => q.id === id) || null;
+}
+
+/** What still works in a tank, for anything outside stepTankCrew that has to ask. */
+function tankOk(bat) {
+  return bat.tk?.st || { drive: true, speed: 1, fire: true, reload: 1, traverse: 1, spread: 1, think: 1 };
+}
+
+/**
+ * A round arriving on a tank, where tankStrike says it struck.
+ *
+ * The same questions a ship's armour is asked (see resolveShellHit): what the
+ * plate is worth at the angle it was met, whether the round skids off it,
+ * whether what it is carrying gets through, whether its fuse is running when
+ * it does. And then what it does inside, which is where a tank is won or
+ * lost.
+ */
+function resolveTankHit(state, sh, bat, hit) {
+  const A = TANK_ARMOUR[bat.batteryId] || SHERMAN_ARMOUR;
+  const spec = sh.bomb ? { type: 'he', pen: sh.bomb.bombPen || 40, damage: sh.bomb.bombDamage || 3000, caliber: 250 } : sh.spec;
+  const cal = sh.bomb ? 250 : sh.caliber;
+  const tk = bat.tk || (bat.tk = freshTankDamage(bat.batteryId));
+  const plate = hit.plates[hit.plates.length - 1];
+  const first = hit.plates[0];
+  const theta = Math.acos(hit.cos);
+  // A capped armour-piercing round turns a few degrees toward the plate's
+  // normal as it bites, which is what the cap is for.
+  const cosEff = spec.type === 'ap' ? Math.cos(Math.max(0, theta - 4 * Math.PI / 180)) : hit.cos;
+  const travelled = sh.from ? Math.hypot(sh.x - sh.from[0], sh.z - sh.from[1])
+    : dist(0, 0, sh.vx * sh.life, sh.vz * sh.life);
+  // A tank gun's round sheds its penetration far quicker over the ground
+  // than a naval shell over the sea -- it is lighter and starts slower -- and
+  // the figure it carries says how quickly.
+  const fade = spec.fade || 42000;
+  const pen = (spec.pen || 0) * clamp(Math.exp(-travelled / fade), 0.35, 1);
+  let total = 0;
+  for (const L of hit.plates) total += L.t / Math.max(0.12, cosEff);
+  const harm = {};
+  const add = (o) => { for (const [k, v] of Object.entries(o)) harm[k] = (harm[k] || 0) + v; };
+  let kind;
+  let dmg;
+  // The running gear in front of the hull side takes its share whatever
+  // the round does after it.
+  if (first.k === 'trackL' || first.k === 'trackR') harm[first.k] = (harm[first.k] || 0) + 1.1;
+  if (!sh.bomb && ricochets(state, theta, { ...spec, caliber: cal }, plate.t)) {
+    kind = 'ricochet';
+    dmg = spec.damage * 0.005;
+  } else if (spec.type === 'ap') {
+    if (pen < total) {
+      // Stopped by the plate. It still rings the inside of the tank.
+      kind = 'shatter';
+      dmg = spec.damage * 0.02;
+      if (pen > total * 0.85) add(insideHarm(A, bat.angle || 0, hit.at, hit.dir, { core: false, spall: 1, rng: state.rng }));
+    } else {
+      const armed = plate.t >= (spec.fuseArm || 0);
+      const through = !armed && pen > total * 3;
+      kind = through ? 'overpen' : 'pen';
+      dmg = spec.damage * (through ? 0.06 : 0.12);
+      const spall = Math.round(clamp(2 + plate.t / 15 + cal / 50, 2, 14));
+      add(insideHarm(A, bat.angle || 0, hit.at, hit.dir, {
+        core: true,
+        burst: armed ? 0.35 + cal / 250 : 0, burstAt: 1.2,
+        spall, rng: state.rng,
+      }));
+    }
+  } else if (spec.pen >= total * Math.max(0.12, cosEff)) {
+    // High explosive through a thin plate -- the roof, the belly, the engine
+    // deck: it blows its way in and goes off inside.
+    kind = 'he';
+    dmg = spec.damage * 0.2;
+    add(insideHarm(A, bat.angle || 0, hit.at, hit.dir, {
+      core: false, burst: 0.5 + cal / 90, burstAt: 0.15,
+      spall: Math.round(clamp(1 + cal / 60, 1, 8)), rng: state.rng,
+    }));
+  } else {
+    // On the outside of it. Little a tank's own HE can do to another tank's
+    // armour; a heavy shell's burst against it is another thing -- it stuns,
+    // breaks and kills what is inside through the plate.
+    kind = 'blast';
+    dmg = spec.damage * 0.1 * (cal / 75);
+    add(outsideHarm(A, bat.angle || 0, hit.at, 0.6 + cal / 120));
+    if (first.k === 'mantlet' || first.k === 'tfront') harm.breech = (harm.breech || 0) + 0.25 * Math.min(2, cal / 75);
+    const shock = clamp((cal - 90) / 300, 0, 0.9);
+    if (shock > 0) for (const k of CREW) if (state.rng() < shock) harm[k] = (harm[k] || 0) + 0.6 + state.rng() * 0.6;
+  }
+  const shooter = shellOwner(state, sh);
+  bat.hitT = state.t;
+  if (shooter) { bat.lastHitBy = shooter.id; shooter.damageDealt += dmg; if (shooter.ribbons) shooter.ribbons.hits++; }
+  bat.hp -= dmg;
+  const broke = applyTankHarm(state, bat, harm, kind);
+  const w = { x: sh.x, y: sh.y, z: sh.z };
+  state.events.push({
+    e: 'hit', x: r(w.x), y: r(w.y), z: r(w.z), cal, kind, victim: bat.id, owner: sh.owner,
+    battery: true, tank: 1, dmg: Math.round(dmg), pt: first.k, br: broke,
+  });
+  if (bat.alive && bat.hp <= 0) knockOutTank(state, bat, false);
+}
+
+/** Harm, as tankarmor.js reckons it, done to a tank: men killed, parts broken, fires started. Returns what broke. */
+function applyTankHarm(state, bat, harm, kind) {
+  const tk = bat.tk;
+  const P = tk.parts;
+  const A = TANK_ARMOUR[bat.batteryId] || SHERMAN_ARMOUR;
+  const broke = [];
+  let ammo = 0;
+  for (const [k, raw] of Object.entries(harm)) {
+    if (!(raw > 0) || !(k in P)) continue;
+    const v = raw / partTough(A, k);
+    const was = P[k];
+    P[k] = Math.min(1.5, was + v);
+    if (was < 1 && P[k] >= 1) {
+      broke.push(k);
+      if (CREW.includes(k)) tk.swap = CREW_SHIFT;
+    }
+    if (k === 'ammoL' || k === 'ammoR') ammo = Math.max(ammo, v);
+    else if ((k === 'fuelL' || k === 'fuelR') && !tk.fire && state.rng() < clamp(v * 0.35, 0, 0.6)) tk.fire = { where: 'fuel', t: 0 };
+    else if (k === 'engine' && !tk.fire && state.rng() < clamp(v * 0.2, 0, 0.4)) tk.fire = { where: 'engine', t: 0 };
+  }
+  // Into the ammunition: it goes up there and then, or it starts to burn, and
+  // a tank with its ammunition burning is a tank its crew are getting out of.
+  if (ammo > 0 && tk.cook < 0) {
+    // Dry-stowed in the sponsons, as the early M4A2's was: more often a fire
+    // the crew have seconds to get out of than a flash that kills them.
+    if (state.rng() < clamp(ammo * 0.25, 0, 0.45)) {
+      knockOutTank(state, bat, true);
+    } else if (state.rng() < clamp(ammo * 0.7, 0, 0.75)) {
+      tk.fire = { where: 'ammo', t: 0 };
+      tk.cook = 2 + state.rng() * 6;
+    }
+  }
+  if ((kind === 'he' || kind === 'pen') && !tk.fire && state.rng() < 0.06) tk.fire = { where: 'engine', t: 0 };
+  // The roles are looked at again when the crew have shifted seats; a man
+  // killed in a job leaves it empty until then (see stepTankCrew).
+  if (broke.some((k) => CREW.includes(k)) && tk.roles) {
+    for (const role of Object.keys(tk.roles)) if (broke.includes(tk.roles[role])) tk.roles[role] = null;
+  }
+  return broke;
+}
+
+/** A burst on the ground beside a tank: splinters against its armour, which do nothing, and blast against its tracks, which do. */
+function tankNearMiss(state, sh, bat) {
+  const cal = sh.caliber;
+  const reach = 2 + cal * 0.04;
+  const d = dist(sh.x, sh.z, bat.x, bat.z);
+  if (d > reach + 3) return;
+  const A = TANK_ARMOUR[bat.batteryId] || SHERMAN_ARMOUR;
+  const he = sh.spec.type === 'he';
+  // Where it went off, in the hull's frame.
+  const l = worldToLocal(sh.x - bat.x, sh.z - bat.z, bat.heading);
+  const harm = outsideHarm(A, bat.angle || 0, [l.x, 0.4, l.z], (he ? 0.4 : 0.15) + cal / 140);
+  const bite = Math.max(0, 1 - d / reach);
+  // A heavy shell's burst close aboard flings a thirty-ton tank about and
+  // everyone inside it with it.
+  const shock = clamp((cal - 120) / 350, 0, 0.8) * bite * (he ? 1 : 0.4);
+  if (shock > 0) for (const k of CREW) if (state.rng() < shock) harm[k] = (harm[k] || 0) + 0.5 + state.rng() * 0.6;
+  const dmg = sh.spec.damage * (he ? 0.06 : 0.02) * (cal / 75) * bite;
+  if (!Object.keys(harm).length && dmg < 1) return;
+  bat.hp -= dmg;
+  bat.hitT = state.t;
+  const shooter = shellOwner(state, sh);
+  if (shooter) { bat.lastHitBy = shooter.id; shooter.damageDealt += dmg; }
+  const broke = applyTankHarm(state, bat, harm, 'blast');
+  if (broke.length) state.events.push({ e: 'tankHarm', id: bat.id, br: broke });
+  if (bat.alive && bat.hp <= 0) knockOutTank(state, bat, false);
+}
+
+/**
+ * The steepest a tank will climb, as rise over run, read along the whole of
+ * its hull: two in one, a little over sixty degrees. Steeper than a real
+ * Sherman would take on, but the ground here is a coarse field, and a tank
+ * that sticks on every hillside and lip of a crater is no use to anybody.
+ * Going down it will take anything it will not tumble off.
+ */
+export const TANK_MAX_GRADE = 2.0;
+
+/** How long a tank's hull takes to get swinging, or stop swinging, in seconds. */
+const TANK_YAW_LAG = 0.22;
+
+/**
+ * Rise over run along the hull, from the ground under its tail to the ground
+ * a little past its nose, going ahead (`dir` 1) or astern (-1): the slope the
+ * whole tank is being asked to climb, not the lip under one end of its tracks,
+ * which it rides over.
+ */
+function tankGrade(world, bat, T, dir) {
+  const half = T.length * 0.5;
+  const sx = Math.sin(bat.heading) * dir;
+  const sz = Math.cos(bat.heading) * dir;
+  const ahead = half + 1;
+  const back = tankGround(world, bat.x - sx * half, bat.z - sz * half);
+  const front = tankGround(world, bat.x + sx * ahead, bat.z + sz * ahead);
+  return (front - back) / (half + ahead);
+}
+
+/** The kerb, lawn or heap of rubble a tank is riding on in a town, in metres. */
+function worksRise(world, x, z) {
+  if (!world.works?.cities?.length) return 0;
+  return worksFloor(world, x, z).rise;
+}
+
+/**
+ * A building standing in front of the tank: true if it stops it. A house it
+ * keeps its foot down against comes down in front of it -- small ones only;
+ * a block of flats or a church stops it dead.
+ */
+function tankWall(state, bat, nx, nz, T, th, dt) {
+  const world = state.world;
+  if (!world.works?.cities?.length) return false;
+  const dir = Math.sign(bat.speed || th) || 1;
+  const px = nx + Math.sin(bat.heading) * T.length * 0.5 * dir;
+  const pz = nz + Math.cos(bat.heading) * T.length * 0.5 * dir;
+  if (!worksFloor(world, px, pz).blocked) return false;
+  const b = buildingAt(world, px, pz, 0.15);
+  if (b && b.h <= 14 && Math.abs(th) > 0.2) {
+    hurtBuilding(world, b, b.hp * 0.3 * dt * Math.abs(th), state.events, worksDice(state), { x: px, z: pz });
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// A tank left to its own crew
+// ---------------------------------------------------------------------------
+//
+// Nobody at the controls, the commander drives it himself. Every so often he
+// looks round: what is the nearest thing of the enemy's worth going after --
+// a ship off the beach, a gun ashore, another tank -- can he reach it from
+// here, and can he see it? Out of reach or out of sight, he closes; in reach
+// he fights on the move, crossing the enemy's line of fire rather than
+// sitting still in it, and backs off anything that gets inside the range his
+// gun can be laid at; badly knocked about, he pulls back. Where he drives he
+// looks a little way ahead first and takes the nearest line that is not
+// water, not too steep and not through a house, and if he finds he is not
+// getting anywhere he backs out and tries the other way.
+
+/** How often a tank's commander looks round, in seconds. */
+const TANK_THINK = 0.35;
+
+/** What the commander is going after: the ship, gun or tank of the enemy's that matters most to him now. */
+function tankFoe(state, bat, gun) {
+  const ord = batteryOrder(state, bat);
+  if (ord && ord.alive !== false && !ord.point) return ord;
+  let best = null;
+  let bestV = Infinity;
+  const look = (o, k) => {
+    const d = dist(bat.x, bat.z, o.x, o.z);
+    // Nearest first, but a tank or a gun that can shoot back counts as
+    // nearer than a ship the same distance off, and anything past the gun's
+    // reach a good deal further off than it is.
+    const v = d * k * (d > gun.range ? 1.6 : 1);
+    if (v < bestV) { bestV = v; best = o; }
+  };
+  for (const s of state.ships) if (s.alive && s.team !== bat.team) look(s, 1);
+  for (const o of state.batteries) {
+    if (o === bat || !o.alive || o.team === bat.team || o.aboard) continue;
+    look(o, o.tank ? 0.6 : 0.8);
+  }
+  return best;
+}
+
+/**
+ * Whether the tank can see what it is after: a line from its commander's
+ * hatch to the target that no hill and no house gets in the way of. Its own
+ * island counts -- it drives about on it, and the hill in the middle of it
+ * is the thing most often between it and the enemy -- which is not how a gun
+ * dug into a hillside asks the question (see batteryTarget).
+ */
+function tankSees(state, bat, o) {
+  const d = dist(bat.x, bat.z, o.x, o.z);
+  if (d < 40) return true;
+  const oy = o.classId != null ? 6 : (o.y || 0) + 2;
+  const hit = solidHit(state.world, bat.x, bat.y + 3.2, bat.z, o.x, oy, o.z, 6);
+  // The ground the target is standing on is not in the way of it.
+  return !hit || dist(hit.x, hit.z, o.x, o.z) < 12;
+}
+
+/**
+ * The infantry a tank goes forward with: the nearest squad of its own side
+ * ashore within a mile and a half, as the point a little ahead of them on
+ * their way (their middle, led toward where they were sent) and the way they
+ * are going. Null if there is none. It keeps to the squad it chose while that
+ * squad has men left.
+ */
+function tankEscort(state, bat) {
+  const inf = state.inf;
+  if (!inf || !state.soldiers?.length) return null;
+  const sums = new Map();
+  for (const s of state.soldiers) {
+    if (!s.alive || s.team !== bat.team) continue;
+    let m = sums.get(s.sq);
+    if (!m) sums.set(s.sq, (m = { x: 0, z: 0, n: 0 }));
+    m.x += s.x;
+    m.z += s.z;
+    m.n++;
+  }
+  if (!sums.size) return null;
+  let pick = bat.ai?.follow != null ? sums.get(bat.ai.follow) : null;
+  let sq = pick ? bat.ai.follow : null;
+  if (pick && dist(bat.x, bat.z, pick.x / pick.n, pick.z / pick.n) > 2600) pick = null;
+  if (!pick) {
+    let best = 2400;
+    for (const [id, m] of sums) {
+      const d = dist(bat.x, bat.z, m.x / m.n, m.z / m.n);
+      if (d < best) { best = d; pick = m; sq = id; }
+    }
+  }
+  if (!pick) return null;
+  const cx = pick.x / pick.n;
+  const cz = pick.z / pick.n;
+  const squad = inf.squads.find((q) => q.id === sq);
+  const o = squad?.order;
+  let h = bat.heading;
+  let x = cx;
+  let z = cz;
+  if (o && Number.isFinite(o.x) && dist(cx, cz, o.x, o.z) > 8) {
+    h = headingTo(cx, cz, o.x, o.z);
+    // A little ahead of them, so the hull is between them and what they are going for.
+    x = cx + Math.sin(h) * 15;
+    z = cz + Math.cos(h) * 15;
+  }
+  return { x, z, h, sq };
+}
+
+/** Can a tank drive this way from where it is, for the next thirty metres or so? */
+function tankOpen(state, bat, T, h) {
+  const world = state.world;
+  const edge = (world.half || MAP_HALF) - 90;
+  const sx = Math.sin(h);
+  const sz = Math.cos(h);
+  let prevD = 0;
+  let prevG = tankGround(world, bat.x, bat.z);
+  const town = !!world.works?.cities?.length;
+  for (const d of [5, 11, 19, 30]) {
+    const x = bat.x + sx * d;
+    const z = bat.z + sz * d;
+    if (Math.abs(x) > edge || Math.abs(z) > edge) return false;
+    const g = tankGround(world, x, z);
+    // Into the shallows it will go if it must, but not out of its depth.
+    if (g < -T.wade * 0.5) return false;
+    if ((g - prevG) / (d - prevD) > TANK_MAX_GRADE * 0.9) return false;
+    if (town && worksFloor(world, x, z).blocked) return false;
+    prevD = d;
+    prevG = g;
+  }
+  return true;
+}
+
+/** The commander's orders to his driver this tick: throttle and steering, as a player's stick gives them. */
+function tankBrain(state, bat, b, dt) {
+  const T = b.tank;
+  const gun = batteryGun(bat.batteryId);
+  const ai = bat.ai || (bat.ai = {
+    at: 0, head: bat.heading, th: 0, side: bat.id % 2 ? 1 : -1, sideAt: 0,
+    back: 0, stuck: 0, lx: bat.x, lz: bat.z, foe: 0, blocked: 0,
+  });
+  if (ai.back > 0) {
+    ai.back -= dt;
+    return { th: -0.8, st: ai.side };
+  }
+  if (state.t >= ai.at) {
+    ai.at = state.t + TANK_THINK * tankOk(bat).think;
+    planTank(state, bat, T, gun, ai);
+  }
+  // A short halt to fire: a gun fired on the move goes anywhere, so with a
+  // round up the spout and the enemy in its sights it stops for the shot.
+  const ok = tankOk(bat);
+  if (ai.fight && ok.fire && bat.cooldown < 0.8 && bat.targetId) {
+    // With the turret jammed, the hull is how the gun is laid.
+    if (ok.traverse === 0 && ai.foeAt != null) {
+      const off = angleDelta(bat.heading, ai.foeAt);
+      return { th: 0, st: clamp(-off * 2.2, -1, 1) };
+    }
+    return { th: 0, st: 0 };
+  }
+  const off = angleDelta(bat.heading, ai.head);
+  // Steering right is a falling heading: see stepTank.
+  const st = clamp(-off * 2.2, -1, 1);
+  // Easing off for a sharp turn, and pivoting on the spot for a very sharp one.
+  const a = Math.abs(off);
+  const th = a > 1.3 ? 0 : ai.th * clamp(1 - a * 0.55, 0.25, 1);
+  return { th, st };
+}
+
+function planTank(state, bat, T, gun, ai) {
+  // Getting nowhere with its foot down: back out and try the other side.
+  const moved = Math.hypot(bat.x - ai.lx, bat.z - ai.lz);
+  ai.lx = bat.x;
+  ai.lz = bat.z;
+  if (ai.th > 0.3 && (moved < 0.4 || ai.blocked > 0.5)) ai.stuck++;
+  else ai.stuck = 0;
+  if (ai.stuck >= 4) {
+    ai.stuck = 0;
+    ai.side = -ai.side;
+    ai.back = 1.4;
+    ai.th = 0;
+    return;
+  }
+  const foe = tankFoe(state, bat, gun);
+  ai.foe = foe ? foe.id : 0;
+  ai.fight = false;
+  ai.foeAt = foe ? headingTo(bat.x, bat.z, foe.x, foe.z) : null;
+  const ok = tankOk(bat);
+  let want = bat.heading;
+  let th = 0;
+  // With its own side's infantry ashore, it goes with them: up behind the
+  // nearest squad and where they are going, unless it has something in its
+  // sights to fight first, or is too knocked about to be any use to them.
+  const men = tankEscort(state, bat);
+  const fighting = foe && dist(bat.x, bat.z, foe.x, foe.z) < gun.range * 0.85 && tankSees(state, bat, foe);
+  if (men && !fighting && bat.hp / (bat.maxHp || 1) >= 0.35) {
+    const d = dist(bat.x, bat.z, men.x, men.z);
+    want = headingTo(bat.x, bat.z, men.x, men.z);
+    // Closing up, easing off as it reaches them, and sitting with them once
+    // it is there, turned the way they are going.
+    th = d > 120 ? 1 : d > 45 ? 0.6 : d > 22 ? 0.3 : 0;
+    if (th === 0) want = men.h;
+    ai.follow = men.sq;
+  } else if (foe) {
+    const d = dist(bat.x, bat.z, foe.x, foe.z);
+    const to = headingTo(bat.x, bat.z, foe.x, foe.z);
+    const hurt = bat.hp / (bat.maxHp || 1);
+    const reach = d < gun.range * 0.85;
+    const close = foe.classId == null; // a gun or a tank ashore, not a ship
+    if (state.t > ai.sideAt) {
+      ai.sideAt = state.t + 6 + state.rng() * 8;
+      if (state.rng() < 0.55) ai.side = -ai.side;
+    }
+    // A gun that will not fire is no reason to stay: it pulls back.
+    if ((hurt < 0.35 || !ok.fire) && reach) {
+      // Knocked about: away from it, and off its line.
+      want = to + Math.PI + ai.side * 0.5;
+      th = 0.9;
+    } else if (!reach || !tankSees(state, bat, foe)) {
+      // Closing, on a line a little off the straight one, so it does not
+      // drive nose first down the enemy's sights.
+      want = to + ai.side * 0.25;
+      th = 1;
+    } else if (close && d < 140) {
+      // Too close to lay on: open the range again, still crossing.
+      want = to + Math.PI - ai.side * 0.6;
+      th = 0.7;
+    } else {
+      // In reach and in sight: fighting on the move, across its line --
+      // or, with the turret jammed, nose on to it, laying the gun with the
+      // tracks.
+      ai.fight = true;
+      want = ok.traverse === 0 ? to : to + ai.side * 1.35;
+      th = ok.traverse === 0 ? 0.15 : 0.5;
+    }
+  } else if (state.t > ai.sideAt) {
+    // Nothing to go after: a slow look round the ground it is holding.
+    ai.sideAt = state.t + 8 + state.rng() * 10;
+    want = bat.heading + (state.rng() - 0.5) * 2;
+    th = state.rng() < 0.5 ? 0.3 : 0;
+    ai.head = want;
+  } else {
+    want = ai.head;
+    th = ai.th;
+  }
+  // The nearest line to the one it wants that it can actually drive along.
+  want = wrapAngle(want);
+  ai.head = want;
+  ai.th = th;
+  if (th <= 0) return;
+  const tries = [0, 0.35, 0.7, 1.05, 1.45, 1.9, 2.5];
+  for (const k of tries) {
+    for (const sgn of k ? [ai.side, -ai.side] : [1]) {
+      const h = wrapAngle(want + k * sgn);
+      if (tankOpen(state, bat, T, h)) {
+        ai.head = h;
+        // Feeling its way round something, slower.
+        if (k > 1) ai.th = Math.min(th, 0.5);
+        return;
+      }
+    }
+  }
+  // Boxed in every way it looks: back out.
+  ai.back = 1.2;
+  ai.side = -ai.side;
+}
+
+/** The ship, tank or gun a tank lays its own gun on, left to its crew: the commander's choice, in reach and in sight. */
+function tankTarget(state, bat, b, gun) {
+  const ai = bat.ai;
+  const pick = (o) => o && o.alive && o.team !== bat.team && !o.aboard
+    && dist(bat.x, bat.z, o.x, o.z) <= gun.range && tankSees(state, bat, o);
+  const foe = ai?.foe ? findTarget(state, ai.foe) : null;
+  if (pick(foe)) return foe;
+  // Whatever else is near enough to shoot at.
+  let best = null;
+  let bestD = Infinity;
+  for (const o of state.batteries) {
+    if (o === bat) continue;
+    const d = dist(bat.x, bat.z, o.x, o.z);
+    if (d < bestD && pick(o)) { best = o; bestD = d; }
+  }
+  return best || batteryTarget(state, bat, b, gun);
+}
+
+/** A ship or a battery (a tank among them) by id. */
+function findTarget(state, id) {
+  return state.ships.find((q) => q.id === id) || state.batteries.find((q) => q.id === id) || null;
 }
 
 /**
@@ -5232,7 +5913,7 @@ function stepBatteries(state, dt) {
     // ground and the sight line over everything else -- and nothing on a
     // battlefield moves far in a thirtieth of a second.
     if (state.tick % 15 === bat.id % 15) {
-      const found = batteryTarget(state, bat, b, gun);
+      const found = b.tank ? tankTarget(state, bat, b, gun) : batteryTarget(state, bat, b, gun);
       bat.targetId = found ? found.id : 0;
     }
     // But the cheap half of it is checked every tick. A ship that has just run
@@ -5240,6 +5921,8 @@ function stepBatteries(state, dt) {
     // of the half-second until the battery next looks up.
     let target = bat.targetId
       ? state.ships.find((sp) => sp.id === bat.targetId && sp.alive)
+        // A tank fights other tanks and the guns ashore too.
+        || (b.tank ? state.batteries.find((o) => o.id === bat.targetId && o.alive && !o.aboard) : null)
       : null;
     if (target) {
       const d = dist(bat.x, bat.z, target.x, target.z);
@@ -5902,6 +6585,7 @@ function loftedGun(state, gun, d) {
 }
 
 function fireBattery(state, bat, b, gun, target) {
+  if (b.tank) { fireTankGun(state, bat, b, gun, target); return; }
   const spec = batteryShell(gun, target);
   const d = clamp(dist(bat.x, bat.z, target.x, target.z), 400, gun.range);
   const bearing = wrapAngle(bat.heading + bat.angle);
@@ -5957,6 +6641,85 @@ function fireBattery(state, bat, b, gun, target) {
   });
 }
 
+/** Gravity, for a round fired over open sights. */
+const TANK_G = 9.81;
+
+/** How far out a tank's gunner is in his first guess at the range, as a share of it. */
+const RANGE_GUESS = 0.05;
+
+/**
+ * A tank's gun, laid and fired over open sights.
+ *
+ * Not a coast gun's problem at all. There is no plot and no fall of shot
+ * miles off to spot: the gunner has the target in his telescope, guesses the
+ * range, lays the graticule on it with that much elevation and the lead its
+ * crossing speed wants, and fires. The round goes where the gun was pointing,
+ * give or take what any gun gives -- a fraction of a mil standing, a good
+ * deal more on the move -- and its fall tells him how far out his guess was,
+ * so the next one is closer: a crew that has fired two rounds at a tank
+ * standing still has as good as found its range.
+ */
+function fireTankGun(state, bat, b, gun, target) {
+  // Only with a man on the gun and a gun to fire, and only where the turret
+  // is actually pointing.
+  const ok = tankOk(bat);
+  if (!ok.fire) { bat.cooldown = Math.max(bat.cooldown, 0.5); return; }
+  const on = headingTo(bat.x, bat.z, target.x, target.z);
+  const bearing = wrapAngle(bat.heading + bat.angle);
+  if (Math.abs(angleDelta(bearing, on)) > 0.08) return;
+  const spec = batteryShell(gun, target);
+  const V = spec.velocity || 620;
+  // Where it is aimed: the middle of a tank or a gun, a ship's side, or the
+  // ground at a point in the chart.
+  const ty = target.classId != null ? 4
+    : Number.isFinite(target.y) && !target.point ? target.y + 1.3
+      : Math.max(0, groundHeight(state.world, target.x, target.z)) + 1;
+  const y0 = bat.y + 2.6;
+  // The range he guesses, and how far out that is: a fresh guess on a new
+  // target, closed up after every round he sees fall.
+  const lay = bat.lay && bat.lay.id === (target.id ?? -1) ? bat.lay
+    : (bat.lay = { id: target.id ?? -1, err: clamp(gauss(state.rng), -2, 2) * RANGE_GUESS });
+  let d = dist(bat.x, bat.z, target.x, target.z);
+  let ax = target.x;
+  let az = target.z;
+  // Led by its speed over the time the round is in the air.
+  for (let k = 0; k < 2; k++) {
+    const tof = d / V;
+    ax = target.x + Math.sin(target.heading || 0) * (target.speed || 0) * tof;
+    az = target.z + Math.cos(target.heading || 0) * (target.speed || 0) * tof;
+    d = dist(bat.x, bat.z, ax, az);
+  }
+  const est = Math.max(20, d * (1 + lay.err));
+  lay.err *= 0.35;
+  const dy = ty - y0;
+  const disc = V ** 4 - TANK_G * (TANK_G * est * est + 2 * dy * V * V);
+  let elev = disc >= 0 ? Math.atan((V * V - Math.sqrt(disc)) / (TANK_G * est)) : Math.PI / 4;
+  // Fired standing, a fraction of a mil each way; on the move, by a man who
+  // is not its gunner or with nobody commanding, a good deal more.
+  const mil = 0.0006 * ok.spread * (1 + Math.min(1, Math.abs(bat.speed || 0) / 3) * 3);
+  elev += clamp(gauss(state.rng), -2.4, 2.4) * mil;
+  const bb = headingTo(bat.x, bat.z, ax, az) + clamp(gauss(state.rng), -2.4, 2.4) * mil;
+  bat.lastRange = d;
+  const vh = V * Math.cos(elev);
+  fireShell(state, {
+    id: eid(),
+    owner: bat.id, team: bat.team, fromBattery: true,
+    x: bat.x + Math.sin(bb) * 3.5, z: bat.z + Math.cos(bb) * 3.5, y: y0,
+    vx: Math.sin(bb) * vh, vz: Math.cos(bb) * vh, vy: V * Math.sin(elev),
+    g: TANK_G,
+    spec, caliber: gun.caliber,
+    classId: null,
+    life: 0,
+    from: [bat.x, bat.z],
+  });
+  bat.cooldown = gun.reload * ok.reload;
+  bat.lastFiredAt = state.t;
+  state.events.push({
+    e: 'muzzle', x: bat.x, z: bat.z, y: y0, b: bearing,
+    cal: gun.caliber, battery: bat.id,
+  });
+}
+
 /**
  * What a battery loads for this ship: high explosive into anything thin -- a
  * destroyer, a carrier, a boat -- which an armour-piercing shell goes straight
@@ -5990,6 +6753,7 @@ function nearMiss(state, sh) {
     if (!bat.alive || !mayHurt(state, sh.team, bat)) continue;
     if (sh.fromBattery && bat.id === sh.owner) continue;
     const b = BATTERIES[bat.batteryId];
+    if (bat.tank) { if (!bat.aboard) tankNearMiss(state, sh, bat); continue; }
     // The works themselves, and a blast radius that goes with the bore.
     const reach = b.span * 0.5 + 6 + sh.caliber * 0.07;
     const d = dist(sh.x, sh.z, bat.x, bat.z);
@@ -6445,6 +7209,23 @@ function stepShells(state, dt) {
       if (!bat.alive || !mayHurt(state, sh.team, bat)) continue;
       if (sh.fromBattery && bat.id === sh.owner) continue;
       const b = BATTERIES[bat.batteryId];
+      // A tank is not a pit dug in the ground: it is a hull and a turret, a
+      // few metres of each, and a round either reaches one of them along
+      // its line or it does not.
+      if (b.tank) {
+        if (bat.aboard) continue;
+        if (dist2(sh.x, sh.z, bat.x, bat.z) > 260 * 260) continue;
+        const A = TANK_ARMOUR[bat.batteryId] || SHERMAN_ARMOUR;
+        const hit = tankStrike(bat, A, { x: px, y: py, z: pz }, { x: sh.x, y: sh.y, z: sh.z });
+        if (!hit) continue;
+        const hx = lerp(px, sh.x, hit.f), hy = lerp(py, sh.y, hit.f), hz = lerp(pz, sh.z, hit.f);
+        // Into the ground short of it: the ground is what it hit.
+        if (solidHit(state.world, px, py, pz, hx, hy, hz, 3, false)) continue;
+        sh.x = hx; sh.y = hy; sh.z = hz;
+        resolveTankHit(state, sh, bat, hit);
+        consumed = true;
+        break;
+      }
       const reach = b.span * 0.6 + 6;
       if (dist2(sh.x, sh.z, bat.x, bat.z) > (reach + 240) * (reach + 240)) continue;
       const steps = sh.steps || 4;
@@ -6492,7 +7273,7 @@ function stepShells(state, dt) {
       // dug into is its parapet, and what a round does there is the
       // battery's business (see resolveBatteryHit and nearMiss).
       let cross = solidHit(state.world, px, py, pz, sh.x, sh.y, sh.z, 8, false);
-      if (cross && !cross.b && state.batteries.some((bat) => bat.alive
+      if (cross && !cross.b && state.batteries.some((bat) => bat.alive && !bat.tank
         && dist2(cross.x, cross.z, bat.x, bat.z) < (BATTERIES[bat.batteryId].span * 0.6 + 30) ** 2)) cross = null;
       if (cross && !cross.b) { sh.x = cross.x; sh.y = cross.y; sh.z = cross.z; }
       const g = cross && !cross.b ? Math.max(sh.y, groundHeight(state.world, sh.x, sh.z))
@@ -13979,7 +14760,7 @@ function stepPlanes(state, dt) {
         if (p.bomb > 0) {
           bombBattery(state, p, bat, P);
         } else {
-          hurtBattery(state, bat, (P.strafeDamage ?? 260) * p.count * 0.25);
+          hurtBattery(state, bat, (P.strafeDamage ?? 260) * p.count * 0.25 * (bat.tank ? 0.04 : 1));
         }
         state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
         gunsSeen(state, p, bat.x, bat.z, false);

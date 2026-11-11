@@ -285,6 +285,27 @@ export function shipSnapshot(ship, full, state = null) {
   return s;
 }
 
+/** Bits of a tank's state of repair, for TANK_BITS on the client. */
+export const TANK_BITS = {
+  engine: 1, transmission: 2, trackL: 4, trackR: 8, breech: 16, ring: 32,
+  engineHit: 64, ringHit: 128, breechHit: 256,
+};
+export const CREW_BITS = { driver: 1, codriver: 2, gunner: 4, commander: 8, loader: 16 };
+
+/** [broken, crew alive, seconds until a track is back on] -- see TANK_BITS and CREW_BITS. */
+function tankReport(b) {
+  const P = b.tk.parts;
+  let m = 0;
+  for (const k of ['engine', 'transmission', 'trackL', 'trackR', 'breech', 'ring']) if (P[k] >= 1) m |= TANK_BITS[k];
+  if (P.engine >= 0.5) m |= TANK_BITS.engineHit;
+  if (P.ring >= 0.5) m |= TANK_BITS.ringHit;
+  if (P.breech >= 0.4) m |= TANK_BITS.breechHit;
+  let c = 0;
+  for (const [k, bit] of Object.entries(CREW_BITS)) if (P[k] < 1) c |= bit;
+  const mend = (P.trackL >= 1 || P.trackR >= 1) ? Math.max(0, Math.ceil(20 - (b.tk.repair || 0))) : 0;
+  return [m, c, mend];
+}
+
 /** An aeroplane's rack on the wire: `{ kind: n }`, or nothing when it is empty. */
 function rackWire(p) {
   const r = planeRack(p);
@@ -611,7 +632,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   // where each one is trained and whether it is still in action.
   const batteries = state.batteries.map((b) => ({
     i: b.id, b: b.batteryId, tm: b.team,
-    x: Math.round(b.x), z: Math.round(b.z), y: r1(b.y),
+    // A tank to the centimetre: it moves, and a metre's rounding fifteen
+    // times a second is a hull that judders across the ground.
+    x: b.tank ? r2(b.x) : Math.round(b.x), z: b.tank ? r2(b.z) : Math.round(b.z), y: b.tank ? r2(b.y) : r1(b.y),
     h: r3(b.heading), a: r3(b.angle),
     hp: Math.round(b.hp), mx: b.maxHp,
     al: b.alive ? 1 : 0,
@@ -625,8 +648,16 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     // A tank: how fast it is going, and the landing craft it is riding in
     // and where in her well, if it has not gone ashore yet.
     sp: b.tank ? r1(b.speed) : undefined,
+    // Burning, which anybody can see: 1 a fire in it, 2 its ammunition.
+    fi: b.tank && b.tk?.fire ? (b.tk.fire.where === 'ammo' ? 2 : 1) : undefined,
+    // And what its own side knows about it: what is broken in it, who of its
+    // crew is still alive, and how long until a broken track is back on.
+    td: b.tank && b.team === team && b.tk ? tankReport(b) : undefined,
     ab: b.aboard || undefined,
     sl: b.aboard ? b.slot : undefined,
+    // How far forward of its place in her well it has driven, going out
+    // over her ramp.
+    ox: b.aboard && b.out ? r2(b.out) : undefined,
     // And what only its own side is told: the mortar's pin -- where it is,
     // whose plot put it there ('h' a player's; 's', 'm' or 't' its crew's,
     // for a ship stopped, steaming straight or turning) and on which ship --

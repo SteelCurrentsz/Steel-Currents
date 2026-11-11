@@ -295,6 +295,17 @@ export const TANKS = {
       tons: 31.3,
       length: 5.92, width: 2.62, height: 2.74,
     },
+    // What the 75 mm M3 fired, rather than what a naval gun of its bore
+    // would: the M61 armour-piercing capped round, 91 mm of plate met square
+    // at the muzzle and about 74 at a thousand metres (`fade` is the distance
+    // over which it loses all but a third of that, in metres), with a small
+    // bursting charge behind its cap; and the M48 high explosive, which goes
+    // through nothing much thicker than an engine deck.
+    ammo: {
+      // Muzzle velocities: 619 m/s for the M61, 463 for the M48 on its normal charge.
+      ap: { pen: 91, fade: 4800, fuseArm: 13, velocity: 619 },
+      he: { pen: 14, velocity: 463 },
+    },
   },
 };
 
@@ -428,6 +439,10 @@ export function batteryGun(id) {
       },
     },
   };
+  // A tank's own ammunition, where it has it.
+  if (b.ammo) {
+    for (const k of Object.keys(b.ammo)) if (g.shells[k]) g.shells[k] = { ...g.shells[k], ...b.ammo[k] };
+  }
   GUNS.set(id, g);
   return g;
 }

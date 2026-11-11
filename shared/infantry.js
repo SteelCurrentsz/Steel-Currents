@@ -104,7 +104,11 @@ export function footing(world, x, z) {
     const key = (i + 40000) * 80000 + (k + 40000);
     let v = c.map.get(key);
     if (v === undefined) {
-      v = Math.max(groundHeight(world, i, k), drawnGround(world, i, k));
+      // The ground as it is drawn, which is what he is seen to stand on.
+      // The true field can be metres above the coarse mesh on a hillside,
+      // and a man stood on that is a man in the air.
+      v = drawnGround(world, i, k);
+      if (!Number.isFinite(v)) v = groundHeight(world, i, k);
       c.map.set(key, v);
     }
     return v;

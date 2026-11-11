@@ -15,6 +15,8 @@ import {
   SHERMAN_HULL, SHERMAN_TURRET, SHERMAN_RING, SHERMAN_MUZZLE, LCM_HULL, LCM_RAMP, LCM_HINGE,
 } from './vehicles.data.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
+import { mergeStatic } from './merge.js';
+import { bySection } from './interior.js';
 
 /** One packed part (see `pack` in the build script) as a geometry. */
 export function decode(b64) {
@@ -122,6 +124,9 @@ export function buildLcm() {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   g.add(mesh);
+  // Welded a buffer per compartment, as every hull is, so a battle can cut
+  // her plating up and open a compartment shot out of her.
+  mergeStatic(g, bySection(cls.hull.length));
   // Her ramp, hinged across the foot of her bow: drawn up, as the model has
   // it, and let go forward onto the beach when she takes the ground (see
   // rampStep in the simulation). It does not come up again.
@@ -144,6 +149,10 @@ export function buildLcm() {
     return f;
   };
   g.userData.rampNode = hinge;
+  // Her keel is drawn a metre up, at the waterline the battle floats every
+  // hull to (see DRAFT in build/prepare-vehicles.mjs); the shipyard floats a
+  // hull at y = 0 and lets her down by this much.
+  g.userData.floatDown = 1.0;
   return {
     group: g, turrets: [], length: cls.hull.length, beam: cls.hull.beam,
     deckY: cls.cargo.vehicles.deck,
