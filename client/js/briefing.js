@@ -489,6 +489,41 @@ export class Briefing {
   }
 
   /**
+   * Put a load out's briefing back (see loadouts.js): both fleets, what each
+   * hull embarks, the guns, tanks and bombers, the place and the weather.
+   * Anything in it this build does not know -- a ship since withdrawn -- is
+   * left out rather than allowed to break the battle.
+   */
+  loadState(saved) {
+    if (!saved || typeof saved !== 'object') return false;
+    const s = this.state;
+    const ids = (a, table) => (Array.isArray(a) ? a.filter((id) => typeof id === 'string' && table[id]) : []);
+    // Hulls and their air groups stay paired: a dropped hull takes its wing with it.
+    const fleet = (side) => {
+      const list = Array.isArray(saved[`${side}Fleet`]) ? saved[`${side}Fleet`] : [];
+      const wings = Array.isArray(saved[`${side}Wings`]) ? saved[`${side}Wings`] : [];
+      const keep = list.map((id, i) => [id, wings[i] ?? null]).filter(([id]) => typeof id === 'string' && SHIP_CLASSES[id]);
+      s[`${side}Fleet`] = keep.map(([id]) => id);
+      s[`${side}Wings`] = keep.map(([, w]) => (w && typeof w === 'object' ? { ...w } : null));
+    };
+    fleet('ally');
+    fleet('enemy');
+    s.allyGuns = ids(saved.allyGuns, BATTERIES);
+    s.enemyGuns = ids(saved.enemyGuns, BATTERIES);
+    s.allyBombers = ids(saved.allyBombers, BOMBERS);
+    s.enemyBombers = ids(saved.enemyBombers, BOMBERS);
+    if (TIMES.includes(saved.time)) s.time = saved.time;
+    if (WEATHER[saved.weather]) s.weather = saved.weather;
+    s.fog = !!saved.fog;
+    const d = saved.deploy;
+    if (d && Number.isFinite(d.lon) && Number.isFinite(d.lat) && Number.isFinite(d.km)) s.deploy = { ...d };
+    if (s.allyFleet[0]) this.onShipChange?.(s.allyFleet[0]);
+    this.render();
+    this.paintMap();
+    return true;
+  }
+
+  /**
    * The theatre the pin implies. Confined water means an island field to fight
    * through; open ocean means open ocean; and high latitudes get the North
    * Atlantic's weather whatever the sea room.

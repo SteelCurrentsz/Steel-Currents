@@ -44,6 +44,9 @@ import {
   infantryBrief, doctrineOut, doctrineIn, poolDoctrine, commandSoldier, driveSoldier, GARAND, BARRACKS_MEN,
 } from '../shared/infantry.js';
 import {
+  LOADOUT_SLOTS, listLoadouts, saveLoadout, deleteLoadout, describeLoadout,
+} from '../client/js/loadouts.js';
+import {
   normaliseAirGroup, defaultAirGroup, setAirGroup, rotary, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
@@ -30155,6 +30158,26 @@ check('the soldier and his rifle are credited, and the barracks is on the plotti
   const walls = html.indexOf('id="lay-walls"');
   const huts = html.indexOf('id="lay-barracks"');
   assert.ok(walls > 0 && huts > walls, 'the barracks button is not under the sea walls');
+});
+
+check('five load outs are kept on the device, saved over, described and emptied', () => {
+  const mem = new Map();
+  globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
+  assert.equal(LOADOUT_SLOTS, 5);
+  assert.deepEqual(listLoadouts(), [null, null, null, null, null]);
+  const brief = { allyFleet: ['fletcher', 'lcm'], enemyFleet: ['fletcher'], allyGuns: [], enemyGuns: ['sherman'], allyBombers: [], enemyBombers: [], deploy: { name: 'Omaha Beach', lon: -0.85, lat: 49.4, km: 16 } };
+  const plan = { where: 'x', tokens: [{ kind: 'ship', classId: 'fletcher', team: 0, index: 0, x: 10, z: 20, heading: 1 }], barracks: [{ team: 1, x: 5, z: 5, heading: 0 }] };
+  assert.ok(saveLoadout(4, brief, plan));
+  assert.ok(!saveLoadout(5, brief), 'a sixth slot');
+  brief.allyFleet.push('iowa');
+  const kept = listLoadouts()[4];
+  assert.equal(kept.name, 'Omaha Beach');
+  assert.deepEqual(kept.briefing.allyFleet, ['fletcher', 'lcm'], 'the load out moved with the briefing after it was saved');
+  assert.deepEqual(kept.plan.tokens[0].x, 10);
+  assert.match(describeLoadout(kept), /2 v 1 ships.*1 gun or tank.*1 barracks/);
+  assert.ok(deleteLoadout(4));
+  assert.equal(listLoadouts()[4], null);
+  delete globalThis.localStorage;
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

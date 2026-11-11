@@ -19,6 +19,7 @@ import { TouchControls, isTouchDevice } from './touch.js';
 import * as fullscreen from './fullscreen.js';
 import { Briefing, FLEET_MAX, BOMBER_MAX } from './briefing.js';
 import { LayoutMap } from './layout.js';
+import { LoadoutPanel } from './loadouts.js';
 import { ScriptEditor } from './scripteditor.js';
 import { DeployMap } from './deploy.js';
 import { audio } from './audio.js';
@@ -1568,6 +1569,40 @@ document.getElementById('custom-start').onclick = () => {
   // next frame rather than drawn into a nought-by-nought canvas.
   requestAnimationFrame(() => layout.show(layoutReq));
 };
+
+// ---------------------------------------------------------------- load outs --
+//
+// Five battles kept on this device -- both sides' forces off the briefing and,
+// once the plotting board has been opened, where everything starts -- to be
+// loaded and fought again. See loadouts.js.
+const whereOf = (r) => `${r.mapId}|${r.seed}|${r.half}|${r.lon}|${r.lat}`;
+const loadouts = new LoadoutPanel({
+  getBriefing: () => briefing.state,
+  // The chart's layout, if it is a layout of this battle.
+  getPlan: () => {
+    const plan = layout.req ? layout.snapshot() : null;
+    return plan && plan.where === whereOf(briefing.request()) ? plan : null;
+  },
+  onLoad: (saved) => {
+    briefing.loadState(saved.briefing);
+    const why = briefing.blocker();
+    if (why) { show('custom'); toast(why); return; }
+    // Straight onto the plotting board, laid out as it was kept: Sortie
+    // fights it again.
+    layoutReq = briefing.request();
+    scriptEditor.enable(!!layoutReq.staged);
+    show('lay');
+    requestAnimationFrame(() => {
+      layout.show(layoutReq);
+      layout.restore(saved.plan);
+      toast(`${saved.name} loaded. Sortie to fight it again.`);
+    });
+  },
+  toast,
+  click: () => audio.click(),
+});
+document.getElementById('custom-loadouts')?.addEventListener('click', () => { audio.click(); loadouts.open('briefing'); });
+document.getElementById('lay-loadouts')?.addEventListener('click', () => { audio.click(); loadouts.open('lay'); });
 
 document.getElementById('pvp-quick').onclick = () => {
   audio.resume();
