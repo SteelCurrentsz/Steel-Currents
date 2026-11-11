@@ -25,7 +25,8 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { arm } from './mounts.js';
-import { mergeMoving } from './merge.js';
+import { mergeStatic, mergeMoving } from './merge.js';
+import { bySection } from './interior.js';
 import { dressShip } from './textures.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
@@ -203,9 +204,19 @@ export function buildHiggins() {
   hull(g);
   // Her lines, for the sea to keep out of her: at her own sides from her keel
   // to her gunwale, her well included -- it is dry inside her.
+  //
+  // The sea's plan of a hull reads her breadth from two metres under the
+  // waterline up (hullPlan in breakers.js), which on a ship is all hull and
+  // on her is mostly the sea under her keel: so below her waterline she is
+  // read at her breadth just under it, which is the outline the sea meets.
   g.userData.lines = {
-    loa: LOA, shellAt, keelY: keelAt, sheer: gunwaleAt, zAt: (t) => t * HALF,
+    loa: LOA,
+    shellAt: (t, y) => shellAt(t, Math.max(y, LIFT - 0.25)),
+    keelY: keelAt, sheer: gunwaleAt, zAt: (t) => t * HALF,
   };
+  // Welded a buffer per compartment, so a compartment shot out of her can
+  // have its plating taken off and a shell can cut a hole in it.
+  mergeStatic(g, bySection(LOA));
   const turrets = guns(g);
   const r = ramp(g);
   mergeMoving(g);
@@ -223,6 +234,9 @@ export function buildHiggins() {
     return f;
   };
   g.userData.rampNode = r.hinge;
+  // Her waterline is drawn LIFT up, where the battle's sea meets her; the
+  // shipyard floats a hull at y = 0 and lets her down by this much.
+  g.userData.floatDown = LIFT;
   dressShip(g);
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: higginsSurfaceY(0, 0),

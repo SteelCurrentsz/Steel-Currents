@@ -8,6 +8,7 @@
 
 import * as THREE from '../../vendor/three.module.js';
 import { Ocean } from './render/ocean.js';
+import { Breakers } from './render/breakers.js';
 import { Wake, WakeField } from './render/wakefield.js';
 import { Seakeeping } from './render/seakeeping.js';
 import { buildShip } from './render/ships.js';
@@ -64,6 +65,11 @@ export class ShipyardScene {
     // A working sea rather than a millpond: enough wind to put white horses
     // on it.
     this.ocean.setSeaState(2);
+    // What keeps the sea out of an open hull, as in a battle: only for a
+    // hull floated the way a battle floats her (see floatDown), whose lines
+    // the sea's plan of her is drawn to. A landing craft's well is the case.
+    this.breakers = new Breakers(this.scene, this.ocean, { intensity: 0.6 });
+    this.hullView = null;
     this.scene.add(this.ocean.mesh);
 
     this.hemi = new THREE.HemisphereLight(0xa6b2bb, 0x252e35, 1.0);
@@ -112,6 +118,7 @@ export class ShipyardScene {
     // aerial on her. It is far too much geometry for forty ships in a battle,
     // and exactly right for one ship being looked over.
     this.ship = classId === 'iowa' ? buildIowa() : buildShip(classId);
+    this.hullView = { group: this.ship.group, cls: SHIP_CLASSES[classId], classId };
     // Trained a little off the bow so the barrels read as barrels rather than
     // as three dots pointing at the lens.
     // Trained off the centreline so the barrels read as barrels rather than as
@@ -283,7 +290,10 @@ export class ShipyardScene {
     g.rotation.order = 'YXZ';
     g.rotation.z = m.roll;
     g.rotation.x = m.pitch;
-    g.position.set(0, m.heave, this.way);
+    // A hull drawn with her waterline where the battle floats her -- a metre
+    // up, since every hull in a battle is floated a metre down -- says so,
+    // and is let down that far here, where nothing else is.
+    g.position.set(0, m.heave - (g.userData.floatDown || 0), this.way);
     // The sea and the sky are carried along with her, so she never runs out
     // from under either of them however long the screen is left open.
     this.ocean.mesh.position.z = this.way;
@@ -319,6 +329,8 @@ export class ShipyardScene {
       this.sun.intensity = under ? 1.25 : 1.5;
     }
     this.ocean.update(dt, null);
+    this.breakers.update(dt, this.camera,
+      this.hullView && g.userData.floatDown ? [this.hullView] : []);
   }
 
   render() {
