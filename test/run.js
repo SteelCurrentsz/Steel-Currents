@@ -14474,8 +14474,10 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
   for (const cls of Object.values(SHIP_CLASSES)) {
     const rows = arsenal(cls);
     // A warship carries three kinds at least; a merchantman -- the Liberty
-    // ship's 4-inch and her Oerlikons -- may carry two.
-    assert.ok(rows.length >= (cls.cargo ? 2 : 3), `${cls.id} lists only ${rows.length} weapons`);
+    // ship's 4-inch and her Oerlikons -- may carry two, and a landing craft
+    // -- the Higgins boat's pair of Brownings -- one.
+    const least = cls.type === 'LC' ? 1 : cls.cargo ? 2 : 3;
+    assert.ok(rows.length >= least, `${cls.id} lists only ${rows.length} weapons`);
     for (const w of rows) {
       assert.ok(w.name && w.name.length > 2, `${cls.id} has an unnamed weapon`);
       assert.ok(ROLES.has(w.role), `${cls.id} ${w.name} may engage "${w.role}"`);
@@ -14486,7 +14488,10 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     // A light battery may be dual-purpose throughout -- the Leviathan's is all
     // 76 mm DP -- and is no less an anti-aircraft battery for it.
     const light = rows.filter((w) => w.band === 'Light battery' && (w.role === 'aa' || w.role === 'dp'));
-    assert.ok(light.length > 0, `${cls.id} has no anti-aircraft guns listed`);
+    // A landing craft has no light battery: the Higgins boat's two Brownings
+    // are her main battery, and dual-purpose -- they are her flak.
+    const flak = cls.type === 'LC' ? rows.filter((w) => w.role === 'dp') : light;
+    assert.ok(flak.length > 0, `${cls.id} has no anti-aircraft guns listed`);
     for (const t of cls.datasheet.tertiary || []) {
       // A calibre she carries in more than one kind of mounting -- the
       // Yukikaze's 25 mm, triples and singles -- is listed a row to a kind,
