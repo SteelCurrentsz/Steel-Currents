@@ -251,6 +251,40 @@ console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SC
 /** The node a triangle came from. */
 const pieceOf = (t) => model.L[t];
 
+// ---- her rigging ---------------------------------------------------------------------
+// Her stays and aerials: the model draws each wire as a needle of a triangle
+// a couple of centimetres wide and tens of metres long, slung from her
+// mastheads down to her stem and her quarterdeck. Drawn solid, the forestay
+// on her centreline stands straight across No.2's line of sight over her
+// bow, and a hairline is all it ever was on screen. They come off her, as
+// the Kongo's and the Agincourt's do: any face longer than four metres and
+// thinner than six centimetres that climbs or falls a metre along its length.
+{
+  const T2 = [], G2 = [], L2 = [], M2 = [];
+  let wires = 0;
+  const P = model.P;
+  for (let t = 0; t < model.T.length / 3; t++) {
+    const v = [0, 1, 2].map((k) => model.T[t * 3 + k] * 3);
+    let long = 0, li = 0;
+    for (let k = 0; k < 3; k++) {
+      const a = v[k], b = v[(k + 1) % 3];
+      const d = Math.hypot(P[a] - P[b], P[a + 1] - P[b + 1], P[a + 2] - P[b + 2]);
+      if (d > long) { long = d; li = k; }
+    }
+    if (long > 4) {
+      const [a, b, c] = [v[0], v[1], v[2]];
+      const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+      const wx = P[c] - P[a], wy = P[c + 1] - P[a + 1], wz = P[c + 2] - P[a + 2];
+      const area = Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) / 2;
+      const p = v[li], q = v[(li + 1) % 3];
+      if ((2 * area) / long < 0.06 && Math.abs(P[p + 1] - P[q + 1]) > 1) { wires++; continue; }
+    }
+    T2.push(model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]);
+  }
+  model.T = T2; model.G = G2; model.L = L2; model.M = M2;
+  console.log(`rigging: ${wires} faces of wire taken off`);
+}
+
 // ---- her shell ------------------------------------------------------------------------
 // Her hull plating, side and bottom: the two pieces of the model that draw
 // her hull, in its one material. Over her waterline the model paints her
