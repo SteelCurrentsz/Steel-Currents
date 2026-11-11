@@ -1442,7 +1442,7 @@ export const SHIP_CLASSES = {
     // gun on her forecastle; six AK-630 six-barrelled close-in guns, two on
     // her forward superstructure looking forward and two a side on her after
     // deckhouse, which stop missiles as well as aeroplanes (see stepCiws);
-    // two six-barrelled RBU-6000 rocket launchers either side of her hangar,
+    // two twelve-barrelled RBU-6000 rocket launchers either side of her hangar,
     // whose bombs go off on whatever they come down on -- a ship, a
     // submarine, or a torpedo running at her (see stepRbu); sixteen P-1000
     // Vulcan anti-ship missiles in eight pairs of tubes along her forecastle,
@@ -1530,14 +1530,14 @@ export const SHIP_CLASSES = {
           ] },
       ],
     },
-    // Her two RBU-6000 launchers, one either side of her hangar: six 212 mm
-    // barrels each, throwing a ripple of rocket-propelled bombs out to six
+    // Her two RBU-6000 launchers, one either side of her hangar: twelve 212 mm
+    // barrels each, in a horseshoe, throwing a ripple of rocket-propelled bombs out to six
     // kilometres. Her own fire control works them (see stepRbu) -- onto a
     // torpedo running at her first, then onto a submarine her sonar holds,
     // then onto a ship close aboard -- unless somebody has gone down to one
     // and is laying it himself.
     rbu: {
-      name: 'RBU-6000', caliber: 212, tubes: 6,
+      name: 'RBU-6000', caliber: 212, tubes: 12,
       reload: 30, traverse: 0.6, range: 5800, minRange: 300,
       // How fast its bombs leave the barrels, and how far apart a ripple falls.
       speed: 240, spread: 30, ripple: 0.25,
@@ -1611,7 +1611,7 @@ export const SHIP_CLASSES = {
       secondary: null,
       tertiary: [
         { caliber: 30, label: 'AK-630 CIWS', barrels: 36, mounts: 6, rounds: 18000 },
-        { caliber: 212, label: 'RBU-6000', barrels: 12, mounts: 2, rounds: 96 },
+        { caliber: 212, label: 'RBU-6000', barrels: 24, mounts: 2, rounds: 144 },
       ],
       missiles: [
         { label: 'P-1000 Vulcan (SS-N-12 Sandbox)', rounds: 16 },

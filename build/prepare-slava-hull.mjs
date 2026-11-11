@@ -591,90 +591,143 @@ const PALETTE = PAL.cent.map((c) => c.map((v) => Math.round(toLin(Math.min(1, v 
 console.log('palette:', PAL.cent.map((c) => c.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('')).join(' '));
 
 // ---- the Sovremenny's paint -----------------------------------------------------------
-// She is painted as the Sovremenny is: every paint of the Slava's model is
-// given the nearest of the Sovremenny's own -- her greys for greys, matched
-// shade for shade, her deck reds for the Slava's deck reds, anything brighter
-// to its nearest -- and her bottom the Sovremenny's bottom paint, read off the
-// Sovremenny's hull as the game draws it (sovremennyHull.data.js).
+// She is painted as the Sovremenny is, part for part: the Sovremenny's paints
+// are read off her hull as the game draws it (sovremennyHull.data.js) and
+// sorted by where on her each is -- her weather deck, dark red-brown; the
+// decks of her superstructure, a brighter orange-red; the side of her hull;
+// her superstructure's greys; and her bottom -- and every face of the Slava is
+// given the Sovremenny's paint for the part of her it is on. Within a part the
+// Slava keeps her own lights and darks: the paint that covers most of that
+// part of her goes to the one that covers most of the Sovremenny's, and every
+// other to the Sovremenny's paint as much lighter or darker as it is.
 {
   const { SOV_HULL_B64 } = await import('../client/js/render/sovremennyHull.data.js');
   const { decodeSlices } = await import('../client/js/render/sculpt.js');
-  // Each of the Sovremenny's paints, with how much of her it covers looking
-  // up (her decks) and looking out (her sides and her superstructure).
-  const seen = new Map(), under = new Map();
-  for (const g of decodeSlices(SOV_HULL_B64)) {
-    const P = g.attributes.position.array, C = g.attributes.color.array, I = g.index.array;
-    for (let t = 0; t < I.length; t += 3) {
-      const [a, b, c] = [I[t], I[t + 1], I[t + 2]];
-      const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
-      const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
-      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      const l = Math.hypot(nx, ny, nz);
-      const key = `${C[a * 3]},${C[a * 3 + 1]},${C[a * 3 + 2]}`;
-      if ((P[a * 3 + 1] + P[b * 3 + 1] + P[c * 3 + 1]) / 3 < -0.5) { under.set(key, (under.get(key) || 0) + l / 2); continue; }
-      const e = seen.get(key) || [0, 0];
-      e[ny > 0.85 * l ? 0 : 1] += l / 2;
-      seen.set(key, e);
-    }
-  }
-  const sov = [...seen].map(([k, [up, out]]) => ({ c: k.split(',').map(Number), up, out }));
-  const bottom = [...under].sort((p, q) => q[1] - p[1])[0][0].split(',').map(Number);
   const srgb = (c) => c.map((v) => toSrgb(v / 255));
   const lum = (c) => { const q = srgb(c); return 0.2126 * q[0] + 0.7152 * q[1] + 0.0722 * q[2]; };
   const warm = (c) => { const q = srgb(c); return q[0] - q[2]; };
   const sat = (c) => { const q = srgb(c); return Math.max(...q) - Math.min(...q); };
-  const isRed = (c) => warm(c) > 0.04 && sat(c) < 0.45;
-  const isGrey = (c) => !isRed(c) && sat(c) <= 0.35;
-  // How much of the Slava each of her paints covers.
-  const cover = new Float64Array(PALETTE.length);
-  for (let t = 0; t < nTri; t++) if (!BOTTOM[t]) cover[PAL.lab[t]] += triArea(model.P, model.T, t);
-  /**
-   * Her paints of one sort onto the Sovremenny's of that sort: the paint that
-   * covers most of the Slava to the one that covers most of the Sovremenny --
-   * her deck red to hers, her side grey to hers -- and every other a shade
-   * lighter or darker than that by as much as it is on the Slava, to the
-   * Sovremenny's paint nearest that shade.
-   */
+  const isWarm = (c) => warm(c) > 0.04;
+  const isGrey = (c) => !isWarm(c) && sat(c) <= 0.35;
+  /** A face's middle and whether it looks up. */
+  const faceOf = (P, a, b, c) => {
+    const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
+    const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz);
+    return {
+      area: l / 2, up: l > 0 && ny > 0.85 * l,
+      x: (P[a * 3] + P[b * 3] + P[c * 3]) / 3, y: (P[a * 3 + 1] + P[b * 3 + 1] + P[c * 3 + 1]) / 3,
+    };
+  };
+  // The Sovremenny's paints, part by part, with how much of each part each
+  // covers. Her weather deck is under 6 m, her superstructure's decks over
+  // 8.5 m; the side of her hull is what looks out between her waterline and
+  // her deck edge, outboard; her superstructure is what looks out over 8 m.
+  const parts = { deck: new Map(), upper: new Map(), side: new Map(), house: new Map(), bright: new Map(), bottom: new Map() };
+  const add = (m, key, w) => m.set(key, (m.get(key) || 0) + w);
+  for (const g of decodeSlices(SOV_HULL_B64)) {
+    const P = g.attributes.position.array, C = g.attributes.color.array, I = g.index.array;
+    for (let t = 0; t < I.length; t += 3) {
+      const f = faceOf(P, I[t], I[t + 1], I[t + 2]);
+      if (!(f.area > 0)) continue;
+      const k = I[t] * 3, key = `${C[k]},${C[k + 1]},${C[k + 2]}`, c = [C[k], C[k + 1], C[k + 2]];
+      if (f.y < -0.5) { add(parts.bottom, key, f.area); continue; }
+      if (sat(c) > 0.45) add(parts.bright, key, f.area);
+      if (f.up && isWarm(c)) {
+        if (f.y < 6) add(parts.deck, key, f.area); else if (f.y > 8.5) add(parts.upper, key, f.area);
+      } else if (!f.up && isGrey(c)) {
+        if (f.y > 0 && f.y < 7 && Math.abs(f.x) > 6) add(parts.side, key, f.area); else if (f.y > 8) add(parts.house, key, f.area);
+      }
+    }
+  }
+  const listOf = (m) => [...m].filter(([, w]) => w > 1).map(([k, w]) => ({ c: k.split(',').map(Number), w }));
+  const SOV = Object.fromEntries(Object.entries(parts).map(([k, m]) => [k, listOf(m)]));
+  const bottom = [...parts.bottom].sort((p, q) => q[1] - p[1])[0][0].split(',').map(Number);
+
+  // The Slava's faces, part by part, as her own model paints them. Her weather
+  // deck is the deck of her hull and anything else that looks up from within
+  // two metres of it; her superstructure's decks are what looks up above that.
+  const HULL = [...HULL_PIECES][0];
+  const deckY = new Float32Array(Math.ceil(LOA) + 4).fill(-99);
+  for (let t = 0; t < nTri; t++) {
+    if (model.L[t] !== HULL) continue;
+    const f = faceOf(model.P, model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]);
+    if (!f.up) continue;
+    const i = Math.round(model.P[model.T[t * 3] * 3 + 2] + LOA / 2);
+    if (i >= 0 && i < deckY.length) deckY[i] = Math.max(deckY[i], f.y);
+  }
+  const deckAt = (z) => {
+    const i = Math.max(0, Math.min(deckY.length - 1, Math.round(z + LOA / 2)));
+    for (let d = 0; d < 6; d++) for (const j of [i - d, i + d]) if (deckY[j] > -50) return deckY[j];
+    return 8;
+  };
+  const partOf = new Array(nTri);
+  const mine = { deck: new Map(), upper: new Map(), side: new Map(), house: new Map() };
+  for (let t = 0; t < nTri; t++) {
+    if (BOTTOM[t]) { partOf[t] = 'bottom'; continue; }
+    const c = PALETTE[PAL.lab[t]];
+    const f = faceOf(model.P, model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]);
+    const z = (model.P[model.T[t * 3] * 3 + 2] + model.P[model.T[t * 3 + 1] * 3 + 2] + model.P[model.T[t * 3 + 2] * 3 + 2]) / 3;
+    // The model's paint as it has it, before it was brightened: a red deck is
+    // redder than it is blue by a margin a warm grey is not.
+    const red = PAL.cent[PAL.lab[t]][0] - PAL.cent[PAL.lab[t]][2] > 0.04;
+    let part;
+    if (sat(c) > 0.35 && !red) part = 'bright';
+    else if (lum(c) < 0.06) part = 'dark';
+    else if (red && f.up) part = model.L[t] === HULL || f.y < deckAt(z) + 2 ? 'deck' : 'upper';
+    else if (red) part = 'upper';
+    else if (model.L[t] === HULL && !f.up && f.y < deckAt(z) + 0.5) part = 'side';
+    else part = 'house';
+    partOf[t] = part;
+    if (mine[part]) add(mine[part], PAL.lab[t], f.area);
+  }
+  // Each of the Slava's paints in a part, onto the Sovremenny's for that part.
   const median = (list) => {
     const s2 = [...list].sort((p, q) => p.l - q.l), tot = s2.reduce((t, e) => t + e.w, 0);
     let acc = 0;
     for (const e of s2) { acc += e.w; if (acc >= tot / 2) return e.l; }
     return s2[s2.length - 1].l;
   };
-  const match = (mine, theirs) => {
-    if (!mine.length || !theirs.length) return;
-    const shift = median(theirs.map((e) => ({ l: lum(e.c), w: e.w }))) - median(mine.map((k) => ({ l: lum(PALETTE[k]), w: cover[k] })));
-    const to = mine.map((k) => {
+  const to = {};
+  for (const part of Object.keys(mine)) {
+    const theirs = SOV[part], ours = [...mine[part]];
+    if (!ours.length) continue;
+    const shift = median(theirs.map((e) => ({ l: lum(e.c), w: e.w }))) - median(ours.map(([k, w]) => ({ l: lum(PALETTE[k]), w })));
+    to[part] = new Map(ours.map(([k]) => {
       const want = lum(PALETTE[k]) + shift;
-      return theirs.reduce((b2, e) => (Math.abs(lum(e.c) - want) < Math.abs(lum(b2.c) - want) ? e : b2)).c;
-    });
-    mine.forEach((k, i) => { PALETTE[k] = [...to[i]]; });
-  };
-  const ks = [...PALETTE.keys()];
-  const reds = sov.filter((e) => isRed(e.c) && e.up > 2).map((e) => ({ c: e.c, w: e.up }));
-  const greys = sov.filter((e) => isGrey(e.c) && e.out > 2).map((e) => ({ c: e.c, w: e.out }));
-  const bright = sov.filter((e) => sat(e.c) > 0.35 && e.up + e.out > 2);
-  const myBright = ks.filter((k) => sat(PALETTE[k]) > 0.35 && !isRed(PALETTE[k]));
-  for (const k of myBright) {
-    const c = PALETTE[k];
-    PALETTE[k] = [...bright.reduce((b, e) => {
-      const d = (q) => srgb(q.c).reduce((s2, v, i) => s2 + (v - srgb(c)[i]) ** 2, 0);
-      return d(e) < d(b) ? e : b;
-    }).c];
+      return [k, theirs.reduce((b2, e) => (Math.abs(lum(e.c) - want) < Math.abs(lum(b2.c) - want) ? e : b2)).c];
+    }));
   }
-  // The Slava's deck reds, told by the paint as the model has it, before it
-  // was brightened: a red deck is redder than it is blue by a margin a warm
-  // grey is not.
-  const myReds = ks.filter((k) => !myBright.includes(k) && PAL.cent[k][0] - PAL.cent[k][2] > 0.04);
-  match(myReds, reds);
-  match(ks.filter((k) => !myBright.includes(k) && !myReds.includes(k)), greys);
-  // Her bottom, a paint of its own: the Sovremenny's.
-  const kb = PALETTE.length;
-  PALETTE.push([...bottom]);
-  PAL.cent.push(srgb(bottom));
-  for (let t = 0; t < nTri; t++) if (BOTTOM[t]) PAL.lab[t] = kb;
-  console.log(`paint: the Sovremenny's, ${greys.length} greys and ${reds.length} deck reds; bottom ${srgb(bottom).map((v) => Math.round(v * 255)).join(',')};`,
-    'palette', PALETTE.map((c) => srgb(c).map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('')).join(' '));
+  const nearest = (list, c) => list.reduce((b2, e) => {
+    const d = (q) => srgb(q.c).reduce((s2, v, i) => s2 + (v - srgb(c)[i]) ** 2, 0);
+    return d(e) < d(b2) ? e : b2;
+  }).c;
+  const darkest = [...SOV.house, ...SOV.side].reduce((b2, e) => (lum(e.c) < lum(b2.c) ? e : b2)).c;
+  // The palette is now the Sovremenny's paints the Slava wears, each once.
+  const NEW = [], index = new Map();
+  const slot = (c) => {
+    const key = c.join(',');
+    if (!index.has(key)) { index.set(key, NEW.length); NEW.push([...c]); }
+    return index.get(key);
+  };
+  const lab = new Uint8Array(nTri);
+  const tally = {};
+  for (let t = 0; t < nTri; t++) {
+    const part = partOf[t], k = PAL.lab[t];
+    const c = part === 'bottom' ? bottom : part === 'bright' ? nearest(SOV.bright, PALETTE[k])
+      : part === 'dark' ? darkest : to[part].get(k);
+    lab[t] = slot(c);
+    tally[part] = (tally[part] || 0) + 1;
+  }
+  if (NEW.length > 60) throw new Error(`paint: ${NEW.length} paints, more than the packer holds`);
+  PALETTE.length = 0; PALETTE.push(...NEW);
+  PAL.cent.length = 0; PAL.cent.push(...NEW.map(srgb));
+  PAL.lab.set(lab);
+  const hex = (c) => srgb(c).map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+  console.log('paint: the Sovremenny\'s, part for part;', Object.entries(tally).map(([p, n]) => `${p} ${n}`).join(', '));
+  for (const part of Object.keys(to)) console.log(`  ${part}: ${[...new Set([...to[part].values()].map(hex))].join(' ')}`);
+  console.log(`  bottom: ${hex(bottom)}; palette ${PALETTE.map(hex).join(' ')}`);
 }
 
 // ---- what is hers and what trains ------------------------------------------------------

@@ -3749,9 +3749,9 @@ check('the RF Slava is commissioned after the Sovremenny, in the Modern yard, ar
   assert.equal(ciws.length, 1);
   assert.match(ciws[0].name, /AK-630/);
   assert.equal(ciws[0].mounts.length, 6);
-  // Two six-barrelled RBU-6000s.
+  // Two twelve-barrelled RBU-6000s.
   assert.equal(cls.rbu.name, 'RBU-6000');
-  assert.equal(cls.rbu.tubes, 6);
+  assert.equal(cls.rbu.tubes, 12);
   assert.equal(cls.rbu.mounts.length, 2);
   // Sixteen Vulcans, sixty-four S-300Fs and forty OSA-Ms, both of those at
   // aeroplanes and missiles alike.
