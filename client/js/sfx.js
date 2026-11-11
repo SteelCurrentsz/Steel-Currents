@@ -856,7 +856,59 @@ export function sfxKit() {
     return finish(chs, sr, 0.9, true);
   }
 
+  /**
+   * A rifle shot: the crack of a .30-06 going supersonic past whoever hears
+   * it, the bang of the cartridge behind it, and a short slap back off the
+   * ground. Much smaller than any gun aboard a ship, and much sharper.
+   */
+  function rifle(sr, rand) {
+    const chs = buffers(sr, 0.9, 1);
+    const [M] = chs;
+    const hp = svf(sr, 'high'), lp = svf(sr, 'low'), sub = svf(sr, 'low'), echo = svf(sr, 'low');
+    const at = 0.18 + rand() * 0.12;
+    for (let i = 0; i < M.length; i++) {
+      const t = i / sr;
+      const crack = t < 0.01 ? hp(rand() * 2 - 1, 2400) * Math.exp(-t / 0.0011) * 1.6 : 0;
+      const body = lp(rand() * 2 - 1, 900 + 6000 * Math.exp(-t / 0.01)) * rise(t, 0.0004) * Math.exp(-t / 0.03) * 1.3;
+      const thump = sub(rand() * 2 - 1, 140, 0.8) * rise(t, 0.0006) * Math.exp(-t / 0.03) * 4;
+      const back = t > at ? echo(rand() * 2 - 1, 700) * Math.exp(-(t - at) / 0.12) * 0.35 : 0;
+      M[i] = sat(crack + body + thump + back);
+    }
+    return finish(chs, sr);
+  }
+
+  /** The M1's empty clip leaving the rifle: a high, bright, short ring. */
+  function ping(sr, rand) {
+    const chs = buffers(sr, 0.5, 1);
+    const [M] = chs;
+    const f1 = 2900 + rand() * 300, f2 = f1 * 2.71, f3 = f1 * 1.53;
+    for (let i = 0; i < M.length; i++) {
+      const t = i / sr;
+      const tick = t < 0.003 ? (rand() * 2 - 1) * 0.5 : 0;
+      M[i] = sat(tick + (Math.sin(TAU * f1 * t) * 0.55 + Math.sin(TAU * f2 * t) * 0.18 + Math.sin(TAU * f3 * t) * 0.25)
+        * rise(t, 0.0005) * Math.exp(-t / 0.09) * 0.8);
+    }
+    return finish(chs, sr);
+  }
+
+  /** A round going into a man: a short, wet, dull blow. */
+  function flesh(sr, rand) {
+    const chs = buffers(sr, 0.25, 1);
+    const [M] = chs;
+    const lp = svf(sr, 'low'), bp = svf(sr, 'band');
+    for (let i = 0; i < M.length; i++) {
+      const t = i / sr;
+      const blow = lp(rand() * 2 - 1, 260 + 900 * Math.exp(-t / 0.01), 1.1) * rise(t, 0.0008) * Math.exp(-t / 0.035) * 3;
+      const wet = bp(rand() * 2 - 1, 1200 + 600 * Math.sin(t * 90), 2.5) * Math.exp(-t / 0.05) * 0.5;
+      M[i] = sat(blow + wet);
+    }
+    return finish(chs, sr);
+  }
+
   const RECIPES = {
+    rifle: { takes: 4, make: (sr, r) => rifle(sr, r) },
+    ping: { takes: 2, make: (sr, r) => ping(sr, r) },
+    flesh: { takes: 3, make: (sr, r) => flesh(sr, r) },
     gunHeavy: { takes: 2, make: (sr, r) => gun(sr, r, 0.9) },
     gunMedium: { takes: 2, make: (sr, r) => gun(sr, r, 0.45) },
     gunLight: { takes: 3, make: (sr, r) => gun(sr, r, 0.08) },
@@ -889,7 +941,7 @@ export function sfxKit() {
     shellAir: { takes: 1, make: (sr, r) => shellAir(sr, r) },
   };
 
-  return { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, rocket, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES };
+  return { rng, rifle, ping, flesh, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, rocket, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES };
 }
 
-export const { rng, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, rocket, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES } = sfxKit();
+export const { rng, rifle, ping, flesh, gun, autoGun, splash, explosion, magazine, armour, creak, bang, vent, crash, launch, rocket, torpHit, alarm, sea, wind, wash, machinery, shellAir, RECIPES } = sfxKit();

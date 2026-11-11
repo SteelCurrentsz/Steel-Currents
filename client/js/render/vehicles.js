@@ -19,7 +19,7 @@ import { mergeStatic } from './merge.js';
 import { bySection } from './interior.js';
 
 /** One packed part (see `pack` in the build script) as a geometry. */
-function decode(b64) {
+export function decode(b64) {
   const bin = typeof atob === 'function'
     ? Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
     : new Uint8Array(Buffer.from(b64, 'base64'));

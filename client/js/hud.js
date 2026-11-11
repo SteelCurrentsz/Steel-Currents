@@ -605,6 +605,9 @@ class HudBase {
     // tap is for, and it is usually sitting on top of the ship it is laid on.
     const rank = (m) => (m.kind === 'pin' ? -1 : m.kind === 'battery' || m.kind === 'plane'
       || m.kind === 'bomber' || m.kind === 'torp' ? 0
+      // A rifleman under the finger before the hull he is near -- there are
+      // a great many of them and each is a speck -- but after a gun or a tank.
+      : m.kind === 'soldier' || m.kind === 'barracks' ? 0.7
       : m.kind === 'town' || m.kind === 'wall' ? 1.5
         : m.id === this.selfId ? 2 : 1);
     let best = null;
@@ -3214,6 +3217,51 @@ class HudBase {
         ctx.stroke();
       }
       marks.push({ kind: 'battery', id: g.i, x, y, name: BATTERIES[g.b]?.name || 'Battery', team: g.tm, ot: g.ot });
+    }
+
+    // The barracks, and the men out of them: a dot a man, in his side's
+    // colour, and the man in hand in the chart's yellow. Our own squads'
+    // orders as a faint line to where they are going -- marked where it was
+    // Opus that gave them.
+    for (const [id, tm, bx, bz, , alive] of (snap && snap.bk) || []) {
+      const x = toX(bx), y = toY(bz);
+      const r = 5 * k;
+      ctx.fillStyle = !alive ? 'rgba(120,120,120,0.7)' : tm === this.team ? '#6fd3a0' : '#e2564f';
+      ctx.beginPath();
+      ctx.arc(x, y + r * 0.4, r, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      marks.push({ kind: 'barracks', id, x, y, name: 'Barracks', team: tm });
+    }
+    if (snap && snap.sq && snap.sd) {
+      const at = new Map();
+      for (const s of snap.sd) {
+        if (s[1] !== this.team) continue;
+        const a = at.get(s[14]) || { x: 0, z: 0, n: 0 };
+        a.x += s[2]; a.z += s[3]; a.n++;
+        at.set(s[14], a);
+      }
+      for (const [id, , ox, oz, opus] of snap.sq.sq || []) {
+        const a = at.get(id);
+        if (!a || !a.n) continue;
+        ctx.save();
+        ctx.strokeStyle = opus ? 'rgba(214,166,255,0.55)' : 'rgba(111,211,160,0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2 * k, 3 * k]);
+        ctx.beginPath();
+        ctx.moveTo(toX(a.x / a.n), toY(a.z / a.n));
+        ctx.lineTo(toX(ox), toY(oz));
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    for (const s of (snap && snap.sd) || []) {
+      const x = toX(s[2]), y = toY(s[3]);
+      const mine = this.commandSol === s[0];
+      ctx.fillStyle = mine ? '#e6cf9c' : s[1] === this.team ? '#6fd3a0' : '#e2564f';
+      const r = (mine ? 2.6 : 1.5) * k;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      marks.push({ kind: 'soldier', id: s[0], x, y, name: 'Rifleman', team: s[1] });
     }
 
     // Everything afloat, wherever it is. A hull the lookouts have sighted is a

@@ -24,6 +24,8 @@ import { HEAVY, HEAVY_KINDS } from './render/planekit.js';
 import { b29Ready, b29Geometries, b29Materials } from './render/b29Model.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
+import { installTroops } from './troops.js';
+import { footing } from '../../shared/infantry.js';
 import { getSettings } from './settings.js';
 import { Director } from './director.js';
 import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
@@ -1028,6 +1030,8 @@ export class Battle {
     document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null), mine);
     // The battery ashore in hand, if any: see takeBattery.
     this.commandBat = null;
+    // And the soldier, if any: see troops.js.
+    this.bindTroops(mine);
     document.getElementById('bat-leave')?.addEventListener('click', () => this.leaveBattery(), mine);
     document.getElementById('bat-fire')?.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -1142,6 +1146,11 @@ export class Battle {
         this.hud.alert(m && m.why === 'range' ? 'Out of the battery\'s range'
           : 'Somebody else has those guns');
         if (m && m.why === 'taken' && this.commandBat && this.commandBat.id === m.i) this.leaveBattery(true, false);
+      }),
+      // A soldier somebody else already has.
+      this.net.on('nosol', (m) => {
+        this.hud.alert('Somebody else has that man');
+        if (this.troop && m && this.troop.id === m.i) this.leaveSoldier(true, false);
       }),
       this.net.on('nodc', () => {
         const own = this.ownSnap;
@@ -2792,6 +2801,11 @@ export class Battle {
       switch (ev.e) {
         // The word a second before a weapon goes: nothing is heard of it.
         case 'order': break;
+        // The soldiers ashore: see troops.js.
+        case 'rf': case 'wd': case 'kia': case 'ping': case 'gren': case 'barracks': case 'barracksDown':
+        case 'troopsAshore': case 'squadOrders': case 'jump':
+          this.troopEvent(ev);
+          break;
         case 'muzzle': {
           // On the muzzles, one flash a barrel.
           //
@@ -4080,6 +4094,8 @@ export class Battle {
     }
     // Standing at a gun, Space is the trigger as well as the FIRE key.
     if (this.gun && code === 'Space') { this.pullTrigger(); return; }
+    // A soldier in hand has his own keys. See troops.js.
+    if (this.troop && this.troopKey(code)) return;
     // And at a battery ashore, the same; Escape hands its guns back.
     if (this.commandBat) {
       if (code === 'Space') { this.fireBattery(); return; }
@@ -4174,6 +4190,8 @@ export class Battle {
     // on the table say what they would.
     const bat = document.getElementById('bat-sight');
     if (bat) bat.hidden = !this.commandBat || this.mapBig;
+    const sol = document.getElementById('sol-sight');
+    if (sol) sol.hidden = !this.troop || this.mapBig;
     if (this.mapBig) this.input.releaseLock();
     audio.click();
   }
@@ -4412,6 +4430,14 @@ export class Battle {
         this.watchPov = false;
         this.watchEl = 0.18;
       }
+      // A soldier from just behind and above him, close: through his own
+      // eyes is a swap away.
+      if (hit.kind === 'soldier') {
+        this.watchPov = false;
+        this.watchEl = 0.2;
+        this.watchDist = 1.4;
+        this.watchDistNow = 1.4;
+      }
       // A torpedo is watched from beside her, level, under the water.
       if (hit.kind === 'torp') this.watchEl = 0.04;
       // The town and the walls from up and off, over the whole of them: there
@@ -4445,6 +4471,9 @@ export class Battle {
     // The camera taken off the battery in hand hands its guns back.
     if (this.commandBat && !(this.watching && this.watching.kind === 'battery'
       && this.watching.id === this.commandBat.id)) this.leaveBattery(true);
+    // And off the soldier in hand, the same.
+    if (this.troop && !(this.watching && this.watching.kind === 'soldier'
+      && this.watching.id === this.troop.id)) this.leaveSoldier(true);
     // The table has done its job the moment a contact is picked off it: what
     // the captain wanted was the view, and the view is behind the table.
     if (this.mapBig && this.watching) this.toggleMap(false);
@@ -4484,6 +4513,8 @@ export class Battle {
     }
     const snap = this.snapshots[this.snapshots.length - 1];
     if (!snap || !hit) return null;
+    if (hit.kind === 'soldier') { const p = this.troopRow(hit.id); return p ? p.yaw : null; }
+    if (hit.kind === 'barracks') { const k = (snap.bk || []).find((q) => q[0] === hit.id); return k ? k[4] + Math.PI : null; }
     const from = hit.kind === 'battery' ? snap.batteries
       : hit.kind === 'plane' ? snap.planes
         : hit.kind === 'bomber' ? snap.bombers
@@ -4503,6 +4534,7 @@ export class Battle {
     // `eye` is where somebody standing watch on the thing would have his head:
     // above the gun pit on a battery, in the cockpit of an aircraft, up on the
     // bridge of a ship. It is what the point-of-view camera sits at.
+    if (this.watching.kind === 'soldier' || this.watching.kind === 'barracks') return this.troopWatchPoint(this.watching);
     if (this.watching.kind === 'battery') {
       const b = (snap.batteries || []).find((x) => x.i === this.watching.id);
       // A tank moves: the camera follows it where it is drawn, between
@@ -4972,6 +5004,8 @@ export class Battle {
     const w = this.watching;
     if (!w || w.id == null || this.flight) return false;
     const snap = this.snapshots[this.snapshots.length - 1];
+    // A soldier of our own side, alive, whom nobody else has.
+    if (w.kind === 'soldier') return this.canTakeSoldier(w);
     // A battery of our own, still in action, whose guns nobody else has.
     if (w.kind === 'battery') {
       if (this.director || (this.commandBat && this.commandBat.id === w.id)) return false;
@@ -5009,6 +5043,7 @@ export class Battle {
     if (!this.canTake()) return;
     if (this.watching.kind === 'bomber') { this.takeHeavy(); return; }
     if (this.watching.kind === 'battery') { this.takeBattery(); return; }
+    if (this.watching.kind === 'soldier') { this.takeSoldier(); return; }
     const snap = this.snapshots[this.snapshots.length - 1];
     const pl = (snap.planes || []).find((q) => q.i === this.watching.id);
     if (!pl) return;
@@ -7512,6 +7547,7 @@ export class Battle {
       this.plotDue = this.mapBig ? 1 / 30 : 1 / 20;
       this.hud.drawMinimap(ownForHud && { ...ownForHud, i: this.shipId, x: ls.x, z: ls.z }, this.visibleShips(), snap);
       if (this.commandBat) this.stepBatteryCommand(snap);
+      if (this.troop) this.stepTroopCommand();
     }
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
   }
@@ -7999,6 +8035,9 @@ export class Battle {
     for (const [id] of this.scene.batteryViews) {
       if (!gunsSeen.has(id)) this.scene.removeBatteryView(id);
     }
+
+    // The soldiers, and the barracks they came out of.
+    this.syncTroops(a, b, t, dt);
 
     // Shells, torpedoes and aircraft as instanced batches.
     const dummy = this.scene.dummy;
@@ -9310,6 +9349,8 @@ export class Battle {
     // windows, or you are standing off her watching her work; the drag turns
     // your head in the first and walks the orbit in the second.
     const watch = this.watchPoint();
+    // Off a soldier, the near plane goes back out to where the sea wants it.
+    if (cam.near < 2 && !(watch && watch.soldier)) { cam.near = 2; cam.updateProjectionMatrix(); }
     // Tell the pointer to stay free while the camera is off watching: a drag
     // turns the view and every control on the screen stays clickable.
     this.input.orbiting = !!watch;
@@ -9322,6 +9363,15 @@ export class Battle {
       // pointed is where the guns are laid.
       if (this.commandBat && this.watching.kind === 'battery' && this.watching.id === this.commandBat.id) {
         this.batteryCamera(cam, watch, m, dt);
+        cam.updateProjectionMatrix();
+        return;
+      }
+      // A man is small: the near plane comes in to him while he is watched.
+      const wantNear = watch.soldier ? 0.15 : 2;
+      if (cam.near !== wantNear) { cam.near = wantNear; cam.updateProjectionMatrix(); }
+      // With a soldier in hand, the view is his: see troops.js.
+      if (this.troop && this.watching.kind === 'soldier' && this.watching.id === this.troop.id) {
+        this.soldierCamera(cam, watch, m, dt);
         cam.updateProjectionMatrix();
         return;
       }
@@ -9373,7 +9423,8 @@ export class Battle {
         // Out of the ground, but not out of the water: the only floor down
         // here is the bottom.
         const floor = groundHeight(this.scene.world, cam.position.x, cam.position.z);
-        const bed = Math.max(floor + 7, SEABED);
+        // A soldier is watched from his own height, not from seven metres up.
+        const bed = Math.max(floor + (watch.soldier ? 0.6 : 7), SEABED);
         if (cam.position.y < bed) {
           cam.position.y = bed;
           cam.lookAt(watch.x, aim, watch.z);
@@ -9556,6 +9607,9 @@ export class Battle {
     this.leaveMan(true);
     // The battery's keys are the page's, and outlive the battle.
     this.leaveBattery(true, false);
+    this.leaveSoldier(true, false);
+    this.infantry?.dispose();
+    this.infantry = null;
     this.penCam?.el.remove();
     this.lens?.dispose();
     this.lens = null;
@@ -9623,3 +9677,9 @@ export function standInTown(w, plan) {
   }
   return null;
 }
+
+/** The ground under a point, as a man stands on it. */
+Battle.prototype.groundAt = function groundAt(x, z) {
+  return footing(this.scene.world || this.world, x, z);
+};
+installTroops(Battle);

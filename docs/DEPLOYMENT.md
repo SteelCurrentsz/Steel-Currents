@@ -91,6 +91,28 @@ npm run sync:ios
 npm run sync:android
 ```
 
+## Claude Opus 5.5 commanding the infantry (optional)
+
+Every soldier fights with his own built-in brain, which needs nothing. On top
+of that, a server can hand each side's squad orders to Claude Opus 5.5
+(`server/opus.js`): every 30 seconds of battle it sends Opus a short brief of
+the ground fight and applies the orders that come back, without the battle
+ever waiting on the answer.
+
+| Variable | Effect |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Turns it on. Keep it in the host's secret settings (on Render: the service's Environment tab, not `render.yaml`). |
+| `STEEL_OPUS=0` | Off, whatever else is set. `STEEL_OPUS=1` forces it on where the SDK finds credentials another way. |
+| `STEEL_OPUS_EVERY` | Seconds of battle between briefs (default 30). |
+| `STEEL_OPUS_SIDES` | `both` (default), `0` or `1`: which side Opus commands. |
+| `STEEL_DOCTRINE` | Where the soldiers' learned tactics are kept between battles (default `server/data/doctrine.json`). |
+
+Each brief is one request with low effort and a few thousand tokens, per
+side, per half minute of a battle that has soldiers in it -- budget for it
+before turning it on for public rooms. Battles played on the device (the
+standalone build) have no key and always use the built-in brains; what those
+learn is kept in the browser.
+
 ## Scaling notes
 
 Match state lives in memory in `server/room.js`, so rooms are bound to one

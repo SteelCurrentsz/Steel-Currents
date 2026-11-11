@@ -12,6 +12,7 @@ import { Room } from '../../server/room.js';
 import { crewBattle } from '../../server/setup.js';
 import { scoreboard } from '../../shared/protocol.js';
 import { cleanAsk } from '../../shared/works.js';
+import { poolDoctrine } from '../../shared/infantry.js';
 
 // How much of a battle the replay keeps, in characters of recorded messages.
 // A snapshot of a full action is ten or fifteen thousand of them and there
@@ -27,6 +28,21 @@ const WORKER_URL = typeof __SIM_WORKER__ !== 'undefined' ? __SIM_WORKER__ : 'js/
 // How long a battle asked for waits on the thread to come up before it is
 // hosted in the page after all.
 const WORKER_PATIENCE = 8000;
+
+// What the soldiers have learned in battles on this device, kept between
+// them where the page can keep anything (a battle on its own thread cannot
+// reach the page's storage, and starts each time from what it was given).
+const LESSONS_KEY = 'steel.infantry.lessons';
+function localLessons() {
+  try { return JSON.parse(globalThis.localStorage?.getItem(LESSONS_KEY) || 'null'); } catch { return null; }
+}
+function keepLocalLessons(room) {
+  try {
+    const l = room.infantryLessons?.();
+    if (!l || !globalThis.localStorage) return;
+    globalThis.localStorage.setItem(LESSONS_KEY, JSON.stringify(poolDoctrine(localLessons(), poolDoctrine(l[0], l[1]))));
+  } catch { /* nowhere to keep it */ }
+}
 
 export class LocalNet extends EventTarget {
   /**
@@ -195,6 +211,7 @@ export class LocalNet extends EventTarget {
 
   closeRoom() {
     if (!this.room) return;
+    keepLocalLessons(this.room);
     this.room.onEmpty = () => {};
     this.room.close();
     this.room = null;
@@ -256,7 +273,7 @@ export class LocalNet extends EventTarget {
         name: this.player.name, classId: msg.classId, team: msg.team, at,
       });
       return res.error ? { error: res.error } : { team: this.player.team };
-    }, { allies: opts.staged ? 8 : 7, enemies: 8, guns: 12 });
+    }, { allies: opts.staged ? 8 : 7, enemies: 8, guns: 12, doctrine: localLessons() });
     if (out && out.error) { this.deliver({ t: 'error', msg: out.error }); return; }
     const stage = opts.staged ? room.stageScript(msg.script) : null;
 

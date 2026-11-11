@@ -19,6 +19,7 @@ import { BOMBERS } from '../../shared/bombers.js';
 import {
   cityPlans, cityToWorld, worldToCity, siteOnWorks, WALL_WIDTH, MAX_CITIES, MAX_WALLS,
 } from '../../shared/works.js';
+import { dryLand, BARRACKS_MEN, MAX_BARRACKS } from '../../shared/infantry.js';
 
 // What each kind of block is drawn as on the chart.
 const BLOCK_INK = {
@@ -51,6 +52,7 @@ const TEAM = [
 const BAD = '#e2564f';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const wrapTurn = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // The largest round distance that still fits in `want` metres, out of the ones
 // a chart is ruled in. Keeps the grid squares and the scale bar honest at any
@@ -91,8 +93,13 @@ export class LayoutMap {
     // The works ashore the captain asked for: `{ cities, walls }`, each a list
     // of seeds and the spots they were put down at. See shared/works.js.
     this.works = { cities: [], walls: [] };
-    // 'city' or 'walls' while the next tap on the chart puts one down.
+    // 'city', 'walls' or 'barracks' while the next tap on the chart puts one down.
     this.placing = null;
+    // The barracks the captain has put down, kept by where they are and
+    // whose (0 his own side, 1 the enemy's) across visits to the chart; and
+    // whose the next one is.
+    this.barracksKept = [];
+    this.barracksSide = 0;
     this.pointers = new Map();
     this.pinch = 0;
     this.bind();
@@ -116,7 +123,8 @@ export class LayoutMap {
     this.req = req;
     // A town sited for one stretch of coast means nothing on another.
     const where = `${req.mapId}|${req.seed}|${req.half}|${req.lon}|${req.lat}`;
-    if (this.worksSig !== where) this.works = { cities: [], walls: [] };
+    const moved = this.worksSig !== where;
+    if (moved) this.works = { cities: [], walls: [] };
     this.placing = null;
     this.worksSig = where;
     this.raise();
@@ -137,9 +145,12 @@ export class LayoutMap {
     (req.allyGuns || []).forEach((id, i) => { if (!open || BATTERIES[id]?.tank) this.tokens.push(this.gunToken(id, 0, i)); });
     (req.enemyGuns || []).forEach((id, i) => { if (!open || BATTERIES[id]?.tank) this.tokens.push(this.gunToken(id, 1, i)); });
     (req.allyBombers || []).forEach((id, i) => this.tokens.push(this.airToken(id, 0, i)));
+    // A barracks put down on another stretch of coast means nothing here.
+    if (moved || open) this.barracksKept = [];
     (req.enemyBombers || []).forEach((id, i) => this.tokens.push(this.airToken(id, 1, i)));
 
     this.auto();
+    for (const b of this.barracksKept) this.tokens.push(this.barracksToken(b.team, b.x, b.z, b.heading));
 
     // What a captain laid out is his, and it is not thrown away lightly. The
     // plan is kept whenever the battlefield is still the same size — the berths
@@ -214,7 +225,15 @@ export class LayoutMap {
     const m = this.works.walls.length;
     set('lay-city', this.placing === 'city', n ? `+ Town (${n})` : '+ Town');
     set('lay-walls', this.placing === 'walls', m ? `+ Sea Walls (${m})` : '+ Sea Walls');
-    for (const [id, k] of [['lay-city-x', n], ['lay-walls-x', m]]) {
+    const nb = this.tokens.filter((t) => t.kind === 'barracks').length;
+    set('lay-barracks', this.placing === 'barracks', nb ? `+ Barracks (${nb})` : '+ Barracks');
+    const side = document.getElementById('lay-barracks-side');
+    if (side) side.hidden = !(nb || this.placing === 'barracks');
+    document.getElementById('lay-barracks-ally')?.classList.toggle('on', this.barracksSide === 0);
+    document.getElementById('lay-barracks-enemy')?.classList.toggle('on', this.barracksSide === 1);
+    const bb = document.getElementById('lay-barracks');
+    if (bb) bb.disabled = nb >= MAX_BARRACKS;
+    for (const [id, k] of [['lay-city-x', n], ['lay-walls-x', m], ['lay-barracks-x', nb]]) {
       const x = document.getElementById(id);
       if (x) x.hidden = !k;
     }
@@ -232,7 +251,9 @@ export class LayoutMap {
     this.placing = this.placing === kind ? null : kind;
     this.hintOnce = this.placing === 'city'
       ? 'Tap the chart where the town should stand -- anywhere on land, or by the water for a harbour.'
-      : this.placing === 'walls' ? 'Tap the chart by the shore that should be walled.' : null;
+      : this.placing === 'walls' ? 'Tap the chart by the shore that should be walled.'
+        : this.placing === 'barracks' ? `Tap the chart on land for a${this.barracksSide ? 'n enemy' : 'n allied'} barracks: ${BARRACKS_MEN} soldiers. Tap one to change sides.`
+          : null;
     this.worksUi();
     this.dirty = true;
     this.paint();
@@ -274,6 +295,59 @@ export class LayoutMap {
     for (const t of this.tokens) this.check(t);
     this.dirty = true;
     this.paint();
+  }
+
+  // ------------------------------------------------------------ barracks --
+
+  /** A barracks counter: a hut on the chart, on land, on one side or the other. */
+  barracksToken(team, x, z, heading = null) {
+    const n = this.tokens.filter((t) => t.kind === 'barracks').length;
+    return {
+      kind: 'barracks', classId: 'barracks', team, index: n,
+      name: team === 0 ? 'Barracks' : 'Enemy Barracks',
+      x, z, heading: heading ?? (team === 0 ? 0 : Math.PI), ok: true, barracks: true,
+    };
+  }
+
+  /** A barracks put down where the chart was tapped, if that is land. */
+  addBarracksAt(at) {
+    this.placing = null;
+    const t = this.barracksToken(this.barracksSide, at.x, at.z);
+    if (!this.check(t)) {
+      this.hintOnce = 'A barracks has to stand on dry land.';
+    } else {
+      this.tokens.push(t);
+      this.hintOnce = `${t.name}: ${BARRACKS_MEN} soldiers. Drag to move it, tap it to change sides.`;
+    }
+    this.keepBarracks();
+    this.worksUi();
+    this.dirty = true;
+    this.paint();
+  }
+
+  /** Take the last barracks away. */
+  removeBarracks() {
+    const list = this.tokens.filter((t) => t.kind === 'barracks');
+    const last = list[list.length - 1];
+    if (last) this.tokens.splice(this.tokens.indexOf(last), 1);
+    this.keepBarracks();
+    this.worksUi();
+    this.dirty = true;
+    this.paint();
+  }
+
+  /** A barracks tapped: over to the other side. */
+  flipBarracks(t) {
+    t.team = 1 - t.team;
+    t.name = t.team === 0 ? 'Barracks' : 'Enemy Barracks';
+    t.heading = wrapTurn(t.heading + Math.PI);
+    this.flash = `${t.name} now: ${t.team === 0 ? 'allied' : 'enemy'} troops.`;
+    this.keepBarracks();
+  }
+
+  keepBarracks() {
+    this.barracksKept = this.tokens.filter((t) => t.kind === 'barracks')
+      .map((t) => ({ team: t.team, x: t.x, z: t.z, heading: t.heading }));
   }
 
   /** Is this point on the screen inside a town? Returns a drag that moves it, or null. */
@@ -690,6 +764,9 @@ export class LayoutMap {
       t.z = t.craft.z;
       t.heading = t.craft.heading;
       t.ok = this.tokens.includes(t.craft) && tankRoom(SHIP_CLASSES[t.craft.classId], t.classId) > t.slot;
+    } else if (t.kind === 'barracks') {
+      // On dry ground a man can stand on, back from the water.
+      t.ok = inside && dryLand(this.world, t.x, t.z);
     } else if (t.kind === 'air') {
       // Nothing under a bomber is wrong: she is four thousand feet over it.
       // All the chart asks of her is that she starts on the battlefield.
@@ -714,6 +791,8 @@ export class LayoutMap {
         ? `${ship.name} is in water too shallow for her. Move her into deeper water.`
         : `${ship.name} is aground. Ships go on the water.`;
     }
+    const hut = bad.find((t) => t.kind === 'barracks');
+    if (hut) return `${hut.name} is not on dry land. Barracks go ashore.`;
     const air = bad.find((t) => t.kind === 'air');
     if (air) return `${air.name} is off the battlefield. Bring her inside it.`;
     if (bad[0].tank) return `${bad[0].name} has no ground under it. Put it ashore, or drop it on a landing craft that can carry it.`;
@@ -786,6 +865,7 @@ export class LayoutMap {
   bodyR(t) {
     if (t.kind === 'air') return BODY_R * 0.86;
     if (t.tank && t.craft) return BODY_R * 0.5;
+    if (t.kind === 'barracks') return BODY_R * 0.8;
     if (t.kind !== 'ship') return BODY_R * 0.72;
     return clamp((t.length * this.scale) / 2, BODY_R, BODY_R * 3.2);
   }
@@ -1053,6 +1133,8 @@ export class LayoutMap {
       // Where a tank was picked up from, to go back to if it is let go over a
       // landing craft that cannot take it.
       if (hit && hit.t.tank) hit.from = { x: hit.t.x, z: hit.t.z, craft: hit.t.craft, slot: hit.t.slot };
+      // Where a barracks was pressed, to tell a tap from a drag.
+      if (hit && hit.t.kind === 'barracks') hit.down = p;
       if (hit) {
         // The one being moved is drawn last, so it is on top of whatever it is
         // being dragged over.
@@ -1126,13 +1208,22 @@ export class LayoutMap {
           this.drag = null;
           el.classList.remove('panning');
           try { el.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
-          this.setWorks(d.place, true, this.fromScreen(p.x, p.y));
+          if (d.place === 'barracks') this.addBarracksAt(this.fromScreen(p.x, p.y));
+          else this.setWorks(d.place, true, this.fromScreen(p.x, p.y));
           return;
         }
       }
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = 0;
       this.drag = null;
+      // A barracks tapped rather than dragged changes sides; dragged, it is
+      // kept where it was put.
+      if (d && d.t && d.t.kind === 'barracks') {
+        const p = at(e);
+        if (d.mode === 'move' && d.down && Math.hypot(p.x - d.down.x, p.y - d.down.y) < 6) this.flipBarracks(d.t);
+        this.keepBarracks();
+        this.worksUi();
+      }
       // A tank let go over a landing craft of its own side is loaded into
       // her, if she can carry it and has room; over one that cannot, it
       // stays where it was dropped and the chart says why.
@@ -1190,6 +1281,19 @@ export class LayoutMap {
     document.getElementById('lay-city-x')?.addEventListener('click', () => this.setWorks('city', false));
     document.getElementById('lay-walls')?.addEventListener('click', () => this.startPlacing('walls'));
     document.getElementById('lay-walls-x')?.addEventListener('click', () => this.setWorks('walls', false));
+    document.getElementById('lay-barracks')?.addEventListener('click', () => this.startPlacing('barracks'));
+    document.getElementById('lay-barracks-x')?.addEventListener('click', () => this.removeBarracks());
+    const sideBtn = (id, team) => document.getElementById(id)?.addEventListener('click', () => {
+      this.barracksSide = team;
+      if (this.placing === 'barracks') {
+        this.hintOnce = `Tap the chart on land for a${team ? 'n enemy' : 'n allied'} barracks: ${BARRACKS_MEN} soldiers.`;
+      }
+      this.worksUi();
+      this.dirty = true;
+      this.paint();
+    });
+    sideBtn('lay-barracks-ally', 0);
+    sideBtn('lay-barracks-enemy', 1);
     if (this.backBtn) this.backBtn.onclick = () => this.onBack?.();
     if (this.autoBtn) {
       this.autoBtn.onclick = () => { this.auto(); this.dirty = true; this.paint(); };
@@ -1593,6 +1697,13 @@ export class LayoutMap {
       ctx.lineTo(-sp, r * 0.02);
       ctx.lineTo(-r * 0.17, -r * 0.30);
       ctx.closePath();
+    } else if (t.kind === 'barracks') {
+      // A barracks: a Quonset hut seen end on, its door to the front.
+      ctx.moveTo(-r * 0.9, r * 0.7);
+      ctx.lineTo(-r * 0.9, -r * 0.05);
+      ctx.arc(0, -r * 0.05, r * 0.9, Math.PI, 0);
+      ctx.lineTo(r * 0.9, r * 0.7);
+      ctx.closePath();
     } else if (t.tank) {
       // A tank: a square hull with its gun out over the front.
       ctx.rect(-r * 0.75, -r * 0.9, r * 1.5, r * 1.8);
@@ -1705,6 +1816,11 @@ export class LayoutMap {
       enemyGuns: this.gunBerths(1),
       allyBombers: pick('air', 0),
       enemyBombers: pick('air', 1),
+      // The barracks, and whose: fifty men out of each. See infantry.js.
+      barracks: this.tokens.filter((t) => t.kind === 'barracks').map((t) => ({
+        x: Math.round(t.x), z: Math.round(t.z), h: Math.round(t.heading * 1000) / 1000,
+        side: t.team === 0 ? 'ally' : 'enemy',
+      })),
       // The town and the walls, by their seeds: the server raises the same
       // ones off the same numbers.
       works: this.world?.works ? {

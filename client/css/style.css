@@ -3068,3 +3068,30 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
   letter-spacing: 0.08em; opacity: 0.8; margin-top: 0.2rem;
 }
 .era-cancel { margin-top: 0.8rem; padding: 0.45rem 1.4rem; font-size: 0.9rem; }
+
+/* Barracks on the plotting board: whose the next one is. */
+.lay-side[hidden] { display: none; }
+.lay-side .btn { min-width: 0; flex: 1; padding: 0.35rem 0.6rem; font-size: 0.78rem; }
+
+/* A soldier in hand: the crosshair, what he has left, and his keys. */
+.sol-sight .gun-cross .gt { background: rgba(240, 232, 214, 0.85); }
+.sol-keys {
+  position: absolute; right: calc(max(1.2rem, env(safe-area-inset-right)) + 108px);
+  bottom: 16vh;
+  display: grid; grid-template-columns: repeat(2, auto); gap: 0.4rem;
+  pointer-events: auto;
+}
+.sol-key {
+  min-width: 74px; min-height: 40px; padding: 0.3rem 0.6rem;
+  background: rgba(8, 19, 31, 0.82); border: 1px solid var(--panel-line);
+  color: var(--sand); font-family: var(--ui); font-size: 0.66rem;
+  font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  cursor: pointer; touch-action: none;
+}
+.sol-key.on, .sol-key:active { border-color: var(--sand); background: rgba(230, 207, 156, 0.22); }
+.sol-sight .gun-fire, .sol-sight .gun-leave { pointer-events: auto; }
+/* The edge of the screen going red when the man in hand is hit. */
+.sol-blood {
+  position: absolute; inset: 0; pointer-events: none; z-index: 7; opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(120, 0, 0, 0) 45%, rgba(120, 0, 0, 0.75) 100%);
+}
