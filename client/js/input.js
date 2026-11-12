@@ -60,11 +60,14 @@ export class Input {
       // ever lets go of clicks the player can actually see the cursor for.
       if (!this.locked && e.target !== this.canvas) return;
       if (e.button === 2) { this.scoped = true; this.emit('scope', true); }
+      // With the pointer captured a click is a trigger -- a soldier's rifle --
+      // as well as whatever else the bridge makes of it.
+      if (this.locked && e.button === 0) this.emit('press', 0);
       // While the camera is off watching something -- riding an aeroplane, most
       // of all -- the pointer is not taken. A locked pointer has no cursor, and
       // a captain watching his squadron go still wants to press the conn keys
       // and work the plot. Dragging turns the view instead, which needs no lock.
-      if (!this.locked && e.button === 0 && !this.orbiting) this.requestLock();
+      if (!this.locked && e.button === 0 && (!this.orbiting || this.captureLook)) this.requestLock();
     };
     this._onUp = (e) => {
       if (this.touch) return;

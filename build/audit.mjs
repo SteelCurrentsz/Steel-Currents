@@ -26,7 +26,7 @@
 // air on purpose.
 
 import * as THREE from '../vendor/three.module.js';
-import { buildShip } from '../client/js/render/ships.js';
+import { buildShip, loadShips } from '../client/js/render/ships.js';
 import { SHIP_ORDER, SHIP_CLASSES } from '../shared/ships.js';
 
 const VERBOSE = !!process.env.VERBOSE;
@@ -345,6 +345,9 @@ export async function auditShip(id) {
     return auditBuilt(g, 1000);
   }
   const cls = SHIP_CLASSES[id];
+  // Her sculpted hull, where she has one: without it she is the plain hull
+  // generated off her class, and that is not what anybody sees.
+  if (process.env.SCULPTED !== '0') await loadShips([id], null, { quiet: true }).catch(() => {});
   const built = buildShip(id);
   return auditBuilt(built.group, cls.hull.length);
 }

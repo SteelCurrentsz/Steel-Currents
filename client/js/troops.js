@@ -20,6 +20,7 @@ import { GARAND, predictSoldier } from '../../shared/infantry.js';
 import { Held } from './predict.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
+import { SoldierFeel } from './fps.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -142,6 +143,7 @@ const Troops = {
     // And the men still in the landing craft, standing in her well and
     // going in with her: drawn, not yet anybody's to pick or to take.
     const drawn = afloat ? list.concat(this.wellMen(a)) : list;
+    this.infantry.ownInHand = !!this.feel;
     this.infantry.sync(drawn, dt, this.scene.camera, this.team, this.troop ? this.troop.id : 0, fp);
   },
 
@@ -214,7 +216,10 @@ const Troops = {
     switch (ev.e) {
       case 'rf': {
         if (inf) inf.shot(ev);
-        audio.rifle({ x: ev.x, y: ev.y, z: ev.z }, !!ev.g);
+        const mine = this.troop && ev.s === this.troop.id;
+        // His own shot was heard the moment the trigger went (troopFire).
+        if (!mine) audio.rifle({ x: ev.x, y: ev.y, z: ev.z }, !!ev.g);
+        if (mine && ev.k === 1) this.hitMarker(false);
         if (ev.k === 1) audio.flesh({ x: ev.tx, y: ev.ty, z: ev.tz });
         break;
       }
@@ -227,6 +232,10 @@ const Troops = {
         break;
       case 'kia':
         if (inf) inf.kill(ev, this.team);
+        if (this.troop && ev.by === this.troop.id && ev.i !== this.troop.id) {
+          this.hitMarker(true);
+          this.hud.alert('Enemy down');
+        }
         if (this.troop && ev.i === this.troop.id) {
           this.flashBlood(1);
           this.hud.alert('Killed in action');
@@ -263,6 +272,17 @@ const Troops = {
     const el = document.getElementById('sol-blood');
     if (!el) return;
     el.style.opacity = String(Math.min(1, (Number(el.style.opacity) || 0) + 0.55 * k));
+  },
+
+  /** The cross over the crosshair when one of his rounds goes home: red, and bigger, for a kill. */
+  hitMarker(kill) {
+    const el = document.getElementById('sol-hit');
+    if (!el) return;
+    el.classList.remove('on', 'kill');
+    void el.offsetWidth;
+    el.classList.add('on');
+    if (kill) el.classList.add('kill');
+    audio.hitTick(kill);
   },
 
   /** A soldier off the snapshot, by id. */
@@ -312,7 +332,14 @@ const Troops = {
     const el = document.getElementById('sol-sight');
     if (el) el.hidden = !!this.mapBig;
     this.troopButtons();
-    this.hud.alert('Stick or WASD to move · drag to aim · F or FIRE to shoot · C crouch · Shift sprint · Space jump · R reload · V over the shoulder');
+    // Played as a shooter: the pointer is captured on the first click and the
+    // mouse turns his head; the left button fires, the right brings the rifle
+    // up to the eye.
+    this.input.captureLook = !this.input.touch;
+    if (!this.feel) this.feel = new SoldierFeel(this.scene.scene);
+    this.hud.alert(this.input.touch
+      ? 'Stick to move · drag to aim · FIRE to shoot'
+      : 'Click to take the mouse · mouse to aim · left click fire · right click aim down sights · WASD move · Shift sprint · C crouch · Space jump · R reload · V over the shoulder');
     audio.click();
   },
 
@@ -323,6 +350,10 @@ const Troops = {
     this.troop = null;
     this.hud.commandSol = null;
     this.hud.setTankStick(false);
+    this.input.captureLook = false;
+    this.input.releaseLock();
+    if (this.feel) { this.feel.dispose(); this.feel = null; }
+    document.getElementById('sol-sight')?.classList.remove('ads');
     if (tell) {
       this.net.send({ t: 'sdrive', i: c.id, mx: 0, mz: 0, yaw: c.yaw, pitch: 0, sp: false, cr: c.cr, jp: c.jp });
       this.net.send({ t: 'lsol', i: c.id });
@@ -348,11 +379,24 @@ const Troops = {
     if (!c) return;
     const now = performance.now();
     if (now - c.lastShot < GARAND.cycle * 1000) return;
+    // An empty rifle does not fire: it is reloaded, the way anybody would.
+    const p = this.troopRow(c.id);
+    if (p && (p.f & 16)) return;
+    if (p && p.clip <= 0) {
+      c.lastShot = now;
+      if (p.clips > 0) this.troopReload();
+      else this.hud.alert('Out of ammunition');
+      return;
+    }
     c.lastShot = now;
+    if (this.feel) this.feel.fired();
+    audio.rifleOwn();
     this.net.send({ t: 'sfire', i: c.id, yaw: Math.round(c.aimYaw * 1000) / 1000, pitch: Math.round(c.aimPitch * 1000) / 1000 });
     this.scoped = this.scoped || false;
-    // The kick of it, in the view.
-    c.kick = Math.min(0.05, (c.kick || 0) + 0.025);
+    // The kick of it, in the view: up, and a little to one side, and most of
+    // it comes back down.
+    c.kick = Math.min(0.09, (c.kick || 0) + 0.042);
+    c.yaw = wrapAngle(c.yaw + (Math.random() - 0.5) * 0.012);
   },
 
   troopReload() {
@@ -384,9 +428,14 @@ const Troops = {
     const c = this.troop;
     // A mouse working the stick is not turning his head.
     if (this.hud.stickMouse) { m.x = 0; m.y = 0; }
-    c.yaw = wrapAngle(c.yaw + m.x);
-    c.pitch = clamp(c.pitch - m.y, -1.1, 1.0);
-    c.kick = Math.max(0, (c.kick || 0) - dt * 0.25);
+    // Captured, the mouse turns his head the way it goes; dragged, the view
+    // is pulled the way the finger goes. Slower with the rifle at the eye.
+    const ads = this.feel ? this.feel.ads : 0;
+    const slow = 1 - 0.45 * ads;
+    c.yaw = wrapAngle(c.yaw + (this.input.locked ? -m.x : m.x) * slow);
+    c.pitch = clamp(c.pitch - m.y * slow, -1.35, 1.3);
+    // The kick comes back down quickly, the way a rifle settles.
+    c.kick = Math.max(0, (c.kick || 0) * Math.exp(-7 * dt) - dt * 0.02);
     const pitch = c.pitch + c.kick;
     const cp = Math.cos(pitch);
     const dir = new THREE.Vector3(Math.sin(c.yaw) * cp, Math.sin(pitch), Math.cos(c.yaw) * cp);
@@ -404,8 +453,32 @@ const Troops = {
     cam.up.set(0, 1, 0);
     const far = cam.position.clone().addScaledVector(dir, 1000);
     cam.lookAt(far);
-    const fov = this.scoped ? 26 : 62;
-    cam.fov = lerp(cam.fov || fov, fov, 1 - Math.pow(0.001, dt));
+    cam.updateMatrixWorld(true);
+    // His stride, the rifle in front of him and what the crosshair does.
+    const row = this.troopRow(c.id);
+    const body = c.held && c.held.body;
+    const st = {
+      speed: body ? body.speed || 0 : row ? row.sp || 0 : 0,
+      sprint: !!((body && body.sprint) || (row && (row.f & 2))),
+      crouch: !!c.cr,
+      air: !!(body ? body.air : row && (row.f & 4)),
+      ads: !!this.scoped,
+      reloading: !!(row && (row.f & 16)),
+      look: m,
+    };
+    let fov = this.scoped ? 26 : 62;
+    if (this.feel) {
+      const f = this.feel.update(cam, st, dt, c.fp && !this.mapBig);
+      fov = c.fp ? f.fov : (this.scoped ? 40 : 62);
+      const sight = document.getElementById('sol-sight');
+      if (sight) {
+        sight.classList.toggle('ads', c.fp && f.ads > 0.6);
+        sight.style.setProperty('--spread', `${Math.round(f.spread * 26)}px`);
+      }
+    }
+    // Its own, eased: the bridge sets the camera's every frame before this.
+    c.fovNow = lerp(c.fovNow ?? fov, fov, 1 - Math.pow(0.00002, Math.min(0.1, dt)));
+    cam.fov = c.fovNow;
     // Where the crosshair is in the world, and the line from his rifle to it:
     // that is what he is aiming along.
     const hit = this.troopAimPoint(cam.position, dir);
@@ -447,7 +520,7 @@ const Troops = {
     const mx = clamp(st.x + key('KeyD', 'ArrowRight') - key('KeyA', 'ArrowLeft'), -1, 1);
     // Strafing right is toward -X in his frame: his right is the world's -X
     // when he faces +Z.
-    const sp = !!(key('ShiftLeft', 'ShiftRight') || c.spLock || Math.hypot(st.x, st.y) > 0.97);
+    const sp = !!(key('ShiftLeft', 'ShiftRight') || c.spLock || Math.hypot(st.x, st.y) > 0.97) && !this.scoped;
     const q = (v) => Math.round(v * 20) / 20;
     const msg = { mx: -q(mx), mz: q(mz), sp, cr: !!c.cr, jp: c.jp };
     const now = performance.now();
@@ -486,6 +559,14 @@ const Troops = {
         + `${p.f & 2 ? ' · sprinting' : p.f & 1 ? ' · crouched' : ''}`;
       if (read.textContent !== txt) read.textContent = txt;
     }
+    const ammo = document.getElementById('sol-ammo');
+    if (ammo) {
+      const txt = `<b>${p.f & 16 ? '–' : p.clip}</b><span>/ ${p.clips * GARAND.clip}</span>`;
+      if (ammo.innerHTML !== txt) ammo.innerHTML = txt;
+      ammo.classList.toggle('low', !(p.f & 16) && p.clip <= 2);
+    }
+    const hpEl = document.getElementById('sol-hp');
+    if (hpEl) hpEl.style.width = `${Math.max(0, Math.min(100, p.hp))}%`;
     const name = document.getElementById('sol-name');
     if (name) {
       const snap = this.snapshots[this.snapshots.length - 1];

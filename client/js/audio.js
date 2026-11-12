@@ -325,6 +325,16 @@ export class Audio {
     else this.play('rifle', at, { level: 0.42, ref: 40 });
   }
 
+  /** The rifle in your own hands: right by your ear, and heavier for it. */
+  rifleOwn() {
+    this.play('rifle', null, { level: 0.75, rate: 0.94 + Math.random() * 0.06 });
+  }
+
+  /** The tick in your ear when a round of yours goes home: sharper for a kill. */
+  hitTick(kill = false) {
+    this.play('ping', null, { level: kill ? 0.4 : 0.28, rate: kill ? 1.35 : 1.9 });
+  }
+
   /** The Garand's clip flying out, empty. Only heard close to. */
   ping(at = null) { this.play('ping', at, { level: 0.35, ref: 6 }); }
 

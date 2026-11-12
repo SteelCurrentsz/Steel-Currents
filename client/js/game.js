@@ -4139,6 +4139,8 @@ export class Battle {
     // sending its orders into a fight it was no longer part of.
     this.off.push(this.input.on('key', (code) => this.onKey(code)));
     this.off.push(this.input.on('scope', (on) => { this.scoped = on; }));
+    // A click with the pointer captured: the trigger of the soldier in hand.
+    this.off.push(this.input.on('press', () => { if (this.troop) this.troopFire(); }));
     this.off.push(this.input.on('wheel', (dir) => {
       // At the guns of a battery it is the sight's glass.
       if (this.commandBat) {

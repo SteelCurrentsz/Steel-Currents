@@ -632,6 +632,9 @@ export class InfantryView {
       a.twist = Math.atan2(Math.sin(p.yaw - p.h), Math.cos(p.yaw - p.h));
       a.pitch = p.pitch || 0;
       a.noHead = firstPerson && p.i === own;
+      // Through his own eyes his rifle and hands are drawn in front of the
+      // camera (fps.js), and the rest of him is not in view.
+      if (a.noHead && this.ownInHand) continue;
       const d = Math.hypot(p.x - cam.x, p.y - cam.y, p.z - cam.z);
       if (d > FAR_OUT) continue;
       _q.setFromAxisAngle(Y, p.h);
