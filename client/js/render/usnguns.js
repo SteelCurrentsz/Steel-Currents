@@ -222,3 +222,32 @@ export function oerlikon(g, M, x, y, z, ry) {
   armMount(o, gun, [[0, 0, 1.9]]);
   return o;
 }
+
+/**
+ * A twin 20 mm Oerlikon, the Mk 24 mount: two guns side by side on one
+ * pedestal, under one shield, in a tub a little wider than a single's.
+ */
+export function twinOerlikon(g, M, x, y, z, ry) {
+  const t = tub(g, M, 1.2, 1.0, x, y, z, ry, 12);
+  const o = new THREE.Group();
+  o.position.y = 0.3;
+  o.userData.dynamic = true;
+  o.userData.rest = ry;
+  t.add(o);
+  cyl(o, M.gunDark, 0.2, 0.28, 0.95, 0, 0.48, 0, 10);
+  const gun = new THREE.Group();
+  gun.position.y = 0.98;
+  gun.rotation.x = -0.34;
+  o.add(gun);
+  for (const dx of [-0.2, 0.2]) {
+    tubeZ(gun, M.gunDark, 0.058, 1.9, dx, 0, 0.95, 8);
+    cyl(gun, M.gunDark, 0.1, 0.1, 0.5, dx, 0, 0.5, 8).rotation.x = Math.PI / 2;
+    cyl(gun, M.gunDark, 0.3, 0.3, 0.14, dx, 0.3, -0.05, 12).rotation.z = Math.PI / 2;
+  }
+  box(gun, M.gun, 0.9, 0.5, 0.06, 0, 0.1, 0.25);
+  box(gun, M.gun, 0.6, 0.16, 0.5, 0, -0.2, -0.45);
+  for (const sgn of [-1, 1]) box(gun, M.gunDark, 0.1, 0.34, 0.1, sgn * 0.3, -0.28, -0.6);
+  o.userData.trainRate = 2.6;
+  armMount(o, gun, [[-0.2, 0, 1.9], [0.2, 0, 1.9]]);
+  return o;
+}

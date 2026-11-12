@@ -186,6 +186,10 @@ import {
 } from '../client/js/render/county.js';
 import { countySurfaceY, MOUNT_SEATS as COUNTY_SEATS } from '../client/js/render/countyHull.js';
 import {
+  buildNorthCarolina, shellAt as ncShellAt, keelY as ncKeel, deckOver as ncSheer, zAt as ncZAt,
+} from '../client/js/render/northcarolina.js';
+import { northCarolinaSurfaceY, MOUNT_SEATS as NC_SEATS } from '../client/js/render/northcarolinaHull.js';
+import {
   buildIndianapolis, shellAt as indyShellAt, keelY as indyKeel, deckOver as indySheer, zAt as indyZAt,
 } from '../client/js/render/indianapolis.js';
 import { indianapolisSurfaceY, MOUNT_SEATS as INDY_SEATS } from '../client/js/render/indianapolisHull.js';
@@ -4071,6 +4075,123 @@ check('the Credits screen credits the model the Indianapolis is drawn from', () 
   assert.ok(at >= 0, 'the model is not credited');
   const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
   assert.ok(credit.includes('https://skfb.ly/ptOpW') && credit.includes('kriss50')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
+    'the credit is not as its licence asks');
+});
+
+check('the USS North Carolina is commissioned just before the USS Massachusetts, armed as she was in 1945', () => {
+  const i = SHIP_ORDER.indexOf('northcarolina');
+  assert.ok(i >= 0, 'the North Carolina is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'massachusetts', `after the North Carolina comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.northcarolina;
+  assert.equal(cls.fullName, 'USS North Carolina');
+  assert.equal(cls.type, 'BB', 'she is not a battleship');
+  assert.equal(cls.nation, 'usa');
+  // Nine 16-inch in three triple turrets, No.1 and No.2 forward, No.3 aft.
+  assert.equal(cls.gun.caliber, 406);
+  assert.ok(cls.turrets.every((t) => t.guns === 3), 'her turrets are not triples');
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['No.1', 'No.2', 'No.3']);
+  assert.ok(cls.turrets[0].z > 0 && cls.turrets[1].z > 0 && cls.turrets[2].z < 0);
+  // Twenty 5-inch/38 in ten twins, five a side, dual-purpose.
+  assert.equal(cls.secondary.caliber, 127);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.equal(cls.secondary.mounts.length, 10);
+  assert.ok(cls.secondary.mounts.every((m) => m.guns === 2), 'her 5-inch are not twins');
+  assert.equal(cls.secondary.mounts.filter((m) => m.x > 0).length, 5, 'she has not five 5-inch a side');
+  // Fifteen quadruple Bofors; thirty-six Oerlikons, twenty single and eight
+  // twin; no torpedoes.
+  const by = (c) => cls.aa.guns.filter((g) => g.caliber === c).flatMap((g) => g.mounts.map((m) => m.guns));
+  assert.equal(by(40).length, 15);
+  assert.ok(by(40).every((n) => n === 4), 'her Bofors are not all quadruples');
+  assert.equal(by(20).filter((n) => n === 1).length, 20);
+  assert.equal(by(20).filter((n) => n === 2).length, 8);
+  assert.equal(by(20).reduce((a, n) => a + n, 0), 36);
+  assert.equal(cls.datasheet.tertiary.find((t) => t.caliber === 40).barrels, 60);
+  assert.equal(cls.datasheet.tertiary.find((t) => t.caliber === 20).barrels, 36);
+  assert.equal(cls.torpedoes, null);
+  const built = buildNorthCarolina();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  let screws = 0;
+  built.group.traverse((o) => { if (o.userData.screw) screws++; });
+  assert.equal(screws, 4, 'she does not have four screws');
+  // Every one of her mountings off the model stands on her deck, not in the
+  // air over it; and every light gun built here stands on a deck under it.
+  for (const [kind, list] of Object.entries(NC_SEATS)) {
+    for (const st of list) {
+      const top = northCarolinaSurfaceY(st.x, st.z);
+      assert.ok(Math.abs(top - st.y) < 1.5 || top < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${top}`);
+    }
+  }
+  for (const m of lightMounts(cls)) {
+    const top = northCarolinaSurfaceY(m.x, m.z);
+    assert.ok(top > 3 && m.my - top > 1 && m.my - top < 2.2,
+      `her light gun at ${m.x}, ${m.z} lays its barrels ${(m.my - top).toFixed(2)} m over a deck at ${top}`);
+  }
+});
+
+check("the North Carolina's light guns stand clear of each other and of her turrets' and 5-inch's sweep", () => {
+  const cls = SHIP_CLASSES.northcarolina;
+  const radius = (m, g) => (g.caliber === 40 ? 2.4 : 1.2);
+  const lights = cls.aa.guns.flatMap((g) => g.mounts.map((m) => ({ m, r: radius(m, g) })));
+  for (let a = 0; a < lights.length; a++) {
+    for (let b = a + 1; b < lights.length; b++) {
+      const A = lights[a], B = lights[b];
+      if (Math.abs(A.m.my - B.m.my) > 3) continue;
+      assert.ok(Math.hypot(A.m.x - B.m.x, A.m.z - B.m.z) >= A.r + B.r,
+        `the light guns at ${A.m.x}, ${A.m.z} and ${B.m.x}, ${B.m.z} stand in each other's tubs`);
+    }
+    const L = lights[a];
+    for (const s of cls.secondary.mounts) {
+      assert.ok(Math.hypot(L.m.x - s.x, L.m.z - s.z) > L.r + 2.6 || Math.abs(L.m.my - s.my) > 4,
+        `the light gun at ${L.m.x}, ${L.m.z} stands in a 5-inch twin`);
+    }
+    // A turret's barrels sweep round over a light gun only if they are laid
+    // over its top, or under a deck it stands on.
+    for (const t of cls.turrets) {
+      const d = Math.hypot(L.m.x - t.x, L.m.z - t.z);
+      assert.ok(d > 8 + L.r && (d > cls.gun.reach + L.r || L.m.my + 1.6 < t.my || L.m.my - 2.5 > t.my),
+        `the light gun at ${L.m.x}, ${L.m.z} is in the way of ${t.name}`);
+    }
+  }
+});
+
+check("the North Carolina's shell has no holes in it", () => {
+  const built = buildNorthCarolina();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = ncSheer(t);
+    for (let y = ncKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
+      const w = ncShellAt(t, y);
+      if (w < 0.35) continue;
+      // Her shafts, their struts and her skeg under her quarter.
+      if (ncZAt(t) < -70 && y < -3) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, ncZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > ncKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the North Carolina is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('USS North Carolina (War Thunder) Heavy Cavalry</a>');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/pKNuG') && credit.includes('KojfDiscord')
     && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
     'the credit is not as its licence asks');
 });
