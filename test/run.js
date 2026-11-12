@@ -307,6 +307,7 @@ import { drift } from '../client/js/render/effects.js';
 import { MuzzleBlasts, blastRecipe, blastSize } from '../client/js/render/muzzleblast.js';
 import { Effects } from '../client/js/render/effects.js';
 import { buildShip, buildShipModel, buildStandIn, loadShips } from '../client/js/render/ships.js';
+import { mergeStatic } from '../client/js/render/merge.js';
 import { FUNNEL_MOUTHS, MOUTH_SAME } from '../client/js/render/funnelMouths.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
@@ -17552,6 +17553,114 @@ check('a shell takes the plating it went through, and only that', () => {
   // still as triangles, so it can be watched going rather than switched off.
   const gone = plating.strip(half * 0.2, half * 0.6);
   assert.ok(gone > 200, `a compartment blown out of her took ${gone} pieces`);
+});
+
+check('soot round a burst is laid exactly as it always was, and only inside its ring', () => {
+  // Plating.scorch was rewritten to stop calling Math.hypot three times a
+  // vertex -- after an atomic burst it is run on every ship in reach at once.
+  // What it writes must be what the old loop wrote, byte for byte.
+  const built = buildShip('cleveland');
+  const plating = new Plating(built.group);
+  // Nothing at all: but every buffer is made ready to be marked.
+  plating.scorch(0, 6, 0, 400, 0);
+  const before = plating.parts.map((p) => Uint8Array.from(p.mesh.geometry.attributes.color.array));
+  assert.ok(before.every((c) => c.every((v) => v === 255)) || before.length > 0, 'she has no plating to mark');
+  // The old loop, as it was.
+  const old = (x, y, z, r, amount) => plating.parts.map((part, n) => {
+    const ca = Uint8Array.from(before[n]);
+    const pos = part.mesh.geometry.attributes.position.array;
+    for (let t = 0; t < part.count; t++) {
+      const o = t * 3;
+      const dx = part.cent[o] - x, dy = part.cent[o + 1] - y, dz = part.cent[o + 2] - z;
+      if (dx * dx + dy * dy + dz * dz > r * r) continue;
+      for (let k = 0; k < 3; k++) {
+        const v = part.idx.array[o + k];
+        const d = Math.hypot(pos[v * 3] - x, pos[v * 3 + 1] - y, pos[v * 3 + 2] - z);
+        const want = 1 - 0.82 * amount * Math.max(0, 1 - d / r) ** 1.4;
+        for (let c = 0; c < 3; c++) ca[v * 3 + c] = Math.min(ca[v * 3 + c], Math.round(255 * want));
+      }
+    }
+    return ca;
+  });
+  const beam = SHIP_CLASSES.cleveland.hull.beam;
+  const want = old(beam * 0.5, 5, 12, 9, 0.8);
+  plating.scorch(beam * 0.5, 5, 12, 9, 0.8);
+  let marked = 0;
+  plating.parts.forEach((part, n) => {
+    const got = part.mesh.geometry.attributes.color.array;
+    for (let i = 0; i < got.length; i++) {
+      if (got[i] !== want[n][i]) assert.fail(`byte ${i} of buffer ${n} is ${got[i]}, was ${want[n][i]}`);
+      if (got[i] !== before[n][i]) marked++;
+    }
+  });
+  assert.ok(marked > 100, `a burst against her side blackened ${marked} bytes of her`);
+});
+
+check('a weld is what its pieces were, put in her frame: paint, normals, texture and all', () => {
+  // mergeStatic writes straight into typed arrays now. Every number in the
+  // weld is still the one Vector3 would have worked out.
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ vertexColors: true });
+  const plain = new THREE.MeshStandardMaterial({ color: 0x808080 });
+  const add = (geo, mat, x, y, z, ry, s = 1) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z); m.rotation.set(0.3, ry, -0.2); m.scale.setScalar(s);
+    g.add(m);
+    return m;
+  };
+  const painted = new THREE.BoxGeometry(2, 3, 4);
+  const cols = new Float32Array(painted.attributes.position.count * 3).map((_, i) => ((i * 37) % 255) / 255);
+  painted.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  const sources = [
+    add(painted, paint, 1, 2, 3, 0.4),
+    add(new THREE.CylinderGeometry(1, 1.5, 2, 9), paint, -4, 1, 7, 1.1, 1.3),   // no paint of its own: white
+    add(new THREE.BoxGeometry(1, 1, 1), plain, 3, 0, -5, -0.7),
+    add(new THREE.SphereGeometry(1.2, 7, 5), plain, 0, 4, 0, 2.2, 0.8),
+  ];
+  g.updateMatrixWorld(true);
+  const expect = sources.map((m) => {
+    const pos = m.geometry.attributes.position, nor = m.geometry.attributes.normal;
+    const nm = new THREE.Matrix3().getNormalMatrix(m.matrixWorld);
+    const P = [], N = [], U = [];
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const px = v.x, py = v.y, pz = v.z;
+      P.push(px, py, pz);
+      v.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize();
+      N.push(v.x, v.y, v.z);
+      const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+      if (ay >= ax && ay >= az) U.push(px, pz); else if (ax >= az) U.push(pz, py); else U.push(px, py);
+    }
+    return { P, N, U, mat: m.material, col: m.geometry.attributes.color, n: pos.count, index: m.geometry.index };
+  });
+  mergeStatic(g);
+  assert.equal(g.children.length, 2, 'two materials, two welds');
+  for (const mat of [paint, plain]) {
+    const weld = g.children.find((c) => c.material === mat);
+    const geo = weld.geometry;
+    const mine = expect.filter((e) => e.mat === mat);
+    const P = new Float32Array(mine.flatMap((e) => e.P));
+    const N = new Float32Array(mine.flatMap((e) => e.N));
+    const U = new Float32Array(mine.flatMap((e) => e.U));
+    assert.deepEqual([...geo.attributes.position.array], [...P], 'her points moved');
+    assert.deepEqual([...geo.attributes.normal.array], [...N], 'her normals turned');
+    assert.deepEqual([...geo.attributes.uv.array], [...U], 'her texture slid');
+    if (mat === paint) {
+      const C = mine.flatMap((e) => (e.col ? [...e.col.array].map((c) => Math.round(c * 255)) : new Array(e.n * 3).fill(255)));
+      assert.deepEqual([...geo.attributes.color.array], C, 'her paint changed in the weld');
+    } else {
+      assert.ok(!geo.attributes.color, 'unpainted pieces came out of the weld painted');
+    }
+    let base = 0;
+    const I = [];
+    for (const e of mine) {
+      for (let i = 0; i < e.index.count; i++) I.push(base + e.index.getX(i));
+      base += e.n;
+    }
+    assert.deepEqual([...geo.index.array], I, 'her triangles were joined up wrong');
+    assert.equal(weld.userData.pieces.length, mine.length, 'a piece of her went missing in the weld');
+  }
 });
 
 check('only a round that got through takes any of her with it', () => {

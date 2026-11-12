@@ -79,7 +79,7 @@ function skinTile() {
  * gains the surface.
  */
 function drawSkin(c) {
-  const g = c.getContext('2d');
+  const g = c.getContext('2d', { willReadFrequently: true });
   const N = SKIN_SIZE;
   g.fillStyle = '#b4b4b4';
   g.fillRect(0, 0, N, N);

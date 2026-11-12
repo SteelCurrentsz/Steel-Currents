@@ -245,9 +245,26 @@ export function holePlating(parts) {
     U,
     list: [],
     /** Her plating's holed materials, each with a geometry it is drawn on, for compiling ahead. */
+    // And each as it is once she has been scorched (markable in pieces.js
+    // gives a plate her own copy of its paint, coloured per vertex) and
+    // holed after; and the lining of her seen through a hole, both ways --
+    // each its own shader, and each compiled the first time a hole or a
+    // blast needed it, which after an atomic burst was every ship at once.
     warm: pieces.flatMap((q) => {
       const mm = q.mesh.material;
-      return (Array.isArray(mm) ? mm : [mm]).map((m) => [q.mesh.geometry, made.get(m) || m]);
+      const geo = q.mesh.geometry;
+      return (Array.isArray(mm) ? mm : [mm]).flatMap((m) => {
+        const holed = made.get(m) || m;
+        const out = [[geo, holed], [geo, liningOf(holed, U)]];
+        if (m && !m.vertexColors && !m.isShaderMaterial && !m.isRawShaderMaterial && !m.userData?.perShip) {
+          const vc = cloneMaterial(m);
+          vc.userData.perShip = true;
+          vc.vertexColors = true;
+          const vh = wrap(vc);
+          out.push([geo, vh], [geo, liningOf(vh, U)]);
+        }
+        return out.filter(([, x]) => x);
+      });
     }),
     /**
      * A hole at (x, y, z) in her plating's own frame, `r` across the middle,

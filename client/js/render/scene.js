@@ -186,6 +186,14 @@ function scorch(burns, x, z, c) {
   return mix(BURNT, c, t * t * (3 - 2 * t));
 }
 
+/** A builder below run straight through: what it builds, built now. */
+function finish(job) {
+  for (;;) {
+    const r = job.next();
+    if (r.done) return r.value;
+  }
+}
+
 /**
  * The crater itself, at its own detail.
  *
@@ -197,7 +205,14 @@ function scorch(burns, x, z, c) {
  * running out past its rim onto the scorched country, where it meets the
  * terrain's own colour and stops.
  */
-function buildCraters(world, tint) {
+function buildCraters(world, tint) { return finish(cratersJob(world, tint)); }
+
+/**
+ * The terrain builders are generators that stop every so often -- see
+ * BattleScene.syncGround, which works them a few milliseconds a frame -- and
+ * build exactly what they built when they ran straight through.
+ */
+function* cratersJob(world, tint) {
   const burns = burnsOf(world);
   if (!burns.length) return null;
   const pos = [];
@@ -229,6 +244,7 @@ function buildCraters(world, tint) {
         const c = j === NR - 1 ? ground : scorch([b], x, z, ground);
         col.push(clamp(c[0] * grain, 0, 1), clamp(c[1] * grain, 0, 1), clamp(c[2] * grain, 0, 1));
       }
+      if ((i & 7) === 7) yield;
     }
     for (let i = 0; i < SP; i++) {
       const i2 = (i + 1) % SP;
@@ -257,7 +273,9 @@ function buildCraters(world, tint) {
   return m;
 }
 
-function buildCoast(world, mat = null) {
+function buildCoast(world, mat = null) { return finish(coastJob(world, mat)); }
+
+function* coastJob(world, mat = null) {
   const g = coastGrid(world);
   if (!g.m.any) return null;
   const { m, n, o, cell } = g;
@@ -273,6 +291,7 @@ function buildCoast(world, mat = null) {
       hs[j * N + i] = m.dist[mj * m.n + mi] <= -cell * 2
         ? -SHELF_DEEP : keelGround(world, o + i * cell, o + j * cell);
     }
+    if ((j & 3) === 3) yield;
   }
   // Deep enough that it is the open seabed and nothing need be drawn.
   const DEEP = 0.5 - SHELF_DEEP;
@@ -307,6 +326,7 @@ function buildCoast(world, mat = null) {
       if (coastSplit(h00, h10, h11, h01)) idx.push(a, c, b, a, d, c);
       else idx.push(a, d, b, b, d, c);
     }
+    if ((j & 15) === 15) yield;
   }
   if (!idx.length) return null;
 
@@ -384,7 +404,9 @@ function isleShade(h, slope = 0, grain = 0) {
   return [clamp(c[0] * g, 0, 1), clamp(c[1] * g, 0, 1), clamp(c[2] * g, 0, 1)];
 }
 
-function buildIslands(world, mat = null) {
+function buildIslands(world, mat = null) { return finish(islandsJob(world, mat)); }
+
+function* islandsJob(world, mat = null) {
   const islands = world.islands || [];
   if (!islands.length) return null;
   const burns = burnsOf(world);
@@ -414,6 +436,7 @@ function buildIslands(world, mat = null) {
         const k = i * nr + j;
         px[k] = x; py[k] = y; pz[k] = z;
       }
+      if ((i & 15) === 15) yield;
     }
 
     // Indexed, and with one shared vertex at the summit. Every ring vertex is
@@ -474,6 +497,7 @@ function buildIslands(world, mat = null) {
       foam.push(...in0, ...out1, ...out0);
       foam.push(...in0, ...in1, ...out1);
     }
+    yield;
   }
 
   const geo = new THREE.BufferGeometry();
@@ -2451,6 +2475,8 @@ export class BattleScene {
     // Its shaders compiled now, in the background, rather than in the frame
     // the bomb goes off.
     this.nukes.warm(this.renderer, this.camera);
+    // And the wakes', into the map they are drawn into.
+    this.wakes?.warm?.(this.renderer);
     // And the oil a wreck leaves, which a burst makes a great deal of at once.
     this.oil?.warm?.(this.renderer);
 
@@ -2518,14 +2544,23 @@ export class BattleScene {
       v = null;
     }
     if (!v) {
-      v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
-        this.wakes, this.wreck);
+      // Built ahead, behind the loading screen, and waiting for her to be
+      // sighted (see prebuild): brought out as she is.
+      const p = this.parked && this.parked.get(id);
+      if (p) {
+        this.parked.delete(id);
+        if (p.classId === classId && p.team === team && p.isSelf === isSelf
+          && !(p.standIn && shipReady(classId))) {
+          v = p;
+          v.group.visible = true;
+        } else {
+          p.dispose(this.scene);
+        }
+      }
+    }
+    if (!v) v = this.makeShipView(classId, team, isSelf);
+    if (!this.shipViews.has(id)) {
       this.shipViews.set(id, v);
-      // Her searchlights, found off her own model and dark until somebody
-      // switches one on. See searchlights.js.
-      try {
-        v.lamps = new ShipLamps(v, lampPlan(v, this.renderer), this.lampHaze);
-      } catch { v.lamps = null; }
       // And her model put into the form the penetration camera cuts her
       // from, while nothing is happening -- not at the moment the first
       // shell strikes her, which is when a pause is noticed.
@@ -2540,6 +2575,38 @@ export class BattleScene {
         }
       }
     }
+    return v;
+  }
+
+  /** A ship's view, built: her model, and her searchlights off it. */
+  makeShipView(classId, team, isSelf) {
+    const v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
+      this.wakes, this.wreck);
+    // Her searchlights, found off her own model and dark until somebody
+    // switches one on. See searchlights.js.
+    try {
+      v.lamps = new ShipLamps(v, lampPlan(v, this.renderer), this.lampHaze);
+    } catch { v.lamps = null; }
+    return v;
+  }
+
+  /**
+   * Build a ship of the battle before she is seen, and keep her out of the
+   * picture until she is (see getShipView).
+   *
+   * A ship's view is a few hundred milliseconds of building, and longer for
+   * the first of a class. Built when she first came into the snapshot, every
+   * one of them was a stall: the whole fleet in the first frame of the
+   * battle, after the loading screen had come down, and then every enemy
+   * again in the frame his lookouts first sighted her. So the order of battle
+   * is built behind the loading screen, a ship at a time (see Battle.prebuild),
+   * and each is brought out ready when she is first sighted.
+   */
+  prebuild(id, classId, team, isSelf) {
+    if (this.shipViews.has(id) || (this.parked && this.parked.has(id))) return null;
+    const v = this.makeShipView(classId, team, isSelf);
+    v.group.visible = false;
+    (this.parked || (this.parked = new Map())).set(id, v);
     return v;
   }
 
@@ -2752,31 +2819,59 @@ export class BattleScene {
    */
   syncGround(dt) {
     if (this.scars) this.scars.sync(dt);
+    // A rebuild under way is worked a few milliseconds a frame. The ground is
+    // one mesh for every island in the battle, and built in one go it was a
+    // frame of a third of a second every time a shell took a piece out of a
+    // hill -- and more after an atomic burst. What it builds is the same; it
+    // goes up when it is finished, a frame or two later.
+    if (this.groundJob) return this.workGround();
     const rev = this.world.groundRev || 0;
     if (rev === this.groundRev) return false;
     this.groundWait -= dt;
     if (this.groundWait > 0) return false;
     this.groundRev = rev;
     this.groundWait = 0.45;
+    const world = this.world;
+    const jobs = [];
     // The crater meshes are rebuilt only when there is a crater to draw or one
     // to take away, which is to say almost never.
-    if (this.craterMesh || this.world.craters?.some((c) => c.nuke)) {
-      if (this.craterMesh) {
-        this.scene.remove(this.craterMesh);
-        this.craterMesh.geometry.dispose();
-        this.craterMesh.material.dispose();
-      }
-      this.craterMesh = buildCraters(this.world, (x, z) => terrainTint(this.world, x, z));
-      if (this.craterMesh) this.scene.add(this.craterMesh);
+    if (this.craterMesh || world.craters?.some((c) => c.nuke)) {
+      jobs.push({ k: 'craterMesh', job: cratersJob(world, (x, z) => terrainTint(world, x, z)) });
     }
-    for (const [old, add] of [[this.isleMesh, () => buildIslands(this.world, this.isleMat)],
-      [this.coastMesh, () => (this.world.land?.length ? buildCoast(this.world, this.coastMat) : null)]]) {
-      if (!old) continue;
-      this.scene.remove(old);
-      old.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
-      const made = add();
+    if (this.isleMesh) jobs.push({ k: 'isleMesh', job: islandsJob(world, this.isleMat) });
+    if (this.coastMesh) jobs.push({ k: 'coastMesh', job: world.land?.length ? coastJob(world, this.coastMat) : null });
+    this.groundJob = { jobs, done: new Map() };
+    return this.workGround();
+  }
+
+  /** Work the ground's rebuild for a few milliseconds; put it up when it is done. */
+  workGround() {
+    const g = this.groundJob;
+    const until = performance.now() + 4;
+    for (const j of g.jobs) {
+      if (g.done.has(j.k)) continue;
+      if (!j.job) { g.done.set(j.k, null); continue; }
+      for (;;) {
+        const r = j.job.next();
+        if (r.done) { g.done.set(j.k, r.value || null); break; }
+        if (performance.now() > until) return false;
+      }
+    }
+    this.groundJob = null;
+    for (const j of g.jobs) {
+      const old = this[j.k];
+      const made = g.done.get(j.k);
+      if (old) {
+        this.scene.remove(old);
+        if (j.k === 'craterMesh') {
+          old.geometry.dispose();
+          old.material.dispose();
+        } else {
+          old.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+        }
+      }
       if (made) this.scene.add(made);
-      if (old === this.isleMesh) this.isleMesh = made; else this.coastMesh = made;
+      this[j.k] = made;
     }
     // The trenches are lofted on the land as drawn, and that has just moved.
     if (this.scars) this.scars.invalidate();
@@ -2892,6 +2987,7 @@ export class BattleScene {
     };
     for (const v of Object.values(this)) free(v);
     for (const view of this.shipViews.values()) for (const v of Object.values(view)) free(v);
+    for (const view of this.parked?.values() || []) for (const v of Object.values(view)) free(v);
     const geos = new Set(), mats = new Set(), texs = new Set();
     const texOf = (x) => { if (x && x.isTexture) texs.add(x); };
     this.scene.traverse((o) => {
@@ -2916,6 +3012,7 @@ export class BattleScene {
     for (const t of texs) t.dispose();
     this.scene.clear();
     this.shipViews.clear();
+    this.parked?.clear();
     clearSoups();
     if (this.renderer.renderLists) this.renderer.renderLists.dispose();
   }

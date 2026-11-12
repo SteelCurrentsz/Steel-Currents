@@ -97,7 +97,7 @@ function unitGain(g, N, target = 232, knee = 0.42) {
 
 function drawSteel(x) {
   const N = STEEL_SIZE;
-  const g = x.getContext('2d');
+  const g = x.getContext('2d', { willReadFrequently: true });
   g.fillStyle = '#808080';
   g.fillRect(0, 0, N, N);
 
@@ -231,7 +231,7 @@ function drawSteel(x) {
  * came off the pile.
  */
 function drawWood(x) {
-  const g = x.getContext('2d');
+  const g = x.getContext('2d', { willReadFrequently: true });
   const planks = 16;
   const w = SIZE / planks;
   for (let p = 0; p < planks; p++) {
@@ -336,7 +336,7 @@ function drawWood(x) {
  */
 export const LINO_TILE = 4.8;
 function drawLinoleum(x) {
-  const g = x.getContext('2d');
+  const g = x.getContext('2d', { willReadFrequently: true });
   const N = SIZE;
   g.fillStyle = '#7a7a7a';
   g.fillRect(0, 0, N, N);
@@ -425,7 +425,7 @@ export function linoleumMap() {
  */
 function reliefOf(src, strength, blur = 1) {
   const N = src.width;
-  const d = src.getContext('2d').getImageData(0, 0, N, N).data;
+  const d = src.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, N, N).data;
   let h = new Float32Array(N * N);
   for (let i = 0, k = 0; k < h.length; i += 4, k++) {
     h[k] = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;

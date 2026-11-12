@@ -869,6 +869,27 @@ export class WakeField {
     return rt;
   }
 
+  /**
+   * The wake's shader, compiled ahead into the map it is drawn into -- a
+   * render target is part of what a shader is -- rather than in the frame
+   * the first ship gets under way. A wake of no ship is kept for the battle,
+   * because a program no material holds is thrown away.
+   */
+  warm(renderer, camera = this.cam) {
+    if (this.warmed || !renderer) return;
+    this.warmed = new Wake({});
+    // In the map's own scene for the moment it is compiled, and out again.
+    this.scene.add(this.warmed.mesh);
+    const prev = renderer.getRenderTarget();
+    try {
+      renderer.setRenderTarget(this.cascades[0].rt);
+      const done = renderer.compileAsync ? renderer.compileAsync(this.scene, camera) : renderer.compile(this.scene, camera);
+      done?.catch?.(() => {});
+    } catch { /* compiled the first time a wake is drawn instead */ }
+    renderer.setRenderTarget(prev);
+    this.scene.remove(this.warmed.mesh);
+  }
+
   add(wake) {
     this.wakes.add(wake);
     this.scene.add(wake.mesh);
@@ -938,6 +959,8 @@ export class WakeField {
 
   dispose() {
     for (const c of this.cascades) c.rt.dispose();
+    this.warmed?.dispose();
+    this.warmed = null;
     this.wakes.clear();
   }
 }

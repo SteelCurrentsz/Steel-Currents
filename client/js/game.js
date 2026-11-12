@@ -3111,7 +3111,13 @@ export class Battle {
             const g = view.blastSteps(at.x, at.z, ev.b || 0);
             if (ev.ship === this.shipId) { g.own = true; q.unshift(g); } else q.push(g);
             // And the first of it now, in the frame the shock gets to her.
-            try { for (let k = 0; k < 4; k++) if (g.next().done) { q.splice(q.indexOf(g), 1); break; } } catch { /* the rest a frame at a time */ }
+            // On the clock: a whole fleet is struck in the same tick.
+            const until = performance.now() + 1.5;
+            try {
+              for (let k = 0; k < 4 && (k === 0 || performance.now() < until); k++) {
+                if (g.next().done) { q.splice(q.indexOf(g), 1); break; }
+              }
+            } catch { /* the rest a frame at a time */ }
           }
         }
           // The shock has reached one of ours.
@@ -7514,7 +7520,10 @@ export class Battle {
     while (q.length && performance.now() < until) {
       for (let i = 0; i < q.length && performance.now() < until; i++) {
         const steps = i === 0 && q[0].own ? 8 : 3;
-        for (let k = 0; k < steps; k++) {
+        // The clock is read between every step, not every few: one step can
+        // be a few milliseconds on a big ship, and eight of them unchecked
+        // were the frame-long hitch after a burst.
+        for (let k = 0; k < steps && (k === 0 || performance.now() < until); k++) {
           let r;
           try { r = q[i].next(); } catch (e) { r = { done: true }; console.error('Steel Currents: blast damage', e); }
           if (r.done) { q.splice(i, 1); i--; break; }
@@ -9864,7 +9873,41 @@ export class Battle {
 
   resize(w, h) { this.scene.resize(w, h); this.lens?.resize(); }
 
+  /**
+   * Build every ship in the order of battle, one at a time, before the
+   * battle is shown (see BattleScene.prebuild). Her own ship first, then her
+   * side, then the enemy, who is built now and brought out when sighted
+   * rather than built in the frame he is. `onEach(done, of)` is told as each
+   * one is finished. A hull whose sculpt is not in yet is left to be drawn as
+   * her stand-in when she is seen, as before.
+   */
+  prebuild(onEach = null) {
+    const list = (this.roster || []).filter((r) => r && r.cls && r.alive !== false && SHIP_CLASSES[r.cls]);
+    const rank = (r) => (r.id === this.shipId ? 0 : r.team === this.team ? 1 : 2);
+    list.sort((a, b) => rank(a) - rank(b));
+    this.building = true;
+    return new Promise((resolve) => {
+      let i = 0;
+      const finish = () => { this.building = false; resolve(); };
+      const next = () => {
+        if (this.disposed || !this.scene || i >= list.length) return finish();
+        const r = list[i++];
+        try {
+          if (shipReady(r.cls)) this.scene.prebuild(r.id, r.cls, r.team, r.id === this.shipId);
+        } catch (e) {
+          console.warn('Steel Currents: a ship could not be built ahead', e);
+        }
+        onEach?.(i, list.length);
+        // A frame between each, so the loading screen is seen to move.
+        setTimeout(next, 0);
+      };
+      setTimeout(next, 0);
+    });
+  }
+
   dispose() {
+    this.disposed = true;
+    this.building = false;
     this.director?.dispose();
     this.director = null;
     this.targetView?.dispose();

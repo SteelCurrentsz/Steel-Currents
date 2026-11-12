@@ -891,28 +891,46 @@ function spanAt(tris, list, y, z) {
 function platingTriangles(g) {
   g.updateMatrixWorld(true);
   const inv = g.matrixWorld.clone().invert();
-  const m = new THREE.Matrix4();
-  const v = new THREE.Vector3();
-  const out = [];
+  // Found first and counted, then written straight into one typed array: a
+  // big hull is a few hundred thousand triangles, and pushed a number at a
+  // time through a vector apiece this was most of what it cost to build a
+  // second ship of a class. The arithmetic is applyMatrix4's, to the bit.
+  const meshes = [];
+  let total = 0;
   const walk = (node) => {
     for (const child of node.children) {
       const geo = child.isMesh ? child.geometry : null;
       if (geo?.attributes?.position) {
-        const pos = geo.attributes.position;
         const idx = geo.index;
-        m.multiplyMatrices(inv, child.matrixWorld);
-        const n = idx ? idx.count : pos.count;
-        for (let i = 0; i + 2 < n; i += 3) {
-          for (let k = 0; k < 3; k++) {
-            v.fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(m);
-            out.push(v.x, v.y, v.z);
-          }
-        }
+        const n = idx ? idx.count : geo.attributes.position.count;
+        meshes.push(child);
+        total += Math.floor(n / 3) * 9;
       }
       if (child.children.length) walk(child);
     }
   };
   walk(g);
+  const out = new Float64Array(total);
+  const m = new THREE.Matrix4();
+  let w = 0;
+  for (const child of meshes) {
+    const geo = child.geometry;
+    const pos = geo.attributes.position;
+    const idx = geo.index;
+    m.multiplyMatrices(inv, child.matrixWorld);
+    const e = m.elements;
+    const n = idx ? idx.count : pos.count;
+    for (let i = 0; i + 2 < n; i += 3) {
+      for (let k = 0; k < 3; k++) {
+        const j = idx ? idx.getX(i + k) : i + k;
+        const x = pos.getX(j), y = pos.getY(j), z = pos.getZ(j);
+        const q = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
+        out[w++] = (e[0] * x + e[4] * y + e[8] * z + e[12]) * q;
+        out[w++] = (e[1] * x + e[5] * y + e[9] * z + e[13]) * q;
+        out[w++] = (e[2] * x + e[6] * y + e[10] * z + e[14]) * q;
+      }
+    }
+  }
   return out;
 }
 
@@ -1174,11 +1192,19 @@ function insideKey(tris, hull) {
   return `${tris.length}:${h1 >>> 0}:${h2 >>> 0}:${hull.loa}:${hull.keelY(0)}:${hull.sheer(0)}`;
 }
 
-/** Her own copy of a set of insides: her own geometry, the shared materials. */
+/**
+ * Her own copy of a set of insides: her own meshes, on the same geometry and
+ * the same materials.
+ *
+ * The geometry is not copied. Every hull that has insides welds them into her
+ * own buffers the moment they are fitted (mergeStatic, straight after
+ * buildInterior), and the weld only reads what it is given: what a battle
+ * marks, cuts and scorches is the weld's own copy. A copy of every bulkhead
+ * and platform here as well was the best part of half a second a ship, for
+ * buffers that were read once and thrown away.
+ */
 function copyInside(src) {
-  const out = src.clone(true);
-  out.traverse((o) => { if (o.geometry) o.geometry = o.geometry.clone(); });
-  return out;
+  return src.clone(true);
 }
 
 /**
