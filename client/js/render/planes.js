@@ -965,8 +965,10 @@ export function flightModels() {
     // model's bounding box instead -- which is what it used to be -- it came
     // out low and behind the spinner, and read as a pale white plate under the
     // nose that no propeller has.
-    const hub = p.userData.prop;
-    if (hub) {
+    // Every airscrew she has: the Hawkeye has two, and the blur used to go on
+    // the first of them only.
+    const named = (p.userData.parts || []).filter((q) => /^prop\d*$/.test(q.name)).map((q) => q.node);
+    for (const hub of (named.length ? named : [p.userData.prop].filter(Boolean))) {
       hub.updateMatrixWorld(true);
       const at = new THREE.Vector3().setFromMatrixPosition(hub.matrixWorld);
       const v = new THREE.Vector3();

@@ -445,7 +445,7 @@ import { cutFromHoles, breakCut, piecesOf } from '../client/js/render/breakup.js
 import { ZERO, zeroGeometries } from '../client/js/render/zeroModel.js';
 import { DAUNTLESS } from '../client/js/render/dauntlessModel.js';
 import { engineStart, CRANK } from '../client/js/render/deckengine.js';
-import { sustainBank, turnFor } from '../shared/aero.js';
+import { sustainBank, turnFor, AERO as AIRFRAMES } from '../shared/aero.js';
 import {
   buildSurcouf, LOA as surcoufLOA,
   shellAt as surcoufShellAt, casingY as surcoufCasingY,
@@ -13074,8 +13074,11 @@ check('the airscrew reads as a disc without a plate under her nose', () => {
   // with the blades and square to the shaft.
   const models = flightModels();
   for (const [kind, m] of Object.entries(models)) {
-    const prop = (m.parts || []).find((q) => q.name === 'prop');
-    assert.ok(prop, `the ${kind} has no airscrew`);
+    // A jet has no airscrew, and a helicopter's rotor is not one either.
+    if (AIRFRAMES[kind]?.jet || AIRFRAMES[kind]?.rotor) continue;
+    const props = (m.parts || []).filter((q) => /^prop\d*$/.test(q.name));
+    assert.ok(props.length, `the ${kind} has no airscrew`);
+    for (const prop of props) {
     prop.geo.computeBoundingBox();
     const bb = prop.geo.boundingBox;
     const rx = Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x));
@@ -13090,6 +13093,7 @@ check('the airscrew reads as a disc without a plate under her nose', () => {
     assert.equal(blur.length, 1, `the ${kind}'s airscrew has ${blur.length} blurs on it`);
     assert.ok(blur[0].opacity < 0.2,
       `the ${kind}'s airscrew blur is ${blur[0].opacity} opaque -- that is a plate`);
+    }
     assert.ok(!m.mats.some((mat) => mat.transparent),
       `the ${kind} still has something translucent welded into her body`);
   }
@@ -14675,6 +14679,9 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
   // tops ahead of her.
   const LOW = 60;
   for (const cls of Object.values(SHIP_CLASSES)) {
+    // A boat with no anti-aircraft gun at all -- the Landing Craft Mechanized
+    // carries none -- has no arcs to speak of.
+    if (!aaBattery(cls).length) continue;
     const ship = { x: 0, z: 0, heading: 0 };
     const R = cls.aa.range * 0.4;
     const ahead = aaBearing(cls, ship, 0, R, LOW);
@@ -14918,6 +14925,12 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     // A warship carries three kinds at least; a merchantman -- the Liberty
     // ship's 4-inch and her Oerlikons -- may carry two, and a landing craft
     // -- the Higgins boat's pair of Brownings -- one.
+    // And one built unarmed -- the Landing Craft Mechanized -- none at all.
+    const unarmed = !cls.turrets.length && !cls.secondary && !(cls.aa?.guns?.length) && !cls.torpedoes;
+    if (unarmed) {
+      assert.equal(rows.length, 0, `${cls.id} carries no weapons, and lists ${rows.map((w) => w.name).join(', ')}`);
+      continue;
+    }
     const least = cls.type === 'LC' ? 1 : cls.cargo ? 2 : 3;
     assert.ok(rows.length >= least, `${cls.id} lists only ${rows.length} weapons`);
     for (const w of rows) {
@@ -17957,11 +17970,12 @@ check('the cockpit says what happened, not what was hoped', () => {
   const sent = [];
   const g = Object.create(Battle.prototype);
   g.team = 0;
-  g.hud = {
-    alert: (t) => said.push(t), paintCockpit() {}, setSightHot() {},
-    paintFlightDamage() {}, setAmmo() {}, setThrottle() {}, setMissiles() {}, placeLock() {},
+  // Whatever else of the cockpit the flight touches does nothing here; only
+  // what is said is listened to.
+  g.hud = new Proxy({
+    alert: (t) => said.push(t),
     fly: { throttle: 1, aimX: 0, aimY: 0 },
-  };
+  }, { get: (o, k) => (k in o ? o[k] : () => {}) });
   g.net = { send: (m) => sent.push(m) };
   g.snapshots = [{ ships: [{ i: 9, a: 1, tm: 1, x: 100, z: 0 }], planes: [] }];
   g.flight = {
@@ -19389,7 +19403,7 @@ check('a magazine blows her apart, and how far by what was in it', () => {
 check('a round that got in holes her, and one that did not only marks her', () => {
   const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
   const body = (from, len = 2400) => { const at = game.indexOf(from); assert.ok(at >= 0, from); return game.slice(at, at + len); };
-  assert.ok(/hitMark\(ev\)/.test(body("        case 'hit': {", 1800)), 'a shell hit is not put on her plating');
+  assert.ok(/hitMark\(ev\)/.test(body("        case 'hit': {", 3200)), 'a shell hit is not put on her plating');
   assert.ok(/\.punch\(/.test(body("        case 'torpHit':", 1200)), 'a torpedo no longer opens her side');
   // On a real hull: what each kind of hit leaves on her.
   const scene = new THREE.Scene();

@@ -123,7 +123,11 @@ export function arsenal(cls) {
   };
   const hasBoth = (battery) => !!(battery && battery.shells
     && battery.shells.ap && battery.shells.he);
-  if (cls.gun) {
+  // A boat with no gun mounted has no main battery to list: the Landing
+  // Craft Mechanized carries a stand-in gun so that anything asking every
+  // class for one gets an answer, and it used to be listed as a weapon called
+  // "None".
+  if (cls.gun && cls.turrets?.length) {
     rows.push({
       name: cls.gun.name || `${cls.gun.caliber} mm`,
       caliber: cls.gun.caliber,

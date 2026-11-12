@@ -7636,6 +7636,7 @@ function waveRoll(state, s, cls, n, h) {
     const S = s.sinking;
     if (S) {
       S.capsize = true;
+      S.thrown = true;
       S.way = way;
       S.rollFrom = s.heel || 0;
       // Over in seconds, not minutes: she is thrown, not flooded.
@@ -17144,7 +17145,15 @@ function stepSinking(state, ship, dt) {
   if (S.capsize) {
     // Over, slowly at first and then all at once, and then she lies there
     // bottom up while the air trapped in her lets go.
-    S.roll = Math.min(1, S.roll + dt / (S.rollFor ?? Math.min(140, S.T * 0.45)));
+    // Going over off her own list, she goes over only while the sea is
+    // winning: with her parties at it and the water coming out of her faster
+    // than it comes in, she stops going and comes back -- which is what
+    // saved() needs to see before it can call her saved. Rolling on regardless
+    // made one ship in every few with a heavy list past saving however well
+    // she was fought. Thrown over by a wave, nothing aboard her can stop it.
+    const rate = dt / (S.rollFor ?? Math.min(140, S.T * 0.45));
+    const fighting = !S.thrown && (ship.reserveRate || 0) > 0 && partiesAtIt(ship);
+    S.roll = fighting ? Math.max(0, S.roll - rate * 0.5) : Math.min(1, S.roll + rate);
     const e = S.roll * S.roll * (3 - 2 * S.roll);
     const from = S.rollFrom ?? held;
     S.heel = from + (S.way * Math.PI - from) * e - base;
@@ -18207,6 +18216,11 @@ function stepParties(state, ship, dt) {
   ship.fires = burningCount(ship);
 }
 
+/** Whether her parties are at work on her: on the pumps, counter-flooding, or closing her up. */
+function partiesAtIt(ship) {
+  return (ship.parties || []).some((p) => p.on && /^(pump|trim|hole|hull|fire):/.test(p.on));
+}
+
 /**
  * Whether her parties have brought her back from going down.
  *
@@ -18224,8 +18238,7 @@ function saved(ship, S, dt) {
   // Saved by somebody: her parties have to be at it -- on the pumps,
   // counter-flooding, or closing her up. A ship that rights herself with
   // nobody doing anything about it has only stopped going down for a moment.
-  const working = (ship.parties || []).some((p) => p.on && /^(pump|trim|hole|hull|fire):/.test(p.on));
-  if (!working) { S.held = 0; return false; }
+  if (!partiesAtIt(ship)) { S.held = 0; return false; }
   // Held there, not touched for a moment: twenty seconds with her deck edge
   // clear and her list coming off before anybody can call her safe.
   //
