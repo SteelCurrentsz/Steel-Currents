@@ -42,7 +42,10 @@ import { layMine, troopsFor } from '../shared/sim.js';
 import {
   addBarracks, addSoldier, dryLand, footing, woundSoldier, blastInfantry, shootRifle, clearLine, orderSquads,
   infantryBrief, doctrineOut, doctrineIn, poolDoctrine, commandSoldier, driveSoldier, GARAND, BARRACKS_MEN,
+  predictSoldier,
 } from '../shared/infantry.js';
+import { driveHull } from '../shared/sim.js';
+import { Held } from '../client/js/predict.js';
 import {
   LOADOUT_SLOTS, listLoadouts, saveLoadout, deleteLoadout, describeLoadout,
 } from '../client/js/loadouts.js';
@@ -30240,6 +30243,87 @@ check('a player takes a soldier, walks him, and hands him back to himself', () =
   assert.ok(!s.ctl || commandSoldier(st, s, 0));
   assert.equal(s.ctl, 0, 'he was not handed back');
   assert.ok(!commandSoldier(st, s, 0) || s.ctl === 0);
+});
+
+/** A point just outside a big building in the island town, and the bearing straight in at its wall. */
+function besideWall(world, plan, k, out) {
+  const big = plan.buildings.filter((q) => q.kind !== 'house' && q.h > 14);
+  const b = big[k % big.length];
+  const ang = (k % 4) * 1.6;
+  let r = 0;
+  while (worksFloor(world, b.x + Math.sin(ang) * r, b.z + Math.cos(ang) * r).blocked && r < 80) r += 0.2;
+  return { x: b.x + Math.sin(ang) * (r + out), z: b.z + Math.cos(ang) * (r + out), into: wrapAngle(ang + Math.PI) };
+}
+
+check('a soldier pushed into a wall at a slant slides along it rather than sticking', () => {
+  const world = islandTown();
+  const plan = cityPlan(world);
+  for (let k = 0; k < 8; k++) {
+    const at = besideWall(world, plan, k, 1.2);
+    const st = createState(world, { mode: 'deathmatch' });
+    const s = addSoldier(st, { team: 0, x: at.x, z: at.z, h: 0 });
+    commandSoldier(st, s, 7);
+    driveSoldier(st, s, { mx: 0, mz: 1, yaw: at.into + 0.7, pitch: 0, sp: false, cr: false, jp: 0 });
+    for (let i = 0; i < 90; i++) step(st, 1 / 30);
+    const went = Math.hypot(s.x - at.x, s.z - at.z);
+    assert.ok(went > 4, `he went ${went.toFixed(1)} m in three seconds along the wall`);
+    assert.ok(!worksFloor(world, s.x, s.z).blocked, 'he walked into the building');
+  }
+});
+
+check('a tank driven into a wall at a slant scrapes along it rather than stopping dead', () => {
+  const world = islandTown();
+  const plan = cityPlan(world);
+  for (let k = 0; k < 8; k++) {
+    const at = besideWall(world, plan, k, 6);
+    const st = createState(world, { mode: 'deathmatch' });
+    const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: at.x, z: at.z, heading: at.into + 0.6 });
+    commandBattery(st, bat, 99);
+    const x0 = bat.x, z0 = bat.z;
+    driveTank(st, bat, 1, 0);
+    for (let i = 0; i < 150; i++) step(st, 1 / 30);
+    const went = Math.hypot(bat.x - x0, bat.z - z0);
+    assert.ok(went > 12, `it went ${went.toFixed(1)} m in five seconds along the wall`);
+    assert.ok(!worksFloor(world, bat.x, bat.z).blocked, 'it drove into the building');
+  }
+});
+
+check('the soldier and the tank in hand are walked and driven on the screen as the battle moves them', () => {
+  // The man: the same legs, the same orders, the same place.
+  const { world, st, at } = infantryField();
+  const s = addSoldier(st, { team: 0, x: at.x, z: at.z, h: 0 });
+  commandSoldier(st, s, 7);
+  const body = { x: s.x, z: s.z, y: s.y, h: s.h, yaw: 0, speed: 0, air: false, vy: 0, hp: 100, drive: { mx: 0, mz: 0, sp: false, cr: false, jp: 0 } };
+  const order = { mx: 0.3, mz: 1, yaw: 1.1, pitch: 0, sp: true, cr: false, jp: 0 };
+  driveSoldier(st, s, order);
+  Object.assign(body.drive, { mx: order.mx, mz: order.mz, sp: true });
+  body.yaw = order.yaw;
+  for (let i = 0; i < 60; i++) { step(st, DT); predictSoldier(world, body, DT); }
+  assert.ok(Math.hypot(s.x - at.x, s.z - at.z) > 3, 'he did not go anywhere');
+  assert.ok(Math.hypot(body.x - s.x, body.z - s.z) < 0.05, `predicted ${Math.hypot(body.x - s.x, body.z - s.z).toFixed(2)} m from where the battle has him`);
+  // The tank: driveHull is what moves it in the battle too.
+  const tw = generateWorld(77, 'archipelago');
+  const ts = createState(tw, { mode: 'deathmatch' });
+  const land = tw.islands.find((i) => groundHeight(tw, i.x, i.z) > 5);
+  const bat = addBattery(ts, { batteryId: 'sherman', team: 0, x: land.x, z: land.z, heading: 0 });
+  commandBattery(ts, bat, 99);
+  const T = BATTERIES.sherman.tank;
+  const hull = { x: bat.x, z: bat.z, y: bat.y, heading: bat.heading, speed: 0, yaw: 0, roll: 0 };
+  const pst = { world: ts.world, events: [], predict: true };
+  driveTank(ts, bat, 1, 0.5);
+  for (let i = 0; i < 90; i++) { step(ts, DT); driveHull(pst, hull, T, 1, 0.5, 1, DT); }
+  assert.ok(Math.hypot(bat.x - land.x, bat.z - land.z) > 5, 'the tank did not go anywhere');
+  assert.ok(Math.hypot(hull.x - bat.x, hull.z - bat.z) < 0.05, `predicted ${Math.hypot(hull.x - bat.x, hull.z - bat.z).toFixed(2)} m off the battle's tank`);
+  // And the battle's word on it taken up, not snapped to -- unless it is far out.
+  const held = new Held({ x: 0, z: 0, y: 0, h: 0 }, () => {}, { snap: 5 });
+  held.advance(DT, 1);
+  held.correct({ x: 1, z: 0, y: 0, h: 0 }, 1);
+  held.advance(DT, 1 + DT);
+  assert.ok(held.body.x > 0 && held.body.x < 0.5, `a metre out was taken up as ${held.body.x.toFixed(2)} in a frame`);
+  for (let i = 0; i < 60; i++) held.advance(DT, 1 + DT * (i + 2));
+  assert.ok(Math.abs(held.body.x - 1) < 0.02, 'the correction was never taken up');
+  held.correct({ x: 40, z: 0, y: 0, h: 0 }, 5);
+  assert.equal(held.body.x, 40, 'a body put somewhere else altogether was not put there');
 });
 
 check('two sides of riflemen fight it out, and each side learns from it', () => {

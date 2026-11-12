@@ -598,7 +598,7 @@ export class InfantryView {
     const cam = camera.position;
     let nn = 0, nf = 0;
     const seen = new Set();
-    for (const p of list) {
+    for (let p of list) {
       seen.add(p.i);
       let a = this.anim.get(p.i);
       if (!a) {
@@ -608,6 +608,15 @@ export class InfantryView {
       a.last = p;
       const f = p.f || 0;
       const k = 1 - Math.exp(-dt * 9);
+      // He turns, rather than snapping round to every new heading the
+      // snapshots have for him: a man changing direction takes a moment.
+      if (a.h === undefined) a.h = p.h;
+      else {
+        const dh = Math.atan2(Math.sin(p.h - a.h), Math.cos(p.h - a.h));
+        a.h += dh * Math.min(1, dt * 16);
+      }
+      p = { ...p, h: a.h };
+      a.last = p;
       const sp = Math.abs(p.sp || 0);
       a.moving += ((sp > 0.25 ? 1 : 0) - a.moving) * k;
       a.run += ((sp > 2.4 ? 1 : 0) - a.run) * k;

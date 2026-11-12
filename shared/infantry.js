@@ -636,6 +636,7 @@ function stepLegs(state, s, wantH, wantSpeed, dt, jump = false) {
     // then a lot.
     const look = Math.max(0.9, s.speed * 0.5);
     let go = null;
+    let goOff = 0;
     for (const off of [0, 0.45, -0.45, 0.95, -0.95, 1.5, -1.5]) {
       const h = wrapAngle(wantH + off * (s.brain.side || 1));
       const nx = s.x + Math.sin(h) * look, nz = s.z + Math.cos(h) * look;
@@ -651,6 +652,7 @@ function stepLegs(state, s, wantH, wantSpeed, dt, jump = false) {
         if (!s.air) continue;
       }
       go = h;
+      goOff = off;
       break;
     }
     if (go === null) {
@@ -659,9 +661,20 @@ function stepLegs(state, s, wantH, wantSpeed, dt, jump = false) {
     } else {
       s.brain.stuck = Math.max(0, s.brain.stuck - dt);
       s.h = wrapAngle(s.h + clamp(angleDelta(s.h, go), -8 * dt, 8 * dt));
-      const step = s.speed * dt;
-      const nx = s.x + Math.sin(s.h) * step, nz = s.z + Math.cos(s.h) * step;
-      if (standable(world, nx, nz)) { s.x = nx; s.z = nz; } else s.speed *= 0.3;
+      // He goes the way he found clear, not the way he happens to be facing
+      // while he turns to it: stepping along his facing walked him straight
+      // back into the wall he was feeling his way along, and he stuck there.
+      // A man in a player's hands slides along it at what of his pace is
+      // still going where he was pushed, as anyone does along a wall.
+      const along = s.ctl ? Math.max(0, Math.cos(goOff)) : 1;
+      const step = s.speed * dt * along;
+      let nx = s.x + Math.sin(go) * step, nz = s.z + Math.cos(go) * step;
+      if (!standable(world, nx, nz)) {
+        // The corner of a house the feel ahead missed: along either side of it.
+        const ax = Math.sin(wantH) * step, az = Math.cos(wantH) * step;
+        if (standable(world, s.x + ax, s.z)) { nx = s.x + ax; nz = s.z; } else if (standable(world, s.x, s.z + az)) { nx = s.x; nz = s.z + az; } else { nx = null; }
+      }
+      if (nx !== null) { s.x = nx; s.z = nz; } else s.speed *= 0.3;
     }
   }
   const g = footing(world, s.x, s.z);
@@ -1060,6 +1073,17 @@ export function driveSoldier(state, s, msg) {
   const jp = Number(msg.jp) || 0;
   if (jp !== d.jp) { d.jumpNow = true; d.jp = jp; }
   return true;
+}
+
+/**
+ * The man a player has in hand, walked one step on this player's own screen
+ * ahead of the snapshots, by the same legs the battle walks him with (see
+ * predict.js on the client). `s` carries `x, z, y, h, yaw, speed, air, vy,
+ * hp` and his `drive`; nothing else is touched.
+ */
+export function predictSoldier(world, s, dt) {
+  if (!s.brain) s.brain = { side: 1, stuck: 0 };
+  stepDriven({ world, events: [], predict: true }, s, dt);
 }
 
 function stepDriven(state, s, dt) {
@@ -1475,7 +1499,9 @@ export function soldierWire(state, team = -1, all = false) {
     const flags = (s.crouch ? 1 : 0) | (s.sprint ? 2 : 0) | (s.air ? 4 : 0) | (s.speed > 0.3 ? 8 : 0)
       | (s.reload > 0 ? 16 : 0) | (state.t - s.shotAt < 0.4 ? 32 : 0) | (s.hp < 40 ? 64 : 0)
       | (s.brain.target || s.ctl ? 128 : 0);
-    const row = [s.id, s.team, r1(s.x), r1(s.z), r1(s.y), r2(s.h), r2(s.yaw), r2(s.pitch), flags, r1(s.speed)];
+    // To the centimetre: a man walks a tenth of a metre between snapshots,
+    // and rounded to that he went in jerks.
+    const row = [s.id, s.team, r2(s.x), r2(s.z), r2(s.y), r2(s.h), r2(s.yaw), r2(s.pitch), flags, r1(s.speed)];
     if (all || s.team === team) row.push(Math.round(s.hp), s.ctl || 0, s.clip, s.clips, s.sq);
     out.push(row);
   }

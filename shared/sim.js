@@ -4950,6 +4950,18 @@ function stepTank(state, bat, b, dt) {
   // Nobody at the sticks, the engine wrecked, the transmission gone or a
   // track off: it goes nowhere, and slews round nowhere either.
   if (!ok.drive) { th = 0; st = 0; }
+  driveHull(state, bat, T, th, st, ok.speed, dt);
+}
+
+/**
+ * The hull of a tank moved one tick on its sticks: `th` the throttle and `st`
+ * the steering, as driveTank takes them, and `speedK` what is left of its
+ * engine and transmission. The same code moves a tank on the server and the
+ * one a player is driving on his own screen, ahead of the snapshots (see
+ * predict.js on the client): a `state` with `predict` set only feels its way,
+ * and knocks no house down.
+ */
+export function driveHull(state, bat, T, th, st, speedK, dt) {
   // How steep the ground is along the hull, read over the tank's own length
   // rather than over the few centimetres it moves in a tick: what stops a
   // tank is a bank, not a pebble in the height field. Positive is uphill in
@@ -4960,7 +4972,7 @@ function stepTank(state, bat, b, dt) {
   // it on the level falls away as the hill steepens.
   const up = Math.max(0, grade) / TANK_MAX_GRADE;
   const pull = clamp(1 - up * 0.6, 0.38, 1) * (1 + clamp(-grade, 0, 0.6) * 0.35);
-  const want = (th >= 0 ? th * T.speed : th * T.reverse) * pull * ok.speed;
+  const want = (th >= 0 ? th * T.speed : th * T.reverse) * pull * speedK;
   // Easing on and off the throttle rather than snapping to it, and harder
   // on the brakes than on the gas.
   const braking = Math.sign(want) !== Math.sign(bat.speed) || Math.abs(want) < Math.abs(bat.speed);
@@ -4976,15 +4988,37 @@ function stepTank(state, bat, b, dt) {
   bat.heading = wrapAngle(bat.heading + bat.yaw * dt);
   if (Math.abs(bat.speed) < 0.01 && Math.abs(want) < 0.01) { bat.speed = 0; return; }
   const step = bat.speed * dt;
-  const nx = bat.x + Math.sin(bat.heading) * step;
-  const nz = bat.z + Math.cos(bat.heading) * step;
-  const g = tankGround(state.world, nx, nz);
   const edge = (state.world.half || MAP_HALF) - 60;
-  const moveGrade = tankGrade(state.world, bat, T, Math.sign(step) || 1);
   // Deeper than it can ford, a bank steeper than the tracks will climb, a
-  // house in the way, or off the edge of the battlefield: it stops there.
-  const wall = tankWall(state, bat, nx, nz, T, th, dt);
-  if (g < -T.wade || moveGrade > TANK_MAX_GRADE || wall || Math.abs(nx) > edge || Math.abs(nz) > edge) {
+  // house in the way, or off the edge of the battlefield: not that way.
+  const clear = (h, len, hurt) => {
+    const nx = bat.x + Math.sin(h) * len;
+    const nz = bat.z + Math.cos(h) * len;
+    if (Math.abs(nx) > edge || Math.abs(nz) > edge) return null;
+    const g = tankGround(state.world, nx, nz);
+    if (g < -T.wade) return null;
+    const probe = h === bat.heading ? bat : { x: bat.x, z: bat.z, heading: h, speed: bat.speed };
+    if (tankGrade(state.world, probe, T, Math.sign(len) || 1) > TANK_MAX_GRADE) return null;
+    if (tankWall(hurt ? state : { world: state.world, predict: true }, probe, nx, nz, T, th, dt)) return null;
+    return { nx, nz, g };
+  };
+  let to = clear(bat.heading, step, true);
+  // Against a wall, a bank or the water's edge at a slant, it scrapes along
+  // it -- edged round onto the line that is clear and going on at what of
+  // its speed still goes the way it is pointed -- rather than stopping dead
+  // the moment the nose touches and staying stuck there.
+  if (!to && Math.abs(step) > 1e-4) {
+    for (const off of [0.2, -0.2, 0.45, -0.45, 0.75, -0.75]) {
+      const h = wrapAngle(bat.heading + off);
+      to = clear(h, step * Math.cos(off), false);
+      if (to) {
+        bat.heading = wrapAngle(bat.heading + clamp(off, -1, 1) * Math.min(1, dt * 3));
+        bat.speed *= 1 - Math.min(1, dt * (1 - Math.cos(off)) * 4);
+        break;
+      }
+    }
+  }
+  if (!to) {
     bat.speed = approach(bat.speed, 0, T.accel * 6 * dt);
     if (Math.abs(bat.speed) < 0.3) bat.speed = 0;
     bat.roll = 0;
@@ -4992,6 +5026,7 @@ function stepTank(state, bat, b, dt) {
     return;
   }
   if (bat.ai) bat.ai.blocked = 0;
+  const { nx, nz, g } = to;
   bat.x = nx;
   bat.z = nz;
   bat.y = g + worksRise(state.world, nx, nz);
@@ -5310,6 +5345,7 @@ function tankWall(state, bat, nx, nz, T, th, dt) {
   const px = nx + Math.sin(bat.heading) * T.length * 0.5 * dir;
   const pz = nz + Math.cos(bat.heading) * T.length * 0.5 * dir;
   if (!worksFloor(world, px, pz).blocked) return false;
+  if (state.predict) return true;
   const b = buildingAt(world, px, pz, 0.15);
   if (b && b.h <= 14 && Math.abs(th) > 0.2) {
     hurtBuilding(world, b, b.hp * 0.3 * dt * Math.abs(th), state.events, worksDice(state), { x: px, z: pz });

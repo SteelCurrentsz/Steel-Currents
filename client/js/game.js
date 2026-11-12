@@ -34,7 +34,9 @@ import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
   freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE, RAMP_RUN,
+  driveHull,
 } from '../../shared/sim.js';
+import { Held } from './predict.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
 import { lampPlan, planImage } from './render/searchlights.js';
@@ -4944,7 +4946,7 @@ export class Battle {
    * two snapshots, its hull on its own heading and its turret trained off
    * that. `t` is how far between them, as everything else here.
    */
-  placeTank(view, g, prev, t, ang) {
+  placeTank(view, g, prev, t, ang, ahead = 0) {
     const grp = view.group;
     const craft = g.ab ? this.scene.shipViews.get(g.ab) : null;
     const cls = craft && SHIP_CLASSES[craft.group?.userData?.classId || ''];
@@ -4984,10 +4986,26 @@ export class Battle {
       grp.position.copy(p);
       view.ride = null;
     } else {
-      const x = prev && !prev.ab ? lerp(g.x, prev.x, t) : g.x;
-      const z = prev && !prev.ab ? lerp(g.z, prev.z, t) : g.z;
-      const y = prev && !prev.ab ? lerp(g.y, prev.y, t) : g.y;
-      const h = prev && !prev.ab ? g.h + angleDelta(g.h, prev.h) * t : g.h;
+      let x = prev && !prev.ab ? lerp(g.x, prev.x, t) : g.x;
+      let z = prev && !prev.ab ? lerp(g.z, prev.z, t) : g.z;
+      let y = prev && !prev.ab ? lerp(g.y, prev.y, t) : g.y;
+      let h = prev && !prev.ab ? g.h + angleDelta(g.h, prev.h) * t : g.h;
+      // Past the newest snapshot: on along its heading at its speed, rather
+      // than stopped dead until the next one comes in.
+      if (!prev && ahead > 0 && g.al && Math.abs(g.sp || 0) > 0.05) {
+        x += Math.sin(h) * (g.sp || 0) * ahead;
+        z += Math.cos(h) * (g.sp || 0) * ahead;
+      }
+      // The tank in hand is where its driver has driven it on this screen,
+      // not where it was a fifth of a second ago (see predict.js); its turret
+      // keeps the bearing the battle has it on, off that hull.
+      const mine = this.heldTank(g);
+      if (mine) {
+        const turretAt = h + ang;
+        const d = this.commandBat.held.drawn;
+        x = d.x; z = d.z; y = d.y; h = d.h;
+        ang = wrapAngle(turretAt - h);
+      }
       // Sat on the ground as it is drawn, so it is not half buried in a
       // slope the simulation reads a little lower than the mesh -- and laid
       // over to it: nose up a bank, down into a dip, and canted on a hillside
@@ -5050,6 +5068,50 @@ export class Battle {
         fx.fire(hx, p.y + 2.2, hz, g.fi === 2 ? 0.7 : 0.35);
       }
     }
+  }
+
+  /**
+   * The hull of the tank in hand, driven on by this frame off its sticks and
+   * brought into line with the newest snapshot of it; or null if no tank on
+   * the ground is in hand, or this is not it.
+   */
+  heldTank(g) {
+    const c = this.commandBat;
+    const w = this.scene.world;
+    if (!c || !c.tank || c.id !== g.i || !w || !g.al) return null;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const s = snap && (snap.batteries || []).find((q) => q.i === g.i);
+    if (!s || s.ab) { c.held = null; return null; }
+    const T = BATTERIES[g.b]?.tank;
+    if (!T) return null;
+    if (!c.held) {
+      const body = { x: s.x, z: s.z, y: s.y, h: s.h, heading: s.h, speed: s.sp || 0, yaw: 0, roll: 0, th: c.drive.th, st: c.drive.st, ok: true, k: 1 };
+      const state = { world: w, events: [], predict: true };
+      c.held = new Held(body, (bd, dt) => {
+        bd.heading = bd.h;
+        driveHull(state, bd, T, bd.ok ? bd.th : 0, bd.ok ? bd.st : 0, bd.k, dt);
+        bd.h = bd.heading;
+        state.events.length = 0;
+      }, { snap: 8, dead: 0.05 });
+      c.heldWall = performance.now() / 1000;
+    }
+    const held = c.held;
+    held.correct(s, snap.st, (bd, q) => {
+      // What its crew can still give it, off what they say is broken; and a
+      // tank the battle has stopped, stopped here too.
+      const m = q.td ? q.td[0] : 0;
+      const crew = q.td ? q.td[1] : 1;
+      bd.ok = !(m & 15) && crew !== 0;
+      bd.k = (m & 64 ? 0.55 : 1);
+      if (Math.abs(q.sp || 0) < 0.05 && Math.abs(bd.speed) > 1.5 && Math.hypot(q.x - bd.x, q.z - bd.z) > 1.5) bd.speed = q.sp || 0;
+    });
+    const now = performance.now() / 1000;
+    const dt = clamp(now - (c.heldWall || now), 0, 0.25);
+    c.heldWall = now;
+    held.body.th = c.drive.th;
+    held.body.st = c.drive.st;
+    held.advance(dt * (this.clockRate ?? 1), this.serverNow(now));
+    return held.body;
   }
 
   /** Is the thing being watched a flight or a squadron of ours we could fly? */
@@ -8084,7 +8146,7 @@ export class Battle {
       const prev = b ? (b.batteries || []).find((x) => x.i === g.i) : null;
       const ang = prev ? g.a + angleDelta(g.a, prev.a) * t : g.a;
       if (tank) {
-        this.placeTank(view, g, prev, t, ang);
+        this.placeTank(view, g, prev, t, ang, ahead);
         view.marker.visible = this.camMode === 'tactical';
         if (!g.al) this.scene.flames.at(`bat:${g.i}`, view.group.position.x, view.group.position.y + 1.5, view.group.position.z, 0.4, 3);
         continue;
@@ -8118,7 +8180,7 @@ export class Battle {
     }
 
     // The soldiers, and the barracks they came out of.
-    this.syncTroops(a, b, t, dt);
+    this.syncTroops(a, b, t, dt, ahead);
 
     // Shells, torpedoes and aircraft as instanced batches.
     const dummy = this.scene.dummy;

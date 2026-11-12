@@ -16,7 +16,8 @@ import * as THREE from '../../vendor/three.module.js';
 import { InfantryView } from './render/infantry.js';
 import { audio } from './audio.js';
 import { wrapAngle, angleDelta, clamp } from '../../shared/math.js';
-import { GARAND } from '../../shared/infantry.js';
+import { GARAND, predictSoldier } from '../../shared/infantry.js';
+import { Held } from './predict.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { BATTERIES } from '../../shared/batteries.js';
 
@@ -99,7 +100,7 @@ const Troops = {
   },
 
   /** The men off the snapshot pair, interpolated, and drawn. */
-  syncTroops(a, b, t, dt) {
+  syncTroops(a, b, t, dt, ahead = 0) {
     const rows = a.sd;
     const afloat = (a.ships || []).some((s) => s.tr > 0);
     if (!rows && !afloat && !this.infantry) return;
@@ -115,10 +116,24 @@ const Troops = {
         p.h = wrapAngle(p.h + angleDelta(p.h, q[5]) * t);
         p.yaw = wrapAngle(p.yaw + angleDelta(p.yaw, q[6]) * t);
         p.pitch = lerp(p.pitch, q[7], t);
+      } else if (ahead > 0 && p.sp > 0.05) {
+        // Past the newest snapshot of him, he goes on the way he was going
+        // rather than freezing until the next one lands and then jumping.
+        const run = Math.min(ahead, 0.25) * p.sp;
+        p.x += Math.sin(p.h) * run; p.z += Math.cos(p.h) * run;
       }
       // The man in hand looks where the player is looking, not where the
-      // server last heard he was.
-      if (this.troop && p.i === this.troop.id) { p.yaw = this.troop.yaw; p.pitch = this.troop.pitch; p.f |= 128; }
+      // server last heard he was -- and is where the player has walked him,
+      // not where he was a fifth of a second ago: see predict.js.
+      if (this.troop && p.i === this.troop.id) {
+        p.yaw = this.troop.yaw; p.pitch = this.troop.pitch; p.f |= 128;
+        const m = this.stepHeldSoldier(dt);
+        if (m) {
+          const d = this.troop.held.drawn;
+          p.x = d.x; p.z = d.z; p.y = d.y; p.h = d.h; p.sp = m.speed;
+          p.f = (p.f & ~15) | (m.crouch ? 1 : 0) | (m.sprint ? 2 : 0) | (m.air ? 4 : 0) | (m.speed > 0.3 ? 8 : 0);
+        }
+      }
       list.push(p);
     }
     this.troopsNow = list;
@@ -128,6 +143,33 @@ const Troops = {
     // going in with her: drawn, not yet anybody's to pick or to take.
     const drawn = afloat ? list.concat(this.wellMen(a)) : list;
     this.infantry.sync(drawn, dt, this.scene.camera, this.team, this.troop ? this.troop.id : 0, fp);
+  },
+
+  /**
+   * The man in hand, walked on by a frame off the stick as it is now, and
+   * brought into line with the newest snapshot of him. His body, or null.
+   */
+  stepHeldSoldier(dt) {
+    const c = this.troop;
+    const w = this.scene.world || this.world;
+    if (!c || !w) return null;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const s = snap && (snap.sd || []).find((q) => q[0] === c.id);
+    if (!s) return c.held ? c.held.body : null;
+    const r = row(s);
+    if (!c.held) {
+      const body = {
+        x: r.x, z: r.z, y: r.y, h: r.h, yaw: r.yaw, pitch: 0, speed: r.sp || 0,
+        air: !!(r.f & 4), vy: 0, hp: r.hp ?? 100, crouch: !!(r.f & 1), sprint: false,
+        drive: { mx: 0, mz: 0, sp: false, cr: !!c.cr, jp: c.jp },
+      };
+      c.held = new Held(body, (b, h) => predictSoldier(w, b, h), { snap: 5, dead: 0.12 });
+    }
+    const held = c.held;
+    held.correct(r, snap.st, (b, q) => { if (Number.isFinite(q.hp)) b.hp = q.hp; });
+    const now = performance.now() / 1000;
+    held.advance(dt * (this.clockRate ?? 1), this.serverNow ? this.serverNow(now) : null);
+    return held.body;
   },
 
   /** The soldiers embarked in each landing craft, as rows to draw where they stand in her well. */
@@ -411,11 +453,19 @@ const Troops = {
     const now = performance.now();
     const yaw = Math.round(c.aimYaw * 100) / 100;
     const pitch = Math.round(c.aimPitch * 100) / 100;
+    // The same orders to the man walked on this screen as go to the battle.
+    const b = c.held && c.held.body;
+    if (b) {
+      const d = b.drive;
+      d.mx = msg.mx; d.mz = msg.mz; d.sp = msg.sp; d.cr = msg.cr;
+      if (msg.jp !== d.jp) { d.jumpNow = true; d.jp = msg.jp; }
+      b.yaw = wrapAngle(c.aimYaw);
+    }
     const was = c.sent;
     const same = was && was.mx === msg.mx && was.mz === msg.mz && was.sp === msg.sp && was.cr === msg.cr && was.jp === msg.jp;
     const turned = !was || Math.abs(angleDelta(was.yaw, yaw)) > 0.02 || Math.abs(was.pitch - pitch) > 0.02;
     if (same && !turned && now - c.sentAt < 1500) return;
-    if (now - c.sentAt < 60 && same) return;
+    if (now - c.sentAt < 40 && same) return;
     c.sent = { ...msg, yaw, pitch };
     c.sentAt = now;
     this.net.send({ t: 'sdrive', i: c.id, ...msg, yaw, pitch });
