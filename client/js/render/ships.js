@@ -44,7 +44,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * background once the title screen is up, and waited for by the shipyard and
  * before a battle is joined.
  */
-let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
+let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina, buildMusashi,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
 const SCULPTED = {
@@ -68,6 +68,7 @@ const SCULPTED = {
   missouri: () => import('./missouri.js').then((m) => { buildMissouri = m.buildMissouri; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
   baltimore: () => import('./baltimore.js').then((m) => { buildBaltimore = m.buildBaltimore; }),
+  northcarolina: () => import('./northcarolina.js').then((m) => { buildNorthCarolina = m.buildNorthCarolina; }),
   massachusetts: () => import('./massachusetts.js')
     .then((m) => { buildMassachusetts = m.buildMassachusetts; }),
   musashi: () => import('./musashi.js').then((m) => { buildMusashi = m.buildMusashi; }),
@@ -1293,6 +1294,22 @@ function buildModel(classId) {
   // her two funnels and every gun she carried in 1945.
   if (cls.id === 'indianapolis') {
     const built = buildIndianapolis();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
+    };
+  }
+
+  // And the North Carolina: the owner's model of her -- her hull, her
+  // superstructure, her turrets and her 5-inch twins -- with the Bofors and
+  // the Oerlikons she carried in 1945.
+  if (cls.id === 'northcarolina') {
+    const built = buildNorthCarolina();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

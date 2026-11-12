@@ -6925,6 +6925,184 @@ export const SHIP_CLASSES = {
     },
   },
 
+  northcarolina: {
+    // USS North Carolina, the first of the American fast battleships and the
+    // first new battleship the Navy had commissioned in eighteen years: nine
+    // 16-inch/45 in three triple turrets -- No.1 and No.2 forward, No.2
+    // superfiring; No.3 aft -- on a hull built to the treaty's thirty-five
+    // thousand tons, twenty 5-inch/38 in ten twin mounts, five a side, a tower
+    // forward, two funnels, and twenty-eight knots. She was the "Showboat":
+    // she screened the carriers at the Eastern Solomons, took a torpedo from
+    // I-19 and kept her station, and fought from Guadalcanal to Tokyo Bay.
+    //
+    // She is drawn from the owner's model of her (see northcarolina.js and
+    // build/prepare-northcarolina-hull.mjs) -- "USS North Carolina (War
+    // Thunder) Heavy Cavalry" by KojfDiscord, under Creative Commons
+    // Attribution 4.0, credited on the Credits screen -- at her own 222.1 m
+    // over all, which makes her 33.0 m across, floated at 10.0 m. The model
+    // carries her four 1.1-inch quadruples of 1941; she is armed as she was in
+    // 1945: her nine 16-inch and twenty 5-inch, fifteen quadruple 40 mm Bofors
+    // -- four where the 1.1-inch stood, the rest on the decks she was given
+    // them on -- and thirty-six 20 mm Oerlikons, twenty single and eight
+    // twin.
+    id: 'northcarolina',
+    name: 'North Carolina',
+    fullName: 'USS North Carolina',
+    className: 'North Carolina',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'usa',
+    blurb: 'Nine sixteen-inch guns on the treaty\'s thirty-five thousand tons: the Showboat, the first of the fast battleships, from the Eastern Solomons to Tokyo Bay.',
+    hull: {
+      // Where her two funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -12.6, 24.8], [0, -25.3, 23.6]], length: 222.1, beam: 33.0, draft: 10.0, superstructure: 1.4 },
+    hp: 65000,
+    // Twenty-eight knots off a hundred and twenty-one thousand horsepower.
+    maxSpeed: 28 * KNOTS,
+    reverseSpeed: 6.5 * KNOTS,
+    accel: 0.40,
+    turnRate: 0.052,
+    rudderShift: 13.5,
+    speedLossInTurn: 0.17,
+    concealment: 15500,
+    fireDetectPenalty: 6400,
+    // SK and SG search sets, and a Mk 8 on each main battery director.
+    radarRange: 13500,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // Twelve inches of belt, inclined fifteen degrees inside her plating, over
+    // her magazines and machinery, five and a half inches of armour deck over
+    // it and a bomb deck above that; sixteen inches on her turret faces and
+    // fourteen and seven-tenths on her barbettes. She was designed against
+    // 14-inch shells and given 16-inch guns: her armour is the one thing about
+    // her the change of guns did not change.
+    armor: { belt: 305, deck: 140, citadel: 305, bow: 38, superstructure: 38 },
+    turrets: [
+      // No.1 on her forecastle, No.2 superfiring over it, and No.3 on her
+      // quarterdeck facing astern, each where the model stood it (see
+      // build/prepare-northcarolina-hull.mjs).
+      { id: 0, name: 'No.1', x: 0, z: 52.802, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 7.27 },
+      { id: 1, name: 'No.2', x: 0, z: 32.293, angle: 0, arc: 2.55, rest: 0, guns: 3, my: 9.6 },
+      { id: 2, name: 'No.3', x: 0, z: -56.716, angle: 3.14, arc: 2.6, rest: Math.PI, guns: 3, my: 7.11 },
+    ],
+    gun: {
+      name: '16"/45 Mk 6', role: 'surface',
+      // Two below the horizontal to forty-five up.
+      elev: { min: -0.035, max: 0.785 },
+      // Pivot to muzzle, off the model's turret.
+      reach: 17.74,
+      // The 2,700 lb super-heavy shell, as the Massachusetts fires.
+      caliber: 406, reload: 30, traverse: 0.07, range: 21000, sigma: 1.4,
+      shells: shells(406, 13800, 6300, 620, 701, 0.28),
+    },
+    torpedoes: null,
+    // Twenty 5-inch in ten twin Mk 28 mounts, five a side: one on her 01
+    // level forward with one on her main deck abaft it, one amidships, and
+    // one on her main deck aft with one on the 01 level abaft it -- each the
+    // model's own, where the model stood it.
+    secondary: {
+      name: '5"/38 Mk 12', role: 'dp',
+      // Fifteen below the horizontal to eighty-five up.
+      elev: { min: -0.26, max: 1.48 },
+      reach: 5.24,
+      caliber: 127, reload: 4.0, traverse: 0.44, range: 8200, sigma: 1.15,
+      shells: shells(127, 1900, 1650, 76, 792, 0.07),
+      mounts: [
+        { x: 9.1, z: 3.511, angle: 1.3, arc: 2.4, rest: 0, guns: 2, my: 9.23 },
+        { x: -9.1, z: 3.511, angle: -1.3, arc: 2.4, rest: 0, guns: 2, my: 9.23 },
+        { x: 13.749, z: -4.216, angle: 1.4, arc: 1.9, rest: 0, guns: 2, my: 6.83 },
+        { x: -13.749, z: -4.216, angle: -1.4, arc: 1.9, rest: 0, guns: 2, my: 6.83 },
+        { x: 9.074, z: -12.441, angle: 1.57, arc: 1.6, rest: Math.PI / 2, guns: 2, my: 9.22 },
+        { x: -9.074, z: -12.441, angle: -1.57, arc: 1.6, rest: -Math.PI / 2, guns: 2, my: 9.22 },
+        { x: 13.749, z: -20.499, angle: 1.75, arc: 1.9, rest: Math.PI, guns: 2, my: 6.83 },
+        { x: -13.749, z: -20.499, angle: -1.75, arc: 1.9, rest: -Math.PI, guns: 2, my: 6.83 },
+        { x: 9.101, z: -27.983, angle: 1.85, arc: 2.4, rest: Math.PI, guns: 2, my: 9.23 },
+        { x: -9.101, z: -27.955, angle: -1.85, arc: 2.4, rest: -Math.PI, guns: 2, my: 9.23 },
+      ],
+    },
+    aa: {
+      range: 5600, dps: 92,
+      guns: [
+        // Her fifteen quads: four where her 1.1-inch stood, abreast her tower
+        // and on her after superstructure; a pair on her forecastle, a pair
+        // abreast No.2, a pair on her 01 level abreast her tower, a pair on
+        // her main deck abreast her after superstructure, a pair on her
+        // quarterdeck and one on her fantail.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400,
+          elev: { min: -0.26, max: 1.57 },
+          mounts: [
+            { x: 4.92, z: 1.64, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 4, my: 17.98 },
+            { x: -4.92, z: 1.64, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 4, my: 17.98 },
+            { x: 4.23, z: -39.19, angle: 1.57, arc: 2.2, rest: Math.PI / 2, guns: 4, my: 13.54 },
+            { x: -4.23, z: -39.19, angle: -1.57, arc: 2.2, rest: -Math.PI / 2, guns: 4, my: 13.54 },
+            { x: 4.5, z: 79, angle: 0.6, arc: 2.4, rest: 0.6, guns: 4, my: 7.94 },
+            { x: -4.5, z: 79, angle: -0.6, arc: 2.4, rest: -0.6, guns: 4, my: 7.92 },
+            { x: 10.5, z: 29.5, angle: 1.4, arc: 1.9, rest: Math.PI / 2, guns: 4, my: 6.5 },
+            { x: -10.5, z: 29.5, angle: -1.4, arc: 1.9, rest: -Math.PI / 2, guns: 4, my: 6.5 },
+            { x: 7.5, z: 11.5, angle: 1.3, arc: 2, rest: Math.PI / 2, guns: 4, my: 8.68 },
+            { x: -7.5, z: 11.5, angle: -1.3, arc: 2, rest: -Math.PI / 2, guns: 4, my: 8.69 },
+            { x: 12, z: -37.5, angle: 1.8, arc: 1.9, rest: Math.PI / 2, guns: 4, my: 6.31 },
+            { x: -12, z: -37.5, angle: -1.8, arc: 1.9, rest: -Math.PI / 2, guns: 4, my: 6.32 },
+            { x: 5, z: -77, angle: 2.4, arc: 2, rest: 2.4, guns: 4, my: 6.49 },
+            { x: -5, z: -77, angle: -2.4, arc: 2, rest: -2.4, guns: 4, my: 6.49 },
+            { x: 0, z: -89, angle: 3.14, arc: 2.2, rest: Math.PI, guns: 4, my: 6.53 },
+          ] },
+        // Her twenty single Oerlikons, along her deck edges from her bow to
+        // her quarterdeck.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          mounts: [
+            { x: 6.5, z: 73, angle: 0.9, arc: 1.7, rest: 0.9, guns: 1, my: 7.28 },
+            { x: -6.5, z: 73, angle: -0.9, arc: 1.7, rest: -0.9, guns: 1, my: 7.3 },
+            { x: 12, z: 36, angle: 1.4, arc: 1.7, rest: 1.4, guns: 1, my: 6.22 },
+            { x: -12, z: 36, angle: -1.4, arc: 1.7, rest: -1.4, guns: 1, my: 6.2 },
+            { x: 13.5, z: 21, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 5.99 },
+            { x: -13.5, z: 21, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 5.99 },
+            { x: 14, z: 15, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 5.91 },
+            { x: -14, z: 15, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 5.93 },
+            { x: 14, z: 5, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 5.9 },
+            { x: -14, z: 5, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 5.91 },
+            { x: 14.5, z: -10, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 5.88 },
+            { x: -14.5, z: -10, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 5.89 },
+            { x: 14.5, z: -16, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 5.88 },
+            { x: -14.5, z: -16, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 5.89 },
+            { x: 14, z: -28, angle: 1.7, arc: 1.7, rest: 1.7, guns: 1, my: 5.89 },
+            { x: -14, z: -28, angle: -1.7, arc: 1.7, rest: -1.7, guns: 1, my: 5.91 },
+            { x: 13.5, z: -41, angle: 1.7, arc: 1.7, rest: 1.7, guns: 1, my: 5.91 },
+            { x: -13.5, z: -41, angle: -1.7, arc: 1.7, rest: -1.7, guns: 1, my: 5.92 },
+            { x: 10, z: -74, angle: 2.2, arc: 1.7, rest: 2.2, guns: 1, my: 6.06 },
+            { x: -10, z: -74, angle: -2.2, arc: 1.7, rest: -2.2, guns: 1, my: 6.05 },
+          ] },
+        // And her eight twin Oerlikons, on her 01 level abreast her funnels
+        // and on her quarterdeck.
+        { name: '20mm twin Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          mounts: [
+            { x: 9.5, z: -7, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 2, my: 8.28 },
+            { x: -9.5, z: -7, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 2, my: 8.29 },
+            { x: 9.5, z: -17.5, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 2, my: 8.28 },
+            { x: -9.5, z: -17.5, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 2, my: 8.29 },
+            { x: 7.25, z: -23.5, angle: 1.8, arc: 1.7, rest: 1.8, guns: 2, my: 8.33 },
+            { x: -7.25, z: -23.5, angle: -1.8, arc: 1.7, rest: -1.8, guns: 2, my: 8.33 },
+            { x: 6, z: -84, angle: 2.3, arc: 1.7, rest: 2.3, guns: 2, my: 6.14 },
+            { x: -6, z: -84, angle: -2.3, arc: 1.7, rest: -2.3, guns: 2, my: 6.17 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 36600,
+      // Her Kingfishers are the model's, on her catapults, and are not flown.
+      aircraft: 0,
+      mainRounds: 1080,
+      secondary: { caliber: 127, label: '5"', barrels: 20, rounds: 10000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 60, rounds: 72000 },
+        { caliber: 20, label: '20mm', barrels: 36, rounds: 86400 },
+      ],
+    },
+  },
+
   massachusetts: {
     // USS Massachusetts, the third of the four South Dakotas: nine 16-inch/45
     // in three triple turrets on a hull thirty-five metres shorter than an
@@ -8427,7 +8605,8 @@ export const SHIP_CLASSES = {
     },
     datasheet: {
       displacement: 36600,
-      aircraft: 3,
+      // Her Kingfishers are the model's, on her catapults, and are not flown.
+      aircraft: 0,
       mainRounds: 720,
       secondary: { caliber: 152, label: '15.2cm', barrels: 8, rounds: 1600 },
       tertiary: [
@@ -13163,7 +13342,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'northcarolina', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins', 'lcm'];
 
 /**

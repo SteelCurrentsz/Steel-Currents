@@ -76,6 +76,20 @@ const HULLS = {
     <rect x="14" y="21" width="14" height="8"/>
     <rect x="30" y="22" width="7" height="7"/>
     <rect x="84" y="24" width="9" height="5"/>`,
+  // The North Carolina: a long flush deck with a sheer up to her bow, two
+  // triple turrets forward, No.2 superfiring, a tall tower forward of her two
+  // funnels, a tripod abaft them, and No.3 aft.
+  northcarolina: `
+    <path d="M2 27 L20 29 L98 29 L95 38 L7 38 Z"/>
+    <rect x="21" y="24" width="10" height="5"/>
+    <rect x="31" y="21" width="10" height="5"/>
+    <rect x="41" y="15" width="12" height="14"/>
+    <rect x="45" y="5" width="4" height="10"/>
+    <rect x="53" y="13" width="5" height="16"/>
+    <rect x="59" y="14" width="5" height="15"/>
+    <rect x="64.5" y="9" width="1.4" height="20"/>
+    <rect x="62" y="20" width="10" height="9"/>
+    <rect x="71" y="24" width="10" height="5"/>`,
   // Yamato: the longest, heaviest gun platform ever built, and unmistakable
   // for it. A raked stem with a hard sheer forward, a pagoda tower stacked
   // amidships with the great rangefinder on top of it, one big funnel raked
