@@ -24,6 +24,7 @@ import { fitTubes } from './tubes.js';
 import { FUNNEL_MOUTHS, MOUTH_SAME } from './funnelMouths.js';
 import { loadBf109 } from './bf109Model.js';
 import { loadB29 } from './b29Model.js';
+import { loadB52 } from './b52Model.js';
 import { loadJu87 } from './ju87Model.js';
 import { loadHellcat } from './hellcatModel.js';
 import { loadAvenger } from './avengerModel.js';
@@ -53,7 +54,7 @@ const SCULPTED = {
   // are too -- and they come first, ahead of the ships, when everything is
   // fetched behind the title screen.
   planes: () => Promise.all([loadZero(), loadSuisei(), loadB5n(), loadBf109(), loadJu87(),
-    loadHellcat(), loadDauntless(), loadAvenger(), loadDevastator(), loadB25(), loadB29(), loadNavalAir()]),
+    loadHellcat(), loadDauntless(), loadAvenger(), loadDevastator(), loadB25(), loadB29(), loadB52(), loadNavalAir()]),
   // The Admiral Scheer and her sister the Graf Spee, both off the model of the Scheer.
   scheer: () => import('./scheer.js').then((m) => { buildSpee = m.buildSpee; buildScheer = m.buildScheer; }),
   // The Takao and her sister the Maya, both off the model of the Atago.

@@ -1108,7 +1108,7 @@ export class Battle {
         const f = this.flight;
         if (!f || f.id !== m.i) return;
         f.asked = 0;
-        this.hud.alert('She could not drop — press home');
+        this.hud.alert(f.load?.alcm ? 'Nothing ahead in reach for a cruise missile' : 'She could not drop — press home');
       }),
       // A missile off her rail that did not go: the simulation says why, and
       // the count goes back to what the wire says.
@@ -1580,8 +1580,10 @@ export class Battle {
   }
 
   /**
-   * The ships her missiles can be laid on: every enemy her side can see,
-   * nearest first. What the N key steps through.
+   * What her missiles can be laid on: every enemy her side can see -- ships
+   * on the sea, guns ashore, aeroplanes and heavies in the air -- nearest
+   * first. What the N key steps through. Every missile goes for any of them;
+   * a boat under the sea is an ASROC's, and is not here.
    */
   missileTargets() {
     const snap = this.snapshots[this.snapshots.length - 1];
@@ -1589,9 +1591,21 @@ export class Battle {
     if (!snap || !own || !own.shown) return [];
     const me = own.shown;
     const team = me.tm ?? this.team;
-    return snap.ships.filter((q) => q.a && q.tm !== team && !q.d)
-      .map((q) => ({ q, d: Math.hypot(q.x - me.x, q.z - me.z) }))
-      .sort((a, b) => a.d - b.d);
+    const out = snap.ships.filter((q) => q.a && q.tm !== team && !q.d)
+      .map((q) => ({ q, d: Math.hypot(q.x - me.x, q.z - me.z) }));
+    for (const b of snap.batteries || []) {
+      if (!b.al || b.tm === team) continue;
+      out.push({ q: { i: b.i, x: b.x, z: b.z, tk: 'b', name: 'Ground target' }, d: Math.hypot(b.x - me.x, b.z - me.z) });
+    }
+    for (const p of this.planesNow || []) {
+      if (p.tm === team) continue;
+      out.push({ q: { i: p.i, x: p.x, z: p.z, tk: 'a', name: 'Aircraft' }, d: Math.hypot(p.x - me.x, p.z - me.z) });
+    }
+    for (const h of snap.bombers || []) {
+      if (h.tm === team) continue;
+      out.push({ q: { i: h.i, x: h.x, z: h.z, tk: 'a', name: (BOMBERS[h.b] || {}).name || 'Bomber' }, d: Math.hypot(h.x - me.x, h.z - me.z) });
+    }
+    return out.sort((a, b) => a.d - b.d);
   }
 
   /**
@@ -1686,7 +1700,9 @@ export class Battle {
   missileName(m) {
     const snap = this.snapshots[this.snapshots.length - 1];
     const t = snap ? snap.ships.find((q) => q.i === m.tg) : null;
-    return `${MISSILE_NAMES[m.k] || 'Missile'}${t ? ` \u2192 ${getClass(t.c).name}` : ''}`;
+    const other = !t && m.tg ? this.missileTargets().find((e) => e.q.i === m.tg) : null;
+    const to = t ? getClass(t.c).name : other ? other.q.name : '';
+    return `${MISSILE_NAMES[m.k] || 'Missile'}${to ? ` \u2192 ${to}` : ''}`;
   }
 
   /** Lay the missile being ridden on the next enemy in sight. */
@@ -1741,6 +1757,7 @@ export class Battle {
       left: me?.mq || null, cool: me?.mc || null, auto: me ? me.ma !== 0 : true,
       target: tg ? tg.q : null, targetRange: tg ? tg.d : 0,
       mine: this.ownMissiles(), all: this.missilesNow || [],
+      others: this.missileTargets().filter((e) => e.q.tk).map((e) => e.q),
       riding,
     });
   }
@@ -2984,6 +3001,9 @@ export class Battle {
           // where the simulation says.
           const at = ev.k === 'tomahawk' && !ev.v && v && v.launcherMouth ? v.launcherMouth(ev.at) : null;
           const x = at ? at.x : ev.x, y = at ? at.y : ev.y, z = at ? at.z : ev.z;
+          // Dropped off a B-52's pylon or out of her bay: no booster, only
+          // its little engine lighting as it falls clear.
+          if (ev.hv) break;
           this.scene.missiles.launch(x, y, z);
           fx.hit(x, y, z, 'he', 90);
           audio.explosion(0.32, { x, y, z });
@@ -3055,6 +3075,14 @@ export class Battle {
           const p = ps[0] || { x: ox, y: view.group.position.y + 22, z: oz };
           this.scene.flak.fire(p.x, p.y, p.z, ev.x, ev.y, ev.z, 20, 14, fx);
           audio.aa(20, 30, { x: p.x, y: p.y, z: p.z });
+          break;
+        }
+        case 'alcmAway': {
+          // One of a B-52's cruise missiles away, and what it is going for.
+          const ours = ev.tm === this.team;
+          const at = { s: 'ship', b: 'ground target', g: 'ground target', a: 'aircraft', m: 'missile' }[ev.tk] || 'target';
+          this.hud.alert(ours ? `Nuclear cruise missile away — ${at} (${ev.left} left)`
+            : 'Enemy B-52 — nuclear cruise missile launched');
           break;
         }
         case 'nukeAway': {
@@ -5649,7 +5677,11 @@ export class Battle {
       kind,
       // Her own defensive guns, so the tracer off a turret is her calibre.
       calibre: /12\.7|0\.5|\.50/.test(spec.calibre || '') ? 12.7 : 7.7,
-      load: {
+      // A B-52's release is one cruise missile at a time, at whatever is
+      // ahead of her -- on the sea, on the land or in the air.
+      load: spec.alcm ? {
+        key: 'ALCM', name: 'cruise missiles', away: 'Cruise missile away', near: 26000, alcm: true,
+      } : {
         key: 'BOMBS', name: 'bombs', away: 'Sticks away',
         // A level bomber drops from wherever her sight says, and that is a
         // very long way from the target: the whole of level bombing is that
@@ -5729,6 +5761,14 @@ export class Battle {
     // bay, looking down past her belly at the sea, with the aimer's crosshair
     // on the point the stick would fall on if it went now. The second press
     // lets it go.
+    if (f.heavy && f.load.alcm) {
+      // No bomb sight: the missile finds its own way. One at a time.
+      if (f.asked > 0) return;
+      f.asked = 1.5;
+      this.net.send({ t: 'dropb', i: f.id });
+      audio.click();
+      return;
+    }
     if (f.heavy) {
       if (!this.bombSight) { this.openBombSight(); return; }
       if (this.bombSight.away) return;
@@ -6620,6 +6660,12 @@ export class Battle {
    * close. Only a formation drawn opening its bay has anything to say.
    */
   heavyTrim(bm, dt) {
+    // A B-52's twelve on her pylons, gone one by one from the last station
+    // in: the eight on her drum go after them, out of sight in her bay.
+    if (bm.b === 'stratofortress') {
+      const A = BOMBERS.stratofortress.alcm;
+      return { alcm: Math.max(0, Math.min(A.external, (bm.ld || 0) - A.internal)) };
+    }
     if (bm.b !== 'silverplate') return null;
     const map = this.bayOf || (this.bayOf = new Map());
     let t = map.get(bm.i);

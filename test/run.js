@@ -204,7 +204,7 @@ import { buildMissouri } from '../client/js/render/missouri.js';
 import { missouriSurfaceY, MOUNT_SEATS as MISSOURI_SEATS } from '../client/js/render/missouriHull.js';
 import {
   fireMissile, retargetMissile, normaliseVls, defaultVls, setVlsLoad, setAegisAuto, vlsCells, vlsKinds, MISSILE_CODE,
-  samKinds, fireLocked, planeRack, dropChaff, CHAFF_LOAD,
+  samKinds, fireLocked, planeRack, dropChaff, CHAFF_LOAD, lockHits,
 } from '../shared/sim.js';
 import { pickLockKind } from '../client/js/lockon.js';
 import {
@@ -1984,10 +1984,13 @@ check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun as
     }
     return null;
   };
-  // A ship: the wrong missile, off her nose, and out of reach are each refused.
+  // A ship: off her nose and out of reach are each refused. Every missile
+  // may be put on a ship, an aeroplane or a gun -- a Sidewinder included.
   p.x = 0; p.z = -1000; p.y = 300; p.speed = 200;
   aim(foe.x, 6, foe.z);
-  assert.equal(fireLocked(state, c, { i: p.id, k: 'aim9', tk: 's', tg: foe.id }), 'kind');
+  for (const k of ['aim9', 'aim120', 'agm65', 'agm84', 'penguin', 'agm86']) {
+    assert.deepEqual([...lockHits(k)].sort(), ['a', 'b', 's'], `the ${k} cannot be put on everything`);
+  }
   p.heading += Math.PI;
   assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 's', tg: foe.id }), 'cone');
   p.z = -20000; aim(foe.x, 6, foe.z);
@@ -2019,7 +2022,9 @@ check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun as
   p.x = e.x - 2500; p.z = e.z; p.y = e.y ?? 300; aim(e.x, e.y ?? 300, e.z); p.lockCool = 0;
   // Her dispenser empty, so this is the missile against her and not her flares.
   e.chaff = 0;
-  assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 'a', tg: e.id }), 'kind', 'a Maverick went at an aeroplane');
+  // A Maverick may be put on an aeroplane as well as anything else: she has
+  // none left on her rails, and that is the only reason it does not go.
+  assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 'a', tg: e.id }), 'none', 'a Maverick was refused an aeroplane');
   const amraam = fireLocked(state, c, { i: p.id, k: 'aim120', tk: 'a', tg: e.id });
   assert.ok(amraam?.id, 'the AMRAAM would not go');
   // Its own end, not one of her carrier's Sea Sparrows going after something else.
@@ -18022,7 +18027,8 @@ check('the bomber yard is laid out the way the shipyard and the gun park are', (
   const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
   assert.ok(/'yard', 'guns', 'bombers'/.test(main),
     'the bomber yard is not one of the screens the game can show');
-  assert.ok(/onOpenBombers: \(side\) => openBombers\(side\)/.test(main),
+  assert.ok(/onOpenBombers: \(side\) => openBomberEra\(side\)/.test(main)
+    && /openBombers\(bomberEraSide, b\.dataset\.bera\)/.test(main),
     'nothing opens the bomber yard');
   assert.ok(/briefing\.commissionBomber\(bomberUi\.side, id\)/.test(main),
     'the commission control commissions nothing');
@@ -18096,6 +18102,13 @@ check('a bomber has airscrews that turn, doors that swing and a stick in the bay
   for (const kind of HEAVY_KINDS) {
     const g = heavyBomber(kind);
     const spec = HEAVY[kind];
+    // A jet with cruise missiles on her pylons and none of the rest: no
+    // airscrews, no doors that are ever opened, nothing in a bay to see.
+    if (BOMBERS[kind].alcm && !g.userData.stub) {
+      assert.equal(g.userData.props.length, 0, `the ${kind} has airscrews`);
+      assert.equal(g.userData.rack.length, BOMBERS[kind].alcm.external, `the ${kind} has the wrong missiles on her pylons`);
+      continue;
+    }
     const engines = spec.nacelles.length * 2;
     assert.equal(g.userData.props.length, engines,
       `the ${kind} has ${g.userData.props.length} airscrews and ${engines} engines`);
@@ -30329,6 +30342,140 @@ check('a bot side\'s heavies call an escort when enemy aircraft are about', () =
   for (let i = 0; i < Math.round(3 / DT); i++) stepStaff(st2, staff2, DT);
   assert.ok(!bm2.escortCall, 'the staff called an escort over a human captain\'s head');
 });
+
+// ---------------------------------------------------------------------------
+// The B-52H Stratofortress and her nuclear cruise missiles
+// ---------------------------------------------------------------------------
+
+const { bomberOrder, BOMBER_ERAS } = await import('../shared/bombers.js');
+const { loadB52, b52Ready } = await import('../client/js/render/b52Model.js');
+const { AIR_MISSILES: AIR_MSL } = await import('../shared/ships.js');
+await loadB52();
+
+check('the bomber yard has a WWII list and a Modern list, and the B-52H is the Modern one', () => {
+  assert.deepEqual(BOMBER_ERAS.map((e) => e.name), ['WWII', 'Modern']);
+  assert.deepEqual(bomberOrder('modern'), ['stratofortress']);
+  assert.ok(bomberOrder('ww2').includes('lancaster') && !bomberOrder('ww2').includes('stratofortress'));
+  assert.equal(bomberOrder('ww2').length + bomberOrder('modern').length, BOMBER_ORDER.length);
+  const b = BOMBERS.stratofortress;
+  assert.equal(b.name, 'B-52H Stratofortress');
+  assert.equal(b.alcm.n, 20, 'she does not carry twenty cruise missiles');
+  assert.equal(b.alcm.internal + b.alcm.external, 20);
+  assert.equal(b.alcm.internal, 8, 'not eight on the rotary launcher');
+  assert.equal(b.alcm.external, 12, 'not twelve under the wings');
+  const K = AIR_MSL[b.alcm.kind];
+  assert.ok(K && K.nuclear && /W80-1/.test(K.warhead), 'her missile is not a nuclear AGM-86B');
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.ok(/data-bera="ww2"[^>]*>WWII/.test(html) && /data-bera="modern"[^>]*>Modern/.test(html), 'no WWII / Modern choice on the bomber icon');
+  assert.ok(html.includes('https://skfb.ly/oLo8p') && html.includes('bohmerang') && html.includes('Boeing B-52 Stratofortress'),
+    'the B-52 model is not credited');
+});
+
+check("the owner's B-52 is built at her own size with twelve missiles on her pylons", () => {
+  assert.ok(b52Ready(), 'her model is not in');
+  const g = heavyBomber('stratofortress');
+  assert.ok(!g.userData.stub, 'she is still the stand-in');
+  assert.equal(g.userData.rack.length, 12, `there are ${g.userData.rack.length} missiles under her wings`);
+  assert.equal(g.userData.rackKind, 'alcm');
+  const dim = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
+  assert.ok(Math.abs(dim.x - 56.39) < 1, `she is ${dim.x.toFixed(2)} m across`);
+  assert.ok(Math.abs(dim.z - 48.5) < 1, `she is ${dim.z.toFixed(2)} m long`);
+  // Nose forward: her glass is in the front half of her.
+  const glass = g.userData.plane.children.find((o) => o.isMesh && o.material.transparent);
+  const gb = new THREE.Box3().setFromObject(glass);
+  assert.ok(gb.min.z > 10, 'her cockpit is not at her nose');
+});
+
+/** A B-52 sent at a fleet lying still. */
+function b52Run(seed = 5252) {
+  const world = generateWorld(seed, 'open_ocean');
+  world.islands = [];
+  const st = createState(world, { mode: 'deathmatch' });
+  const a = addShip(st, { name: 'A', classId: 'iowa', team: 0, index: 0 });
+  a.x = 0; a.z = 0; a.speed = 0;
+  const b = addShip(st, { name: 'B', classId: 'fletcher', team: 0, index: 1 });
+  b.x = 3000; b.z = -3000; b.speed = 0;
+  const bm = addBomber(st, { bomberId: 'stratofortress', team: 1, x: 0, z: 6400, heading: Math.PI });
+  return { st, a, b, bm };
+}
+
+check('a B-52 goes alone, stands off and puts a nuclear cruise missile on each ship, and lives', () => pinned(() => {
+  const { st, a, b, bm } = b52Run();
+  assert.equal(bm.count, 1, 'she did not go alone');
+  assert.equal(bm.loads, 20, 'she did not go with twenty missiles');
+  let away = 0, nukes = 0, closest = Infinity;
+  const bursts = [];
+  for (let i = 0; i < 30 * 150; i++) {
+    for (const e of step(st, 1 / 30)) {
+      if (e.e === 'alcmAway') away++;
+      if (e.e === 'nuke') { nukes++; bursts.push(e); }
+    }
+    for (const n of bursts) closest = Math.min(closest, Math.hypot(bm.x - n.x, bm.z - n.z));
+    if (!a.alive && !b.alive) break;
+  }
+  assert.ok(away >= 2, `${away} missiles left her`);
+  assert.ok(nukes >= 2, `${nukes} warheads went off`);
+  assert.ok(!a.alive && !b.alive, 'the fleet is still afloat');
+  assert.ok(bm.alive, 'she flew into her own burst');
+  assert.ok(closest > NUKE.air, `she was ${closest.toFixed(0)} m from a burst`);
+  assert.ok(bm.loads <= 20 - away, 'what left her was not taken off her');
+}));
+
+check('a B-52 ordered onto an aeroplane fires a nuclear cruise missile at it, and it goes off in the air', () => pinned(() => {
+  const { st, bm } = b52Run(5253);
+  for (const s of st.ships) { s.x = 0; s.z = -6800; }
+  const foe = addBomber(st, { bomberId: 'lancaster', team: 0, x: 0, z: -2000, heading: 0 });
+  foe.spottedBy = [true, true];
+  assert.ok(orderAttack(st, 1, 'bomber', bm.id, 'bomber', foe.id) > 0, 'she would not take an order onto an aeroplane');
+  let air = null;
+  for (let i = 0; i < 30 * 120 && !air; i++) {
+    for (const e of step(st, 1 / 30)) if (e.e === 'nuke' && e.y > 200) air = e;
+  }
+  assert.ok(air, 'no warhead went off in the air');
+  // And the shock goes out through the air round it.
+  for (let i = 0; i < 30 * 5; i++) step(st, 1 / 30);
+  assert.ok(!foe.alive, 'the aeroplane it was sent at is still flying');
+  assert.ok(bm.alive, 'she was caught in it herself');
+}));
+
+check('every missile can be laid on a ship, a gun ashore and an aeroplane, and none on a boat under the sea', () => pinned(() => {
+  const mk = (kind, foeOf) => {
+    const world = generateWorld(3301, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const me = addShip(st, { name: 'Burke', classId: 'burke', team: 0, index: 0 });
+    me.x = 0; me.z = 0; me.speed = 0;
+    setAegisAuto(me, false);
+    const foe = foeOf(st);
+    for (const s of st.ships) s.spottedBy = [true, true];
+    const m = fireMissile(st, me, kind, foe.id);
+    return { st, m, foe };
+  };
+  const ship = (st) => { const t = addShip(st, { name: 'T', classId: 'fletcher', team: 1, index: 1 }); t.x = 0; t.z = 8000; t.speed = 0; return t; };
+  const gun = (st) => addBattery(st, { batteryId: 'flak88', team: 1, x: 6000, z: 3000, heading: 0 });
+  const plane = (st) => addBomber(st, { bomberId: 'lancaster', team: 1, x: 3000, z: 8000, heading: Math.PI });
+  for (const kind of ['tomahawk', 'harpoon', 'sm2', 'sm2er']) {
+    for (const [what, f, tk] of [['ship', ship, 's'], ['gun', gun, 'b'], ['aeroplane', plane, 'a']]) {
+      const { st, m, foe } = mk(kind, f);
+      assert.ok(m, `a ${kind} would not go at a ${what}`);
+      assert.equal(m.tk, tk, `a ${kind} at a ${what} went for the wrong kind of thing`);
+      let end = null;
+      for (let i = 0; i < 30 * 90 && !end; i++) {
+        for (const e of step(st, 1 / 30)) if (!end && e.i === m.id && (e.e === 'mslHit' || e.e === 'samBurst' || e.e === 'mslDown')) end = e;
+      }
+      assert.ok(end && (end.e === 'mslHit' || end.e === 'samBurst'), `a ${kind} at a ${what} never got there: ${JSON.stringify(end)}`);
+      void foe;
+    }
+  }
+  // A boat under the sea is a torpedo's, and an ASROC's: a Harpoon given one
+  // looks for something on the surface instead.
+  const { m } = mk('harpoon', (st) => {
+    const sub = addShip(st, { name: 'U', classId: Object.keys(SHIP_CLASSES).find((k) => SHIP_CLASSES[k].dive), team: 1, index: 1 });
+    sub.x = 0; sub.z = 6000; sub.depth = 30; sub.diveDepth = 30;
+    return sub;
+  });
+  assert.ok(!m || m.tk === 's', 'a Harpoon went for something under the sea');
+}));
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

@@ -816,7 +816,7 @@ class HudBase {
     }
     const km = (m) => `${(m / 1000).toFixed(1)} km`;
     M.target.textContent = d.target
-      ? `${SHIP_CLASSES[d.target.c]?.name || 'enemy'} · ${km(d.targetRange)}`
+      ? `${SHIP_CLASSES[d.target.c]?.name || d.target.name || 'enemy'} · ${km(d.targetRange)}`
       : 'AUTO · NEAREST';
     M.mode.textContent = d.riding ? `RIDING ${MISSILE_SHAPES[d.riding.k]?.name.toUpperCase() || 'MISSILE'}` : 'OWN SHIP';
     // Her missiles in the air, as keys to ride them by.
@@ -847,7 +847,10 @@ class HudBase {
       for (const m of d.mine) far = Math.max(far, Math.hypot(m.x - cx, m.z - cz));
       R = Math.min(32000, Math.max(6000, far * 1.15));
     }
-    M.view = { cx, cz, R, mine: d.mine, foes };
+    // And what is not a ship that a missile can be laid on: guns ashore and
+    // aircraft, as the game hands them over (see missileTargets).
+    const others = d.others || [];
+    M.view = { cx, cz, R, mine: d.mine, foes: [...foes, ...others] };
     const X = (x) => C + ((x - cx) / R) * C;
     const Y = (z) => C - ((z - cz) / R) * C;
     ctx.clearRect(0, 0, W, H);
@@ -881,6 +884,18 @@ class HudBase {
       ctx.fillStyle = q.i === me.i ? '#8dffb6' : own ? '#4fd08a' : '#ff6a55';
       ctx.beginPath(); ctx.arc(x, y, q.i === me.i ? 6 : 4.5, 0, Math.PI * 2); ctx.fill();
       arrow(x, y, q.h, 10, ctx.fillStyle, 1.5);
+      if (d.target && q.i === d.target.i) {
+        ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    // Guns ashore as squares, aircraft as small triangles.
+    for (const q of others) {
+      const x = X(q.x), y = Y(q.z);
+      ctx.fillStyle = '#ff6a55';
+      ctx.beginPath();
+      if (q.tk === 'a') { ctx.moveTo(x, y - 5); ctx.lineTo(x + 4.5, y + 4); ctx.lineTo(x - 4.5, y + 4); ctx.closePath(); } else ctx.rect(x - 3.5, y - 3.5, 7, 7);
+      ctx.fill();
       if (d.target && q.i === d.target.i) {
         ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();

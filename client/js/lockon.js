@@ -22,8 +22,11 @@ export const LOCK_TIME = 0.9;
 
 /** Which missile on her rails goes at a `tk` target `d` metres off, or null. */
 export function pickLockKind(rack, tk, d) {
-  const order = tk === 'a' ? (d < AIR_MISSILES.aim9.range * 0.85 ? ['aim9', 'aim120'] : ['aim120', 'aim9'])
-    : tk === 's' ? ['agm84', 'penguin', 'agm65'] : ['agm65'];
+  // The one built for it first; and then, since every missile goes for
+  // anything, whatever else she has on her rails that reaches.
+  const best = tk === 'a' ? (d < AIR_MISSILES.aim9.range * 0.85 ? ['aim9', 'aim120'] : ['aim120', 'aim9'])
+    : tk === 's' ? ['agm84', 'penguin', 'agm65'] : ['agm65', 'agm84', 'penguin'];
+  const order = [...best, ...Object.keys(rack || {}).filter((k) => !best.includes(k))];
   for (const k of order) {
     const K = AIR_MISSILES[k];
     if (!K || !(rack?.[k] > 0) || !(AIR_MISSILE_HITS[k] || []).includes(tk)) continue;

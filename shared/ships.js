@@ -432,15 +432,33 @@ export const AIR_MISSILES = {
     speed: 330, range: 14000, cruise: 40, turn: 0.9,
     damage: 2400, fire: 0.3, hp: 1, interval: 1, raise: 0, length: 2.49, popUp: 0,
   },
+  // What a B-52H carries: the AGM-86B air-launched cruise missile, twenty of
+  // them -- eight on the rotary launcher in her bay and twelve on her wing
+  // pylons -- each with a W80-1 thermonuclear warhead in its nose. It flies
+  // low and a long way on a little turbofan and goes off over whatever it
+  // was sent at: a ship, a gun ashore, a point on the map, or an aeroplane.
+  // Its warhead is the game's one atomic burst (see nukeBlast in sim.js),
+  // dialled down to it. The real thing reaches 2,400 km; here it reaches
+  // across the whole battle.
+  agm86: {
+    name: 'AGM-86B ALCM', short: 'ALCM', role: 'surface', nuclear: true,
+    warhead: 'W80-1',
+    speed: 246, range: 30000, cruise: 40, turn: 0.6,
+    damage: 6000, fire: 0.6, hp: 1, interval: 1, raise: 0, length: 6.32, popUp: 0,
+    // How near what it was sent at it goes off, in metres.
+    fuze: 45,
+  },
 };
 
 /**
  * What each air-launched missile can be locked on to: `a` an aircraft, `s` a
- * ship, `b` a gun position ashore.
+ * ship, `b` a gun position ashore. Every missile goes for any of them -- a
+ * missile is put on whatever it is put on, in the air, on the sea or on the
+ * land -- but nothing here goes for a boat under the sea: that is a homing
+ * torpedo's business, and an ASROC's.
  */
-export const AIR_MISSILE_HITS = {
-  agm84: ['s'], penguin: ['s'], aim9: ['a'], aim120: ['a'], agm65: ['b', 's'],
-};
+export const MISSILE_TARGETS = ['a', 's', 'b'];
+export const AIR_MISSILE_HITS = Object.fromEntries(Object.keys(AIR_MISSILES).map((k) => [k, MISSILE_TARGETS]));
 
 export const SHIP_CLASSES = {
   fletcher: {

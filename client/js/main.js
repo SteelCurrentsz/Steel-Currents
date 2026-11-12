@@ -10,7 +10,7 @@ import { loadShips, shipReady, fleetReady, preloadShips } from './render/ships.j
 import { BatteryScene, mountingSheet, ordnanceSheet, tankSheet } from './battery.js';
 import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER, TANK_ORDER, TANKS, tankRoom } from '../../shared/batteries.js';
-import { BOMBERS, BOMBER_ORDER, airframeSheet, payloadSheet } from '../../shared/bombers.js';
+import { BOMBERS, BOMBER_ORDER, bomberOrder, airframeSheet, payloadSheet } from '../../shared/bombers.js';
 import { Battle } from './game.js';
 import { LocalNet } from './localnet.js';
 import { ReplayNet } from './replaynet.js';
@@ -711,7 +711,7 @@ const briefing = new Briefing({
   onOpenYard: (side) => openEra(side),
   onOpenChart: (at) => openChart(at),
   onOpenGuns: (side) => openArms(side),
-  onOpenBombers: (side) => openBombers(side),
+  onOpenBombers: (side) => openBomberEra(side),
   onEditWing: (side, i) => openRefit(side, i),
 });
 window.__briefing = briefing;   // a handle for the console, like __battle
@@ -1458,10 +1458,33 @@ document.getElementById('battery-emplace').onclick = () => {
 // them is a heavy over a burning city with her bay open and the flak up --
 // which is the only place anybody ever saw one of these from.
 
-const bomberUi = { side: 'ally', index: 0 };
+const bomberUi = { side: 'ally', index: 0, era: 'ww2' };
 
-function openBombers(side) {
+// The bomber icon asks first which generation to look at, as the ship icon
+// asks which navy: the Second World War's heavies, or the jet age's. The
+// bomber yard then walks that list alone.
+const bomberEraEl = document.getElementById('bomber-era-pick');
+let bomberEraSide = 'ally';
+function openBomberEra(side) {
+  bomberEraSide = side;
+  bomberEraEl.hidden = false;
+  bomberEraEl.querySelector('[data-bera]')?.focus();
+}
+function closeBomberEra() { bomberEraEl.hidden = true; }
+for (const b of bomberEraEl.querySelectorAll('[data-bera]')) {
+  b.onclick = () => {
+    audio.click();
+    closeBomberEra();
+    openBombers(bomberEraSide, b.dataset.bera);
+  };
+}
+document.getElementById('bomber-era-cancel').onclick = () => { audio.click(); closeBomberEra(); };
+bomberEraEl.addEventListener('click', (e) => { if (e.target === bomberEraEl) closeBomberEra(); });
+
+function openBombers(side, era = bomberUi.era) {
   bomberUi.side = side;
+  if (era !== bomberUi.era) bomberUi.index = 0;
+  bomberUi.era = era;
   if (!bombers) {
     bombers = new BomberScene(renderer);
     bombers.resize(window.innerWidth, window.innerHeight);
@@ -1480,7 +1503,15 @@ function closeBombers() {
   show('custom');
 }
 
-const bomberAt = (i) => BOMBER_ORDER[(i + BOMBER_ORDER.length * 2) % BOMBER_ORDER.length];
+/** The machines of the generation being looked at, in the yard's order. */
+const bomberList = () => {
+  const list = bomberOrder(bomberUi.era);
+  return list.length ? list : BOMBER_ORDER;
+};
+const bomberAt = (i) => {
+  const list = bomberList();
+  return list[(i + list.length * 2) % list.length];
+};
 
 function renderBombers() {
   const id = bomberAt(bomberUi.index);
@@ -1496,6 +1527,12 @@ function renderBombers() {
   const nextName = document.getElementById('bomber-next-name');
   if (prevName) prevName.textContent = peek(-1);
   if (nextName) nextName.textContent = peek(1);
+  // A generation of one has nothing to step to.
+  const one = bomberList().length < 2;
+  for (const k of ['bomber-prev', 'bomber-next']) {
+    const el = document.getElementById(k);
+    if (el) el.style.visibility = one ? 'hidden' : '';
+  }
   sheet(document.getElementById('bomber-airframe'), 'Airframe', airframeSheet(b));
   sheet(document.getElementById('bomber-payload'), 'Payload', payloadSheet(b));
   // A new machine is a new model, so her skin goes back on: the key says what
@@ -1506,7 +1543,8 @@ function renderBombers() {
 }
 
 function stepBombers(dir) {
-  bomberUi.index = (bomberUi.index + dir + BOMBER_ORDER.length) % BOMBER_ORDER.length;
+  const n = bomberList().length;
+  bomberUi.index = (bomberUi.index + dir + n) % n;
   renderBombers();
 }
 

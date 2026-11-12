@@ -15,6 +15,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { heavyBomber } from './planekit.js';
 import { b29Ready } from './b29Model.js';
+import { b52Ready } from './b52Model.js';
 import { weld, HoleField, holeRows } from './planes.js';
 import { VIC } from '../../../shared/formation.js';
 
@@ -50,7 +51,7 @@ export class Heavies {
     let b = this.batches.get(kind);
     // A stand-in, built before her own model was in: thrown away and built
     // again now that it is.
-    if (b && b.stub && b29Ready()) { this.drop(b); this.batches.delete(kind); b = null; }
+    if (b && b.stub && (kind === 'stratofortress' ? b52Ready() : b29Ready())) { this.drop(b); this.batches.delete(kind); b = null; }
     if (b) return b;
     const g = heavyBomber(kind);
     // Her airscrews turn, so they are lifted out and drawn as batches of their
@@ -73,7 +74,7 @@ export class Heavies {
     const trims = [];
     if (g.userData.liftTrims) {
       g.updateMatrixWorld(true);
-      const lift = (node, kind, open = 0) => {
+      const lift = (node, kind, open = 0, idx = 0) => {
         node.updateMatrixWorld(true);
         const at = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld);
         const rot = new THREE.Quaternion().setFromRotationMatrix(node.matrixWorld);
@@ -85,10 +86,12 @@ export class Heavies {
         mesh.frustumCulled = false;
         mesh.count = 0;
         this.scene.add(mesh);
-        trims.push({ kind, at, rot, open, mesh, n: 0 });
+        trims.push({ kind, at, rot, open, mesh, n: 0, idx });
       };
       for (const d of g.userData.parts || []) lift(d.node, 'door', d.open);
-      for (const cr of g.userData.rack || []) lift(cr, 'bomb');
+      // A B-52's are her cruise missiles on her pylons, each its own, so they
+      // can go one at a time.
+      (g.userData.rack || []).forEach((cr, k) => lift(cr, g.userData.rackKind || 'bomb', 0, k));
     }
     const { geo, mats } = weld(g);
     // Her skin is cut where she has been hit: see HoleField.
@@ -199,6 +202,7 @@ export class Heavies {
         if (q.n >= this.max) continue;
         const mine = i === carrier && trim;
         if (q.kind === 'bomb' && !(mine && trim.bomb)) continue;
+        if (q.kind === 'alcm' && !(mine && q.idx < (trim.alcm || 0))) continue;
         this.pm.makeRotationFromQuaternion(q.rot);
         if (q.kind === 'door') this.pm.multiply(this.sp.makeRotationZ(q.open * (mine ? trim.bay || 0 : 0)));
         this.pm.setPosition(q.at);

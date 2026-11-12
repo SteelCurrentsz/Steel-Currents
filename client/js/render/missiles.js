@@ -74,6 +74,10 @@ export const MISSILE_SHAPES = {
   w: { name: 'Sidewinder', len: 2.85, r: 0.064, span: 0.64, chord: 0.3, fin: 0.3, wingZ: 1.0, body: MAT.standard },
   u: { name: 'AMRAAM', len: 3.65, r: 0.089, span: 0.53, chord: 0.4, fin: 0.3, wingZ: 0.1, body: MAT.standard },
   k: { name: 'Maverick', len: 2.49, r: 0.15, span: 0.72, chord: 1.0, fin: 0.22, wingZ: -0.3, body: MAT.harpoon },
+  // The B-52H's: the AGM-86B air-launched cruise missile, with a W80-1 in
+  // its nose. A long, blunt, white body, a pair of swept wings folded out of
+  // its belly once it is away, and a tail.
+  l: { name: 'AGM-86B ALCM', len: 6.32, r: 0.31, span: 3.66, chord: 0.55, fin: 0.5, wingZ: 0.3, body: MAT.harpoon },
 };
 /** A missile code the client has no shape for is drawn as a Harpoon. */
 const shapeOf = (k) => (MISSILE_SHAPES[k] ? k : 'h');
@@ -106,7 +110,7 @@ function geometryOf(k) {
   const band = lathe([[L / 2 - R * 4.2, 0], [L / 2 - R * 4.2, R * 1.02], [L / 2 - R * 3.6, R * 1.02], [L / 2 - R * 3.6, 0]]);
   // Its wings: a Tomahawk's pair, out flat either side; a Harpoon's four,
   // cruciform. Its tail fins: four, in an X.
-  const wings = k === 't'
+  const wings = k === 't' || k === 'l'
     ? [plate(Math.PI / 2, R * 0.6, S.span / 2, S.chord, S.wingZ, 0.04), plate(-Math.PI / 2, R * 0.6, S.span / 2, S.chord, S.wingZ, 0.04)]
     : [0, 1, 2, 3].map((i) => plate(Math.PI / 4 + (i * Math.PI) / 2, R * 0.8, S.span / 2 - R, S.chord, S.wingZ));
   const fins = [0, 1, 2, 3].map((i) => plate(Math.PI / 4 + (i * Math.PI) / 2, R * 0.7, S.fin, 0.34, -L / 2 + 0.3));
