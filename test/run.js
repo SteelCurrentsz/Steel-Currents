@@ -2125,6 +2125,71 @@ check('a Seahawk comes home to a hover over the Nimitz and straight down onto he
   assert.ok(state.planes.every((p) => !p.land || p.land.leg !== 'final' || !rotary(p)), 'a Seahawk flew the groove');
 });
 
+check('the Sovremenny and the Slava each carry one Ka-27 and the Arleigh Burke one MH-60, each with two load outs', () => {
+  for (const [id, type, label] of [['sovremenny', 'ka27', 'Ka-27 Helix'], ['slava', 'ka27', 'Ka-27 Helix'], ['burke', 'sh60', 'MH-60 Seahawk']]) {
+    const cls = SHIP_CLASSES[id];
+    assert.ok(cls.planes, `the ${id} carries no helicopter`);
+    assert.equal(cls.planes.squadrons, 1);
+    assert.equal(cls.datasheet.aircraft, 1);
+    const g = defaultAirGroup(cls);
+    assert.deepEqual([g.fighters, g.dive, g.torpedo], [0, 0, 1], `the ${id} does not carry one`);
+    const S = cls.planes.slots;
+    assert.deepEqual(Object.keys(S), ['torpedo']);
+    assert.equal(S.torpedo.type, type);
+    assert.equal(S.torpedo.label, label);
+    assert.deepEqual(Object.values(S.torpedo.loadouts).map((l) => l.name).sort(), ['ASW Load Out', 'Anti-Ship Load Out']);
+    for (const k of Object.keys(S.torpedo.loadouts)) {
+      assert.equal(normaliseAirGroup(cls, { fighters: 9, torpedo: 4, load: { torpedo: k } }).load.torpedo, k);
+      assert.equal(normaliseAirGroup(cls, { fighters: 9, torpedo: 4, load: { torpedo: k } }).torpedo, 1);
+    }
+    assert.ok(rotary({ type }), `a ${type} is not a helicopter`);
+  }
+  // The Burke's Seahawk is loaded as the Nimitz's are.
+  assert.deepEqual(SHIP_CLASSES.burke.planes.slots.torpedo.loadouts, SHIP_CLASSES.nimitz.planes.slots.torpedo.loadouts);
+});
+
+check('a ship\'s helicopter goes up off her pad, fights as she is loaded, and comes home straight down onto the same spot', () => {
+  for (const [id, type] of [['sovremenny', 'ka27'], ['slava', 'ka27'], ['burke', 'sh60']]) {
+    for (const load of ['as', 'asw']) {
+      const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+      const c = addShip(state, { name: 'Her', classId: id, team: 0, index: 0 });
+      const foe = addShip(state, { name: 'Foe', classId: load === 'asw' ? 'u48' : 'fletcher', team: 1, index: 0 });
+      c.x = 0; c.z = -6000; c.heading = 0; foe.x = 1500; foe.z = 3000;
+      const cls = SHIP_CLASSES[id];
+      setAirGroup(c, cls, { torpedo: 1, load: { torpedo: load } });
+      c.aimX = foe.x; c.aimZ = foe.z;
+      assert.ok(launchStrike(state, c), `the ${id} would not launch`);
+      assert.ok(!launchStrike(state, c), `the ${id} launched a second helicopter she has not got`);
+      const pad = cls.planes.helipad;
+      let up = null, fired = false, dropped = false, trap = null, most = 0;
+      for (let i = 0; i < Math.ceil(700 / DT) && !trap; i++) {
+        for (const ev of step(state, DT)) {
+          if (ev.e === 'airDrop' && ev.fish) dropped = true;
+          if (ev.e === 'trap' && ev.ship === c.id) trap = ev;
+        }
+        most = Math.max(most, state.planes.filter((p) => p.owner === c.id).length);
+        for (const p of state.planes) {
+          if (p.owner !== c.id) continue;
+          if (!up) up = { type: p.type, y: p.y, along: (p.z - c.z), across: p.x - c.x };
+        }
+        if (state.missiles.some((m) => m.air && m.owner === c.id)) fired = true;
+      }
+      assert.ok(up, `the ${id}'s helicopter never went up`);
+      assert.equal(up.type, type);
+      assert.ok(Math.abs(up.along - pad.z) < 3 && Math.abs(up.across - pad.x) < 3,
+        `the ${id}'s helicopter went up ${up.along.toFixed(1)} m along, not off her pad at ${pad.z}`);
+      assert.ok(up.y > pad.y + 10 && up.y < pad.y + 25, `she was handed to the sky at ${up.y.toFixed(1)} m`);
+      assert.equal(most, 1, `the ${id} flew ${most} helicopters`);
+      if (load === 'as') assert.ok(fired || !foe.alive, `the ${id}'s helicopter fired no missiles`);
+      else assert.ok(dropped || !foe.alive, `the ${id}'s helicopter dropped no torpedoes`);
+      assert.ok(trap, `the ${id}'s helicopter never came home`);
+      const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
+      const dx = trap.x - c.x, dz = trap.z - c.z;
+      assert.ok(Math.hypot(dx * fx + dz * fz - pad.z, dx * fz - dz * fx - pad.x) < 3, `the ${id}'s helicopter came down off her pad`);
+    }
+  }
+});
+
 check('the Nimitz flies her Hornets, Hawkeyes and Seahawks as their loads say, and a Hawkeye up widens her side\'s picture', () => {
   const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
   const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });

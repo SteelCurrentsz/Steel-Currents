@@ -34,6 +34,7 @@ import { arm } from './mounts.js';
 import { fitTubes } from './tubes.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
+import { fitHelipad } from './helipad.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { lightMounts } from '../../../shared/sim.js';
@@ -344,6 +345,8 @@ export function buildSovremenny() {
   g.userData.classId = 'sovremenny';
   g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes);
   dressShip(g);
+  // Her helicopter, on her pad (see helipad.js).
+  fitHelipad(g, { pad: CLS.planes.helipad, kind: CLS.planes.type });
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
     secMounts: g.userData.secMounts || [],

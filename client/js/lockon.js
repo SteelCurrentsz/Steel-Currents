@@ -23,7 +23,7 @@ export const LOCK_TIME = 0.9;
 /** Which missile on her rails goes at a `tk` target `d` metres off, or null. */
 export function pickLockKind(rack, tk, d) {
   const order = tk === 'a' ? (d < AIR_MISSILES.aim9.range * 0.85 ? ['aim9', 'aim120'] : ['aim120', 'aim9'])
-    : tk === 's' ? ['agm84', 'penguin', 'agm65'] : ['agm65'];
+    : tk === 's' ? ['agm84', 'penguin', 'kh25', 'agm65'] : ['agm65'];
   for (const k of order) {
     const K = AIR_MISSILES[k];
     if (!K || !(rack?.[k] > 0) || !(AIR_MISSILE_HITS[k] || []).includes(tk)) continue;

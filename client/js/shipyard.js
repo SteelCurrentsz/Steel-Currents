@@ -387,7 +387,8 @@ export function hullSheet(cls, group = null, troops = null) {
   const g = spec ? (group || spec.default) : null;
   const air = g ? g.fighters + g.dive + g.torpedo : d.aircraft;
   rows.push(['Aircraft', air
-    ? `${air} ${spec ? 'carrier aircraft' : 'sea planes'}`
+    ? (spec && spec.total === 1 ? `1 ${cls.planes.slots?.torpedo?.label || 'helicopter'}`
+      : `${air} ${spec ? 'carrier aircraft' : 'sea planes'}`)
     : 'None embarked']);
   rows.push(
     ['Belt', `${cls.armor.belt} mm`],
@@ -486,7 +487,9 @@ export function armsSheet(cls, group = null, vls = null) {
     // thing on a carrier's sheet a captain gets to decide.
     const g = group || cls.planes.group.default;
     const air = g.fighters + g.dive + g.torpedo;
-    rows.push([`${cls.planes.squadrons} strike squadrons`, `${air} aircraft`, 'airgroup']);
+    // A destroyer's or a cruiser's one helicopter is not a strike squadron.
+    const one = cls.planes.group.total === 1;
+    if (!one) rows.push([`${cls.planes.squadrons} strike squadrons`, `${air} aircraft`, 'airgroup']);
     // And a deckload over her flight deck, outside her hangar: the Hornet's
     // B-25s, as many of them as she sails with.
     const DL = cls.planes.deckload;
@@ -494,14 +497,14 @@ export function armsSheet(cls, group = null, vls = null) {
     const SL = cls.planes.slots;
     if (SL) {
       // Her types by name, and what each is armed with.
-      const short = { f18: 'F/A-18C', e2d: 'E-2D', sh60: 'MH-60' };
-      rows.push(['Air group', ['fighters', 'dive', 'torpedo']
+      const short = { f18: 'F/A-18C', e2d: 'E-2D', sh60: 'MH-60', ka27: 'Ka-27' };
+      rows.push([one ? 'Helicopter' : 'Air group', ['fighters', 'dive', 'torpedo'].filter((k) => SL[k])
         .map((k) => `${g[k]} ${short[SL[k].type] || SL[k].label}`).join(' &middot; '), 'airgroup']);
       for (const k of ['fighters', 'dive', 'torpedo']) {
         const sl = SL[k];
         if (!sl.loadouts) continue;
         const L = sl.loadouts[(g.load && g.load[k]) || sl.default];
-        rows.push([`${sl.label}s`, L.name, 'airgroup']);
+        rows.push([one ? 'Load out' : `${sl.label}s`, L.name, 'airgroup']);
       }
     } else {
       rows.push(['Air group',

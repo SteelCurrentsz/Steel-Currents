@@ -897,7 +897,9 @@ function renderAirGroup() {
   const strike = g.dive + g.torpedo;
   const SL = SHIP_CLASSES[yardShip()]?.planes?.slots || null;
   const fixed = AG_KINDS.every((k) => spec.min[k] === spec.max[k]);
-  document.getElementById('ag-sub').textContent = fixed
+  document.getElementById('ag-sub').textContent = fixed && spec.total === 1
+    ? 'One helicopter, on her pad. Choose what she is armed with.'
+    : fixed
     ? `${spec.total} aircraft in the hangar, her air wing as it sails. Choose what each type is armed with.`
     : `${spec.total} aircraft in the hangar. Any mix you like, all of one kind or none of another.`;
   // Each row named for the machine it is, on a carrier that says so.
@@ -908,6 +910,9 @@ function renderAirGroup() {
       nm.dataset.plain ??= nm.firstChild.textContent;
       nm.firstChild.textContent = SL && SL[k] ? SL[k].label : nm.dataset.plain;
     }
+    // A ship that flies one type has no row for the others.
+    const row = nm.closest('.ag-row');
+    if (row) row.hidden = !!SL && !SL[k];
   }
   renderLoads(SL, g);
   // What she actually flies in each role: a Shinano's fighters are Zeros.
@@ -1284,7 +1289,16 @@ document.getElementById('ag-done').onclick = () => {
     toast(`${name}'s air group is changed.`);
     return;
   }
-  if (yardUi.ag) setSettings({ airGroup: { ...yardUi.ag, ...(yardUi.ag.load ? { load: { ...yardUi.ag.load } } : {}) } });
+  if (yardUi.ag) {
+    // A ship whose mix is fixed -- the Nimitz, or a destroyer with her one
+    // helicopter -- changes only what her types are armed with: the mix a
+    // captain chose for the carriers that have one is left as he chose it.
+    const spec = airGroupSpec();
+    const fixed = spec && AG_KINDS.every((k) => spec.min[k] === spec.max[k]);
+    const was = getSettings().airGroup;
+    const load = { ...(was && was.load), ...(yardUi.ag.load || {}) };
+    setSettings({ airGroup: fixed && was ? { ...was, load } : { ...yardUi.ag, load } });
+  }
   closeAirGroup();
   renderYard();
 };

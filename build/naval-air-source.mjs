@@ -1,7 +1,7 @@
-// The Nimitz's three aircraft, from the glbs the owner uploaded to the pieces
+// The Nimitz's three aircraft and the Ka-27, from the glbs the owner uploaded to the pieces
 // the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60   ->  client/js/render/<kind>Model.data.js
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27   ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
 //
@@ -16,6 +16,8 @@
 //         (https://skfb.ly/pHKou) -- assets/models/grumman_e-2d_advanced_hawkeye-maximum-compressed.glb
 //   sh60  "SH-60B Seahawk Helicopter" by Muhamad Mirza Arrafi
 //         (https://skfb.ly/p96qS) -- assets/models/sh-60b_seahawk_helicopter-maximum-compressed.glb
+//   ka27  "KA-27" by theutkarsh
+//         (https://skfb.ly/poZTv) -- assets/models/ka-27-maximum-compressed.glb
 //
 // What comes out, in her own frame -- nose +z, up +y, wheels on y = 0, put to
 // her real length -- each piece painted at every point off the model's own
@@ -92,6 +94,38 @@ const KINDS = {
     spins: [
       { name: 'rotor', hub: [2.3, 444, 264], axis: 'y' },
       { name: 'tail', hub: [34, 446, -895], axis: 'x' },
+    ],
+  },
+  // The Ka-27 the Sovremenny and the Slava carry: her two rotors one over the
+  // other on the one mast, the lower turning the other way (see RATE in
+  // navalAirModel.js). The model has them as four meshes -- the hub and
+  // swashplate and three of blades -- with the two rotors' blades in each,
+  // so they are told apart by height: the upper's roots are at 5.8 m and the
+  // lower's at 4.3, and both droop towards their tips.
+  ka27: {
+    src: 'ka-27-maximum-compressed.glb', length: 12.25, keep: 0.05,
+    lengthOf: 'body',
+    // The model carries no paint, so she is given hers here: Soviet naval
+    // grey over a paler belly, her windows (Object_32) tinted dark, her
+    // cockpit behind them dark, her wheels (Object_13) black, and her blades
+    // a dark grey.
+    paint: ({ c, piece, own }) => {
+      if (piece === 'spin0' || piece === 'spin1') return [0.21, 0.22, 0.23];
+      const i = Number(own.split('_')[1]) || 0;
+      if (i === 32) return [0.13, 0.17, 0.21];
+      if (i === 13) return [0.1, 0.1, 0.1];
+      if ([14, 15, 16, 18, 19, 20].includes(i)) return [0.22, 0.23, 0.24];
+      return c[1] < 1.0 ? [0.63, 0.66, 0.68] : [0.5, 0.55, 0.58];
+    },
+    piece: ({ c, own }) => {
+      if (!/^Object_3[4-7]$/.test(own)) return 'body';
+      const r = hyp(c[0] - 0.03, c[2] + 0.065);
+      const split = r < 2 ? 4.55 : 5.05 - 1.1 * (r / 8) ** 2;
+      return c[1] > split ? 'spin0' : 'spin1';
+    },
+    spins: [
+      { name: 'rotor', hub: [0.03, 5.5, -0.065], axis: 'y' },
+      { name: 'lower', hub: [0.03, 4.05, -0.065], axis: 'y' },
     ],
   },
 };
@@ -204,7 +238,7 @@ const nt = model.T.length / 3;
 const PIECE = new Array(nt);
 for (let t = 0; t < nt; t++) {
   const c = [0, 1, 2].map((k) => (P[model.T[t * 3] * 3 + k] + P[model.T[t * 3 + 1] * 3 + k] + P[model.T[t * 3 + 2] * 3 + k]) / 3);
-  PIECE[t] = K.piece({ c, mat: model.M[t], node: nameOf(model.L[t]) });
+  PIECE[t] = K.piece({ c, mat: model.M[t], node: nameOf(model.L[t]), own: j.nodes[model.L[t]].name || '' });
 }
 
 // ---- her frame ------------------------------------------------------------
@@ -250,7 +284,12 @@ async function texture(mi) {
   tex.set(mi, { t, f });
   return tex.get(mi);
 }
-async function colourOf(v, mi) {
+async function colourOf(v, mi, t0 = -1) {
+  // A model with no paint of its own is painted by where each face is (K.paint).
+  if (K.paint && t0 >= 0) {
+    const c = [0, 1, 2].map((k) => (P[model.T[t0 * 3] * 3 + k] + P[model.T[t0 * 3 + 1] * 3 + k] + P[model.T[t0 * 3 + 2] * 3 + k]) / 3);
+    return K.paint({ c, p: [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], piece: PIECE[t0], own: j.nodes[model.L[t0]].name || '' });
+  }
   const { t, f } = await texture(mi);
   if (!t) return [f[0], f[1], f[2]];
   const u = ((UV[v * 2] % 1) + 1) % 1, w = ((UV[v * 2 + 1] % 1) + 1) % 1;
@@ -271,7 +310,7 @@ async function piece(which, keep, about = [0, 0, 0]) {
     if (PIECE[t] !== which) continue;
     for (let k = 0; k < 3; k++) {
       const v = model.T[t * 3 + k];
-      const c = await colourOf(v, model.M[t]);
+      const c = await colourOf(v, model.M[t], t);
       const p = toHer(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
       const id = p.map((x) => Math.round(x * 1e4)).join(',');
       let n = key.get(id);

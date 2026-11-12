@@ -127,6 +127,16 @@ export const AERO = {
     // straight, from a hover (see the simulation's heloHover).
     rotor: true,
   },
+  // The Kamov Ka-27 Helix, the Soviet navy's shipboard helicopter: two
+  // three-bladed rotors one over the other, turning opposite ways, so she has
+  // no tail rotor and a short boom with twin fins; flown as the Seahawk is,
+  // a little heavier and a little slower.
+  ka27: {
+    mass: 11000, wing: 66, span: 15.9, clMax: 6.0, cd0: 0.0760,
+    thrust: 44000, vMax: 75, name: 'Ka-27',
+    helix: 0.07, gLimit: 3.0,
+    rotor: true,
+  },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',

@@ -4106,6 +4106,7 @@ function navalAir(kind, g, x, y, z, ry, opts = {}) {
 const f18 = (g, x, y, z, ry, folded, opts = {}) => navalAir('f18', g, x, y, z, ry, opts);
 const e2d = (g, x, y, z, ry, folded, opts = {}) => navalAir('e2d', g, x, y, z, ry, opts);
 const sh60 = (g, x, y, z, ry, folded, opts = {}) => navalAir('sh60', g, x, y, z, ry, opts);
+const ka27 = (g, x, y, z, ry, folded, opts = {}) => navalAir('ka27', g, x, y, z, ry, opts);
 
 // ------------------------------------------------------ the heavy squadrons --
 //
@@ -5537,7 +5538,7 @@ function b29Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60 };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27 };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

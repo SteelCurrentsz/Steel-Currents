@@ -15,6 +15,8 @@ const SOURCES = {
   f18: () => import('./f18Model.data.js').then((m) => [m.F18_PIECES, m.F18_META]),
   e2d: () => import('./e2dModel.data.js').then((m) => [m.E2D_PIECES, m.E2D_META]),
   sh60: () => import('./sh60Model.data.js').then((m) => [m.SH60_PIECES, m.SH60_META]),
+  // And the Ka-27 the Sovremenny and the Slava carry.
+  ka27: () => import('./ka27Model.data.js').then((m) => [m.KA27_PIECES, m.KA27_META]),
 };
 const PIECES = {};
 /** Each kind's measurements -- span, length, hubs -- once loadNavalAir() is in. */
@@ -30,7 +32,7 @@ export function loadNavalAir() {
 }
 
 /** Whether they can be built now, without waiting for anything. */
-export function navalAirReady() { return !!(PIECES.f18 && PIECES.e2d && PIECES.sh60); }
+export function navalAirReady() { return !!(PIECES.f18 && PIECES.e2d && PIECES.sh60 && PIECES.ka27); }
 
 const GEOS = {};
 function geometries(kind) {
@@ -61,9 +63,10 @@ function materials() {
  * How fast each thing that turns goes against her airscrews' own rate: a
  * rotodome goes round six times a minute, and a helicopter's rotors are
  * wound on at a quarter of an airscrew's pace -- they are long, and a
- * blade's tip goes nearly as fast as a propeller's.
+ * blade's tip goes nearly as fast as a propeller's. A Ka-27's lower rotor
+ * turns the other way from her upper one, which is why she needs no tail rotor.
  */
-const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1 };
+const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22 };
 
 /** How far each kind's legs rise into her as they come up. */
 const GEAR_UP = { f18: 1.2, e2d: 1.4 };

@@ -8887,7 +8887,7 @@ const BOX_CELL = 1.19;
  * any class carries has one.
  */
 export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g', vulcan: 'v', s300: 'f', osa: 'm',
-  essm: 'r', ram: 'x', agm84: 'q', penguin: 'p', aim9: 'w', aim120: 'u', agm65: 'k' };
+  essm: 'r', ram: 'x', agm84: 'q', penguin: 'p', kh25: 'c', aim9: 'w', aim120: 'u', agm65: 'k' };
 export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(([k, c]) => [c, k]));
 
 /** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc', 'aam' (an aeroplane's, at aeroplanes), 'ground' (an aeroplane's, at a gun ashore). */
@@ -9528,7 +9528,7 @@ function missileHit(state, m, K, t, cls) {
   // Her armour takes some of it: a thousand pounds of explosive bursting on a
   // battleship's armour deck does a great deal less than it does inside a
   // cruiser.
-  const skims = m.kind === 'harpoon' || m.kind === 'agm84' || m.kind === 'penguin';
+  const skims = m.kind === 'harpoon' || m.kind === 'agm84' || m.kind === 'penguin' || m.kind === 'kh25';
   const armour = skims ? cls.armor.belt : cls.armor.deck;
   const cut = clamp(armour / 900, 0, 0.32);
   damageShip(state, t, owner, K.damage * (1 - cut), 'he', where);
