@@ -1,7 +1,7 @@
 // The United States Navy's wartime close-range and dual-purpose mountings.
 //
-// A twin 5"/38 in a Mk 32, a quadruple and a twin 40 mm Bofors, and a single
-// 20 mm Oerlikon: the same four mountings went aboard everything from a
+// A twin 5"/38 in a Mk 32, a single 5"/25 on its open pedestal, a quadruple
+// and a twin 40 mm Bofors, and a single 20 mm Oerlikon: the same four mountings went aboard everything from a
 // Fletcher to an Iowa, in the same tubs, with the same directors alongside.
 // They were drawn once for the Cleveland and are kept here so every American
 // ship in the game carries the guns she actually carried, built the same way.
@@ -80,6 +80,53 @@ export function fiveInch38(g, M, x, y, z, ry) {
     cyl(cradle, M.gunDark, 0.14, 0.15, 0.26, dx, 0, 5.2, 12).rotation.x = Math.PI / 2;
   }
   armMount(mount, cradle, [-0.72, 0.72].map((dx) => [dx, 0, 5.36]));
+  return mount;
+}
+
+/**
+ * A single 5"/25 on its Mk 19 open pedestal mount: the Treaty cruisers' and
+ * the pre-war battleships' anti-aircraft gun, a short, quick-firing gun that
+ * a crew could load at any elevation, worked in the open with nothing over
+ * it but the sky. Its trunnions stand high on the carriage and well back
+ * along the barrel, so it can be laid up near the vertical without its breech
+ * striking the deck; the fuze setter and the loading tray ride on its left.
+ */
+export function fiveInch25(g, M, x, y, z, ry) {
+  const mount = new THREE.Group();
+  mount.position.set(x, y, z);
+  mount.rotation.y = ry;
+  mount.userData.dynamic = true;
+  mount.userData.rest = ry;
+  g.add(mount);
+  // The pedestal, bolted to the deck, and the carriage that trains on it.
+  cyl(mount, M.steelDark, 0.62, 0.78, 0.5, 0, 0.25, 0, 16);
+  cyl(mount, M.gunDark, 0.58, 0.58, 0.12, 0, 0.56, 0, 16);
+  box(mount, M.gun, 1.3, 0.34, 1.5, 0, 0.78, 0.05);
+  // Its two side brackets, which carry the trunnions.
+  for (const sgn of [-1, 1]) box(mount, M.gun, 0.14, 0.9, 0.85, sgn * 0.42, 1.28, 0.1);
+  // The pointer's and the trainer's seats and their sights, either side.
+  for (const sgn of [-1, 1]) {
+    box(mount, M.steelDark, 0.34, 0.08, 0.34, sgn * 0.95, 1.0, -0.25);
+    box(mount, M.gunDark, 0.12, 0.5, 0.12, sgn * 0.95, 1.25, 0.05);
+    box(mount, M.gunDark, 0.14, 0.14, 0.42, sgn * 0.82, 1.62, 0.2);
+  }
+  // The fuze setter and the loading tray on its left.
+  box(mount, M.gunDark, 0.36, 0.6, 0.5, 0.85, 0.85, -0.65);
+  box(mount, M.steel, 0.2, 0.1, 0.9, 0.62, 1.15, -0.7);
+  const cradle = new THREE.Group();
+  cradle.position.set(0, 1.55, 0.15);
+  mount.add(cradle);
+  // The slide and the recoil cylinders under the barrel, the breech housing
+  // behind the trunnions, and the barrel: twenty-five calibres, a shade over
+  // three metres of it.
+  box(cradle, M.gun, 0.5, 0.46, 1.5, 0, -0.06, 0.1);
+  box(cradle, M.gunDark, 0.56, 0.52, 0.7, 0, 0, -0.85);
+  for (const sgn of [-1, 1]) tubeZ(cradle, M.gunDark, 0.07, 1.2, sgn * 0.17, -0.27, 0.35, 8);
+  tubeZ(cradle, M.gunDark, 0.13, 1.1, 0, 0.04, 1.2, 12);
+  tubeZ(cradle, M.gunDark, 0.095, 2.2, 0, 0.04, 2.8, 12);
+  cyl(cradle, M.gunDark, 0.11, 0.11, 0.18, 0, 0.04, 3.82, 12).rotation.x = Math.PI / 2;
+  mount.userData.trainRate = 0.6;
+  armMount(mount, cradle, [[0, 0.04, 3.92]]);
   return mount;
 }
 

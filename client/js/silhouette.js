@@ -121,6 +121,26 @@ const HULLS = {
     <rect x="63" y="23.5" width="3.5" height="2.5"/>
     <rect x="69" y="23.5" width="3.5" height="2.5"/>
     <rect x="75" y="23.5" width="3.5" height="2.5"/>`,
+  // The Brooklyn: a long flush-decked cruiser hull, three triple turrets
+  // forward -- No.2 superfiring, No.3 low abaft it -- a tall bridge with the
+  // foremast over it, two upright funnels close together, a short mainmast,
+  // two turrets aft, No.4 superfiring, and her crane right aft.
+  brooklyn: `
+    <path d="M2 28 L98 28 L95 37 L6 37 Z"/>
+    <rect x="18.5" y="24" width="5" height="4"/>
+    <rect x="24.5" y="21" width="5" height="4"/>
+    <rect x="30.5" y="24" width="5" height="4"/>
+    <rect x="37" y="17" width="7" height="11"/>
+    <rect x="39" y="11" width="4" height="7"/>
+    <rect x="44" y="5" width="1.6" height="13"/>
+    <rect x="46.5" y="15" width="3.6" height="13"/>
+    <rect x="53" y="16" width="3.6" height="12"/>
+    <rect x="57.5" y="9" width="1.4" height="12"/>
+    <rect x="58" y="21" width="8" height="7"/>
+    <rect x="70.5" y="21" width="5" height="4"/>
+    <rect x="76" y="24" width="5" height="4"/>
+    <rect x="93" y="19" width="1.2" height="9"/>
+    <path d="M93 19 L89 18 L89 19 L93 20 Z"/>`,
   // The County: a tall flush-decked cruiser hull, two twin turrets at each
   // end, the inner ones superfiring, a tall bridge forward, three tall raked
   // funnels amidships and a tripod mast at each end of her.
