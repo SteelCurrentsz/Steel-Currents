@@ -3800,6 +3800,13 @@ check('the HMS County is commissioned before the KMS Admiral Hipper, armed as he
   // Every one of her mountings stands on her deck, not in the air over it.
   for (const [kind, list] of Object.entries(COUNTY_SEATS)) {
     for (const st of list) {
+      // Her tubes stand on her upper deck under the overhang of her boat
+      // deck, as a County's did: what they stand on is her upper deck.
+      if (kind === 'tubes') {
+        const deck = countySheer((2 * st.z) / cls.hull.length);
+        assert.ok(Math.abs(deck - st.y) < 0.6, `her tubes at ${st.x}, ${st.z} stand ${st.y} m up over a deck at ${deck}`);
+        continue;
+      }
       const top = countySurfaceY(st.x, st.z);
       assert.ok(Math.abs(top - st.y) < 1.5 || top < st.y + 0.05,
         `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${top}`);
