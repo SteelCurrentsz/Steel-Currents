@@ -7520,7 +7520,11 @@ function stepNukes(state, dt) {
           const d = Math.hypot(b.x - n.x, b.z - n.z);
           if (!crossed(d)) continue;
           const bite = nukeBite(d, n.land);
-          if (bite > 0) hurtBuilding(state.world, b, b.hp * bite * 1.6, state.events, worksDice(state), { x: n.x, z: n.z, he: true });
+          // How hard the shock is shoving it, for what it does to the
+          // building and how far the pieces of it are thrown: full inside the
+          // ring where everything is lost, and falling away to the reach.
+          const nk = Math.min(1, bite / (1.6 * (n.land ? NUKE.landBite : 1)));
+          if (bite > 0) hurtBuilding(state.world, b, b.hp * bite * 1.6, state.events, worksDice(state), { x: n.x, z: n.z, he: true, nk });
         }
       }
     }

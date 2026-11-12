@@ -860,7 +860,7 @@ const CAR_COLOURS = [0x1c1c1e, 0x2a3b2e, 0x5a1e1a, 0x24304a, 0x7a7466, 0x3e2f24]
 // ---------------------------------------------------------------------------
 
 const CHUNK = 140;
-const DEBRIS_MAX = 900;
+const DEBRIS_MAX = 2000;
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
 const tmpE = new THREE.Euler();
@@ -1553,7 +1553,7 @@ export class WorksView {
    * concrete. Each flies on its own momentum, tumbles, lands on whatever is
    * under it -- the street, a heap, the sea -- bounces, slides and lies there.
    */
-  spray(x, y, z, n, color, size = 0.6, speed = 9, up = 6) {
+  spray(x, y, z, n, color, size = 0.6, speed = 9, up = 6, push = null) {
     const D = this.debris;
     for (let k = 0; k < n; k++) {
       if (D.list.length >= DEBRIS_MAX) {
@@ -1565,9 +1565,12 @@ export class WorksView {
       const a = Math.random() * Math.PI * 2;
       const v = speed * (0.3 + Math.random() * 0.9);
       const s = size * (0.4 + Math.random() * 1.1);
+      // Driven downwind by a blast, when there is one: `push` is [ux, uz, v],
+      // the way it is blowing and how hard.
+      const pv = push ? push[2] * (0.45 + Math.random() * 0.9) : 0;
       D.list.push({
         x, y, z,
-        vx: Math.sin(a) * v, vz: Math.cos(a) * v, vy: up * (0.4 + Math.random()),
+        vx: Math.sin(a) * v + (push ? push[0] * pv : 0), vz: Math.cos(a) * v + (push ? push[1] * pv : 0), vy: up * (0.4 + Math.random()),
         rx: Math.random() * 6, ry: Math.random() * 6, rz: Math.random() * 6,
         wx: (Math.random() - 0.5) * 14, wy: (Math.random() - 0.5) * 14, wz: (Math.random() - 0.5) * 14,
         sx: s * (0.7 + Math.random() * 0.8), sy: s * (0.4 + Math.random() * 0.6), sz: s * (0.6 + Math.random() * 0.8),
@@ -1671,6 +1674,15 @@ export class WorksView {
     if (!b) return;
     const st = stageOf(ev.d, !!ev.c);
     const before = stageOf(was?.d || 0, !!was?.c);
+    // An atomic shock: not brought down where it stood but blown away from
+    // the burst, and the street round it with it.
+    const blown = ev.nk > 0.2 && ev.bx != null && st > before && st >= STAGE.falling && before !== STAGE.cleared;
+    if (blown) {
+      this.blownAway(b, was, ev);
+      this.dirty.add(this.chunkOf(b));
+      this.recent.set(b.id, 150);
+      return;
+    }
     if (st === STAGE.cleared) {
       this.clearProps(b.x, b.z, Math.hypot(b.w, b.d) / 2 + 2);
     }
@@ -1716,10 +1728,136 @@ export class WorksView {
     }
   }
 
+  /**
+   * A building in the path of an atomic shock: the whole of it shoved over
+   * away from the burst and torn apart as it goes, its pieces thrown far
+   * downwind -- brick, glass and timber strewn for hundreds of metres -- and
+   * everything in the street round it thrown with it. `ev.nk` is how hard the
+   * blast was pushing, nought to one.
+   */
+  blownAway(b, was, ev) {
+    let ux = b.x - ev.bx;
+    let uz = b.z - ev.bz;
+    const L = Math.hypot(ux, uz);
+    if (L < 1) { const a = Math.random() * Math.PI * 2; ux = Math.sin(a); uz = Math.cos(a); } else { ux /= L; uz /= L; }
+    const nk = Math.min(1, ev.nk || 0.5);
+    const h = Math.max(4, standingHeight(b, was));
+    const R = Math.hypot(b.w, b.d) / 2;
+    const pal = col((WALLS[b.wall] || WALLS[0]).c);
+    // Scorched on the side that faced the flash.
+    const burnt = mixc(pal, CHAR, 0.35 + 0.4 * nk);
+    // What stood, moving off its foot. Only so many at once: a town under a
+    // bomb is hundreds of them, and the ones past that go up as pieces only.
+    if (this.falling.length < 60) {
+      const bufs = new Bufs();
+      buildingInto(bufs, b, b.level, was || null);
+      const g = bufs.meshes(this.mats);
+      const Lv = b.level;
+      g.traverse((o) => { if (o.isMesh) { o.geometry.translate(-b.x, -Lv, -b.z); o.matrixAutoUpdate = true; } });
+      g.position.set(b.x, Lv, b.z);
+      this.group.add(g);
+      const v = 18 + 55 * nk;
+      this.falling.push({
+        g, b, t: 0, T: 1.1 + h / 45 + 0.8 * (1 - nk), h,
+        // Tipped over about its foot, top first, away from the burst.
+        axis: new THREE.Vector3(uz, 0, -ux),
+        blown: {
+          ux, uz, nk, pal: burnt,
+          x: 0, y: 0, z: 0,
+          vx: ux * v, vz: uz * v, vy: 2 + 9 * nk,
+          spin: 0.9 + 2.2 * nk, shed: 0,
+        },
+      });
+    }
+    // Torn off it at once: the face toward the burst, the roof, the glass.
+    const push = 25 + 75 * nk;
+    const n = Math.min(70, 16 + Math.round(R * 0.9 + h * 0.6));
+    for (let k = 0; k < 6; k++) {
+      const yy = b.level + h * (0.15 + 0.75 * (k / 5));
+      this.spray(b.x - ux * R * 0.5, yy, b.z - uz * R * 0.5, Math.round(n / 6), burnt, 0.5 + h / 50, 6, 4 + 6 * nk, [ux, uz, push]);
+    }
+    this.spray(b.x, b.level + h, b.z, Math.round(n / 3), [0.5, 0.6, 0.65], 0.18, 5, 6, [ux, uz, push * 1.2]);
+    this.spray(b.x, b.level + h * 0.9, b.z, Math.round(n / 4), [0.32, 0.22, 0.16], 0.4, 5, 7, [ux, uz, push]);
+    if (this.fx) {
+      const m = Math.min(6, 2 + Math.round(R / 8));
+      for (let k = 0; k < m; k++) {
+        const s = k / m;
+        this.fx.dust(b.x + ux * R * (s * 3), b.level + 1 + Math.random() * h * 0.5, b.z + uz * R * (s * 3), 3 + R / 6);
+      }
+    }
+    this.fling(b, ux, uz, nk);
+  }
+
+  /** Everything in the street round a building the blast has taken, thrown the way it went. */
+  fling(b, ux, uz, nk) {
+    if (!this.prop) return;
+    const R = Math.hypot(b.w, b.d) / 2 + 12;
+    const dir = Math.atan2(ux, uz);
+    for (const e of this.prop) {
+      if (e.gone || Math.hypot(e.x - b.x, e.z - b.z) > R) continue;
+      if (e.t === 'car') {
+        if (!e.burnt) {
+          e.burnt = true;
+          tmpC.setRGB(0.07, 0.06, 0.055);
+          e.mesh.setColorAt(e.k, tmpC);
+          e.mesh.instanceColor.needsUpdate = true;
+        }
+        const v = (12 + 40 * nk) * (0.6 + Math.random() * 0.7);
+        e.fallMax = Math.PI;
+        e.tiltDir = dir;
+        e.vel = { x: ux * v, z: uz * v, y: 3 + 9 * nk * Math.random() };
+        this.moving.add(e);
+        continue;
+      }
+      if (nk > 0.55 || ['bench', 'hydrant', 'bollard', 'kiosk', 'bandstand'].includes(e.t)) {
+        e.gone = true;
+        this.place(e);
+        this.spray(e.x, e.y + 1, e.z, 4, [0.4, 0.36, 0.3], 0.35, 4, 4, [ux, uz, 20 + 50 * nk]);
+        continue;
+      }
+      if (e.fallMax) continue;
+      e.fallMax = e.t === 'tree' || e.t === 'bigtree' ? 1.45 : 1.55;
+      e.tiltDir = dir;
+      e.omega = 2 + 4 * nk;
+      this.moving.add(e);
+    }
+  }
+
   stepFalling(dt) {
     for (let k = this.falling.length - 1; k >= 0; k--) {
       const f = this.falling[k];
       f.t += dt;
+      if (f.blown) {
+        const B = f.blown;
+        const s = Math.min(1, f.t / f.T);
+        // Shoved bodily along, slowed by what it drags across, and falling.
+        const drag = Math.exp(-1.4 * dt);
+        B.vx *= drag; B.vz *= drag;
+        B.vy -= 9.8 * dt;
+        B.x += B.vx * dt; B.z += B.vz * dt; B.y = Math.max(-f.h * 0.3, B.y + B.vy * dt);
+        f.g.position.set(f.b.x + B.x, f.b.level + B.y, f.b.z + B.z);
+        f.g.setRotationFromAxisAngle(f.axis, Math.min(1.7, B.spin * f.t * (0.5 + f.t)));
+        // Coming apart as it goes: less of it with every moment.
+        const e = s * s;
+        f.g.scale.set(Math.max(0.05, 1 - 0.7 * e), Math.max(0.03, 1 - 0.9 * e), Math.max(0.05, 1 - 0.7 * e));
+        B.shed += dt * (14 + 22 * B.nk);
+        if (B.shed >= 1) {
+          const m = Math.floor(B.shed);
+          B.shed -= m;
+          const up = f.h * (1 - e) * Math.random();
+          this.spray(f.g.position.x + B.ux * up * 0.6, f.b.level + up * 0.8 + 1, f.g.position.z + B.uz * up * 0.6,
+            m, B.pal, 0.4 + f.h / 70, 5, 4, [B.ux, B.uz, 20 + 50 * B.nk]);
+        }
+        if (this.fx && Math.random() < dt * 5) {
+          this.fx.dust(f.g.position.x, f.b.level + 1 + Math.random() * f.h * 0.3, f.g.position.z, 2.5 + Math.hypot(f.b.w, f.b.d) / 14);
+        }
+        if (s >= 1) {
+          this.group.remove(f.g);
+          f.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+          this.falling.splice(k, 1);
+        }
+        continue;
+      }
       const s = Math.min(1, f.t / f.T);
       // Slowly at first and then all at once: a building comes down at the
       // speed things fall.

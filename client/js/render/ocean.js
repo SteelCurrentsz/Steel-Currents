@@ -139,7 +139,7 @@ vec3 nkSwell(float age, float r) {
   float s = r - R;
   if (s > lam * 1.2 || s < -lam * 4.2) return vec3(0.0);
   float grow = min(1.0, age / 5.0);
-  float fade = clamp((${F(NUKE.life)} - age) / 40.0, 0.0, 1.0);
+  float fade = clamp((${F(NUKE.life)} - age) / 60.0, 0.0, 1.0);
   float H = ${F(NUKE.waveHigh)} * exp(-max(0.0, R) / ${F(NUKE.waveFall)}) + 1.5;
   float A = 0.5 * H * grow * grow * (3.0 - 2.0 * grow) * fade;
   float k = 6.2831853 / lam;
@@ -469,7 +469,7 @@ vec2 burstMarks(vec2 p) {
     float R = nkWaveR(age);
     float lam = 160.0 + 0.06 * R;
     float s = r - R;
-    float fade = clamp((${F(NUKE.life)} - age) / 40.0, 0.0, 1.0) * min(1.0, age / 4.0);
+    float fade = clamp((${F(NUKE.life)} - age) / 60.0, 0.0, 1.0) * min(1.0, age / 4.0);
     float crest = exp(-(s + lam * 0.05) * (s + lam * 0.05) / (lam * lam * 0.018));
     float back = exp(-(s + lam * 0.55) * (s + lam * 0.55) / (lam * lam * 0.25)) * 0.55;
     float h = clamp((${F(NUKE.waveHigh)} * exp(-R / ${F(NUKE.waveFall)}) + 1.5) / 14.0, 0.15, 1.0);

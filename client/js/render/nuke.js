@@ -806,7 +806,7 @@ export class Nukes {
       // Over the sea it is Baker's: a wall of white over the whole fleet in
       // the first second, the column's head bursting up through its top,
       // and clearing from the top down in a quarter of a minute.
-      op = t < 0.2 ? 0 : Math.min(0.96, (t - 0.2) * 2.2) * (1 - smooth(7, 17, t));
+      op = t < 0.2 ? 0 : Math.min(0.96, (t - 0.2) * 2.2) * (1 - smooth(12, 34, t));
       r = Math.min(front * 0.92, 2900) + Math.max(0, t - 4) * 22;
       thin = 0.15 + 0.85 * smooth(2.5, 12, t);
     }
@@ -830,10 +830,10 @@ export class Nukes {
     // The column: up a mile in a few seconds, standing for a dozen, then
     // falling back into itself.
     const up = 1 - Math.exp(-t / 1.4);
-    const fall = smooth(14, 70, t);
+    const fall = smooth(30, 150, t);
     const H = 1850 * up * (1 - 0.85 * fall);
     const Rc = 300 + 120 * up + 160 * fall;
-    const gone = smooth(18, 90, t);
+    const gone = smooth(45, 210, t);
     for (let i = 0; i < 230; i++, k++) {
       const u = hash(i, 0);
       const a = hash(i, 1) * Math.PI * 2 + t * 0.02 * (hash(i, 2) - 0.5);
@@ -844,7 +844,7 @@ export class Nukes {
       putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.93 + 0.07 * hash(i, 5), 0, gone, k);
     }
     // Its head: a cauliflower of spray on top of it, spreading as it stands.
-    const Rh = 360 + 260 * up + Math.min(260, t * 9) + 300 * fall;
+    const Rh = 360 + 260 * up + Math.min(260, t * 5) + 300 * fall;
     const hy = n.y + H + Rh * 0.15 - fall * 400;
     for (let i = 0; i < 170; i++, k++) {
       const a = hash(i, 6) * Math.PI * 2;
@@ -854,11 +854,11 @@ export class Nukes {
       const z = Math.sin(a) * Math.cos(el) * rr;
       const y = hy + Math.sin(el) * rr * 0.75;
       const r = Rh * (0.2 + 0.16 * hash(i, 9));
-      putBillow(b, x, y, z, r * Math.min(1, up * 1.3), 0.9 + 0.1 * hash(i, 10), 0, smooth(16, 75, t), k);
+      putBillow(b, x, y, z, r * Math.min(1, up * 1.3), 0.9 + 0.1 * hash(i, 10), 0, smooth(35, 180, t), k);
     }
     // The spray thrown out round its foot in the first seconds: a mound of
     // white water banked up against the column, lower further out.
-    if (t < 40) {
+    if (t < 90) {
       const R0 = 250 + 1000 * (1 - Math.exp(-t / 2.2));
       for (let i = 0; i < 130; i++, k++) {
         const a = hash(i, 11) * Math.PI * 2;
@@ -866,16 +866,16 @@ export class Nukes {
         const rr = Rc * 0.8 + (R0 - Rc * 0.8) * u;
         const r = (150 - 90 * u) * (0.7 + 0.6 * hash(i, 14)) * Math.min(1, t * 1.5);
         const y = n.y + r * (0.35 + 0.6 * (1 - u)) * (1 + 0.8 * hash(i, 13));
-        putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.95, 0, smooth(10, 40, t), k);
+        putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.95, 0, smooth(25, 90, t), k);
       }
     }
     // The base surge: what falls out of the column, rolling out over the sea
     // in a ring of white a mile and more across, and hanging there.
     if (t > 7) {
       const s = t - 7;
-      const Rb = 400 + 2600 * (1 - Math.exp(-s / 26));
-      const hb = 140 + 260 * smooth(0, 40, s);
-      const thin = smooth(60, NUKE.life - 5, t);
+      const Rb = 400 + 3000 * (1 - Math.exp(-s / 40));
+      const hb = 140 + 300 * smooth(0, 60, s);
+      const thin = smooth(150, NUKE.life - 5, t);
       for (let i = 0; i < 260; i++, k++) {
         const a = hash(i, 15) * Math.PI * 2;
         const rr = Rb * (0.35 + 0.65 * Math.sqrt(hash(i + 300, 0)));

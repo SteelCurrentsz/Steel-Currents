@@ -1873,7 +1873,12 @@ export function hurtBuilding(world, b, dmg, events, rng, at = null) {
   // started: what is in a house burns, whatever the house is built of.
   if (!r.f && r.d < 0.95 && r.d > 0.15 && at?.he && rng() < BUILT[b.mat].burn * Math.min(1, dmg / b.hp + 0.25)) r.f = 1;
   if (r.d >= 1) r.f = 0;
-  const now = stageOf(r.d);
+  // An atomic shock close in does not knock a building down, it takes it
+  // away: walls, floors and the heap they would have made, blown off the
+  // footprint and strewn downwind. `at.nk` is how hard the blast is pushing,
+  // nought to one; at full strength nothing is left standing on the ground.
+  if (at?.nk >= 0.99 && r.d >= 1) r.c = 1;
+  const now = stageOf(r.d, !!r.c);
   if (now !== was || r.f !== wasF) ruinEvent(events, b, r, at);
 }
 
@@ -1883,6 +1888,7 @@ function ruinEvent(events, b, r, at) {
     s: stageOf(r.d, !!r.c),
     x: Math.round(b.x), z: Math.round(b.z),
     ...(at ? { bx: Math.round(at.x), bz: Math.round(at.z) } : {}),
+    ...(at?.nk ? { nk: Math.round(at.nk * 100) / 100 } : {}),
   });
 }
 
