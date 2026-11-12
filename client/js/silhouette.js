@@ -121,6 +121,22 @@ const HULLS = {
     <rect x="63" y="23.5" width="3.5" height="2.5"/>
     <rect x="69" y="23.5" width="3.5" height="2.5"/>
     <rect x="75" y="23.5" width="3.5" height="2.5"/>`,
+  // The County: a tall flush-decked cruiser hull, two twin turrets at each
+  // end, the inner ones superfiring, a tall bridge forward, three tall raked
+  // funnels amidships and a tripod mast at each end of her.
+  county: `
+    <path d="M2 27 L98 27 L95 37 L6 37 Z"/>
+    <rect x="9" y="23" width="7" height="4"/>
+    <rect x="17" y="20" width="7" height="4"/>
+    <rect x="27" y="15" width="9" height="12"/>
+    <rect x="30" y="9" width="3" height="7"/>
+    <rect x="37" y="5" width="1.6" height="22"/>
+    <path d="M42 27 L44 12 L48 12 L47 27 Z"/>
+    <path d="M51 27 L53 12 L57 12 L56 27 Z"/>
+    <path d="M60 27 L62 12 L66 12 L65 27 Z"/>
+    <rect x="72" y="6" width="1.6" height="21"/>
+    <rect x="76" y="20" width="7" height="4"/>
+    <rect x="84" y="23" width="7" height="4"/>`,
   // The Leviathan: a long cruiser hull, a tall bridge forward, two big
   // funnels with a lattice mast abaft each, and four quadruple turrets, two
   // at each end, the inner ones superfiring.
