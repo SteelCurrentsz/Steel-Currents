@@ -333,6 +333,15 @@ export const HEAVY_AERO = {
     thrust: 24000, vMax: 119, name: 'G4M1',
     helix: 0.044, gLimit: 2.6,
   },
+  // Eight turbofans on a wing of three hundred and seventy square metres,
+  // swept and flexible enough that her tips move six metres in turbulence.
+  // Fast, and as slow to come round as anything that has ever flown: she is
+  // stressed for two g and a little.
+  stratofortress: {
+    mass: 150000, wing: 370, span: 56.39, clMax: 1.35, cd0: 0.0180,
+    thrust: 600000, vMax: 290, name: 'B-52H',
+    helix: 0.028, gLimit: 2.0,
+  },
 };
 
 /**

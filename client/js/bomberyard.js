@@ -17,6 +17,7 @@ import * as THREE from '../../vendor/three.module.js';
 import { skyDome } from './render/scene.js';
 import { heavyBomber, HEAVY, layTurret } from './render/planekit.js';
 import { b29Ready, loadB29 } from './render/b29Model.js';
+import { b52Ready, loadB52 } from './render/b52Model.js';
 import { BOMBERS } from '../../shared/bombers.js';
 
 // How far under her the city is. A heavy bombed from eighteen thousand feet --
@@ -502,6 +503,14 @@ export class BomberScene {
         if (this.id !== 'silverplate') return;
         this.id = null;
         this.setBomber('silverplate');
+      }, () => {});
+    }
+    // And the B-52H the same.
+    if (id === 'stratofortress' && !b52Ready()) {
+      loadB52().then(() => {
+        if (this.id !== 'stratofortress') return;
+        this.id = null;
+        this.setBomber('stratofortress');
       }, () => {});
     }
     if (this.plane) {

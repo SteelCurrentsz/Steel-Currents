@@ -2355,8 +2355,9 @@ export function orderAttack(state, team, kind, id, foeKind, targetId) {
     }
     for (const bm of heavies) {
       if (cease) { bm.order = null; n++; continue; }
-      // A heavy lays her bombs on the ground and the sea, not in the sky.
-      if (air) continue;
+      // A heavy lays her bombs on the ground and the sea, not in the sky --
+      // unless what she carries is missiles, which go for anything.
+      if (air && !(BOMBERS[bm.bomberId] || {}).alcm) continue;
       bm.order = { k: foeKind, id: targetId };
       bm.vec = null;
       // Not off a run already begun: the sticks are going down where they are
@@ -7566,8 +7567,12 @@ function stepNukes(state, dt) {
     for (const tp of state.torps) {
       if (!tp.dead && Math.hypot(tp.x - n.x, tp.z - n.z) < Math.min(r1, NUKE.heavy)) tp.dead = true;
     }
+    // A missile the shock goes past is knocked out of the sky -- as the
+    // front goes by, not for as long as the burst is remembered: one flown
+    // through where a burst was a minute ago finds the air there empty.
     for (const m of state.missiles || []) {
-      if (m.hp > 0 && air(m) < Math.min(r1, NUKE.heavy)) m.hp = 0;
+      const d = air(m);
+      if (m.hp > 0 && d < NUKE.heavy && crossed(d)) m.hp = 0;
     }
     // The town: every building the front has crossed.
     if (state.world?.works) {
@@ -8951,11 +8956,29 @@ const BOX_CELL = 1.19;
  * any class carries has one.
  */
 export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g', vulcan: 'v', s300: 'f', osa: 'm',
-  essm: 'r', ram: 'x', agm84: 'q', penguin: 'p', kh25: 'c', aim9: 'w', aim120: 'u', agm65: 'k' };
+  essm: 'r', ram: 'x', agm84: 'q', penguin: 'p', kh25: 'c', aim9: 'w', aim120: 'u', agm65: 'k', agm86: 'l' };
 export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(([k, c]) => [c, k]));
 
 /** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc', 'aam' (an aeroplane's, at aeroplanes), 'ground' (an aeroplane's, at a gun ashore). */
 export const missileRole = (K) => (K && K.role) || 'surface';
+
+/**
+ * What a kind may be laid on, by the letter its target goes by ('s' a ship,
+ * 'b' a gun ashore, 'g' the town, 'a' an aeroplane, 'm' a missile): what it
+ * was built for and nothing else -- an air-to-air missile goes for aircraft
+ * only -- unless the kind says it goes for everything (`hits`), as the
+ * B-52's nuclear AGM-86B does.
+ */
+export function missileHits(K) {
+  if (K && K.hits) return K.hits;
+  switch (missileRole(K)) {
+    case 'sam': return ['a', 'm'];
+    case 'abm': return ['m'];
+    case 'aam': return ['a'];
+    case 'ground': return ['b', 's'];
+    default: return ['s'];
+  }
+}
 /**
  * Where a kind goes up from: a Mk 41 cell ('vls'), an armoured box ('box'), a
  * canister ('tube') -- fired once -- or the arm of a launcher that is
@@ -9099,6 +9122,76 @@ function asrocMark(state, from, t) {
 }
 
 /**
+ * Whatever of the enemy's a missile of `team` may be laid on, by its id: a
+ * ship on the sea (not a boat under it), a gun position ashore, an aeroplane
+ * or a heavy in the air, a missile in flight, or the town. Every missile goes
+ * for any of them; what it was built for decides how well, not whether.
+ * Returns { tk, id, x, y, z, gx?, gz? } -- `tk` the letter it is aimed by:
+ * 's' a ship, 'b' a gun, 'a' an aeroplane, 'm' a missile, 'g' a place on
+ * the ground -- or null.
+ */
+function missileFoe(state, team, id) {
+  if (!id) return null;
+  const s = state.ships.find((q) => q.id === id);
+  if (s) return missileMark(state, team, s) ? { tk: 's', id, x: s.x, y: 6, z: s.z } : null;
+  const b = (state.batteries || []).find((q) => q.id === id);
+  if (b) return b.alive && b.team !== team ? { tk: 'b', id, x: b.x, y: (b.y ?? 0) + 1.5, z: b.z } : null;
+  for (const { q } of airborne(state)) {
+    if (q.id !== id) continue;
+    return q.team !== team ? { tk: 'a', id, x: q.x, y: q.y ?? 220, z: q.z } : null;
+  }
+  const m = (state.missiles || []).find((q) => q.id === id);
+  if (m) return m.team !== team && !m.aboard && m.hp > 0 ? { tk: 'm', id, x: m.x, y: m.y, z: m.z } : null;
+  const w = state.world ? worksTarget(state.world, id, state.t) : null;
+  if (w && w.alive !== false) {
+    const gy = Math.max(0, groundHeight(state.world, w.x, w.z));
+    return { tk: 'g', id, x: w.x, y: gy + 2, z: w.z, gx: w.x, gz: w.z };
+  }
+  return null;
+}
+
+/** Whether a missile flies as an interceptor -- at something in the air. */
+const goesForAir = (m) => m.tk === 'a' || m.tk === 'm';
+/** Whether a missile flies down onto something fixed on the land. */
+const goesForGround = (m) => m.tk === 'b' || m.tk === 'g';
+
+// What a kind lacks for a job it was not built for, filled in once: a
+// Sidewinder put on a ship needs a height to fly at and a warhead's worth
+// of damage, and a Harpoon put on an aeroplane needs a proximity fuse and a
+// seeker that will turn with it.
+const STRIKE_K = new WeakMap();
+const AIR_K = new WeakMap();
+function strikeKind(K) {
+  let o = STRIKE_K.get(K);
+  if (!o) {
+    o = { ...K, cruise: K.cruise ?? 30, damage: K.damage ?? 450 + (K.kill || 15) * 25, fire: K.fire ?? 0.2,
+      turn: Math.max(0.3, K.turn ?? 0.6), popUp: K.popUp ?? 0 };
+    STRIKE_K.set(K, o);
+  }
+  return o;
+}
+function airKindOf(K) {
+  let o = AIR_K.get(K);
+  if (!o) {
+    o = { ...K, turn: Math.max(1.2, K.turn ?? 1.2), kill: K.kill ?? (K.nuclear ? 120 : 20), pk: K.pk ?? 0.75 };
+    AIR_K.set(K, o);
+  }
+  return o;
+}
+
+/**
+ * A nuclear warhead going off where the missile carrying it is: the same
+ * burst as the Silverplate's bomb (see nukeBlast), on whoever is near it.
+ * Returns true -- the missile is gone.
+ */
+function missileNuke(state, m, x, y, z) {
+  state.events.push({ e: 'mslDown', x: r(x), y: r(y), z: r(z), k: m.kind, i: m.id, why: 'nuke', owner: m.owner });
+  const g = Math.max(0, groundHeight(state.world, x, z));
+  nukeBlast(state, x, Math.max(g, y), z, { team: m.team, bomber: m.bomber || 0 });
+  return true;
+}
+
+/**
  * The ship a missile goes for when it is given none: whatever her side can see
  * nearest her, inside the missile's reach; or, in the air, nearest ahead of it.
  */
@@ -9132,7 +9225,9 @@ function asrocAuto(state, from, reach) {
 function isThreat(state, m, team) {
   if (m.team === team || m.aboard || m.hp <= 0 || m.dead) return false;
   const role = missileRole(kindOf(state, m));
-  return role === 'surface' || role === 'asroc';
+  // Anything going for something on the sea or the land, whatever it was
+  // built for: a Sidewinder put on a ship is coming for her all the same.
+  return role === 'surface' || role === 'asroc' || m.tk === 's' || m.tk === 'b' || m.tk === 'g';
 }
 
 /** Where something in the air is, and which way it is going, by its kind ('m' a missile, 'a' an aeroplane). */
@@ -9279,8 +9374,19 @@ export function fireMissile(state, ship, kind, targetId = 0, air = null) {
   // could: it goes further, to a target the Hawkeye holds.
   const aew = aewOver(state, ship.team, ship.x, ship.z);
   const reachOf = role === 'sam' || role === 'abm' ? K.range : K.range * (aew ? AEW_MISSILE_REACH : 1);
-  let target = null, tk = 's', tid = 0, aim = null;
-  if (role === 'sam' || role === 'abm') {
+  let target = null, tk = 's', tid = 0, aim = null, ground = null;
+  // Put on something by name: if it is the kind of thing this missile was
+  // built for (see missileHits) and in reach. Only an ASROC goes for a boat
+  // under the sea, and it has its own way of choosing.
+  const named = !air && targetId && role !== 'asroc' ? missileFoe(state, ship.team, targetId) : null;
+  const foe = named && missileHits(K).includes(named.tk) ? named : null;
+  const foeReach = foe ? (goesForAir(foe) ? K.range : reachOf) : 0;
+  if (foe && Math.hypot(foe.x - ship.x, foe.z - ship.z, goesForAir(foe) ? foe.y : 0) <= foeReach) {
+    tk = foe.tk; tid = foe.id;
+    aim = goesForAir(foe) ? airTarget(state, tk, tid) : foe;
+    if (!aim) return null;
+    if (foe.tk === 'g') ground = { gx: foe.gx, gz: foe.gz };
+  } else if (role === 'sam' || role === 'abm') {
     // Something in the air: the one asked for if it is a threat this can
     // reach, or the most pressing there is.
     const list = airThreats(state, ship, role === 'abm' ? { ...K, air: false } : K);
@@ -9376,6 +9482,7 @@ export function fireMissile(state, ship, kind, targetId = 0, air = null) {
     // Aboard until it is off its rail: carried with her, in her frame.
     aboard: { lx: L.lx, lz: L.lz, y: L.y, bearing: L.bearing, elev: L.elev },
     hp: K.hp, burn: 0,
+    ...(ground || {}),
     ...(reachOf !== K.range ? { reach: reachOf } : {}),
   };
   state.missiles.push(m);
@@ -9386,11 +9493,26 @@ export function fireMissile(state, ship, kind, targetId = 0, air = null) {
 /** Lay a missile already in the air on another ship. Hers only, and not one going for something in the air. */
 export function retargetMissile(state, ship, id, targetId) {
   const m = state.missiles.find((q) => q.id === id);
-  if (!m || m.owner !== ship.id || m.tk === 'm' || m.tk === 'a') return false;
-  const t = state.ships.find((q) => q.id === targetId);
-  const role = missileRole(kindOf(state, m));
-  if (role === 'asroc' ? !asrocMark(state, ship, t) : !missileMark(state, m.team, t)) return false;
-  m.target = t.id;
+  // Not one going for something in the air: that is its own seeker's.
+  if (!m || m.owner !== ship.id || goesForAir(m)) return false;
+  const K = kindOf(state, m);
+  const role = missileRole(K);
+  if (role === 'asroc') {
+    const t = state.ships.find((q) => q.id === targetId);
+    if (!asrocMark(state, ship, t)) return false;
+    m.target = t.id;
+    return true;
+  }
+  // Anything else, onto another thing of the kind it was built for: it turns
+  // for it from where it is.
+  const foe = missileFoe(state, m.team, targetId);
+  if (!foe || goesForAir(foe) || !missileHits(K).includes(foe.tk)) return false;
+  m.target = foe.id;
+  m.tk = foe.tk;
+  m.lost = 0;
+  if (foe.tk === 'g') { m.gx = foe.gx; m.gz = foe.gz; }
+  // Off its run into what it was going for, and back up to its height.
+  if (!goesForAir(foe)) m.age = Math.max(m.age, MISSILE_CLIMB);
   return true;
 }
 
@@ -9492,6 +9614,13 @@ function stepInterceptor(state, m, K, dt) {
         py + (m.y - py) * u - (ty0 + (t.y - ty0) * u), pz + (m.z - pz) * u - (tz0 + (t.z - tz0) * u)));
     }
     if (near <= (K.kill || 15)) {
+      // A nuclear warhead does not need to be close, and takes everything
+      // round it with it.
+      if (K.nuclear && !t.decoy) {
+        t.kill('sam');
+        missileNuke(state, m, m.x, m.y, m.z);
+        return false;
+      }
       const hit = !t.decoy && state.rng() < (K.pk ?? 0.8);
       if (hit) t.kill('sam');
       const owner = state.ships.find((s) => s.id === m.owner);
@@ -9501,7 +9630,7 @@ function stepInterceptor(state, m, K, dt) {
       return false;
     }
   }
-  if (m.travelled > K.range) { loseMissile(state, m, 'burst'); return false; }
+  if (m.travelled > (m.reach || K.range)) { loseMissile(state, m, 'burst'); return false; }
   if (m.y <= 0.3) {
     state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 250 });
     loseMissile(state, m, 'sea');
@@ -9643,22 +9772,45 @@ function missileFlak(state, m, dt) {
 }
 
 /**
- * A missile laid on a gun position ashore, a tick: up to its speed, and
- * steered straight down the line onto the gun, which does not move. It goes
- * off on the gun when it gets there, and into the hillside if the hill is in
- * the way. Returns whether it is still flying.
+ * A missile laid on something on the land, a tick: a gun position, or a place
+ * on the ground (the town). Up to its speed, over the land at its height
+ * until it is near, and then straight down the line onto it. It goes off on
+ * it when it gets there -- a nuclear one a little over it -- and into the
+ * hillside if the hill is in the way. If the gun is knocked out before it
+ * gets there it goes on to where the gun was. Returns whether it is still
+ * flying.
  */
 function stepGroundMissile(state, m, K, dt) {
   m.speed = Math.min(K.speed, m.speed + MISSILE_BOOST * dt);
-  const b = (state.batteries || []).find((q) => q.id === m.target);
+  const b = m.tk === 'b' ? (state.batteries || []).find((q) => q.id === m.target) : null;
+  if (b && b.alive) { m.gx = b.x; m.gz = b.z; }
+  // A ship, for a missile built to go up at aircraft put on one instead: it
+  // flies straight down its seeker's line onto her deck, led onto where she
+  // will be, rather than down to the sea and in at her side.
+  let sh = m.tk === 's' ? state.ships.find((q) => q.id === m.target) : null;
+  if (sh && (!sh.alive || submerged(sh))) sh = null;
+  if (sh) {
+    const tti = Math.hypot(sh.x - m.x, sh.z - m.z) / Math.max(100, m.speed);
+    const v = velocityOf(sh);
+    m.gx = sh.x + v.x * Math.min(20, tti); m.gz = sh.z + v.z * Math.min(20, tti);
+  }
+  const has = Number.isFinite(m.gx) && Number.isFinite(m.gz);
   const px = m.x, py = m.y, pz = m.z;
-  if (b && b.alive) {
-    const ty = (b.y ?? 0) + 1.5;
-    const d = Math.hypot(b.x - m.x, b.z - m.z);
-    const wantH = headingTo(m.x, m.z, b.x, b.z);
-    const wantP = Math.atan2(ty - m.y, Math.max(1, d));
+  const ty = sh ? 6 : b && b.alive ? (b.y ?? 0) + 1.5 : has ? Math.max(0, groundHeight(state.world, m.gx, m.gz)) + 1.5 : 0;
+  if (has) {
+    const d = Math.hypot(m.gx - m.x, m.gz - m.z);
+    const wantH = headingTo(m.x, m.z, m.gx, m.gz);
+    let wantP = Math.atan2(ty - m.y, Math.max(1, d));
+    // A long way out: at its height over whatever is under it and ahead of
+    // it, not on a straight line through the hills.
+    if (d > 1500) {
+      const ahead = Math.max(0, groundHeight(state.world, m.x + Math.sin(m.heading) * 400, m.z + Math.cos(m.heading) * 400));
+      const under = Math.max(0, groundHeight(state.world, m.x, m.z));
+      const want = Math.max(ahead, under) + (K.cruise ?? 40);
+      wantP = Math.atan2(clamp((want - m.y) * 0.9, -45, 35), Math.max(1, m.speed));
+    }
     const turn = K.turn * dt;
-    m.heading = wrapAngle(m.heading + clamp(angleDelta(m.heading, wantH), -turn, turn));
+    m.heading = wrapAngle(m.heading + clamp(angleDelta(m.heading, wantH), -turn * 1.5, turn * 1.5));
     m.pitch += clamp(wantP - m.pitch, -turn * 1.5, turn * 1.5);
   }
   const c = Math.cos(m.pitch);
@@ -9666,30 +9818,36 @@ function stepGroundMissile(state, m, K, dt) {
   m.z += Math.cos(m.heading) * c * m.speed * dt;
   m.y += Math.sin(m.pitch) * m.speed * dt;
   m.travelled += m.speed * dt;
-  if (b && b.alive) {
-    // Its fuse: the nearest it came to the gun along the way it went.
-    const ty = (b.y ?? 0) + 1.5;
+  if (has) {
+    // Its fuse: the nearest it came to the mark along the way it went.
     let near = Infinity;
     for (let k = 0; k <= 4; k++) {
       const u = k / 4;
-      near = Math.min(near, Math.hypot(px + (m.x - px) * u - b.x, py + (m.y - py) * u - ty, pz + (m.z - pz) * u - b.z));
+      near = Math.min(near, Math.hypot(px + (m.x - px) * u - m.gx, py + (m.y - py) * u - ty, pz + (m.z - pz) * u - m.gz));
     }
-    if (near <= 9) {
-      hurtBattery(state, b, K.damage);
-      landStrike(state, b.x, b.z, 0.3, 'bomb', 1.2);
+    if (near <= (K.nuclear ? K.fuze || 45 : sh ? 14 : 9)) {
+      if (K.nuclear) return !missileNuke(state, m, m.x, m.y, m.z);
+      const victim = sh ? sh.id : 0, bat = b && b.alive ? b.id : undefined;
+      if (sh) missileHit(state, m, K, sh, getClass(sh.classId));
+      else {
+        if (b && b.alive) hurtBattery(state, b, K.damage);
+        landStrike(state, m.gx, m.gz, 0.3, 'bomb', 1.2);
+      }
       const owner = state.ships.find((s) => s.id === m.owner);
-      if (owner) owner.ribbons.hits++;
-      state.events.push({ e: 'mslHit', x: r(b.x), y: r(ty), z: r(b.z), k: m.kind, victim: 0, bat: b.id, owner: m.owner, i: m.id });
+      if (owner && !sh) owner.ribbons.hits++;
+      if (!sh) state.events.push({ e: 'mslHit', x: r(m.gx), y: r(ty), z: r(m.gz), k: m.kind, victim, bat, owner: m.owner, i: m.id });
       return false;
     }
   }
-  if (m.travelled > K.range) { loseMissile(state, m, 'fuel'); return false; }
+  if (m.travelled > (m.reach || K.range)) { loseMissile(state, m, 'fuel'); return false; }
   if (m.y <= 0.3) {
+    if (K.nuclear) return !missileNuke(state, m, m.x, 0, m.z);
     state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 300 });
     loseMissile(state, m, 'sea');
     return false;
   }
   if (groundHeight(state.world, m.x, m.z) > m.y) {
+    if (K.nuclear) return !missileNuke(state, m, m.x, m.y, m.z);
     landStrike(state, m.x, m.z, 0.3, 'bomb', 1.2);
     loseMissile(state, m, 'land');
     return false;
@@ -9704,7 +9862,7 @@ function stepMissiles(state, dt) {
   const bound = (state.world.half || MAP_HALF) + 2000;
   for (const m of state.missiles) {
     const ship = state.ships.find((s) => s.id === m.owner);
-    const K = kindOf(state, m);
+    let K = kindOf(state, m);
     if (!K) continue;
     m.age += dt;
     if (m.aboard) {
@@ -9726,20 +9884,30 @@ function stepMissiles(state, dt) {
     if (m.hp <= 0) { loseMissile(state, m, m.downBy || 'ciws'); continue; }
     // Something going for something in the air, and a rocket throwing a
     // torpedo: each flies its own way.
+    //
+    // How it flies is what it is going for, not what it was built for: any
+    // missile put on something in the air flies at it as an interceptor
+    // does, any put on something on the land flies down onto it, and any
+    // put on a ship flies in onto her as a ship's missile does.
     const role = missileRole(K);
-    if (role === 'sam' || role === 'abm' || role === 'aam') { if (stepInterceptor(state, m, K, dt)) out.push(m); continue; }
-    // A Maverick laid on a gun ashore: down its seeker's line onto it.
-    if (m.tk === 'b') { if (stepGroundMissile(state, m, K, dt)) out.push(m); continue; }
     if (role === 'asroc') {
       if (!stepAsroc(state, m, K, dt)) continue;
       if (missileFlak(state, m, dt)) { loseMissile(state, m, 'flak'); continue; }
       out.push(m);
       continue;
     }
+    if (goesForAir(m)) { if (stepInterceptor(state, m, airKindOf(K), dt)) out.push(m); continue; }
+    if (goesForGround(m) || (m.tk === 's' && (role === 'sam' || role === 'abm' || role === 'aam'))) {
+      if (!stepGroundMissile(state, m, strikeKind(K), dt)) continue;
+      if (missileFlak(state, m, dt)) { loseMissile(state, m, 'flak'); continue; }
+      out.push(m);
+      continue;
+    }
     // Her booster, and then her sustainer up to her speed.
+    K = strikeKind(K);
     m.speed = Math.min(K.speed, m.speed + MISSILE_BOOST * dt);
     let t = state.ships.find((s) => s.id === m.target);
-    if (!t || !t.alive) {
+    if (!t || !t.alive || submerged(t)) {
       t = missileAuto(state, m.team, m.x, m.z, Math.max(3000, K.range - m.travelled), m.heading);
       m.target = t ? t.id : 0;
     }
@@ -9787,13 +9955,20 @@ function stepMissiles(state, dt) {
       state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 300 });
       continue;
     }
+    // A nuclear one goes off over her rather than waiting to touch her.
+    if (K.nuclear && t && t.alive && Math.hypot(t.x - m.x, t.z - m.z, m.y - 6) <= (K.fuze || 45)) {
+      missileNuke(state, m, m.x, m.y, m.z);
+      continue;
+    }
     if (m.y <= 0.3) {
+      if (K.nuclear) { missileNuke(state, m, m.x, 0, m.z); continue; }
       state.events.push({ e: 'splash', x: r(m.x), z: r(m.z), cal: 350 });
       loseMissile(state, m, 'sea');
       continue;
     }
     // Into the land: it goes off against the hillside like a bomb.
     if (groundHeight(state.world, m.x, m.z) > m.y) {
+      if (K.nuclear) { missileNuke(state, m, m.x, m.y, m.z); continue; }
       landStrike(state, m.x, m.z, 0.53, 'bomb', 1.4);
       loseMissile(state, m, 'land');
       continue;
@@ -9809,7 +9984,8 @@ function stepMissiles(state, dt) {
         if (qy > top) continue;
         if (!pointInBox(qx, qz, s.x, s.z, s.heading, scls.hull.length * 0.5, scls.hull.beam * 0.5 + 1)) continue;
         m.x = qx; m.z = qz; m.y = qy;
-        missileHit(state, m, K, s, scls);
+        if (K.nuclear) missileNuke(state, m, qx, qy, qz);
+        else missileHit(state, m, K, s, scls);
         hit = true;
       }
       if (hit) break;
@@ -14254,7 +14430,9 @@ export function fireLocked(state, ship, msg) {
 /** One missile off her rail at `tg`, going the way her nose is. */
 function launchLocked(state, p, kind, K, tk, tg, side) {
   const h = p.heading || 0;
-  const air = missileRole(K) === 'aam';
+  // Something in the air is flown at as an interceptor flies (see
+  // stepMissiles).
+  const air = tk === 'a';
   const m = {
     id: eid(), owner: p.owner, team: p.team, kind,
     x: p.x + Math.sin(h + Math.PI / 2) * side * 2.5, y: Math.max(3, (p.y ?? 200) - 1.5), z: p.z + Math.cos(h + Math.PI / 2) * side * 2.5,
@@ -15658,9 +15836,12 @@ export function bombThrow(alt, speed) {
  * or is told by her side's staff, and neither of those goes on the wire.
  */
 export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0,
-  count = HEAVY_VIC }) {
+  count = null }) {
   const b = BOMBERS[bomberId] || BOMBERS.lancaster;
-  const n = Math.max(1, Math.min(9, Math.round(count)));
+  // A vic of three, unless she goes in some other number: a B-52 goes alone.
+  const n = Math.max(1, Math.min(9, Math.round(count ?? b.flight ?? HEAVY_VIC)));
+  // And a machine the size of a B-52 takes a great deal more stopping.
+  const per = HEAVY_HP * (b.alcm ? 2.5 : 1);
   const bm = {
     id: id ?? eid(),
     bomberId,
@@ -15669,15 +15850,19 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     x, y: bombAlt(b), z,
     heading,
     // Her cruising speed, off her own datasheet. Miles an hour is how a bomber
-    // was quoted and metres a second is how the world is measured.
-    speed: b.cruise * 0.44704,
+    // was quoted and metres a second is how the world is measured. A jet is
+    // throttled back to three hundred down here: at her own five hundred and
+    // more she would cross the whole battle in under a minute.
+    speed: Math.min(b.cruise, 300) * 0.44704,
     count: n,
-    hp: n * HEAVY_HP,
-    maxHp: n * HEAVY_HP,
+    hp: n * per,
+    maxHp: n * per,
     // How many times she can lay a stick. Two runs and she is out of bombs and
     // goes home, which is what an aeroplane with a finite bomb bay does. A
     // Silverplate formation has the one weapon between the three of them.
-    loads: b.atomic ? 1 : 2,
+    // A B-52's are her cruise missiles, one at a time.
+    loads: b.alcm ? b.alcm.n : b.atomic ? 1 : 2,
+    mslCool: 0,
     // Her bay doors, open: on the run, and for an atomic run for the last of
     // the approach before it as well (see stepBombers).
     doors: false, doorsUntil: 0,
@@ -15688,14 +15873,14 @@ export function addBomber(state, { id, bomberId, team, x = 0, z = 0, heading = 0
     // of, so a formation is not a hit-point bar with a number written on it
     // and a captain flying one gets the same damage board a pilot gets. See
     // airframe.js.
-    perHp: HEAVY_HP,
-    machines: Array.from({ length: n }, () => freshAirframe(HEAVY_HP, HEAVY_TOUGH)),
+    perHp: per,
+    machines: Array.from({ length: n }, () => freshAirframe(per, HEAVY_TOUGH)),
     // Her gun positions, each fought on its own and each able to be shot out.
     // One position stands for that turret across the whole vic. See
     // heavyGunners.
     posts: (b.posts || []).map((name) => ({
-      name, hp: (n * HEAVY_HP * POST_SHARE) / Math.max(1, b.posts.length),
-      max: (n * HEAVY_HP * POST_SHARE) / Math.max(1, b.posts.length), on: 0, t: 0,
+      name, hp: (n * per * POST_SHARE) / Math.max(1, b.posts.length),
+      max: (n * per * POST_SHARE) / Math.max(1, b.posts.length), on: 0, t: 0,
     })),
     wear: { speed: 1, turn: 1, aim: 1, count: n },
     // Set while somebody is flying her by hand; see flyBomber.
@@ -16154,6 +16339,17 @@ export function dropStick(state, ship, id) {
   const bm = (state.bombers || []).find((q) => q.id === id && q.alive);
   if (!bm || !ship || bm.team !== ship.team) return false;
   if (bm.loads <= 0) return false;
+  // A B-52's release is one cruise missile, at whatever is ahead of her.
+  const B = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
+  if (B.alcm) {
+    if ((bm.mslCool || 0) > 0) return false;
+    const K = AIR_MISSILES[B.alcm.kind];
+    const foe = alcmAhead(state, bm, K);
+    if (!foe) return false;
+    fireAlcm(state, bm, B, K, foe);
+    bm.mslCool = ALCM_HAND;
+    return true;
+  }
   if (bm.phase === 'run' || bm.stick > 0) return false;
   const L = heavyLoad(bm);
   bm.phase = 'run';
@@ -16399,6 +16595,140 @@ function heavyGunners(state, bm, dt) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// A heavy with cruise missiles
+// ---------------------------------------------------------------------------
+//
+// A B-52 does not go over the target. She comes in to where she has it in
+// her missiles' reach, and stays outside the burst: she lets one go, waits
+// for the next to be ready, and fires that at the next thing -- one missile
+// at one thing at a time, so that twenty warheads are not all spent on the
+// first ship she sees. What she was ordered onto comes first; then whatever
+// of the enemy's is worth a warhead, ships before guns. When she has none
+// left she goes home.
+
+/** How close she will go to what she is firing at: outside her own burst. */
+const ALCM_STANDOFF = NUKE.air * 1.9;
+/** How far out she fires from, in metres: across most of the battle. */
+const ALCM_REACH = 13000;
+/** Seconds between one missile and the next, left to herself. */
+const ALCM_INTERVAL = 6;
+/** And with a man at the release. */
+const ALCM_HAND = 1.5;
+
+/** Whether one of her missiles is already on its way to `id`. */
+const alcmBusy = (state, bm, id) => (state.missiles || []).some((m) => m.bomber === bm.id && m.target === id);
+
+/** What she would put a warhead on, left to herself: the best of it, and only things she can reach. */
+function alcmPick(state, bm, reach) {
+  let best = null, score = -Infinity;
+  for (const s of state.ships) {
+    if (!missileMark(state, bm.team, s) || alcmBusy(state, bm, s.id)) continue;
+    const cls = getClass(s.classId);
+    const d = dist(bm.x, bm.z, s.x, s.z);
+    const v = (cls.type === 'CV' ? 320 : cls.hull.length) - d * 0.006 - (d > reach ? 400 : 0);
+    if (v > score) { score = v; best = s; }
+  }
+  for (const b of state.batteries || []) {
+    if (!b.alive || b.team === bm.team || alcmBusy(state, bm, b.id)) continue;
+    const d = dist(bm.x, bm.z, b.x, b.z);
+    const v = 60 - d * 0.006 - (d > reach ? 400 : 0);
+    if (v > score) { score = v; best = b; }
+  }
+  return best ? missileFoe(state, bm.team, best.id) : null;
+}
+
+/**
+ * Her own flying and firing, a tick, when nobody has the stick: returns the
+ * heading she wants.
+ */
+function stepMissileCarrier(state, bm, B, vectored, dt) {
+  void dt;
+  const K = AIR_MISSILES[B.alcm.kind];
+  if (bm.loads <= 0) { bm.phase = 'home'; return bm.heading; }
+  if (bm.phase === 'away' || bm.phase === 'run') bm.phase = 'inbound';
+  if (vectored) return headingTo(bm.x, bm.z, bm.vec.x, bm.vec.z);
+  const reach = Math.min(ALCM_REACH, K.range * 0.9);
+  // Ordered onto something: that, for as long as it is there.
+  let foe = null;
+  if (bm.order) {
+    const o = bm.order;
+    const f = attackFoe(state, o.k, o.id);
+    foe = f ? missileFoe(state, bm.team, o.k === 'town' || o.k === 'wall' ? o.id : f.id) : null;
+    if (!foe) bm.order = null;
+  }
+  if (!foe) foe = alcmPick(state, bm, reach);
+  if (!foe) {
+    // Nothing to fire at: in towards the middle of it, and round.
+    const d0 = Math.hypot(bm.x, bm.z);
+    return d0 > state.world.half * 0.5 ? headingTo(bm.x, bm.z, 0, 0) : wrapAngle(bm.heading + 0.4);
+  }
+  bm.aimX = foe.x; bm.aimZ = foe.z; bm.targetId = foe.tk === 's' ? foe.id : 0;
+  const d = dist(bm.x, bm.z, foe.x, foe.z);
+  // Where she will be when it gets there: not inside her own burst.
+  const closing = Math.max(0, Math.cos(angleDelta(bm.heading, headingTo(bm.x, bm.z, foe.x, foe.z))));
+  const then = d - (bm.speed || 0) * (d / K.speed) * closing;
+  if (d <= reach && then >= ALCM_STANDOFF && bm.mslCool <= 0 && !alcmBusy(state, bm, foe.id)) {
+    fireAlcm(state, bm, B, K, foe);
+    bm.mslCool = ALCM_INTERVAL;
+  }
+  const to = headingTo(bm.x, bm.z, foe.x, foe.z);
+  // Too close: out, before anything else -- she turns like a ship. Too far:
+  // in. Between: round, broadside on to it.
+  if (d < ALCM_STANDOFF * 1.3) return wrapAngle(to + Math.PI);
+  if (d > reach * 0.85) return to;
+  return wrapAngle(to + (angleDelta(to, bm.heading) >= 0 ? 1 : -1) * Math.PI / 2);
+}
+
+/**
+ * The best thing ahead of her for a missile, for a man at the release: the
+ * one nearest her nose inside her reach, in the air, on the sea or ashore.
+ */
+function alcmAhead(state, bm, K) {
+  const reach = Math.min(ALCM_REACH * 1.2, K.range);
+  let best = null, score = Infinity;
+  const look = (id, x, z) => {
+    const d = dist(bm.x, bm.z, x, z);
+    if (d > reach || d < 400) return;
+    const off = Math.abs(angleDelta(bm.heading, headingTo(bm.x, bm.z, x, z)));
+    if (off > 1.05) return;
+    const v = off * 4000 + d;
+    if (v < score) { score = v; best = id; }
+  };
+  for (const s of state.ships) if (missileMark(state, bm.team, s)) look(s.id, s.x, s.z);
+  for (const b of state.batteries || []) if (b.alive && b.team !== bm.team) look(b.id, b.x, b.z);
+  for (const { q } of airborne(state)) if (q.team !== bm.team) look(q.id, q.x, q.z);
+  return best ? missileFoe(state, bm.team, best) : null;
+}
+
+/** One AGM-86B away from her at `foe`: off a wing pylon while she has any there, then off the drum. */
+function fireAlcm(state, bm, B, K, foe) {
+  const left = bm.loads;
+  const ext = left > B.alcm.internal;
+  // The pylons are emptied from the last station in, turn about each side.
+  const idx = left - 1 - B.alcm.internal;
+  const side = ext ? (idx % 2 ? 1 : -1) : 0;
+  const h = headingTo(bm.x, bm.z, foe.x, foe.z);
+  const across = bm.heading + Math.PI / 2;
+  const air = goesForAir(foe);
+  const m = {
+    id: eid(), owner: 0, bomber: bm.id, team: bm.team, kind: B.alcm.kind,
+    x: bm.x + Math.sin(across) * side * 7.6, y: Math.max(20, bm.y - 4), z: bm.z + Math.cos(across) * side * 7.6,
+    heading: h, pitch: -0.06,
+    // Dropped, not launched: it falls clear, its wings come out and its
+    // engine lights. Off her at her own speed.
+    speed: Math.max(140, bm.speed || 200), travelled: 0, age: air ? 0.35 : MISSILE_CLIMB,
+    target: foe.id, tk: foe.tk, hold: 0, from: -1, vls: 0, aboard: null,
+    hp: K.hp, burn: 0, air: 1,
+    ...(foe.tk === 'g' ? { gx: foe.gx, gz: foe.gz } : {}),
+  };
+  state.missiles.push(m);
+  bm.loads -= 1;
+  state.events.push({ e: 'mslLaunch', ship: 0, k: B.alcm.kind, at: -1, i: m.id, x: r(m.x), y: r(m.y), z: r(m.z), air: 1, hv: bm.id });
+  state.events.push({ e: 'alcmAway', i: bm.id, tm: bm.team, left: bm.loads, tk: foe.tk });
+  return m;
+}
+
 function stepBombers(state, dt) {
   const out = [];
   for (const bm of state.bombers) {
@@ -16429,6 +16759,7 @@ function stepBombers(state, dt) {
     // she is picked up again on the next tick and carries on to wherever the
     // staff had sent her -- the same handover a carrier flight gets.
     if (bm.flown && state.t - (bm.flownAt ?? 0) > 1.5) { bm.flown = false; bm.pilot = 0; }
+    if (bm.mslCool > 0) bm.mslCool = Math.max(0, bm.mslCool - dt);
     if (bm.flown) {
       if (bm.stick > 0) {
         if (bm.stickT <= 0) {
@@ -16498,8 +16829,12 @@ function stepBombers(state, dt) {
 
     const toAim = dist(bm.x, bm.z, bm.aimX, bm.aimZ);
     let want = bm.heading;
+    const B = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
 
-    if (vectored) {
+    if (B.alcm) {
+      // She does not bomb: she stands off and fires (see stepMissileCarrier).
+      want = stepMissileCarrier(state, bm, B, vectored, dt);
+    } else if (vectored) {
       want = headingTo(bm.x, bm.z, bm.vec.x, bm.vec.z);
     } else if (bm.phase === 'inbound') {
       // The release point: back along the run-in bearing by the forward throw.

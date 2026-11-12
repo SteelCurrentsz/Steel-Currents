@@ -17,8 +17,26 @@
 
 /** The order the bomber yard steps through them. The Lancaster leads. */
 export const BOMBER_ORDER = [
-  'lancaster', 'fortress', 'silverplate', 'heinkel', 'junkers', 'betty',
+  'lancaster', 'fortress', 'silverplate', 'heinkel', 'junkers', 'betty', 'stratofortress',
 ];
+
+/**
+ * The two generations the bomber yard sorts them into: the Second World
+ * War's, and the jet age's. A bomber says which she is with `era`; one that
+ * says nothing is of the war.
+ */
+export const BOMBER_ERAS = [
+  { id: 'ww2', name: 'WWII' },
+  { id: 'modern', name: 'Modern' },
+];
+
+/** Which generation she is. */
+export const bomberEra = (b) => (b && b.era) || 'ww2';
+
+/** The bomber yard's order, for one generation. */
+export function bomberOrder(era) {
+  return BOMBER_ORDER.filter((id) => bomberEra(BOMBERS[id]) === era);
+}
 
 /** How many squadrons one side may have on call. */
 export const BOMBER_MAX = 15;
@@ -52,6 +70,12 @@ export const BOMBER_MAX = 15;
  * @property {string} blurb     one line, for the roster
  * @property {boolean} [atomic] she carries one atomic bomb rather than a stick:
  *                              see the simulation's `nukeBlast`
+ * @property {string} [era]     'modern' for the jet age; the war's otherwise
+ * @property {{kind: string, n: number, internal: number, external: number}} [alcm]
+ *                              she carries cruise missiles rather than bombs,
+ *                              and fires them from a distance (see
+ *                              stepMissileCarrier in the simulation)
+ * @property {number} [flight]  how many go in one formation, when it is not a vic
  */
 
 /** @type {Record<string, Bomber>} */
@@ -249,6 +273,43 @@ export const BOMBERS = {
     arcs: 'Dorsal 360°, tail 60°',
     blurb: 'Two thousand miles of legs, and not an ounce of armour.',
   },
+
+  // The jet age's, and the only one here still in service: the BUFF, flying
+  // since 1955 and to be flying until 2050. She does not go over the target
+  // at all. She stands off outside the defences and lets go of cruise
+  // missiles -- twenty AGM-86Bs with W80-1 thermonuclear warheads, eight on
+  // the rotary launcher in her bay and twelve on her wing pylons, the most
+  // nuclear-armed cruise missiles she is rated to carry -- and each one flies
+  // itself in to whatever it was sent at, ship, gun, ground or aeroplane.
+  // She goes alone: twenty of those is enough for one aeroplane.
+  stratofortress: {
+    name: 'B-52H Stratofortress',
+    fullName: 'Boeing B-52H Stratofortress',
+    role: 'Strategic nuclear bomber',
+    nation: 'usaf',
+    era: 'modern',
+    crew: 5,
+    span: 56.39, length: 48.50,
+    weight: 220.0, empty: 83.3,
+    speed: 650, cruise: 525,
+    ceiling: 50000, reach: 8800,
+    armour: 0,
+    engines: '8 × Pratt & Whitney TF33-P-3/103, 17,000 lbf',
+    payload: 70000,
+    load: '20 × AGM-86B ALCM (W80-1): 8 rotary internal, 12 underwing',
+    alcm: { kind: 'agm86', n: 20, internal: 8, external: 12 },
+    flight: 1,
+    turrets: 0,
+    stations: 'None — tail guns removed 1991',
+    // No gun position aboard: what she has instead is her electronic
+    // countermeasures, her chaff and her flares, and her distance.
+    posts: [],
+    postAt: [],
+    guns: 0,
+    calibre: 'None',
+    arcs: 'None',
+    blurb: 'Twenty nuclear cruise missiles, and she never goes near the target.',
+  },
 };
 
 const num = (n) => n.toLocaleString('en-US');
@@ -277,6 +338,17 @@ export function airframeSheet(b) {
  * right. Payload, then the turrets, then what is in them.
  */
 export function payloadSheet(b) {
+  if (b.alcm) {
+    return [
+      ['Payload', `${num(b.payload)} lb`],
+      ['Missiles', `${b.alcm.n} × AGM-86B ALCM`],
+      ['Warhead', 'W80-1 thermonuclear, each'],
+      ['Internal', `${b.alcm.internal} on the rotary launcher`],
+      ['External', `${b.alcm.external} on two wing pylons`],
+      ['Targets', 'Ships, ground, aircraft'],
+      ['Defence', b.stations],
+    ];
+  }
   return [
     ['Payload', `${num(b.payload)} lb`],
     ['Bomb load', b.load],

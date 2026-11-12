@@ -39,6 +39,7 @@ import { avengerModel } from './avengerModel.js';
 import { devastatorModel } from './devastatorModel.js';
 import { b25Model, B25 } from './b25Model.js';
 import { b29Model, b29Ready } from './b29Model.js';
+import { b52Model, b52Ready } from './b52Model.js';
 import { navalAirModel } from './navalAirModel.js';
 
 // ---------------------------------------------------------------------------
@@ -5442,8 +5443,22 @@ const HEAVY = {
   },
 };
 
+// The B-52H: drawn off the owner's model (b52Model.js) once that is in. This
+// is her stand-in until it is -- a Superfortress's loft stretched to her
+// span and length, with no guns in it, because she has none.
+HEAVY.stratofortress = {
+  ...HEAVY.silverplate,
+  id: 'stratofortress', paint: 'usaaf', mark: 'star', markR: 0.80, markZ: -14.0,
+  body: { ...HEAVY.silverplate.body, z0: -24.0, z1: 24.0, w: 2.80, h: 3.40 },
+  span: 56.39, sweep: 14.0, rootC: 9.0, tipC: 3.0, wingY: 0.9, wingZ: 2.0,
+  nacelles: [{ x: 10.5, fwd: 4.0, dy: -1.2 }, { x: 19.0, fwd: 3.4, dy: -1.0 }],
+  finH: 8.0, finC: 7.0, tpZ: -20.0, tpSpan: 16.0,
+  turrets: [],
+  bay: { z: 1.0, len: 8.0, wide: 1.8, deep: 1.6, n: 1, bombLen: 6.32, bombR: 0.31 },
+};
+
 /** The kinds this file can build, in the order the bomber yard steps them. */
-const HEAVY_KINDS = ['lancaster', 'fortress', 'silverplate', 'heinkel', 'junkers', 'betty'];
+const HEAVY_KINDS = ['lancaster', 'fortress', 'silverplate', 'heinkel', 'junkers', 'betty', 'stratofortress'];
 
 /**
  * One heavy bomber, by name, in her own group with the origin under her.
@@ -5455,9 +5470,10 @@ function heavyBomber(kind) {
   // once it is in. Until it is she is the loft, and says so (`stub`), so
   // anything that keeps a model of her can ask again.
   if (kind === 'silverplate' && b29Ready()) return b29Bomber();
+  if (kind === 'stratofortress' && b52Ready()) return b52Bomber();
   const g = new THREE.Group();
   const s = HEAVY[kind] || HEAVY.lancaster;
-  if (kind === 'silverplate') g.userData.stub = true;
+  if (kind === 'silverplate' || kind === 'stratofortress') g.userData.stub = true;
   const p = heavy(g, 0, 0, 0, 0, s);
   // Her skin, the same flush-riveted alloy under paint every other machine in
   // this file wears. Done here rather than by the caller because a bomber is
@@ -5531,6 +5547,29 @@ function b29Bomber() {
   g.userData.kind = 'silverplate';
   // Her doors open and her weapon goes, in battle as well as in the yard:
   // see Heavies.batch.
+  g.userData.liftTrims = true;
+  return g;
+}
+
+/**
+ * The B-52H off the owner's model, wrapped the way every heavy here is: her
+ * twelve external cruise missiles where the bomber yard and the battle look
+ * for them, each to be taken off as it goes. No airscrews, no doors to
+ * open, no guns, and no inside to cut away to.
+ */
+function b52Bomber() {
+  const g = new THREE.Group();
+  const p = b52Model();
+  g.add(p);
+  g.userData.plane = p;
+  g.userData.props = [];
+  g.userData.rack = p.userData.rack;
+  g.userData.rackKind = 'alcm';
+  g.userData.parts = [];
+  g.userData.turrets = [];
+  g.userData.skin = [];
+  g.userData.cutaway = () => {};
+  g.userData.kind = 'stratofortress';
   g.userData.liftTrims = true;
   return g;
 }
