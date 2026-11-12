@@ -28996,9 +28996,9 @@ check('several towns and several stretches of wall can be raised in one battle, 
 
 check('the board\'s old ask for one town and one wall is still read, as a list of one', () => {
   const a = cleanAsk({ city: { seed: 1, x: 10.4, z: 20 }, walls: { seed: 2 } });
-  assert.deepEqual(a, { cities: [{ seed: 1, x: 10, z: 20 }], walls: [{ seed: 2 }] });
+  assert.deepEqual(a, { cities: [{ seed: 1, x: 10, z: 20 }], walls: [{ seed: 2 }], airbases: [], harbors: [] });
   assert.deepEqual(cleanAsk({ cities: [{ seed: 1, n: 3 }], walls: [{ seed: 2, n: 'x' }] }),
-    { cities: [{ seed: 1, n: 3 }], walls: [{ seed: 2 }] });
+    { cities: [{ seed: 1, n: 3 }], walls: [{ seed: 2 }], airbases: [], harbors: [] });
   assert.equal(cleanAsk({ cities: [], walls: [] }), null);
   assert.equal(cleanAsk({ cities: Array.from({ length: 40 }, (_, k) => ({ seed: k })) }).cities.length, 8);
 });
