@@ -142,6 +142,7 @@ function preferredRange(cls) {
     case 'DD': return 0.42;
     case 'CL': return 0.72;
     case 'CA': return 0.78;
+    case 'CB': return 0.8;
     case 'BB': return 0.82;
     case 'CV': return 1.6;
     default: return 0.7;
@@ -769,8 +770,8 @@ function evasion(state, ship, brain, cls, dt) {
   }
   const hot = state.t - (brain.fireAt ?? -1e9) < 14;
   // A destroyer swings hard and often; a battleship a few degrees, slowly.
-  const amp = { DD: 0.5, SS: 0.4, CL: 0.34, CA: 0.3, CV: 0.3, BB: 0.2 }[cls.type] ?? 0.3;
-  const period = { DD: 14, SS: 18, CL: 20, CA: 22, CV: 24, BB: 30 }[cls.type] ?? 22;
+  const amp = { DD: 0.5, SS: 0.4, CL: 0.34, CA: 0.3, CB: 0.25, CV: 0.3, BB: 0.2 }[cls.type] ?? 0.3;
+  const period = { DD: 14, SS: 18, CL: 20, CA: 22, CB: 26, CV: 24, BB: 30 }[cls.type] ?? 22;
   brain.jinkT = (brain.jinkT || 0) + dt;
   const want = hot ? amp * brain.skill * (Math.sin((brain.jinkT / period) * Math.PI * 2) >= 0 ? 1 : -1) : 0;
   // Eased onto, so the wheel is put over rather than snapped.

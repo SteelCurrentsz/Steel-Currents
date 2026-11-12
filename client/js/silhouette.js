@@ -185,6 +185,24 @@ const HULLS = {
     <path d="M54 28 L55 15 L59 15 L59 28 Z"/>
     <rect x="62" y="22" width="9" height="8"/>
     <rect x="80" y="26" width="8" height="4"/>`,
+  // The Alaska: a long, low flush deck sheered up to a clipper bow, two
+  // triple turrets forward, the inner one superfiring with a twin 5 in over
+  // it, a tall tower bridge with its pole mast, one big funnel with a
+  // mainmast beside it, the after superstructure under a twin 5 in, and one
+  // triple turret aft on her quarterdeck.
+  alaska: `
+    <path d="M2 26 L18 29 L98 29 L95 37 L6 37 Z"/>
+    <rect x="23" y="25" width="8" height="4"/>
+    <rect x="30" y="22" width="8" height="4"/>
+    <rect x="37" y="19" width="4" height="4"/>
+    <rect x="41" y="12" width="9" height="17"/>
+    <rect x="44" y="4" width="3" height="9"/>
+    <rect x="45" y="1" width="1" height="4"/>
+    <path d="M53 29 L54 13 L60 13 L60 29 Z"/>
+    <rect x="61" y="8" width="1.4" height="21"/>
+    <rect x="62" y="20" width="8" height="9"/>
+    <rect x="68" y="18" width="4" height="3"/>
+    <rect x="71" y="25" width="8" height="4"/>`,
   // The Des Moines: a long flush deck sheered up to her bow, two triple
   // turrets forward, the inner one superfiring with a twin 5 in over it, a
   // tall block bridge, a lattice-topped foremast, two funnels close together

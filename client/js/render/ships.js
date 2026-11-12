@@ -46,7 +46,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildLeviathan, buildCounty, buildIndianapolis, buildDesMoines, buildBrooklyn, buildAjax, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
+  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -88,6 +88,7 @@ const SCULPTED = {
   leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
   county: () => import('./county.js').then((m) => { buildCounty = m.buildCounty; }),
   indianapolis: () => import('./indianapolis.js').then((m) => { buildIndianapolis = m.buildIndianapolis; }),
+  alaska: () => import('./alaska.js').then((m) => { buildAlaska = m.buildAlaska; }),
   desmoines: () => import('./desmoines.js').then((m) => { buildDesMoines = m.buildDesMoines; }),
   ajax: () => import('./ajax.js').then((m) => { buildAjax = m.buildAjax; }),
   brooklyn: () => import('./brooklyn.js').then((m) => { buildBrooklyn = m.buildBrooklyn; }),
@@ -1255,6 +1256,21 @@ function buildModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Alaska: the owner's model of her -- her hull, her bridge, her
+  // funnel and every gun she was completed with.
+  if (cls.id === 'alaska') {
+    const built = buildAlaska();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
     };
   }
 

@@ -10715,6 +10715,181 @@ export const SHIP_CLASSES = {
       ],
     },
   },
+
+  alaska: {
+    // USS Alaska, CB-1, the first of the United States' "large cruisers": a
+    // cruiser's hull brought up to 246 metres and 34,000 tons to carry nine
+    // 12 in/50 Mk 8 in three triple turrets -- A and B forward, B superfiring;
+    // C aft -- under a single funnel, at thirty-three knots. She was built to
+    // run down the raiders and heavy cruisers the Navy believed Japan was
+    // building; she met none, and instead screened the fast carriers off Iwo
+    // Jima and Okinawa in 1945, and her guns were turned on aircraft and on
+    // the shore. The Navy never called her a battlecruiser: her own hull
+    // number, CB, was a new one, and only she and her sister Guam carried it.
+    //
+    // She is drawn from the owner's model of her (see alaska.js and
+    // build/prepare-alaska-hull.mjs) -- "USS Alaska" by kriss50, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen --
+    // brought up to her 246.4 m over all and floated at 9.0 m. She is armed as
+    // she was completed in 1944, which is as the model arms her: her nine
+    // 12 in, twelve 5 in/38 in six twin Mk 38 mountings, fourteen quadruple
+    // 40 mm Bofors and thirty-four single 20 mm Oerlikons.
+    id: 'alaska',
+    name: 'Alaska',
+    fullName: 'USS Alaska',
+    className: 'Alaska',
+    type: 'CB',
+    typeName: 'Large Cruiser',
+    nation: 'usa',
+    blurb: 'Nine twelve-inch guns on a cruiser\'s hull, built to hunt the hunters: neither a battleship nor a cruiser, but a CB.',
+    hull: {
+      // Where her funnel comes out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -18, 28.0]], length: 246.4, beam: 27.8, draft: 9.0, superstructure: 1.35 },
+    hp: 54000,
+    // Thirty-three knots off a hundred and fifty thousand horsepower, out of
+    // four shafts; and one rudder, which made her a long ship to turn.
+    maxSpeed: 33 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.52,
+    turnRate: 0.052,
+    rudderShift: 12,
+    speedLossInTurn: 0.18,
+    concealment: 14800,
+    fireDetectPenalty: 6000,
+    // SK air search, SG surface search, and Mk 38 and Mk 37 directors with
+    // their Mk 8 and Mk 12 radars.
+    radarRange: 14000,
+    repairCooldown: 90,
+    repairHeal: 0.12,
+    smokeCharges: 0,
+    // A cruiser's scheme built big: nine inches of belt tapering to five at
+    // its foot, over her magazines and her machinery alike, under four inches
+    // of armoured deck; 12.8 in on her turret faces and 13 in on her
+    // barbettes.
+    armor: { belt: 229, deck: 102, citadel: 229, bow: 25, superstructure: 25 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, C on her quarterdeck
+      // facing astern, each where the model stood it (see
+      // build/prepare-alaska-hull.mjs).
+      { id: 0, name: 'A', x: 0, z: 58.175, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 7.93 },
+      { id: 1, name: 'B', x: 0, z: 42.512, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 10.72 },
+      { id: 2, name: 'C', x: 0, z: -62.631, angle: 3.14, arc: 2.6, rest: Math.PI, guns: 3, my: 7.68 },
+    ],
+    gun: {
+      name: '12"/50 Mk 8', role: 'surface',
+      // Three below the horizontal to forty-five up.
+      elev: { min: -0.052, max: 0.785 },
+      // Pivot to muzzle on the model's turret.
+      reach: 14.53,
+      // The 1,140 lb Mk 18 super-heavy armour-piercing shell at 762 m/s: as
+      // hard-hitting as many a battleship's 14 in, out of a gun that fired
+      // two and a half rounds a minute.
+      caliber: 305, reload: 23, traverse: 0.087, range: 21800, sigma: 1.4,
+      shells: shells(305, 11000, 5600, 520, 762, 0.18),
+    },
+    torpedoes: null,
+    // Twelve 5 in/38 in six twin Mk 38 mountings: one on her centreline at
+    // either end of her superstructure, superfiring over B and C, and two a
+    // side abreast it -- the forward pair facing ahead, the after pair
+    // astern.
+    secondary: {
+      name: '5"/38 Mk 12', role: 'dp',
+      // Fifteen below the horizontal to eighty-five up.
+      elev: { min: -0.26, max: 1.48 },
+      reach: 5.25,
+      caliber: 127, reload: 4.0, traverse: 0.44, range: 8200, sigma: 1.15,
+      shells: shells(127, 1900, 1650, 76, 792, 0.07),
+      mounts: [
+        { x: 0, z: 29.565, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 13.4 },
+        { x: -10.771, z: 16.266, angle: -1.57, arc: 1.98, rest: 0, guns: 2, my: 10.33 },
+        { x: 10.771, z: 16.266, angle: 1.57, arc: 1.98, rest: 0, guns: 2, my: 10.33 },
+        { x: -10.881, z: -28.398, angle: -1.61, arc: 2.1, rest: -Math.PI, guns: 2, my: 10.23 },
+        { x: 10.881, z: -28.398, angle: 1.61, arc: 2.1, rest: Math.PI, guns: 2, my: 10.23 },
+        { x: 0, z: -50.283, angle: 3.14, arc: 2.6, rest: Math.PI, guns: 2, my: 12.43 },
+      ],
+    },
+    aa: {
+      range: 4200, dps: 125,
+      guns: [
+        // Her fourteen quadruple 40 mm Bofors: one in the eyes of her, three
+        // about the foot of her bridge with the middle one up over B, a pair
+        // abreast her bridge, two pairs abreast her after superstructure, and
+        // two pairs on her quarterdeck.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400, piece: 'quad',
+          elev: { min: -0.26, max: 1.57 },
+          mounts: [
+            { x: 0, z: 115.269, angle: 0, arc: 2.2, rest: 0, guns: 4, my: 13.11 },
+            { x: -5.241, z: 23.851, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 4, my: 13.97 },
+            { x: 0, z: 23.006, angle: 0, arc: 2.4, rest: 0, guns: 4, my: 19.39 },
+            { x: 5.24, z: 23.848, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 4, my: 13.97 },
+            { x: -6.705, z: 11.994, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 4, my: 15.03 },
+            { x: 6.705, z: 11.992, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 4, my: 15.03 },
+            { x: -6.066, z: -33.844, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 4, my: 13.24 },
+            { x: 6.067, z: -33.846, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 4, my: 13.24 },
+            { x: -7.796, z: -39.812, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 4, my: 10.96 },
+            { x: 7.796, z: -39.818, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 4, my: 10.96 },
+            { x: -5.975, z: -98.684, angle: -2.36, arc: 1.9, rest: -Math.PI * 3 / 4, guns: 4, my: 8.53 },
+            { x: 5.974, z: -98.683, angle: 2.36, arc: 1.9, rest: Math.PI * 3 / 4, guns: 4, my: 8.53 },
+            { x: -3.704, z: -119.566, angle: -2.8, arc: 1.7, rest: -Math.PI, guns: 4, my: 8.3 },
+            { x: 3.7, z: -119.563, angle: 2.8, arc: 1.7, rest: Math.PI, guns: 4, my: 8.29 },
+          ] },
+        // Her thirty-four single Oerlikons: two pairs on her forecastle, two
+        // pairs abreast her B turret, two pairs abreast her bridge, and the
+        // rest along her waist, about her after superstructure and abreast
+        // her C turret.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, piece: 'oer',
+          mounts: [
+            { x: -4.942, z: 89.806, angle: -0.79, arc: 1.7, rest: -Math.PI / 4, guns: 1, my: 9.44 },
+            { x: 4.943, z: 89.807, angle: 0.79, arc: 1.7, rest: Math.PI / 4, guns: 1, my: 9.43 },
+            { x: -5.192, z: 86.894, angle: -0.79, arc: 1.7, rest: -Math.PI / 4, guns: 1, my: 9.28 },
+            { x: 5.19, z: 86.894, angle: 0.79, arc: 1.7, rest: Math.PI / 4, guns: 1, my: 9.28 },
+            { x: -9.953, z: 45.854, angle: -0.79, arc: 1.7, rest: -Math.PI / 4, guns: 1, my: 7.69 },
+            { x: 9.952, z: 45.854, angle: 0.79, arc: 1.7, rest: Math.PI / 4, guns: 1, my: 7.69 },
+            { x: -10.528, z: 43.002, angle: -0.79, arc: 1.7, rest: -Math.PI / 4, guns: 1, my: 7.63 },
+            { x: 10.528, z: 43.002, angle: 0.79, arc: 1.7, rest: Math.PI / 4, guns: 1, my: 7.63 },
+            { x: -11.712, z: 26.252, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 8.56 },
+            { x: 11.712, z: 26.252, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 8.56 },
+            { x: -11.983, z: 23.426, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 8.56 },
+            { x: 11.983, z: 23.426, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 8.56 },
+            { x: -7.245, z: -12.901, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 10.03 },
+            { x: 7.157, z: -12.899, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 10.03 },
+            { x: -12.485, z: -14.484, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 7.25 },
+            { x: 12.485, z: -14.484, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 7.25 },
+            { x: -12.485, z: -17.536, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 7.25 },
+            { x: 12.485, z: -17.536, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 7.25 },
+            { x: -7.245, z: -19.268, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 10.03 },
+            { x: 7.241, z: -19.254, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 10.03 },
+            { x: -12.385, z: -21.919, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 8.25 },
+            { x: 12.384, z: -21.919, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 8.25 },
+            { x: -12.301, z: -35.716, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 8.65 },
+            { x: 12.301, z: -35.716, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 8.65 },
+            { x: -12.28, z: -38.623, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 7.41 },
+            { x: 12.279, z: -38.623, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 7.41 },
+            { x: -11.049, z: -46.44, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 7.25 },
+            { x: 11.049, z: -46.44, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 7.25 },
+            { x: -11.049, z: -49.595, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1, my: 7.25 },
+            { x: 10.959, z: -49.595, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1, my: 7.25 },
+            { x: -9.697, z: -78.18, angle: -2.36, arc: 1.7, rest: -Math.PI * 3 / 4, guns: 1, my: 7.3 },
+            { x: 9.697, z: -78.18, angle: 2.36, arc: 1.7, rest: Math.PI * 3 / 4, guns: 1, my: 7.3 },
+            { x: -9.293, z: -81.169, angle: -2.36, arc: 1.7, rest: -Math.PI * 3 / 4, guns: 1, my: 7.31 },
+            { x: 9.293, z: -81.169, angle: 2.36, arc: 1.7, rest: Math.PI * 3 / 4, guns: 1, my: 7.31 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 29779,
+      aircraft: 0,
+      mainRounds: 900,
+      secondary: { caliber: 127, label: '5"', barrels: 12, rounds: 6000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 56, rounds: 112000 },
+        { caliber: 20, label: '20mm', barrels: 34, rounds: 81600 },
+      ],
+    },
+  },
+
   ticonderoga: {
     // USS Ticonderoga, an American anti-aircraft light cruiser of the missile
     // age, armed as the owner asked: six single 8-inch Mk 71 lightweight guns,
@@ -12987,7 +13162,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins', 'lcm'];
 

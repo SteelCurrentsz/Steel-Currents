@@ -194,6 +194,10 @@ import {
 } from '../client/js/render/desmoines.js';
 import { salemSurfaceY, MOUNT_SEATS as DM_SEATS } from '../client/js/render/salemHull.js';
 import {
+  buildAlaska, shellAt as akShellAt, keelY as akKeel, deckOver as akSheer, zAt as akZAt,
+} from '../client/js/render/alaska.js';
+import { alaskaSurfaceY, MOUNT_SEATS as AK_SEATS } from '../client/js/render/alaskaHull.js';
+import {
   buildAjax, shellAt as ajaxShellAt, keelY as ajaxKeel, deckOver as ajaxSheer, zAt as ajaxZAt,
 } from '../client/js/render/ajax.js';
 import { ajaxSurfaceY, MOUNT_SEATS as AJAX_SEATS } from '../client/js/render/ajaxHull.js';
@@ -4146,6 +4150,92 @@ check('the Credits screen credits the model the Des Moines is drawn from', () =>
     'the credit is not as its licence asks');
 });
 
+check('the USS Alaska is commissioned just after the USS Baltimore, a large cruiser of her own symbol, CB, armed as she was completed', () => {
+  const i = SHIP_ORDER.indexOf('alaska');
+  assert.ok(i >= 0, 'the Alaska is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'baltimore', `before the Alaska comes ${SHIP_ORDER[i - 1]}`);
+  const w = WWII_ORDER.indexOf('alaska');
+  assert.ok(w > 0 && WWII_ORDER[w - 1] === 'baltimore', 'she is not in the Second World War yard just after the Baltimore');
+  const cls = SHIP_CLASSES.alaska;
+  assert.equal(cls.fullName, 'USS Alaska');
+  assert.equal(cls.type, 'CB', 'her hull symbol is not CB');
+  assert.equal(cls.typeName, 'Large Cruiser');
+  assert.ok(Object.values(SHIP_CLASSES).every((c) => c.id === 'alaska' || c.id === 'guam' || c.type !== 'CB'),
+    'another ship carries her symbol');
+  assert.equal(cls.nation, 'usa');
+  // Nine 12 in/50 in three triple turrets, A and B forward, C aft.
+  assert.equal(cls.gun.caliber, 305);
+  assert.deepEqual(cls.turrets.map((t) => [t.name, t.guns]), [['A', 3], ['B', 3], ['C', 3]]);
+  // Six twin 5 in/38, dual-purpose; fourteen quadruple Bofors; thirty-four
+  // single Oerlikons; no torpedoes.
+  assert.equal(cls.secondary.caliber, 127);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.deepEqual(cls.secondary.mounts.map((mt) => mt.guns), [2, 2, 2, 2, 2, 2]);
+  const by = (c) => cls.aa.guns.filter((g) => g.caliber === c).flatMap((g) => g.mounts.map((mt) => mt.guns));
+  assert.deepEqual(by(40), Array(14).fill(4));
+  assert.deepEqual(by(20), Array(34).fill(1));
+  assert.equal(cls.torpedoes, null);
+  const built = buildAlaska();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every one of her mountings stands on her deck, not in the air over it.
+  for (const [kind, list] of Object.entries(AK_SEATS)) {
+    for (const st of list) {
+      const top = alaskaSurfaceY(st.x, st.z);
+      assert.ok(Math.abs(top - st.y) < 1.5 || top < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${top}`);
+    }
+  }
+});
+
+check("the Alaska's shell has no holes in it", () => {
+  const built = buildAlaska();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = akSheer(t);
+    for (let y = akKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
+      const w = akShellAt(t, y);
+      if (w < 0.35) continue;
+      // Her shafts and their struts under her quarter.
+      if (akZAt(t) < -75 && y < -2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, akZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > akKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Alaska is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('USS Alaska</a>');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/ptOqN') && credit.includes('kriss50')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/') && credit.includes('Creative Commons Attribution'),
+    'the credit is not as its licence asks');
+});
+
+check('the shipyard has a search box over the ship\'s name that finds a hull and puts her on the water', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const yardHtml = html.slice(html.indexOf('id="screen-yard"'));
+  const box = yardHtml.indexOf('id="yard-search"');
+  assert.ok(box >= 0 && box < yardHtml.indexOf('id="yard-name"'), 'there is no search box above her name');
+  const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
+  assert.ok(/function searchShips\(/.test(main) && /function pickSearch\(/.test(main), 'the search box finds nothing');
+});
+
 check('the Modern yard is offered as the Post WWII-Missile Age', () => {
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   assert.match(html, /data-era="modern">Modern<em>Post WWII&ndash;Missile Age<\/em>/);
@@ -4464,7 +4554,7 @@ check('the Credits screen credits the model the Admiral Scheer and the Graf Spee
 check('the USS Ticonderoga is commissioned after the USS Baltimore and before the HMS Leviathan, armed as the owner asked', () => {
   const i = SHIP_ORDER.indexOf('ticonderoga');
   assert.ok(i >= 0, 'the Ticonderoga is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'baltimore', `before the Ticonderoga comes ${SHIP_ORDER[i - 1]}`);
+  assert.ok(SHIP_ORDER.indexOf('baltimore') < i, 'the Ticonderoga comes before the Baltimore');
   assert.ok(i < SHIP_ORDER.indexOf('leviathan'), 'the Ticonderoga comes after the Leviathan');
   const cls = SHIP_CLASSES.ticonderoga;
   assert.equal(cls.fullName, 'USS Ticonderoga');

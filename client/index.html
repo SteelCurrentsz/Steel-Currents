@@ -489,6 +489,9 @@
       <p class="credit">"<a href="https://skfb.ly/pHKou" target="_blank" rel="noopener">Grumman E-2D Advanced Hawkeye</a>"
         by Muhamad Mirza Arrafi is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptOqN" target="_blank" rel="noopener">USS Alaska</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/ptKUo" target="_blank" rel="noopener">USS Salem (CA-139)</a>"
         by kriss50 is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
@@ -1118,6 +1121,15 @@
   <div class="yard-grab" id="yard-grab"></div>
 
   <div class="yard-head">
+    <!-- Find a hull by name, class or type without walking the list to her:
+         what matches drops down under the box, and choosing one puts her on
+         the water, whichever era's list she is in. -->
+    <div class="yard-search" id="yard-search-wrap">
+      <input id="yard-search" class="yard-search-input" type="search" placeholder="Search ships" autocomplete="off"
+        spellcheck="false" enterkeyhint="go" role="combobox" aria-label="Search for a ship" aria-autocomplete="list"
+        aria-controls="yard-search-list" aria-expanded="false">
+      <ul id="yard-search-list" class="yard-search-list" role="listbox" aria-label="Ships found" hidden></ul>
+    </div>
     <h2 id="yard-name">Iowa</h2>
     <p class="yard-class" id="yard-class">Iowa Class Battleship</p>
     <button class="yard-commission" id="yard-commission" type="button">Commission Vessel</button>

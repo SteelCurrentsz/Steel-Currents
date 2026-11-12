@@ -771,6 +771,7 @@ function openYard(side, { order = SHIP_ORDER, at = null, from = null } = {}) {
     window.__yard = yard;
   }
   yard.attach(document.getElementById('yard-grab'));
+  clearSearch();
   show('yard');
   renderYard();
 }
@@ -799,6 +800,7 @@ document.getElementById('era-cancel').onclick = () => { audio.click(); closeEra(
 eraEl.addEventListener('click', (e) => { if (e.target === eraEl) closeEra(); });
 
 function closeYard() {
+  clearSearch();
   closeAirGroup();
   closeVls();
   closeTroops();
@@ -1307,6 +1309,144 @@ document.getElementById('ag-done').onclick = () => {
   closeAirGroup();
   renderYard();
 };
+
+// ---------------------------------------------------------- yard search --
+
+/**
+ * The search box over her name. What is typed is matched, word by word,
+ * against every hull's name, full name, class, hull symbol and type -- "CB",
+ * "alaska", "iowa class", "heavy cruiser" -- and what matches drops down
+ * under the box; choosing one puts her on the water. A hull in another era's
+ * list takes the yard over to that list, so the arrows then walk her own
+ * navy. Opened from the Premium Equipment store, the yard searches the store
+ * alone, since that is all it can commission.
+ */
+const ERA_LABEL = new Map([[WWI_ORDER, 'WWI'], [WWII_ORDER, 'WWII'], [MODERN_ORDER, 'Modern'], [CIVIL_ORDER, 'Transport']]);
+const searchEl = document.getElementById('yard-search');
+const searchList = document.getElementById('yard-search-list');
+let searchHits = [];
+let searchAt = -1;
+
+const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/** Which list a hull is commissioned from, outside the store. */
+function eraListOf(id) {
+  for (const list of ERA_LABEL.keys()) if (list.includes(id)) return list;
+  return null;
+}
+
+function searchShips(text) {
+  const words = fold(text).split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const pool = yardUi.order === PREMIUM_ORDER ? PREMIUM_ORDER : [...ERA_LABEL.keys()].flat();
+  const hits = [];
+  for (const id of pool) {
+    const c = SHIP_CLASSES[id];
+    if (!c) continue;
+    const name = fold(c.name), full = fold(c.fullName);
+    const hay = [name, full, fold(c.className), fold(`${c.className} class`), fold(c.type), fold(c.typeName), fold(id)].join(' | ');
+    if (!words.every((w) => hay.includes(w))) continue;
+    // Her own name first, then a name that starts with what was typed, then
+    // anything else that matched, each in the yard's own order.
+    const q = words.join(' ');
+    const rank = name === q || full === q ? 0 : name.startsWith(q) || full.startsWith(q) ? 1
+      : fold(c.type) === q ? 2 : 3;
+    hits.push({ id, rank });
+  }
+  return hits.sort((a, b) => a.rank - b.rank).slice(0, 12).map((h) => h.id);
+}
+
+function showSearch() {
+  searchList.innerHTML = '';
+  const text = searchEl.value.trim();
+  if (!text) { hideSearch(); return; }
+  if (!searchHits.length) {
+    const li = document.createElement('li');
+    li.className = 'ys-none';
+    li.textContent = 'No ship by that name';
+    searchList.appendChild(li);
+  }
+  searchHits.forEach((id, i) => {
+    const c = SHIP_CLASSES[id];
+    const li = document.createElement('li');
+    li.id = `yard-search-${i}`;
+    li.setAttribute('role', 'option');
+    li.setAttribute('aria-selected', i === searchAt ? 'true' : 'false');
+    const name = document.createElement('span');
+    name.className = 'ys-name';
+    name.textContent = c.fullName || c.name;
+    const type = document.createElement('span');
+    type.className = 'ys-type';
+    const era = yardUi.order === PREMIUM_ORDER ? null : ERA_LABEL.get(eraListOf(id));
+    type.textContent = `${c.type}${era && eraListOf(id) !== yardUi.order ? ` · ${era}` : ''}`;
+    li.append(name, type);
+    // Chosen on the press, before the box loses focus and the list is put away.
+    li.addEventListener('pointerdown', (e) => { e.preventDefault(); pickSearch(id); });
+    searchList.appendChild(li);
+  });
+  searchList.hidden = false;
+  searchEl.setAttribute('aria-expanded', 'true');
+  if (searchAt >= 0) {
+    searchEl.setAttribute('aria-activedescendant', `yard-search-${searchAt}`);
+    document.getElementById(`yard-search-${searchAt}`)?.scrollIntoView({ block: 'nearest' });
+  } else searchEl.removeAttribute('aria-activedescendant');
+}
+
+function hideSearch() {
+  searchList.hidden = true;
+  searchEl.setAttribute('aria-expanded', 'false');
+  searchEl.removeAttribute('aria-activedescendant');
+}
+
+function clearSearch() {
+  searchEl.value = '';
+  searchHits = [];
+  searchAt = -1;
+  hideSearch();
+}
+
+/** Put the hull chosen on the water, taking the yard to her era's list if she is not in this one. */
+function pickSearch(id) {
+  audio.click();
+  if (!yardUi.order.includes(id)) {
+    const list = eraListOf(id);
+    if (!list) return;
+    yardUi.order = list;
+  }
+  yardUi.refit = null;
+  yardUi.index = yardUi.order.indexOf(id);
+  closeAirGroup();
+  closeVls();
+  closeTroops();
+  clearSearch();
+  searchEl.blur();
+  renderYard();
+}
+
+searchEl.addEventListener('input', () => {
+  searchHits = searchShips(searchEl.value);
+  searchAt = searchHits.length ? 0 : -1;
+  showSearch();
+});
+searchEl.addEventListener('focus', () => { if (searchEl.value.trim()) showSearch(); });
+searchEl.addEventListener('blur', () => hideSearch());
+searchEl.addEventListener('keydown', (e) => {
+  // Typing here is typing, not orders to whatever else listens for keys.
+  e.stopPropagation();
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!searchHits.length) return;
+    e.preventDefault();
+    const d = e.key === 'ArrowDown' ? 1 : -1;
+    searchAt = (searchAt + d + searchHits.length) % searchHits.length;
+    showSearch();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (searchHits.length) pickSearch(searchHits[Math.max(0, searchAt)]);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    if (searchEl.value) clearSearch(); else searchEl.blur();
+  }
+});
 
 document.getElementById('yard-prev').onclick = () => { audio.click(); stepYard(-1); };
 document.getElementById('yard-next').onclick = () => { audio.click(); stepYard(1); };
