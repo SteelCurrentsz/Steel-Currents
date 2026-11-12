@@ -182,6 +182,10 @@ import {
 } from '../client/js/render/leviathan.js';
 import { leviathanSurfaceY, MOUNT_SEATS as LEVIATHAN_SEATS } from '../client/js/render/leviathanHull.js';
 import {
+  buildAjax, shellAt as ajaxShellAt, keelY as ajaxKeel, deckOver as ajaxSheer, zAt as ajaxZAt,
+} from '../client/js/render/ajax.js';
+import { ajaxSurfaceY, MOUNT_SEATS as AJAX_SEATS } from '../client/js/render/ajaxHull.js';
+import {
   buildTiconderoga, shellAt as ticonderogaShellAt, keelY as ticonderogaKeel, deckOver as ticonderogaSheer, zAt as ticonderogaZAt,
 } from '../client/js/render/ticonderoga.js';
 import { ticonderogaSurfaceY, MOUNT_SEATS as TICONDEROGA_SEATS } from '../client/js/render/ticonderogaHull.js';
@@ -3753,6 +3757,88 @@ check('the Credits screen credits the model the Leviathan is drawn from', () => 
   assert.ok(at >= 0, 'the model is not credited');
   const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
   assert.ok(credit.includes('https://skfb.ly/pwCxw') && credit.includes('全斗焕')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
+    'the credit is not as its licence asks');
+});
+
+check('the HMS Ajax is commissioned after the USS Cleveland, armed as she and her model were', () => {
+  const i = SHIP_ORDER.indexOf('ajax');
+  assert.ok(i >= 0, 'the Ajax is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'cleveland', `before the Ajax comes ${SHIP_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.ajax;
+  assert.equal(cls.fullName, 'HMS Ajax');
+  assert.equal(cls.type, 'CL', 'she is not a light cruiser');
+  assert.equal(cls.nation, 'gbr');
+  // Eight 6 in in four twin turrets, A and B forward, X and Y aft.
+  assert.equal(cls.gun.caliber, 152);
+  assert.ok(cls.turrets.every((t) => t.guns === 2), 'her turrets are not twins');
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'X', 'Y']);
+  // Eight 4 in HA in four twins, dual-purpose.
+  assert.equal(cls.secondary.caliber, 102);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.deepEqual(cls.secondary.mounts.map((m) => m.guns), [2, 2, 2, 2]);
+  // Her light battery as the model draws it: two quadruple pom-poms, a
+  // quadruple 0.5 in, four twin and two single Oerlikons.
+  const by = (c) => cls.aa.guns.filter((g) => g.caliber === c).flatMap((g) => g.mounts.map((m) => m.guns)).sort();
+  assert.deepEqual(by(40), [4, 4]);
+  assert.deepEqual(by(13), [4]);
+  assert.deepEqual(by(20), [1, 1, 2, 2, 2, 2]);
+  // Her two quadruple banks of 21 in tubes, one a side, the model's own.
+  assert.ok(cls.torpedoes, 'she has no torpedoes');
+  assert.equal(cls.torpedoes.caliber, 533);
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => m.tubes), [4, 4]);
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => Math.sign(m.x)).sort(), [-1, 1]);
+  // Three inches of belt.
+  assert.equal(cls.armor.belt, 76);
+  const built = buildAjax();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.torpMounts.length, 2);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every one of her mountings stands on her deck, not in the air over it.
+  for (const [kind, list] of Object.entries(AJAX_SEATS)) {
+    for (const st of list) {
+      const top = ajaxSurfaceY(st.x, st.z);
+      assert.ok(Math.abs(top - st.y) < 1.5 || top < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${top}`);
+    }
+  }
+});
+
+check("the Ajax's shell has no holes in it", () => {
+  const built = buildAjax();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = ajaxSheer(t);
+    for (let y = ajaxKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
+      const w = ajaxShellAt(t, y);
+      if (w < 0.35) continue;
+      // Her shafts and their brackets under her quarter.
+      if (ajaxZAt(t) < -55 && y < -2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, ajaxZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > ajaxKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Ajax is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('HMS Ajax</a>');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/ptKuX') && credit.includes('kriss50')
     && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
     'the credit is not as its licence asks');
 });

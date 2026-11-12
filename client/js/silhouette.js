@@ -121,6 +121,20 @@ const HULLS = {
     <rect x="63" y="23.5" width="3.5" height="2.5"/>
     <rect x="69" y="23.5" width="3.5" height="2.5"/>
     <rect x="75" y="23.5" width="3.5" height="2.5"/>`,
+  // The Ajax: a Leander, a low cruiser hull with two twin turrets at each
+  // end, the inner ones superfiring, a tall bridge forward, one great
+  // trunked funnel amidships and a tripod mast at each end of her.
+  ajax: `
+    <path d="M2 29 L98 29 L94 37 L7 37 Z"/>
+    <rect x="10" y="25" width="7" height="4"/>
+    <rect x="18" y="22" width="7" height="4"/>
+    <rect x="29" y="16" width="9" height="13"/>
+    <rect x="32" y="10" width="3" height="7"/>
+    <rect x="40" y="6" width="1.6" height="23"/>
+    <path d="M47 29 L49 17 L56 17 L59 29 Z"/>
+    <rect x="70" y="8" width="1.6" height="21"/>
+    <rect x="74" y="22" width="7" height="4"/>
+    <rect x="83" y="25" width="7" height="4"/>`,
   // The Leviathan: a long cruiser hull, a tall bridge forward, two big
   // funnels with a lattice mast abaft each, and four quadruple turrets, two
   // at each end, the inner ones superfiring.
