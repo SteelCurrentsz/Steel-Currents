@@ -2246,6 +2246,154 @@ export const SHIP_CLASSES = {
     },
   },
 
+  county: {
+    // HMS County, a County-class heavy cruiser of the London group, laid down
+    // to the Washington Treaty's ten thousand tons: eight 8 in in four twin
+    // turrets -- A and B forward, B superfiring; X superfiring over Y aft --
+    // three tall funnels over a high flush deck that made her a dry ship in
+    // any sea and an easy one to see, and thirty-two knots out of four shafts.
+    // The thirteen Counties kept the trade routes from the Denmark Strait to
+    // the Indian Ocean; the Sussex took the Japanese surrender at Singapore.
+    //
+    // She is drawn from the owner's model of HMS Sussex (see county.js and
+    // build/prepare-county-hull.mjs) -- "HMS Sussex" by kriss50, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen --
+    // brought up to her 192.9 m over all, which makes her 21.1 m across her
+    // bulges, floated at her deep draught of 6.2 m. She is armed as the model
+    // arms her, which is as the Sussex was in the war: the four twin 4 in HA
+    // that replaced her singles, four octuple pom-poms, two quadruple 0.5 in
+    // machine guns, two single Oerlikons -- and the two quadruple banks of
+    // 21 in tubes she carried all her life.
+    id: 'county',
+    name: 'County',
+    fullName: 'HMS County',
+    className: 'County',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'gbr',
+    blurb: 'Eight eight-inch guns, eight torpedo tubes and a towering hull: the Treaty cruiser that kept the sea lanes from the Arctic to Singapore.',
+    hull: {
+      // Where her three funnels come out, [across, along, up] in metres off
+      // her model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 17, 24], [0, 6.5, 24], [0, -4.5, 24]], length: 192.9, beam: 21.1, draft: 6.2, superstructure: 1.2 },
+    hp: 29800,
+    // Thirty-two and a quarter knots off eighty thousand horsepower; a long
+    // ship, and not a quick one in the turn.
+    maxSpeed: 32.25 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.8,
+    turnRate: 0.08,
+    rudderShift: 7.0,
+    speedLossInTurn: 0.2,
+    // Her high sides and three tall funnels were seen a long way off.
+    concealment: 12600,
+    fireDetectPenalty: 4600,
+    // Type 281 air warning and Type 284 gunnery sets, fitted from 1941.
+    radarRange: 11500,
+    repairCooldown: 80,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // The London group spent her tonnage on speed and range: an inch of side
+    // over her machinery, an inch and three-eighths of deck, and boxes of four
+    // and three-eighths inches round her magazines.
+    armor: { belt: 25, deck: 35, citadel: 111, bow: 13, superstructure: 10 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, X superfiring over Y on
+      // her quarterdeck, both facing astern, each where the model stood it
+      // (see build/prepare-county-hull.mjs).
+      { id: 0, name: 'A', x: 0, z: 63.88, angle: 0, arc: 2.6, rest: 0.0024, guns: 2, my: 10.07 },
+      { id: 1, name: 'B', x: 0, z: 49.83, angle: 0, arc: 2.55, rest: 0.0024, guns: 2, my: 12.8 },
+      { id: 2, name: 'X', x: 0, z: -49.897, angle: 3.14, arc: 2.55, rest: -3.1409, guns: 2, my: 12.74 },
+      { id: 3, name: 'Y', x: 0, z: -63.947, angle: -3.14, arc: 2.6, rest: -3.1407, guns: 2, my: 10.11 },
+    ],
+    gun: {
+      name: '8"/50 BL Mk VIII', role: 'surface',
+      // The Mk II twin: three below the horizontal to seventy up, for the
+      // high-angle fire she was meant to give and seldom did.
+      elev: { min: -0.052, max: 1.222 },
+      // Pivot to muzzle on the model's turret.
+      reach: 10.31,
+      // Three or four rounds a minute a gun, on a slow-training mounting.
+      caliber: 203, reload: 12.5, traverse: 0.2, range: 17400, sigma: 1.65,
+      shells: shells(203, 5000, 3200, 255, 855, 0.13),
+    },
+    // Her two quadruple banks of 21 in tubes, one a side on her upper deck
+    // between her 4 in twins, stowed fore and aft with their muzzles astern
+    // and trained out to fire on the beam. The model draws the two as each
+    // other's mirror, so each has its own lanes.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 7.574, z: -6.527, angle: 1.57, arc: 0.8, rest: Math.PI, tubes: 4, my: 8.31,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.6, -0.829, -0.059, 0.712], lie: 0.2, muzzle: 3.77, height: 8.31,
+            fish: { len: 6.6, r: 0.267, kind: 'mk1' } } },
+        { id: 1, x: -7.877, z: -6.527, angle: -1.57, arc: 0.8, rest: Math.PI, tubes: 4, my: 8.32,
+          launch: { eject: 12, stagger: 0.35, lanes: [-0.713, 0.058, 0.827, 1.603], lie: 0.2, muzzle: 3.77, height: 8.32,
+            fish: { len: 6.6, r: 0.267, kind: 'mk1' } } },
+      ],
+      name: '21 in Mk VII torpedo', role: 'surface', caliber: 533,
+      reach: 3.77,
+      traverse: 0.22,
+      reload: 90, damage: 14000, speed: 33 * KNOTS, range: 7300,
+      detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+    },
+    // Her four twin 4 in Mk XIX HA mountings, two a side abreast her funnels:
+    // the forward pair facing ahead and the after pair astern.
+    secondary: {
+      name: '4"/45 QF Mk XVI', role: 'dp',
+      // Ten below the horizontal to eighty up.
+      elev: { min: -0.175, max: 1.396 },
+      reach: 3.54,
+      caliber: 102, reload: 3.6, traverse: 0.4, range: 7600, sigma: 1.1,
+      shells: shells(102, 1300, 1150, 50, 811, 0.06),
+      mounts: [
+        { x: -7.436, z: -1.313, angle: -1.4, arc: 1.75, rest: 0, guns: 2, my: 12.14 },
+        { x: 7.134, z: -1.313, angle: 1.4, arc: 1.75, rest: 0, guns: 2, my: 12.14 },
+        { x: -7.445, z: -13.012, angle: -1.74, arc: 1.75, rest: -Math.PI, guns: 2, my: 12.14 },
+        { x: 7.143, z: -13.012, angle: 1.74, arc: 1.75, rest: Math.PI, guns: 2, my: 12.14 },
+      ],
+    },
+    aa: {
+      range: 3600, dps: 46,
+      guns: [
+        // Her four octuple 2-pdr pom-poms, on their platforms abreast her fore
+        // funnel and abreast her mainmast, trained out on the beam.
+        { name: '2-pdr Mk VIII', caliber: 40, role: 'aa', reload: 0.45, range: 3600, piece: 'pompom',
+          elev: { min: -0.17, max: 1.40 },
+          mounts: [
+            { x: -7.243, z: 16.197, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 8, my: 12.94 },
+            { x: 6.94, z: 16.763, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 8, my: 12.94 },
+            { x: -6.791, z: -29.94, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 8, my: 12.94 },
+            { x: 6.488, z: -30.999, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 8, my: 12.94 },
+          ] },
+        // Her two quadruple 0.5 in Vickers, on the wings of her bridge.
+        { name: '0.5 in Vickers Mk III', caliber: 13, role: 'aa', reload: 0.15, range: 1400, piece: 'mg',
+          mounts: [
+            { x: -7.083, z: 35.009, angle: -1.4, arc: 1.9, rest: -1.5708, guns: 4, my: 14.92 },
+            { x: 6.78, z: 35.009, angle: 1.4, arc: 1.9, rest: 1.5708, guns: 4, my: 14.92 },
+          ] },
+        // And two single Oerlikons, abaft her mainmast.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, piece: 'oer',
+          mounts: [
+            { x: -4.515, z: -34.361, angle: -1.9, arc: 1.7, rest: -1.5732, guns: 1, my: 14.63 },
+            { x: 4.211, z: -34.361, angle: 1.9, arc: 1.7, rest: 1.5724, guns: 1, my: 14.63 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 13315,
+      aircraft: 0,
+      mainRounds: 1200,
+      torpedoesCarried: 8,
+      secondary: { caliber: 102, label: '4"', barrels: 8, rounds: 3200 },
+      tertiary: [
+        { caliber: 40, label: '2-pdr', barrels: 32, rounds: 57600 },
+        { caliber: 13, label: '0.5in', barrels: 8, rounds: 20000 },
+        { caliber: 20, label: '20mm', barrels: 2, rounds: 4800 },
+      ],
+    },
+  },
+
   hipper: {
     // Four twin 8" turrets. Heavier than a light cruiser's and correspondingly
     // slower and narrower in their training.
@@ -12382,7 +12530,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'ajax', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'ajax', 'county', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins', 'lcm'];
 
