@@ -3095,6 +3095,43 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
 }
 .sol-key.on, .sol-key:active { border-color: var(--sand); background: rgba(230, 207, 156, 0.22); }
 .sol-sight .gun-fire, .sol-sight .gun-leave { pointer-events: auto; }
+/* Played as a shooter: the crosshair opens out as he moves and fires, and
+   goes away with the rifle at his eye -- its own sights are the aim then. */
+.sol-sight .gun-cross .gt { transition: opacity 0.12s; }
+.sol-sight .gun-cross .gt-u { transform: translateY(calc(var(--spread, 0px) * -1)); }
+.sol-sight .gun-cross .gt-d { transform: translateY(var(--spread, 0px)); }
+.sol-sight .gun-cross .gt-l { transform: translateX(calc(var(--spread, 0px) * -1)); }
+.sol-sight .gun-cross .gt-r { transform: translateX(var(--spread, 0px)); }
+.sol-sight .gun-cross .gp { width: 4px; height: 4px; left: -2px; top: -2px; transition: opacity 0.12s; }
+.sol-sight.ads .gun-cross .gt, .sol-sight.ads .gun-cross .gp { opacity: 0; }
+/* The mark over the crosshair when a round of his goes home. */
+.sol-hit { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.sol-hit i {
+  position: absolute; left: -1px; top: -16px; width: 2px; height: 9px;
+  background: #fff; box-shadow: 0 0 3px rgba(0, 0, 0, 0.9); transform-origin: 1px 16px;
+}
+.sol-hit i:nth-child(1) { transform: rotate(45deg); }
+.sol-hit i:nth-child(2) { transform: rotate(135deg); }
+.sol-hit i:nth-child(3) { transform: rotate(225deg); }
+.sol-hit i:nth-child(4) { transform: rotate(315deg); }
+.sol-hit.kill i { background: #e2564f; height: 11px; top: -19px; transform-origin: 1px 19px; }
+.sol-hit.on { animation: sol-hit 0.32s ease-out; }
+@keyframes sol-hit { 0% { opacity: 1; transform: scale(1.25); } 60% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1); } }
+/* What he has left, low on the right: rounds in the rifle over all he carries,
+   and how much of him is left. */
+.sol-status {
+  position: absolute; right: max(1.4rem, env(safe-area-inset-right)); bottom: 5.2rem;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem;
+  font-family: var(--ui); color: var(--sand); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.sol-ammo b { font-size: 2.6rem; font-weight: 700; line-height: 1; letter-spacing: 0.02em; }
+.sol-ammo span { font-size: 1rem; margin-left: 0.35rem; opacity: 0.8; }
+.sol-ammo.low b { color: #e2564f; }
+.sol-hpbar { width: 9rem; height: 5px; background: rgba(8, 19, 31, 0.7); border: 1px solid var(--panel-line); }
+.sol-hpbar i { display: block; height: 100%; width: 100%; background: var(--sand); transition: width 0.2s; }
+@media (pointer: coarse) { .sol-status { bottom: auto; top: 5.5rem; } }
+
 /* The edge of the screen going red when the man in hand is hit. */
 .sol-blood {
   position: absolute; inset: 0; pointer-events: none; z-index: 7; opacity: 0;
