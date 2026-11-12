@@ -70,6 +70,9 @@ export function createState(world, opts = {}) {
     torps: [],
     // Guided missiles in flight, and on their rails. See stepMissiles.
     missiles: [],
+    // Flares and chaff thrown off modern aeroplanes, falling: each one a
+    // decoy a missile may go after instead of her. See stepChaff.
+    flares: [],
     // The depth charges in the water, sinking. See stepCharges.
     charges: [],
     // The mines laid, on their moorings and waiting. See stepMines.
@@ -9102,7 +9105,7 @@ function airTarget(state, k, id) {
 /** How many of her side's interceptors are already on `id`. */
 function engaged(state, team, k, id) {
   let n = 0;
-  for (const m of state.missiles) if (m.team === team && m.tk === k && m.target === id) n++;
+  for (const m of state.missiles) if (m.team === team && m.tk === k && m.target === id && !m.decoy) n++;
   return n;
 }
 
@@ -9394,7 +9397,9 @@ const SAM_LOST = 3;
  */
 function stepInterceptor(state, m, K, dt) {
   m.speed = Math.min(K.speed, m.speed + SAM_BOOST * dt);
-  const t = airTarget(state, m.tk, m.target);
+  // Seduced by a flare: it flies at that, and when the flare burns out it has
+  // nothing left to fly at and destroys itself.
+  const t = m.decoy ? flareTarget(state, m.decoy) : airTarget(state, m.tk, m.target);
   const px = m.x, py = m.y, pz = m.z;
   if (!t) {
     m.lost = (m.lost || 0) + dt;
@@ -9426,7 +9431,7 @@ function stepInterceptor(state, m, K, dt) {
         py + (m.y - py) * u - (ty0 + (t.y - ty0) * u), pz + (m.z - pz) * u - (tz0 + (t.z - tz0) * u)));
     }
     if (near <= (K.kill || 15)) {
-      const hit = state.rng() < (K.pk ?? 0.8);
+      const hit = !t.decoy && state.rng() < (K.pk ?? 0.8);
       if (hit) t.kill('sam');
       const owner = state.ships.find((s) => s.id === m.owner);
       if (hit && owner) owner.ribbons.hits++;
@@ -14047,7 +14052,7 @@ function stepAirMissiles(state, p, dt) {
   const ahead = (dx * Math.sin(p.heading) + dz * Math.cos(p.heading)) / Math.max(1, Math.hypot(dx, dz));
   if (ahead < Math.cos(LOCK_CONE)) return;
   // Not two at the one aeroplane.
-  if (state.missiles.some((m) => m.team === p.team && m.tk === 'a' && m.target === id)) return;
+  if (state.missiles.some((m) => m.team === p.team && m.tk === 'a' && m.target === id && !m.decoy)) return;
   let kind = null;
   for (const k of ['aim9', 'aim120']) {
     const K = airKind(k);
@@ -14057,6 +14062,131 @@ function stepAirMissiles(state, p, dt) {
   p.rack[kind]--;
   p.lockCool = 4;
   launchLocked(state, p, kind, airKind(kind), 'a', id, (p.mslSide = -(p.mslSide || 1)));
+}
+
+// ---------------------------------------------------------------------------
+// Chaff and flares
+// ---------------------------------------------------------------------------
+//
+// A modern aeroplane -- a Hornet, a Hawkeye, a Seahawk -- carries a dispenser
+// of flares and chaff. Let a salvo go and it falls away behind her, burning
+// white-hot, in a cloud of foil: a missile coming for her, the seeker of an
+// AIM-9 or the radar of a Sea Sparrow alike, may take one of the flares for
+// her and veer off after it, and burst on nothing when it burns out.
+
+/** The aeroplanes that carry a dispenser, and how many salvos are in it. */
+export const CHAFF_LOAD = { f18: 8, e2d: 6, sh60: 6 };
+/** Flares in a salvo. */
+const CHAFF_FLARES = 6;
+/** How long a flare burns, in seconds. */
+const FLARE_LIFE = 4.5;
+/** Seconds between one salvo and the next off the same aeroplane. */
+const CHAFF_COOL = 1.2;
+/** How close a missile has to be coming in for a salvo to work on it, in metres. */
+const CHAFF_REACH = 3500;
+/** And how likely a salvo is to pull each missile coming for her off her. */
+const CHAFF_PULL = 0.7;
+
+/** Whether an aeroplane of this type carries flares and chaff. */
+export function hasChaff(type) { return !!CHAFF_LOAD[type]; }
+
+/** Where a flare is, as the thing a missile led astray steers for. */
+function flareTarget(state, id) {
+  const f = state.flares.find((q) => q.id === id);
+  if (!f) return null;
+  return { x: f.x, y: f.y, z: f.z, vx: f.vx, vy: f.vy, vz: f.vz, decoy: true, kill: () => {} };
+}
+
+/**
+ * A salvo of flares and chaff off aeroplane `p`. Every missile coming for her
+ * inside the salvo's reach may be pulled off her onto one of the flares.
+ * Returns whether it went.
+ */
+function throwChaff(state, p) {
+  if (!p || p.dead || !hasChaff(p.type)) return false;
+  if (p.chaff === undefined) p.chaff = CHAFF_LOAD[p.type];
+  if (p.chaff <= 0 || (p.chaffCool || 0) > 0) return false;
+  p.chaff--;
+  p.chaffCool = CHAFF_COOL;
+  const h = p.heading || 0;
+  const v = Math.max(40, p.speed || 90);
+  const y = p.y ?? 220;
+  const ids = [];
+  const fl = [];
+  for (let k = 0; k < CHAFF_FLARES; k++) {
+    // Out of the dispensers either side of her tail, kicked out and down and
+    // left behind her at a fraction of her speed.
+    const side = k % 2 ? 1 : -1;
+    const out = 14 + state.rng() * 18;
+    const back = v * (0.25 + state.rng() * 0.2);
+    const f = {
+      id: eid(), owner: p.id, team: p.team,
+      x: p.x - Math.sin(h) * 4, y: y - 1, z: p.z - Math.cos(h) * 4,
+      vx: Math.sin(h) * back + Math.cos(h) * side * out,
+      vy: -6 - state.rng() * 10,
+      vz: Math.cos(h) * back - Math.sin(h) * side * out,
+      life: FLARE_LIFE * (0.8 + state.rng() * 0.4),
+    };
+    state.flares.push(f);
+    ids.push(f.id);
+    fl.push([r(f.vx), r(f.vy), r(f.vz), r(f.life)]);
+  }
+  state.events.push({ e: 'chaff', i: p.id, x: r(p.x), y: r(y), z: r(p.z), f: fl });
+  // And every missile on its way to her, near enough to see it, rolls against it.
+  for (const m of state.missiles) {
+    if (m.tk !== 'a' || m.target !== p.id || m.decoy || m.aboard) continue;
+    const d = Math.hypot(m.x - p.x, m.y - y, m.z - p.z);
+    if (d > CHAFF_REACH) continue;
+    if (state.rng() >= CHAFF_PULL) continue;
+    m.decoy = ids[Math.floor(state.rng() * ids.length)];
+    state.events.push({ e: 'decoyed', i: m.id, pl: p.id, x: r(m.x), y: r(m.y), z: r(m.z) });
+  }
+  return true;
+}
+
+/**
+ * A pilot's chaff key: a salvo off the aeroplane she is flying, if it is hers
+ * to fly and has a dispenser with anything left in it.
+ */
+export function dropChaff(state, ship, id) {
+  const p = state.planes.find((q) => q.id === id);
+  if (!p || p.dead || !ship) return false;
+  if (p.owner !== ship.id && p.pilot !== ship.id) return false;
+  return throwChaff(state, p);
+}
+
+/**
+ * The flares, a tick: falling, slowing in the air, burning out. And every
+ * modern aeroplane nobody is flying by hand throws a salvo of her own when a
+ * missile is closing on her.
+ */
+function stepChaff(state, dt) {
+  if (!state.flares) state.flares = [];
+  const keep = [];
+  for (const f of state.flares) {
+    f.life -= dt;
+    if (f.life <= 0 || f.y <= 0) continue;
+    const drag = Math.exp(-1.4 * dt);
+    f.vx *= drag; f.vz *= drag;
+    f.vy = Math.max(-28, f.vy - 9.8 * 0.6 * dt);
+    f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
+    keep.push(f);
+  }
+  state.flares = keep;
+  for (const p of state.planes) {
+    if (p.dead || !hasChaff(p.type)) continue;
+    if (p.chaffCool > 0) p.chaffCool -= dt;
+    if (p.flown) continue;
+    if (p.chaff !== undefined && p.chaff <= 0) continue;
+    if (p.chaffCool > 0) continue;
+    const y = p.y ?? 220;
+    for (const m of state.missiles) {
+      if (m.tk !== 'a' || m.target !== p.id || m.decoy || m.aboard) continue;
+      const d = Math.hypot(m.x - p.x, m.y - y, m.z - p.z);
+      // Close enough to see coming and still far enough to be fooled.
+      if (d < 2600 && d > 150) { throwChaff(state, p); break; }
+    }
+  }
 }
 
 function stepPlanes(state, dt) {
@@ -18239,6 +18369,7 @@ export function step(state, dt = DT) {
   stepBullets(state, dt);
   stepTorpedoes(state, dt);
   stepMissiles(state, dt);
+  stepChaff(state, dt);
   stepCharges(state, dt);
   stepMines(state, dt);
   stepPlanes(state, dt);

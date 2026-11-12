@@ -5,7 +5,7 @@ import { soldierWire, barracksWire, squadWire } from './infantry.js';
 import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
-  slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds, planeRack,
+  slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds, planeRack, CHAFF_LOAD,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -558,6 +558,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // The missiles still on her rails, kind by kind, to her own side: what
       // a pilot has to lock on and fire (see fireLocked).
       rk: p.team === team && (p.rack || p.standoff) ? rackWire(p) : undefined,
+      // The salvos of flares and chaff left in her dispenser, on a modern
+      // aeroplane, to her own side: what the pilot's chaff key counts down.
+      cf: p.team === team && CHAFF_LOAD[p.type] ? (p.chaff ?? CHAFF_LOAD[p.type]) : undefined,
       // Her wheels down and her hook out: in the groove coming in to land.
       gd: p.land && (p.land.leg === 'final' || p.land.leg === 'base') ? 1 : undefined,
       // How she has been knocked about: how many of her machines are trailing

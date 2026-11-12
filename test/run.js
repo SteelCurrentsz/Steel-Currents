@@ -203,7 +203,7 @@ import { buildMissouri } from '../client/js/render/missouri.js';
 import { missouriSurfaceY, MOUNT_SEATS as MISSOURI_SEATS } from '../client/js/render/missouriHull.js';
 import {
   fireMissile, retargetMissile, normaliseVls, defaultVls, setVlsLoad, setAegisAuto, vlsCells, vlsKinds, MISSILE_CODE,
-  samKinds, fireLocked, planeRack,
+  samKinds, fireLocked, planeRack, dropChaff, CHAFF_LOAD,
 } from '../shared/sim.js';
 import { pickLockKind } from '../client/js/lockon.js';
 import {
@@ -2016,9 +2016,13 @@ check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun as
   for (let i = 0; i < 60 / DT && !e; i++) { p.flownAt = state.t; step(state, DT); e = state.planes.find((q) => q.team === 1 && !q.dead); }
   assert.ok(e, 'the enemy put nothing up');
   p.x = e.x - 2500; p.z = e.z; p.y = e.y ?? 300; aim(e.x, e.y ?? 300, e.z); p.lockCool = 0;
+  // Her dispenser empty, so this is the missile against her and not her flares.
+  e.chaff = 0;
   assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 'a', tg: e.id }), 'kind', 'a Maverick went at an aeroplane');
-  assert.ok(fireLocked(state, c, { i: p.id, k: 'aim120', tk: 'a', tg: e.id })?.id, 'the AMRAAM would not go');
-  const burst = fly(20, (x) => x.e === 'samBurst' || x.e === 'mslDown');
+  const amraam = fireLocked(state, c, { i: p.id, k: 'aim120', tk: 'a', tg: e.id });
+  assert.ok(amraam?.id, 'the AMRAAM would not go');
+  // Its own end, not one of her carrier's Sea Sparrows going after something else.
+  const burst = fly(20, (x) => (x.e === 'samBurst' || x.e === 'mslDown') && x.i === amraam.id);
   assert.ok(burst && burst.e === 'samBurst' && burst.k === 'aim120', `the AMRAAM never reached her: ${JSON.stringify(burst)}`);
   assert.equal(planeRack(p).aim120, 1);
   // And the client's seeker sends the missile that suits what it has.
@@ -2029,6 +2033,65 @@ check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun as
   assert.equal(pickLockKind({ agm65: 1 }, 'b', 9000), 'agm65');
   assert.equal(pickLockKind({ agm84: 2, agm65: 1 }, 's', 18000), 'agm84');
   for (const k of ['aim9', 'aim120', 'agm65']) assert.ok(MISSILE_CODE[k], `${k} has no name on the wire`);
+});
+
+check('a modern aeroplane throws chaff: a missile coming for her veers off after a flare and bursts on nothing', () => {
+  const state = createState(generateWorld(4343, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'N2', classId: 'nimitz', team: 1, index: 0 });
+  c.x = 0; c.z = -9000; c.heading = 0; foe.x = 0; foe.z = 9000; foe.heading = Math.PI;
+  for (const s of [c, foe]) { setAirGroup(s, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'aa' } }); s.sel = 0; }
+  c.aimX = 0; c.aimZ = 9000; foe.aimX = 0; foe.aimZ = -9000;
+  launchStrike(state, c); launchStrike(state, foe);
+  let p = null, e = null;
+  for (let i = 0; i < 60 / DT && !(p && e); i++) {
+    step(state, DT);
+    p = state.planes.find((q) => q.owner === c.id && !q.dead);
+    e = state.planes.find((q) => q.owner === foe.id && !q.dead);
+  }
+  assert.ok(p && e, 'the two carriers did not both put a Hornet up');
+  const wire = buildSnapshot(state, 0, c.id).planes.find((q) => q.i === p.id);
+  assert.equal(wire.cf, CHAFF_LOAD.f18, 'her pilot is not told what is in her dispenser');
+  assert.equal(buildSnapshot(state, 1, foe.id).planes.find((q) => q.i === p.id).cf, undefined, 'the enemy is told what is in her dispenser');
+  // Our Hornet flown by hand, two and a half kilometres behind theirs.
+  p.pilot = c.id; p.flown = true;
+  const hold = () => {
+    p.flownAt = state.t;
+    e.x = p.x + 2500; e.z = p.z; e.y = p.y; e.heading = Math.PI / 2; e.flown = true; e.flownAt = state.t; e.pilot = foe.id;
+  };
+  p.x = 0; p.z = 0; p.y = 1500; p.heading = Math.PI / 2; p.pitch = 0; p.speed = 200; p.lockCool = 0;
+  hold();
+  const m = fireLocked(state, c, { i: p.id, k: 'aim120', tk: 'a', tg: e.id });
+  assert.ok(m && m.id, `the AMRAAM did not go: ${m}`);
+  // The enemy's pilot lets a salvo go once it is on its way; a few tries, as a
+  // salvo pulls a missile off only most of the time.
+  let decoyed = null;
+  const killed0 = e.count;
+  for (let i = 0; i < 1.5 / DT && !decoyed; i++) {
+    hold();
+    if (!e.chaffCool || e.chaffCool <= 0) dropChaff(state, foe, e.id);
+    const ev = step(state, DT);
+    decoyed = ev.find((x) => x.e === 'decoyed' && x.i === m.id);
+  }
+  // Statistically certain over the eight salvos she carries; she has at most
+  // eight, and each pulls it seventy per cent of the time.
+  assert.ok(decoyed, 'no salvo of chaff drew the AMRAAM off');
+  assert.ok(state.flares.length > 0, 'the flares are not in the air');
+  assert.ok(e.chaff < CHAFF_LOAD.f18, 'nothing came out of her dispenser');
+  let end = null;
+  for (let i = 0; i < 20 / DT && !end; i++) {
+    hold();
+    end = step(state, DT).find((x) => (x.e === 'samBurst' || x.e === 'mslDown') && x.i === m.id);
+  }
+  assert.ok(end, 'the decoyed missile flew on for ever');
+  assert.ok(!(end.e === 'samBurst' && end.hit), 'the decoyed missile hit her anyway');
+  assert.equal(e.count, killed0, 'she lost an aeroplane to a missile that went for her flares');
+  // An empty dispenser throws nothing, and a ship cannot throw chaff off another's aeroplane.
+  e.chaff = 0; e.chaffCool = 0;
+  assert.equal(dropChaff(state, foe, e.id), false, 'chaff came out of an empty dispenser');
+  p.chaffCool = 0;
+  assert.equal(dropChaff(state, foe, p.id), false, 'the enemy threw chaff off our aeroplane');
+  assert.equal(dropChaff(state, c, p.id), true, 'her own pilot could not throw chaff');
 });
 
 check('the Nimitz\'s lifts go down whole: nothing of a lift is left in her deck for it to come up through', () => {

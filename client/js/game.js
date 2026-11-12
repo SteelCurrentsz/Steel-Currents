@@ -981,6 +981,7 @@ export class Battle {
       drop: () => this.letGo(),
       lock: () => this.cycleLock(),
       missile: () => this.fireLockedMissile(),
+      chaff: () => this.dropChaff(),
       bombCam: () => this.toggleShellCam(),
       brakes: () => this.toggleBrakes(),
       move: (kind) => this.flyMove(kind),
@@ -1111,6 +1112,12 @@ export class Battle {
       }),
       // A missile off her rail that did not go: the simulation says why, and
       // the count goes back to what the wire says.
+      this.net.on('nochaff', (m) => {
+        const f = this.flight;
+        if (!f || f.id !== m.i) return;
+        f.chaffHeld = 0;
+        this.hud.alert(f.chaff > 0 ? 'Dispenser reloading' : 'No chaff left');
+      }),
       this.net.on('nomsl', (m) => {
         const f = this.flight;
         if (!f || f.id !== m.i) return;
@@ -1712,7 +1719,7 @@ export class Battle {
     }
     const own = this.missileShip();
     this.mslDue = (this.mslDue || 0) - dt;
-    if (!own) { this.hud.setMissiles?.(null); return; }
+    if (!own || this.flight) { this.hud.setMissiles?.(null); return; }
     if (this.mslDue > 0) return;
     this.mslDue = 1 / 15;
     const me = own.shown;
@@ -3000,6 +3007,16 @@ export class Battle {
         // A Standard's warhead going off by what it was sent for: a dirty
         // black-and-orange burst high in the sky, and, if it got it, the
         // pieces of whatever it was coming down.
+        // A salvo of flares and chaff off a modern aeroplane.
+        case 'chaff':
+          fx.flares(ev.x, ev.y, ev.z, ev.f);
+          if (this.flight && this.flight.id === ev.i) audio.click();
+          break;
+        // A missile pulled off its mark by one of them: said to the pilot it
+        // was coming for.
+        case 'decoyed':
+          if (this.flight && this.flight.id === ev.pl) this.hud.alert('Missile decoyed — it went for the flares');
+          break;
         case 'samBurst':
           fx.flakBurst(ev.x, ev.y, ev.z, 260);
           if (ev.hit) fx.debris(ev.x, ev.y, ev.z, 10);
@@ -4076,6 +4093,8 @@ export class Battle {
     // Her missiles: step the seeker on, and fire at what it has locked.
     if (this.flight && !this.flight.heavy && !this.turret && code === 'KeyR') { this.cycleLock(); return; }
     if (this.flight && !this.flight.heavy && !this.turret && code === 'KeyF') { this.fireLockedMissile(); return; }
+    // Flares and chaff, on a modern aeroplane.
+    if (this.flight && !this.flight.heavy && !this.turret && code === 'KeyV') { this.dropChaff(); return; }
     // A heavy's bombs off the keyboard as well as the DROP key, and out of the
     // bomb bay without leaving the battle.
     if (this.flight && this.flight.heavy && code === 'KeyG') { this.letGo(); return; }
@@ -5127,6 +5146,10 @@ export class Battle {
       // until the wire has caught up with it.
       rack: pl.rk ? { ...pl.rk } : null,
       rackHeld: 0,
+      // The salvos of flares and chaff left in her dispenser, on a modern
+      // aeroplane, and the same hold on the count after one goes.
+      chaff: Number.isFinite(pl.cf) ? pl.cf : null,
+      chaffHeld: 0,
       lock: null,
       // What is left in her guns.
       ammo: PLANE_ROUNDS,
@@ -5139,8 +5162,9 @@ export class Battle {
     this.hud.setFlyOffer(false);
     this.hud.setCockpit(true, this.flight.id);
     this.hud.setArmament(this.flight.load && this.flight.load.key);
-    this.hud.setMissiles(hasRack(this.flight.rack), rackLabel(this.flight.rack));
+    this.hud.setFlyMissiles(hasRack(this.flight.rack), rackLabel(this.flight.rack));
     if (hasRack(this.flight.rack)) this.hud.alert('Missiles armed — nose on a target, R to lock, F to fire');
+    this.hud.setChaff(this.flight.chaff);
     // Her dive brakes, on a type that has them -- and out already, if the
     // autopilot was half way down a dive with them when she was taken.
     if (pl.db > 0) {
@@ -5743,7 +5767,8 @@ export class Battle {
     const heavy = this.flight.heavy;
     this.closeBombSight();
     this.hud.placeLock(null);
-    this.hud.setMissiles(false);
+    this.hud.setFlyMissiles(false);
+    this.hud.setChaff(null);
     this.flight = null;
     this.turret = null;
     this.hud.setAirGun(null);
@@ -6031,8 +6056,11 @@ export class Battle {
       if (f.rackHeld > 0) f.rackHeld -= dt;
       else if (pl) f.rack = pl.rk ? { ...pl.rk } : null;
       stepLock(this, f, p, dt);
-      this.hud.setMissiles(hasRack(f.rack) || !!f.rackSeen, rackLabel(f.rack));
+      this.hud.setFlyMissiles(hasRack(f.rack) || !!f.rackSeen, rackLabel(f.rack));
       if (hasRack(f.rack)) f.rackSeen = true;
+      if (f.chaffHeld > 0) f.chaffHeld -= dt;
+      else if (pl) f.chaff = Number.isFinite(pl.cf) ? pl.cf : null;
+      this.hud.setChaff(f.chaff);
     }
 
     f.sent -= dt;
@@ -6386,6 +6414,25 @@ export class Battle {
     if (!f || f.heavy) return;
     if (!hasRack(f.rack)) { this.hud.alert('No missiles aboard'); return; }
     if (!nextLock(this, f, f.pilot)) this.hud.alert('Nothing in the seeker — put her nose on a target');
+    audio.click();
+  }
+
+  /**
+   * The chaff key: a salvo of flares and chaff out behind her, which may pull
+   * a missile coming for her off onto one of the flares. Only on a modern
+   * aeroplane; the simulation says no if the dispenser is empty or still
+   * cycling.
+   */
+  dropChaff() {
+    const f = this.flight;
+    if (!f || f.heavy) return;
+    if (!Number.isFinite(f.chaff)) { this.hud.alert('No chaff dispenser on this aeroplane'); return; }
+    if (f.chaff <= 0) { this.hud.alert('No chaff left'); return; }
+    this.net.send({ t: 'chaff', i: f.id });
+    f.chaff = Math.max(0, f.chaff - 1);
+    f.chaffHeld = 1.2;
+    this.hud.setChaff(f.chaff);
+    this.hud.alert('Chaff! Flares away');
     audio.click();
   }
 

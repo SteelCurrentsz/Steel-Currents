@@ -613,6 +613,48 @@ export class Effects {
   }
 
   /**
+   * A salvo of flares and chaff off a modern aeroplane: each flare a white-hot
+   * point falling away behind her on the line the simulation gave it, with a
+   * thick white trail curling off it, and a glitter of foil round her tail.
+   *
+   * `list` is [vx, vy, vz, life] a flare, as the simulation threw them; the
+   * flight is worked out here the same way it is there (see stepChaff), and
+   * laid in one go, each puff waiting its turn.
+   */
+  flares(x, y, z, list) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Array.isArray(list)) return;
+    const step = 0.05;
+    for (const f of list) {
+      let [vx, vy, vz, life] = f;
+      let px = x, py = y, pz = z;
+      for (let t = 0, k = 0; t < life && py > 0; t += step, k++) {
+        // The flare itself: brightest at first, burning down as it goes.
+        const left = 1 - t / life;
+        this.air.puff(px, py, pz, 0, 0, 0, {
+          delay: t, life: 0.14, size: 1.2 + 1.4 * left, grow: 2, burn: 0.99, tone: 1,
+        });
+        // And its smoke, every other step.
+        if (k % 2 === 0) {
+          this.air.puff(px, py, pz, (Math.random() - 0.5) * 0.8, 0.4, (Math.random() - 0.5) * 0.8, {
+            delay: t, life: 2.6 + Math.random() * 1.2, size: 0.9, grow: 2.4, burn: 0, tone: 0.95,
+          });
+        }
+        const drag = Math.exp(-1.4 * step);
+        vx *= drag; vz *= drag;
+        vy = Math.max(-28, vy - 9.8 * 0.6 * step);
+        px += vx * step; py += vy * step; pz += vz * step;
+      }
+    }
+    // The chaff: a cloud of foil glinting as it spreads behind her.
+    for (let i = 0; i < Math.round(14 * Math.min(1.5, this.intensity)); i++) {
+      const d = this.sphere(0);
+      const sp = 6 + Math.random() * 14;
+      this.shards.throw(x, y, z, d.x * sp, d.y * sp, d.z * sp,
+        { life: 1.6 + Math.random() * 1.6, size: 0.12 + Math.random() * 0.12, hot: 0 });
+    }
+  }
+
+  /**
    * A round arriving on an aeroplane: a spark off the metal, a scrap or two of
    * her skin, and a pinch of grey where it went in.
    */
