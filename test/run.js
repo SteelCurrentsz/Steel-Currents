@@ -29786,7 +29786,7 @@ check('an atomic burst lights the sea without bringing a light into the battle',
   assert.equal(held, 1, 'the flash lights nothing');
   nukes.update(0.3);
   assert.ok(lamp.intensity > 1e6, 'the flash is not bright');
-  for (let t = 0; t < 160; t += 0.5) nukes.update(0.5);
+  for (let t = 0; t < NUKE.life + 10; t += 0.5) nukes.update(0.5);
   assert.equal(nukes.live.length, 0, 'the burst never went');
   assert.equal(held, 0, 'the light was never given back');
   assert.equal(lights(), 1);
@@ -29949,6 +29949,31 @@ check('the shock goes out where nukeFront has it, and wrecks by distance', () =>
   assert.ok(lost[3] < 0.01, `a ship seven kilometres off lost ${(lost[3] * 100).toFixed(1)}% of her`);
 });
 
+check('an atomic shock blows the town away: nothing left close in, and every ruin it makes says which way it blew', () => {
+  const world = islandTown();
+  const st = createState(world, {});
+  const plan = cityPlan(world);
+  // Off the edge of the town, so some of it is close and some of it is not.
+  const b0 = plan.buildings[0];
+  const x = b0.x + 40, z = b0.z + 40;
+  const near = plan.buildings.filter((b) => Math.hypot(b.x - x, b.z - z) < NUKE.lethal * 0.8);
+  assert.ok(near.length > 0, 'no building near the burst');
+  nukeBlast(st, x, groundHeight(world, x, z), z, null);
+  const ruins = [];
+  for (let i = 0; i < 30 * 12; i++) {
+    for (const e of step(st, DT)) if (e.e === 'ruin' && e.k === 'b') ruins.push(e);
+  }
+  for (const b of near) {
+    assert.ok(world.ruin.b[b.id]?.c, `building ${b.id} ${Math.round(Math.hypot(b.x - x, b.z - z))} m off is still on its footprint`);
+  }
+  const blown = ruins.filter((e) => e.nk > 0);
+  assert.ok(blown.length >= near.length, 'the ruin the shock made does not say it was the shock');
+  for (const e of blown) {
+    assert.ok(e.bx === Math.round(x) && e.bz === Math.round(z), 'a ruin does not say where the burst was');
+    assert.ok(e.nk <= 1, `pushed at ${e.nk}`);
+  }
+});
+
 check('after the flash and the shock comes the wave: slower, big close in, and no tsunami', () => {
   const world = generateWorld(92, 'open_ocean');
   world.islands = [];
@@ -29983,7 +30008,7 @@ check('after the flash and the shock comes the wave: slower, big close in, and n
   for (let i = 0; i < 30 * 6; i++) { step(st, DT); rolled = Math.max(rolled, Math.abs(dd.rock || 0)); }
   assert.ok(rolled > 0.02, `it rolled her ${rolled.toFixed(3)} rad`);
   assert.ok(dd.alive && dd.hp > hp0 * 0.9, 'a five-metre sea sank a destroyer');
-  for (let i = 0; i < 30 * 90; i++) step(st, DT);
+  while (st.t < NUKE.life + 5) step(st, DT);
   assert.equal(st.nukes.length, 0, 'the burst is still being stepped long after it is done');
 });
 

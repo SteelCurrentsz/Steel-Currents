@@ -46,8 +46,12 @@ export const NUKE = {
   craterR: 190,
   craterDepth: 34,
   craterLip: 9,
-  /** How long the whole thing is worth drawing, seconds. */
-  life: 150,
+  /**
+   * How long a burst on the sea is worth drawing, seconds: the column, its
+   * base surge hanging over the water, and the wave running on out under it.
+   * (On land the cloud has its own clock: see MUSHROOM_LIFE.)
+   */
+  life: 300,
   /** The surface wave: how far out it ever gets, metres. */
   waveReach: 9000,
   /** Its time constant, seconds: see nukeWave. */
@@ -148,7 +152,7 @@ export function burstSwell(age, r, out) {
   // Nothing more than four of its lengths behind the front or one ahead.
   if (s > lam * 1.2 || s < -lam * 4.2) return out;
   const grow = Math.min(1, age / 5);
-  const fade = Math.min(1, Math.max(0, (NUKE.life - age) / 40));
+  const fade = Math.min(1, Math.max(0, (NUKE.life - age) / 60));
   const A = 0.5 * waveHeight(R) * grow * grow * (3 - 2 * grow) * fade;
   if (!(A > 0)) return out;
   const k = (Math.PI * 2) / lam;
