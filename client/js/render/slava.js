@@ -36,6 +36,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { arm } from './mounts.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { dressShip } from './textures.js';
+import { fitHelipad } from './helipad.js';
 import { buildInterior, bySection } from './interior.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { lightMounts } from '../../../shared/sim.js';
@@ -293,6 +294,8 @@ export function buildSlava() {
   mergeMoving(g);
   g.userData.classId = 'slava';
   dressShip(g);
+  // Her helicopter, on her pad (see helipad.js).
+  fitHelipad(g, { pad: CLS.planes.helipad, kind: CLS.planes.type });
   return {
     group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
     secMounts: g.userData.secMounts || [],

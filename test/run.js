@@ -42,7 +42,17 @@ import { layMine, troopsFor } from '../shared/sim.js';
 import {
   addBarracks, addSoldier, dryLand, footing, woundSoldier, blastInfantry, shootRifle, clearLine, orderSquads,
   infantryBrief, doctrineOut, doctrineIn, poolDoctrine, commandSoldier, driveSoldier, GARAND, BARRACKS_MEN,
+  predictSoldier,
 } from '../shared/infantry.js';
+import { driveHull } from '../shared/sim.js';
+import {
+  dockShip, dockState, undock as castOff, baseBomber, airfields, setFieldSides, REARM_TIME,
+} from '../shared/sim.js';
+import {
+  airbasesOf, harborsOf, runwayOf, berthAlong, cityPlans as worksPlans, cleanAsk as cleanWorksAsk, worldToCity as toSite,
+  TOWN_MAX_W, TOWN_MIN_D,
+} from '../shared/works.js';
+import { Held } from '../client/js/predict.js';
 import {
   LOADOUT_SLOTS, listLoadouts, saveLoadout, deleteLoadout, describeLoadout,
 } from '../client/js/loadouts.js';
@@ -297,6 +307,7 @@ import { drift } from '../client/js/render/effects.js';
 import { MuzzleBlasts, blastRecipe, blastSize } from '../client/js/render/muzzleblast.js';
 import { Effects } from '../client/js/render/effects.js';
 import { buildShip, buildShipModel, buildStandIn, loadShips } from '../client/js/render/ships.js';
+import { mergeStatic } from '../client/js/render/merge.js';
 import { FUNNEL_MOUTHS, MOUTH_SAME } from '../client/js/render/funnelMouths.js';
 import { muzzleWorld } from '../client/js/render/mounts.js';
 
@@ -442,7 +453,7 @@ import { cutFromHoles, breakCut, piecesOf } from '../client/js/render/breakup.js
 import { ZERO, zeroGeometries } from '../client/js/render/zeroModel.js';
 import { DAUNTLESS } from '../client/js/render/dauntlessModel.js';
 import { engineStart, CRANK } from '../client/js/render/deckengine.js';
-import { sustainBank, turnFor } from '../shared/aero.js';
+import { sustainBank, turnFor, AERO as AIRFRAMES } from '../shared/aero.js';
 import {
   buildSurcouf, LOA as surcoufLOA,
   shellAt as surcoufShellAt, casingY as surcoufCasingY,
@@ -2192,6 +2203,71 @@ check('a Seahawk comes home to a hover over the Nimitz and straight down onto he
   assert.ok(again > 0 || !foe.alive, 'nothing that came home went out again');
   // Struck below and up again: nothing went missing on the way round.
   assert.ok(state.planes.every((p) => !p.land || p.land.leg !== 'final' || !rotary(p)), 'a Seahawk flew the groove');
+});
+
+check('the Sovremenny and the Slava each carry one Ka-27 and the Arleigh Burke one MH-60, each with two load outs', () => {
+  for (const [id, type, label] of [['sovremenny', 'ka27', 'Ka-27 Helix'], ['slava', 'ka27', 'Ka-27 Helix'], ['burke', 'sh60', 'MH-60 Seahawk']]) {
+    const cls = SHIP_CLASSES[id];
+    assert.ok(cls.planes, `the ${id} carries no helicopter`);
+    assert.equal(cls.planes.squadrons, 1);
+    assert.equal(cls.datasheet.aircraft, 1);
+    const g = defaultAirGroup(cls);
+    assert.deepEqual([g.fighters, g.dive, g.torpedo], [0, 0, 1], `the ${id} does not carry one`);
+    const S = cls.planes.slots;
+    assert.deepEqual(Object.keys(S), ['torpedo']);
+    assert.equal(S.torpedo.type, type);
+    assert.equal(S.torpedo.label, label);
+    assert.deepEqual(Object.values(S.torpedo.loadouts).map((l) => l.name).sort(), ['ASW Load Out', 'Anti-Ship Load Out']);
+    for (const k of Object.keys(S.torpedo.loadouts)) {
+      assert.equal(normaliseAirGroup(cls, { fighters: 9, torpedo: 4, load: { torpedo: k } }).load.torpedo, k);
+      assert.equal(normaliseAirGroup(cls, { fighters: 9, torpedo: 4, load: { torpedo: k } }).torpedo, 1);
+    }
+    assert.ok(rotary({ type }), `a ${type} is not a helicopter`);
+  }
+  // The Burke's Seahawk is loaded as the Nimitz's are.
+  assert.deepEqual(SHIP_CLASSES.burke.planes.slots.torpedo.loadouts, SHIP_CLASSES.nimitz.planes.slots.torpedo.loadouts);
+});
+
+check('a ship\'s helicopter goes up off her pad, fights as she is loaded, and comes home straight down onto the same spot', () => {
+  for (const [id, type] of [['sovremenny', 'ka27'], ['slava', 'ka27'], ['burke', 'sh60']]) {
+    for (const load of ['as', 'asw']) {
+      const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+      const c = addShip(state, { name: 'Her', classId: id, team: 0, index: 0 });
+      const foe = addShip(state, { name: 'Foe', classId: load === 'asw' ? 'u48' : 'fletcher', team: 1, index: 0 });
+      c.x = 0; c.z = -6000; c.heading = 0; foe.x = 1500; foe.z = 3000;
+      const cls = SHIP_CLASSES[id];
+      setAirGroup(c, cls, { torpedo: 1, load: { torpedo: load } });
+      c.aimX = foe.x; c.aimZ = foe.z;
+      assert.ok(launchStrike(state, c), `the ${id} would not launch`);
+      assert.ok(!launchStrike(state, c), `the ${id} launched a second helicopter she has not got`);
+      const pad = cls.planes.helipad;
+      let up = null, fired = false, dropped = false, trap = null, most = 0;
+      for (let i = 0; i < Math.ceil(700 / DT) && !trap; i++) {
+        for (const ev of step(state, DT)) {
+          if (ev.e === 'airDrop' && ev.fish) dropped = true;
+          if (ev.e === 'trap' && ev.ship === c.id) trap = ev;
+        }
+        most = Math.max(most, state.planes.filter((p) => p.owner === c.id).length);
+        for (const p of state.planes) {
+          if (p.owner !== c.id) continue;
+          if (!up) up = { type: p.type, y: p.y, along: (p.z - c.z), across: p.x - c.x };
+        }
+        if (state.missiles.some((m) => m.air && m.owner === c.id)) fired = true;
+      }
+      assert.ok(up, `the ${id}'s helicopter never went up`);
+      assert.equal(up.type, type);
+      assert.ok(Math.abs(up.along - pad.z) < 3 && Math.abs(up.across - pad.x) < 3,
+        `the ${id}'s helicopter went up ${up.along.toFixed(1)} m along, not off her pad at ${pad.z}`);
+      assert.ok(up.y > pad.y + 10 && up.y < pad.y + 25, `she was handed to the sky at ${up.y.toFixed(1)} m`);
+      assert.equal(most, 1, `the ${id} flew ${most} helicopters`);
+      if (load === 'as') assert.ok(fired || !foe.alive, `the ${id}'s helicopter fired no missiles`);
+      else assert.ok(dropped || !foe.alive, `the ${id}'s helicopter dropped no torpedoes`);
+      assert.ok(trap, `the ${id}'s helicopter never came home`);
+      const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
+      const dx = trap.x - c.x, dz = trap.z - c.z;
+      assert.ok(Math.hypot(dx * fx + dz * fz - pad.z, dx * fz - dz * fx - pad.x) < 3, `the ${id}'s helicopter came down off her pad`);
+    }
+  }
 });
 
 check('the Nimitz flies her Hornets, Hawkeyes and Seahawks as their loads say, and a Hawkeye up widens her side\'s picture', () => {
@@ -13011,8 +13087,11 @@ check('the airscrew reads as a disc without a plate under her nose', () => {
   // with the blades and square to the shaft.
   const models = flightModels();
   for (const [kind, m] of Object.entries(models)) {
-    const prop = (m.parts || []).find((q) => q.name === 'prop');
-    assert.ok(prop, `the ${kind} has no airscrew`);
+    // A jet has no airscrew, and a helicopter's rotor is not one either.
+    if (AIRFRAMES[kind]?.jet || AIRFRAMES[kind]?.rotor) continue;
+    const props = (m.parts || []).filter((q) => /^prop\d*$/.test(q.name));
+    assert.ok(props.length, `the ${kind} has no airscrew`);
+    for (const prop of props) {
     prop.geo.computeBoundingBox();
     const bb = prop.geo.boundingBox;
     const rx = Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x));
@@ -13027,6 +13106,7 @@ check('the airscrew reads as a disc without a plate under her nose', () => {
     assert.equal(blur.length, 1, `the ${kind}'s airscrew has ${blur.length} blurs on it`);
     assert.ok(blur[0].opacity < 0.2,
       `the ${kind}'s airscrew blur is ${blur[0].opacity} opaque -- that is a plate`);
+    }
     assert.ok(!m.mats.some((mat) => mat.transparent),
       `the ${kind} still has something translucent welded into her body`);
   }
@@ -14612,6 +14692,9 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
   // tops ahead of her.
   const LOW = 60;
   for (const cls of Object.values(SHIP_CLASSES)) {
+    // A boat with no anti-aircraft gun at all -- the Landing Craft Mechanized
+    // carries none -- has no arcs to speak of.
+    if (!aaBattery(cls).length) continue;
     const ship = { x: 0, z: 0, heading: 0 };
     const R = cls.aa.range * 0.4;
     const ahead = aaBearing(cls, ship, 0, R, LOW);
@@ -14855,6 +14938,12 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     // A warship carries three kinds at least; a merchantman -- the Liberty
     // ship's 4-inch and her Oerlikons -- may carry two, and a landing craft
     // -- the Higgins boat's pair of Brownings -- one.
+    // And one built unarmed -- the Landing Craft Mechanized -- none at all.
+    const unarmed = !cls.turrets.length && !cls.secondary && !(cls.aa?.guns?.length) && !cls.torpedoes;
+    if (unarmed) {
+      assert.equal(rows.length, 0, `${cls.id} carries no weapons, and lists ${rows.map((w) => w.name).join(', ')}`);
+      continue;
+    }
     const least = cls.type === 'LC' ? 1 : cls.cargo ? 2 : 3;
     assert.ok(rows.length >= least, `${cls.id} lists only ${rows.length} weapons`);
     for (const w of rows) {
@@ -17471,6 +17560,114 @@ check('a shell takes the plating it went through, and only that', () => {
   assert.ok(gone > 200, `a compartment blown out of her took ${gone} pieces`);
 });
 
+check('soot round a burst is laid exactly as it always was, and only inside its ring', () => {
+  // Plating.scorch was rewritten to stop calling Math.hypot three times a
+  // vertex -- after an atomic burst it is run on every ship in reach at once.
+  // What it writes must be what the old loop wrote, byte for byte.
+  const built = buildShip('cleveland');
+  const plating = new Plating(built.group);
+  // Nothing at all: but every buffer is made ready to be marked.
+  plating.scorch(0, 6, 0, 400, 0);
+  const before = plating.parts.map((p) => Uint8Array.from(p.mesh.geometry.attributes.color.array));
+  assert.ok(before.every((c) => c.every((v) => v === 255)) || before.length > 0, 'she has no plating to mark');
+  // The old loop, as it was.
+  const old = (x, y, z, r, amount) => plating.parts.map((part, n) => {
+    const ca = Uint8Array.from(before[n]);
+    const pos = part.mesh.geometry.attributes.position.array;
+    for (let t = 0; t < part.count; t++) {
+      const o = t * 3;
+      const dx = part.cent[o] - x, dy = part.cent[o + 1] - y, dz = part.cent[o + 2] - z;
+      if (dx * dx + dy * dy + dz * dz > r * r) continue;
+      for (let k = 0; k < 3; k++) {
+        const v = part.idx.array[o + k];
+        const d = Math.hypot(pos[v * 3] - x, pos[v * 3 + 1] - y, pos[v * 3 + 2] - z);
+        const want = 1 - 0.82 * amount * Math.max(0, 1 - d / r) ** 1.4;
+        for (let c = 0; c < 3; c++) ca[v * 3 + c] = Math.min(ca[v * 3 + c], Math.round(255 * want));
+      }
+    }
+    return ca;
+  });
+  const beam = SHIP_CLASSES.cleveland.hull.beam;
+  const want = old(beam * 0.5, 5, 12, 9, 0.8);
+  plating.scorch(beam * 0.5, 5, 12, 9, 0.8);
+  let marked = 0;
+  plating.parts.forEach((part, n) => {
+    const got = part.mesh.geometry.attributes.color.array;
+    for (let i = 0; i < got.length; i++) {
+      if (got[i] !== want[n][i]) assert.fail(`byte ${i} of buffer ${n} is ${got[i]}, was ${want[n][i]}`);
+      if (got[i] !== before[n][i]) marked++;
+    }
+  });
+  assert.ok(marked > 100, `a burst against her side blackened ${marked} bytes of her`);
+});
+
+check('a weld is what its pieces were, put in her frame: paint, normals, texture and all', () => {
+  // mergeStatic writes straight into typed arrays now. Every number in the
+  // weld is still the one Vector3 would have worked out.
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial({ vertexColors: true });
+  const plain = new THREE.MeshStandardMaterial({ color: 0x808080 });
+  const add = (geo, mat, x, y, z, ry, s = 1) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z); m.rotation.set(0.3, ry, -0.2); m.scale.setScalar(s);
+    g.add(m);
+    return m;
+  };
+  const painted = new THREE.BoxGeometry(2, 3, 4);
+  const cols = new Float32Array(painted.attributes.position.count * 3).map((_, i) => ((i * 37) % 255) / 255);
+  painted.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  const sources = [
+    add(painted, paint, 1, 2, 3, 0.4),
+    add(new THREE.CylinderGeometry(1, 1.5, 2, 9), paint, -4, 1, 7, 1.1, 1.3),   // no paint of its own: white
+    add(new THREE.BoxGeometry(1, 1, 1), plain, 3, 0, -5, -0.7),
+    add(new THREE.SphereGeometry(1.2, 7, 5), plain, 0, 4, 0, 2.2, 0.8),
+  ];
+  g.updateMatrixWorld(true);
+  const expect = sources.map((m) => {
+    const pos = m.geometry.attributes.position, nor = m.geometry.attributes.normal;
+    const nm = new THREE.Matrix3().getNormalMatrix(m.matrixWorld);
+    const P = [], N = [], U = [];
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const px = v.x, py = v.y, pz = v.z;
+      P.push(px, py, pz);
+      v.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize();
+      N.push(v.x, v.y, v.z);
+      const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+      if (ay >= ax && ay >= az) U.push(px, pz); else if (ax >= az) U.push(pz, py); else U.push(px, py);
+    }
+    return { P, N, U, mat: m.material, col: m.geometry.attributes.color, n: pos.count, index: m.geometry.index };
+  });
+  mergeStatic(g);
+  assert.equal(g.children.length, 2, 'two materials, two welds');
+  for (const mat of [paint, plain]) {
+    const weld = g.children.find((c) => c.material === mat);
+    const geo = weld.geometry;
+    const mine = expect.filter((e) => e.mat === mat);
+    const P = new Float32Array(mine.flatMap((e) => e.P));
+    const N = new Float32Array(mine.flatMap((e) => e.N));
+    const U = new Float32Array(mine.flatMap((e) => e.U));
+    assert.deepEqual([...geo.attributes.position.array], [...P], 'her points moved');
+    assert.deepEqual([...geo.attributes.normal.array], [...N], 'her normals turned');
+    assert.deepEqual([...geo.attributes.uv.array], [...U], 'her texture slid');
+    if (mat === paint) {
+      const C = mine.flatMap((e) => (e.col ? [...e.col.array].map((c) => Math.round(c * 255)) : new Array(e.n * 3).fill(255)));
+      assert.deepEqual([...geo.attributes.color.array], C, 'her paint changed in the weld');
+    } else {
+      assert.ok(!geo.attributes.color, 'unpainted pieces came out of the weld painted');
+    }
+    let base = 0;
+    const I = [];
+    for (const e of mine) {
+      for (let i = 0; i < e.index.count; i++) I.push(base + e.index.getX(i));
+      base += e.n;
+    }
+    assert.deepEqual([...geo.index.array], I, 'her triangles were joined up wrong');
+    assert.equal(weld.userData.pieces.length, mine.length, 'a piece of her went missing in the weld');
+  }
+});
+
 check('only a round that got through takes any of her with it', () => {
   // The rule the guns were designed round, and the one the simulation already
   // works to: a shell that bounced off the belt, shattered on the plate or went
@@ -17894,11 +18091,12 @@ check('the cockpit says what happened, not what was hoped', () => {
   const sent = [];
   const g = Object.create(Battle.prototype);
   g.team = 0;
-  g.hud = {
-    alert: (t) => said.push(t), paintCockpit() {}, setSightHot() {},
-    paintFlightDamage() {}, setAmmo() {}, setThrottle() {}, setMissiles() {}, placeLock() {},
+  // Whatever else of the cockpit the flight touches does nothing here; only
+  // what is said is listened to.
+  g.hud = new Proxy({
+    alert: (t) => said.push(t),
     fly: { throttle: 1, aimX: 0, aimY: 0 },
-  };
+  }, { get: (o, k) => (k in o ? o[k] : () => {}) });
   g.net = { send: (m) => sent.push(m) };
   g.snapshots = [{ ships: [{ i: 9, a: 1, tm: 1, x: 100, z: 0 }], planes: [] }];
   g.flight = {
@@ -19337,7 +19535,7 @@ check('a magazine blows her apart, and how far by what was in it', () => {
 check('a round that got in holes her, and one that did not only marks her', () => {
   const game = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
   const body = (from, len = 2400) => { const at = game.indexOf(from); assert.ok(at >= 0, from); return game.slice(at, at + len); };
-  assert.ok(/hitMark\(ev\)/.test(body("        case 'hit': {", 1800)), 'a shell hit is not put on her plating');
+  assert.ok(/hitMark\(ev\)/.test(body("        case 'hit': {", 3200)), 'a shell hit is not put on her plating');
   assert.ok(/\.punch\(/.test(body("        case 'torpHit':", 1200)), 'a torpedo no longer opens her side');
   // On a real hull: what each kind of hit leaves on her.
   const scene = new THREE.Scene();
@@ -28800,7 +28998,8 @@ check('a town on fire burns, spreads to the timber next door and burns itself ou
   const world = islandTown();
   const st = createState(world, {});
   const plan = cityPlan(world);
-  const house = plan.buildings.find((q) => q.kind === 'house' && q.mat === 'wood' && q.near.length);
+  const house = plan.buildings.find((q) => q.kind === 'house' && q.mat === 'wood'
+    && q.near.some((id) => plan.byId.get(id)?.mat === 'wood'));
   assert.ok(house, 'no timber house with neighbours');
   world.ruin.b[house.id] = { d: 0, f: 1 };
   for (let i = 0; i < 30 * 240; i++) step(st, DT);
@@ -28925,9 +29124,9 @@ check('several towns and several stretches of wall can be raised in one battle, 
 
 check('the board\'s old ask for one town and one wall is still read, as a list of one', () => {
   const a = cleanAsk({ city: { seed: 1, x: 10.4, z: 20 }, walls: { seed: 2 } });
-  assert.deepEqual(a, { cities: [{ seed: 1, x: 10, z: 20 }], walls: [{ seed: 2 }] });
+  assert.deepEqual(a, { cities: [{ seed: 1, x: 10, z: 20 }], walls: [{ seed: 2 }], airbases: [], harbors: [] });
   assert.deepEqual(cleanAsk({ cities: [{ seed: 1, n: 3 }], walls: [{ seed: 2, n: 'x' }] }),
-    { cities: [{ seed: 1, n: 3 }], walls: [{ seed: 2 }] });
+    { cities: [{ seed: 1, n: 3 }], walls: [{ seed: 2 }], airbases: [], harbors: [] });
   assert.equal(cleanAsk({ cities: [], walls: [] }), null);
   assert.equal(cleanAsk({ cities: Array.from({ length: 40 }, (_, k) => ({ seed: k })) }).cities.length, 8);
 });
@@ -30221,6 +30420,87 @@ check('a player takes a soldier, walks him, and hands him back to himself', () =
   assert.ok(!commandSoldier(st, s, 0) || s.ctl === 0);
 });
 
+/** A point just outside a big building in the island town, and the bearing straight in at its wall. */
+function besideWall(world, plan, k, out) {
+  const big = plan.buildings.filter((q) => q.kind !== 'house' && q.h > 14);
+  const b = big[k % big.length];
+  const ang = (k % 4) * 1.6;
+  let r = 0;
+  while (worksFloor(world, b.x + Math.sin(ang) * r, b.z + Math.cos(ang) * r).blocked && r < 80) r += 0.2;
+  return { x: b.x + Math.sin(ang) * (r + out), z: b.z + Math.cos(ang) * (r + out), into: wrapAngle(ang + Math.PI) };
+}
+
+check('a soldier pushed into a wall at a slant slides along it rather than sticking', () => {
+  const world = islandTown();
+  const plan = cityPlan(world);
+  for (let k = 0; k < 8; k++) {
+    const at = besideWall(world, plan, k, 1.2);
+    const st = createState(world, { mode: 'deathmatch' });
+    const s = addSoldier(st, { team: 0, x: at.x, z: at.z, h: 0 });
+    commandSoldier(st, s, 7);
+    driveSoldier(st, s, { mx: 0, mz: 1, yaw: at.into + 0.7, pitch: 0, sp: false, cr: false, jp: 0 });
+    for (let i = 0; i < 90; i++) step(st, 1 / 30);
+    const went = Math.hypot(s.x - at.x, s.z - at.z);
+    assert.ok(went > 4, `he went ${went.toFixed(1)} m in three seconds along the wall`);
+    assert.ok(!worksFloor(world, s.x, s.z).blocked, 'he walked into the building');
+  }
+});
+
+check('a tank driven into a wall at a slant scrapes along it rather than stopping dead', () => {
+  const world = islandTown();
+  const plan = cityPlan(world);
+  for (let k = 0; k < 8; k++) {
+    const at = besideWall(world, plan, k, 6);
+    const st = createState(world, { mode: 'deathmatch' });
+    const bat = addBattery(st, { batteryId: 'sherman', team: 0, x: at.x, z: at.z, heading: at.into + 0.6 });
+    commandBattery(st, bat, 99);
+    const x0 = bat.x, z0 = bat.z;
+    driveTank(st, bat, 1, 0);
+    for (let i = 0; i < 150; i++) step(st, 1 / 30);
+    const went = Math.hypot(bat.x - x0, bat.z - z0);
+    assert.ok(went > 12, `it went ${went.toFixed(1)} m in five seconds along the wall`);
+    assert.ok(!worksFloor(world, bat.x, bat.z).blocked, 'it drove into the building');
+  }
+});
+
+check('the soldier and the tank in hand are walked and driven on the screen as the battle moves them', () => {
+  // The man: the same legs, the same orders, the same place.
+  const { world, st, at } = infantryField();
+  const s = addSoldier(st, { team: 0, x: at.x, z: at.z, h: 0 });
+  commandSoldier(st, s, 7);
+  const body = { x: s.x, z: s.z, y: s.y, h: s.h, yaw: 0, speed: 0, air: false, vy: 0, hp: 100, drive: { mx: 0, mz: 0, sp: false, cr: false, jp: 0 } };
+  const order = { mx: 0.3, mz: 1, yaw: 1.1, pitch: 0, sp: true, cr: false, jp: 0 };
+  driveSoldier(st, s, order);
+  Object.assign(body.drive, { mx: order.mx, mz: order.mz, sp: true });
+  body.yaw = order.yaw;
+  for (let i = 0; i < 60; i++) { step(st, DT); predictSoldier(world, body, DT); }
+  assert.ok(Math.hypot(s.x - at.x, s.z - at.z) > 3, 'he did not go anywhere');
+  assert.ok(Math.hypot(body.x - s.x, body.z - s.z) < 0.05, `predicted ${Math.hypot(body.x - s.x, body.z - s.z).toFixed(2)} m from where the battle has him`);
+  // The tank: driveHull is what moves it in the battle too.
+  const tw = generateWorld(77, 'archipelago');
+  const ts = createState(tw, { mode: 'deathmatch' });
+  const land = tw.islands.find((i) => groundHeight(tw, i.x, i.z) > 5);
+  const bat = addBattery(ts, { batteryId: 'sherman', team: 0, x: land.x, z: land.z, heading: 0 });
+  commandBattery(ts, bat, 99);
+  const T = BATTERIES.sherman.tank;
+  const hull = { x: bat.x, z: bat.z, y: bat.y, heading: bat.heading, speed: 0, yaw: 0, roll: 0 };
+  const pst = { world: ts.world, events: [], predict: true };
+  driveTank(ts, bat, 1, 0.5);
+  for (let i = 0; i < 90; i++) { step(ts, DT); driveHull(pst, hull, T, 1, 0.5, 1, DT); }
+  assert.ok(Math.hypot(bat.x - land.x, bat.z - land.z) > 5, 'the tank did not go anywhere');
+  assert.ok(Math.hypot(hull.x - bat.x, hull.z - bat.z) < 0.05, `predicted ${Math.hypot(hull.x - bat.x, hull.z - bat.z).toFixed(2)} m off the battle's tank`);
+  // And the battle's word on it taken up, not snapped to -- unless it is far out.
+  const held = new Held({ x: 0, z: 0, y: 0, h: 0 }, () => {}, { snap: 5 });
+  held.advance(DT, 1);
+  held.correct({ x: 1, z: 0, y: 0, h: 0 }, 1);
+  held.advance(DT, 1 + DT);
+  assert.ok(held.body.x > 0 && held.body.x < 0.5, `a metre out was taken up as ${held.body.x.toFixed(2)} in a frame`);
+  for (let i = 0; i < 60; i++) held.advance(DT, 1 + DT * (i + 2));
+  assert.ok(Math.abs(held.body.x - 1) < 0.02, 'the correction was never taken up');
+  held.correct({ x: 40, z: 0, y: 0, h: 0 }, 5);
+  assert.equal(held.body.x, 40, 'a body put somewhere else altogether was not put there');
+});
+
 check('two sides of riflemen fight it out, and each side learns from it', () => {
   const { st, at } = infantryField();
   addBarracks(st, { team: 0, x: at.x - 110, z: at.z, h: Math.PI / 2 });
@@ -30349,6 +30629,252 @@ check('a bot side\'s heavies call an escort when enemy aircraft are about', () =
 });
 
 // ---------------------------------------------------------------------------
+// Air bases and harbours
+// ---------------------------------------------------------------------------
+
+/** The Solomons battlefield with an air base on its biggest island and a harbour on its shore. */
+function worksField(ask = null) {
+  const w0 = generateWorld(1234, 'solomon_narrows', null);
+  const big = w0.islands.slice().sort((a, b) => b.r - a.r)[0];
+  return generateWorld(1234, 'solomon_narrows', null, undefined, null, undefined, false, ask || {
+    airbases: [{ seed: 5, x: big.x, z: big.z, n: 0 }],
+    harbors: [{ seed: 7, x: big.x + big.r * 1.3, z: big.z, n: 1 }],
+  });
+}
+
+check('the board can ask for air bases and harbours, and an air base keeps its side', () => {
+  const a = cleanWorksAsk({ airbases: [{ seed: 3, x: 10, z: 20, n: 0, t: 1 }], harbors: [{ seed: 4, x: 1, z: 2 }] });
+  assert.equal(a.airbases.length, 1);
+  assert.equal(a.airbases[0].t, 1);
+  assert.equal(a.harbors.length, 1);
+  assert.equal(a.harbors[0].t, undefined);
+});
+
+check('an air base is raised on dry land: a level runway, hangars along its apron', () => {
+  const world = worksField();
+  const [ab] = airbasesOf(world);
+  assert.ok(ab, 'no air base was built');
+  const plan = worksPlans(world)[ab.index];
+  assert.ok(plan.hangars.length >= 3, `only ${plan.hangars.length} hangars`);
+  assert.ok(plan.buildings.some((b) => b.kind === 'control'), 'no control tower');
+  const rw = runwayOf(ab);
+  assert.ok(rw.len >= 800, `a ${rw.len} m runway`);
+  for (let k = 0; k <= 10; k++) {
+    const x = rw.x0 + ((rw.x1 - rw.x0) * k) / 10;
+    const z = rw.z0 + ((rw.z1 - rw.z0) * k) / 10;
+    assert.ok(Math.abs(groundHeight(world, x, z) - ab.level) < 0.5, `the runway is not level ${k / 10} along it`);
+  }
+});
+
+check('a harbour is built at the shore: a quay along its front with deep water alongside', () => {
+  const world = worksField();
+  const [h] = harborsOf(world);
+  assert.ok(h, 'no harbour was built');
+  const quay = world.works.walls.find((r) => r.harbor === h.index);
+  assert.ok(quay && quay.quay, 'the harbour has no quay');
+  const b = berthAlong(h, 250, 33, 0, 0);
+  assert.ok(groundHeight(world, b.x, b.z) < -12, `only ${groundHeight(world, b.x, b.z).toFixed(1)} m alongside`);
+  const back = toSite(h, b.x, b.z);
+  assert.ok(back.v > h.D / 2, 'the berth is not out in front of the quay');
+  assert.ok(Math.abs(groundHeight(world, h.x, h.z) - h.level) < 0.5, 'the apron is not made up to the quay');
+});
+
+check('a ship ordered into harbour is taken alongside, made good there, and casts off when rung up', () => {
+  const world = worksField();
+  const state = createState(world, { mode: 'deathmatch' });
+  const [h] = harborsOf(world);
+  // Somebody to fight, a long way off, or the battle is over before it starts.
+  const foe = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+  foe.x = -20000; foe.z = -20000;
+  const s = addShip(state, { name: 'S', classId: 'fletcher', team: 0, index: 0 });
+  s.x = h.x + Math.sin(h.rot) * 1400; s.z = h.z + Math.cos(h.rot) * 1400; s.heading = h.rot;
+  s.hp = s.maxHp * 0.5;
+  s.notch = 5;
+  assert.ok(dockShip(state, s), 'she was refused a berth');
+  for (let i = 0; i < Math.round(400 / DT) && dockState(s) !== 2; i++) step(state, DT);
+  assert.equal(dockState(s), 2, 'she was never made fast');
+  assert.ok(Math.hypot(s.x - s.dock.x, s.z - s.dock.z) < 1, 'she is not at her berth');
+  const hp = s.hp;
+  // Her client still sending the telegraph it had before is not an order.
+  applyInput(s, { notch: 5 });
+  for (let i = 0; i < Math.round(30 / DT); i++) step(state, DT);
+  assert.equal(dockState(s), 2, 'a stale telegraph cast her off');
+  assert.ok(s.hp > hp + s.maxHp * 0.05, 'the dockyard did nothing for her');
+  assert.ok(Math.abs(s.speed) < 0.01, 'she moved while made fast');
+  applyInput(s, { notch: 1 });
+  applyInput(s, { notch: 4 });
+  for (let i = 0; i < Math.round(20 / DT); i++) step(state, DT);
+  assert.equal(dockState(s), 0, 'ringing up did not cast her off');
+  assert.ok(s.speed > 1, 'she did not get under way');
+});
+
+check('ships the board laid alongside start the battle made fast, and two do not share a berth', () => {
+  const world = worksField();
+  const state = createState(world, { mode: 'deathmatch' });
+  const [h] = harborsOf(world);
+  const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: 'fletcher', team: 0, index: 1 });
+  for (const s of [a, b]) { s.x = h.x + Math.sin(h.rot) * 200; s.z = h.z + Math.cos(h.rot) * 200; }
+  assert.ok(dockShip(state, a, h.index, true));
+  assert.ok(dockShip(state, b, h.index, true));
+  assert.equal(dockState(a), 2);
+  assert.equal(dockState(b), 2);
+  assert.ok(Math.abs(a.dock.u - b.dock.u) >= SHIP_CLASSES.fletcher.hull.length, 'two ships were laid at the same stretch of quay');
+  castOff(state, a);
+  assert.equal(dockState(a), 0);
+});
+
+check('a heavy squadron based at an air base takes off down the runway, lands back on it and rearms', () => {
+  const world = worksField();
+  const state = createState(world, { mode: 'deathmatch' });
+  setFieldSides(state, 0);
+  const [ab] = airbasesOf(world);
+  const e = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+  e.x = -20000; e.z = -20000;
+  const bm = addBomber(state, { bomberId: 'lancaster', team: 0, x: 0, z: 0 });
+  assert.ok(baseBomber(state, bm, ab.index, 1), 'she was refused a hangar');
+  assert.ok(!state.bombers.includes(bm), 'a squadron in its hangar is flying');
+  const seen = new Set();
+  let sent = false;
+  let landedAt = 0;
+  for (let i = 0; i < Math.round(700 / DT); i++) {
+    for (const ev of step(state, DT)) if (ev.e === 'fieldDown' && ev.i === bm.id) landedAt = state.t;
+    seen.add(bm.phase);
+    if (bm.phase === 'form' && bm.speed > 1 && bm.speed < 40) assert.ok(Math.abs(bm.y - ab.level - 3) < 0.5, 'she is not rolling on the runway');
+    // Sent home empty as soon as she is up.
+    if (bm.phase === 'inbound' && !sent) { sent = true; bm.loads = 0; bm.phase = 'home'; }
+    if (landedAt && bm.phase === 'inbound') break;
+  }
+  for (const ph of ['form', 'approach', 'final', 'rollout', 'hangar']) assert.ok(seen.has(ph), `she never went through ${ph}`);
+  assert.ok(landedAt > 0, 'she never landed');
+  assert.ok(bm.alive && bm.loads === 2, 'she was not rearmed');
+  assert.ok(state.t - landedAt >= REARM_TIME, 'she went again before she was rearmed');
+  assert.ok(state.bombers.includes(bm), 'she did not take off again');
+});
+
+check('a squadron off an air base takes off one machine at a time and circles the field until all three are up', () => {
+  const world = worksField();
+  const state = createState(world, { mode: 'deathmatch' });
+  setFieldSides(state, 0);
+  const [ab] = airbasesOf(world);
+  const e = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+  e.x = -20000; e.z = -20000;
+  const bm = addBomber(state, { bomberId: 'lancaster', team: 0, x: 0, z: 0 });
+  assert.equal(bm.count, 3);
+  assert.ok(baseBomber(state, bm, ab.index, 0));
+  const offAt = [];
+  let maxFromField = 0;
+  let allUpAt = -1;
+  let leftAt = -1;
+  for (let i = 0; i < Math.round(400 / DT) && leftAt < 0; i++) {
+    step(state, DT);
+    if (bm.phase !== 'form') {
+      if (state.bombers.includes(bm)) leftAt = state.t;
+      continue;
+    }
+    for (const k of [0, 1, 2]) {
+      const p = bm.fmPose[k];
+      if (offAt[k] === undefined && bm.y + p.y > ab.level + 3.5) offAt[k] = state.t;
+    }
+    if (allUpAt < 0 && offAt.filter((v) => v !== undefined).length === 3) allUpAt = state.t;
+    maxFromField = Math.max(maxFromField, Math.hypot(bm.x - ab.x, bm.z - ab.z));
+  }
+  assert.equal(offAt.filter((v) => v !== undefined).length, 3, 'not all three got off the ground');
+  assert.ok(offAt[1] - offAt[0] > 15 && offAt[2] - offAt[1] > 15, `they did not go off one at a time: ${offAt.map(Math.round)}`);
+  assert.ok(leftAt > allUpAt + 30, 'the squadron set course before the last of it was up and round');
+  assert.ok(maxFromField < 4500, `the leader wandered ${Math.round(maxFromField)} m from the field while forming up`);
+  // Closed up into the vic as she sets course.
+  assert.ok(bm.phase === 'inbound' || bm.phase === 'climb');
+  assert.ok(!bm.fm && !bm.fmPose);
+});
+
+check('an air base does not push a harbour or a town off the spot asked for, nor bring them to its level', () => {
+  const w0 = generateWorld(1234, 'solomon_narrows', null);
+  const big = w0.islands.slice().sort((a, b) => b.r - a.r)[0];
+  // On the shore abeam of the runway, a few hundred metres off its side:
+  // clear of it, but well inside the reach of its levelling.
+  const [f] = airbasesOf(worksField({ airbases: [{ seed: 5, x: big.x, z: big.z, n: 0 }] }));
+  const out = f.rot + (Math.sin(f.rot) * (big.x - f.x) + Math.cos(f.rot) * (big.z - f.z) > 0 ? Math.PI : 0);
+  const harbour = { seed: 7, x: Math.round(big.x + Math.sin(out) * big.r * 1.3), z: Math.round(big.z + Math.cos(out) * big.r * 1.3), n: 1 };
+  const alone = harborsOf(worksField({ harbors: [harbour] }))[0];
+  const withField = worksField({ airbases: [{ seed: 5, x: big.x, z: big.z, n: 0 }], harbors: [harbour] });
+  const [h] = harborsOf(withField);
+  const [ab] = airbasesOf(withField);
+  assert.ok(alone && h && ab);
+  assert.ok(Math.hypot(h.x - alone.x, h.z - alone.z) < 1, `the harbour was pushed ${Math.round(Math.hypot(h.x - alone.x, h.z - alone.z))} m along the shore by the air base`);
+  // On a real coast, where an air base's levelling reaches a kilometre out:
+  // a town and a harbour a mile off it stay where they were put, the runway
+  // keeps the height of its own ground, and nobody loses a building to it.
+  const place = { lon: -4.15, lat: 50.36 };
+  const gen = (ask) => generateWorld(77, 'north_atlantic', null, 9000, place, null, false, ask);
+  const town = { seed: 3, x: -6000, z: -2250, n: 1 };
+  const quay = { seed: 4, x: -5150, z: -2130, n: 2 };
+  const field = { seed: 2, x: -7000, z: -1250, n: 0 };
+  const t0 = cityPlans(gen({ cities: [town] }))[0];
+  const q0 = harborsOf(gen({ harbors: [quay] }))[0];
+  const f0 = airbasesOf(gen({ airbases: [field] }))[0];
+  const all = gen({ cities: [town], harbors: [quay], airbases: [field] });
+  const plans = cityPlans(all);
+  const t1 = plans.find((p) => !p.city.kind);
+  const q1 = harborsOf(all)[0];
+  const f1 = airbasesOf(all)[0];
+  assert.ok(t1 && q1 && f1, 'something was not built');
+  assert.ok(Math.hypot(t1.city.x - t0.city.x, t1.city.z - t0.city.z) < 1, 'the town was moved');
+  assert.ok(Math.hypot(q1.x - q0.x, q1.z - q0.z) < 1, `the harbour was pushed ${Math.round(Math.hypot(q1.x - q0.x, q1.z - q0.z))} m`);
+  assert.equal(f1.level, f0.level, 'the air base was cut down to the town\'s level');
+  assert.ok(t1.buildings.length >= t0.buildings.length * 0.9, `the town went from ${t0.buildings.length} buildings to ${t1.buildings.length}`);
+  assert.equal(plans.find((p) => p.city === f1).hangars.length, cityPlans(gen({ airbases: [field] }))[0].hangars.length, 'the air base lost a hangar');
+});
+
+check('a town can be asked for at a size, and the board drags it out by its corners', () => {
+  const a = cleanWorksAsk({ cities: [{ seed: 1, x: 0, z: 0, w: 99999, d: 5 }, { seed: 2, w: 900, d: 600 }, { seed: 3, w: 900 }] });
+  assert.equal(a.cities[0].w, TOWN_MAX_W);
+  assert.equal(a.cities[0].d, TOWN_MIN_D);
+  assert.equal(a.cities[1].w, 900);
+  assert.equal(a.cities[2].w, undefined, 'a width with no depth is not a size');
+  // On the board: put one down, drag it out, and move it.
+  const lay = Object.create(LayoutMap.prototype);
+  lay.req = { seed: 12345, mapId: 'coral_shelf', time: null, half: 12000 };
+  lay.works = { cities: [], walls: [], airbases: [], harbors: [] };
+  lay.tokens = [];
+  const bare = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const isle = bare.islands.slice().sort((p, q) => q.r - p.r)[0];
+  lay.setWorks('city', true, { x: isle.x, z: isle.z });
+  const c0 = lay.world.works.cities[0];
+  assert.ok(c0, 'no town was put down');
+  lay.resizeTown(c0, 420, 300);
+  const c1 = lay.world.works.cities[0];
+  assert.equal(c1.W, 420);
+  assert.equal(c1.D, 300);
+  assert.ok(Math.hypot(c1.x - c0.x, c1.z - c0.z) < 1, 'sizing it moved it');
+  const small = cityPlans(lay.world)[0].buildings.length;
+  lay.resizeTown(c1, 1000, 640);
+  const c2 = lay.world.works.cities[0];
+  assert.equal(c2.W, 1000);
+  assert.ok(cityPlans(lay.world)[0].buildings.length > small * 1.5, 'a bigger town has no more in it');
+  // Moved, it keeps its size.
+  lay.setWorks('city', true, { x: isle.x + 40, z: isle.z + 40 }, 0);
+  assert.equal(lay.world.works.cities[0].W, 1000);
+  assert.equal(lay.works.cities[0].w, 1000);
+});
+
+check('carrier aircraft with their deck gone put down at a friendly air base', () => {
+  const world = worksField({ airbases: [{ seed: 5, n: 0 }] });
+  const state = createState(world, { mode: 'deathmatch' });
+  setFieldSides(state, 0);
+  const [ab] = airbasesOf(world);
+  assert.ok(ab);
+  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const e = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+  e.x = cv.x + 6000; e.z = cv.z + 3000;
+  for (let i = 0; i < Math.round(5 / DT); i++) step(state, DT);
+  assert.ok(launchStrike(state, cv));
+  for (let i = 0; i < Math.round(120 / DT); i++) step(state, DT);
+  cv.alive = false;
+  for (let i = 0; i < Math.round(700 / DT); i++) step(state, DT);
+  assert.ok(airfields(state)[0].planes > 0, 'nothing put down at the air base');
+});
+
 // The B-52H Stratofortress and her nuclear cruise missiles
 // ---------------------------------------------------------------------------
 

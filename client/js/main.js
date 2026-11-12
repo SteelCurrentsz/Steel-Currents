@@ -66,11 +66,16 @@ const boot = {
     this.el.classList.add('gone');
     setTimeout(() => this.el.classList.add('done'), 500);
   },
-  /** Paint, then do the work, then take the screen down. */
+  /** Paint, then do the work, then take the screen down -- when the work
+   *  is done, if what it hands back is a promise of the rest of it. */
   hold(text, work) {
     this.show(text);
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      try { work(); } finally { this.done(); }
+      let rest = null;
+      try { rest = work(); } finally {
+        if (rest && typeof rest.then === 'function') rest.then(() => this.done(), () => this.done());
+        else this.done();
+      }
     }));
   },
 };
@@ -897,7 +902,9 @@ function renderAirGroup() {
   const strike = g.dive + g.torpedo;
   const SL = SHIP_CLASSES[yardShip()]?.planes?.slots || null;
   const fixed = AG_KINDS.every((k) => spec.min[k] === spec.max[k]);
-  document.getElementById('ag-sub').textContent = fixed
+  document.getElementById('ag-sub').textContent = fixed && spec.total === 1
+    ? 'One helicopter, on her pad. Choose what she is armed with.'
+    : fixed
     ? `${spec.total} aircraft in the hangar, her air wing as it sails. Choose what each type is armed with.`
     : `${spec.total} aircraft in the hangar. Any mix you like, all of one kind or none of another.`;
   // Each row named for the machine it is, on a carrier that says so.
@@ -908,6 +915,9 @@ function renderAirGroup() {
       nm.dataset.plain ??= nm.firstChild.textContent;
       nm.firstChild.textContent = SL && SL[k] ? SL[k].label : nm.dataset.plain;
     }
+    // A ship that flies one type has no row for the others.
+    const row = nm.closest('.ag-row');
+    if (row) row.hidden = !!SL && !SL[k];
   }
   renderLoads(SL, g);
   // What she actually flies in each role: a Shinano's fighters are Zeros.
@@ -1284,7 +1294,16 @@ document.getElementById('ag-done').onclick = () => {
     toast(`${name}'s air group is changed.`);
     return;
   }
-  if (yardUi.ag) setSettings({ airGroup: { ...yardUi.ag, ...(yardUi.ag.load ? { load: { ...yardUi.ag.load } } : {}) } });
+  if (yardUi.ag) {
+    // A ship whose mix is fixed -- the Nimitz, or a destroyer with her one
+    // helicopter -- changes only what her types are armed with: the mix a
+    // captain chose for the carriers that have one is left as he chose it.
+    const spec = airGroupSpec();
+    const fixed = spec && AG_KINDS.every((k) => spec.min[k] === spec.max[k]);
+    const was = getSettings().airGroup;
+    const load = { ...(was && was.load), ...(yardUi.ag.load || {}) };
+    setSettings({ airGroup: fixed && was ? { ...was, load } : { ...yardUi.ag, load } });
+  }
   closeAirGroup();
   renderYard();
 };
@@ -1703,7 +1722,36 @@ net.on('joined', (m) => {
   // Building a fleet is the other place the game stops dead for a second or
   // two: every hull in the battle is lofted, plated, welded and dressed here.
   // It goes up behind the loading screen for the same reason the harbour does.
-  boot.hold('Building the fleet', () => joinBattle(m));
+  boot.hold('Building the fleet', () => {
+    joinBattle(m);
+    // Every ship in it built behind this screen, a ship a frame, rather than
+    // all of them in the battle's first frame and then each enemy again in
+    // the frame he is sighted. The battle itself waits (see drawFrame).
+    const b = battle;
+    if (!b || !b.prebuild) return null;
+    return b.prebuild((n, of) => boot.say('Building the fleet', 0.1 + 0.85 * (n / of))).then(() => {
+      if (battle !== b || !b.scene) return;
+      // And everything they are drawn with compiled now, behind the
+      // screen, the ships not yet sighted included -- and as each will be
+      // drawn once she has been holed, charred or cut, which was otherwise
+      // compiled a couple of seconds after she was first seen.
+      try {
+        b.scene.warmCuts([...b.scene.shipViews.values(), ...(b.scene.parked?.values() || [])]);
+      } catch { /* compiled when each is first seen instead */ }
+      try {
+        const done = renderer.compileAsync
+          ? renderer.compileAsync(b.scene.scene, b.scene.camera)
+          : renderer.compile(b.scene.scene, b.scene.camera);
+        done?.catch?.(() => {});
+      } catch { /* compiled as each is first drawn instead */ }
+      // And two frames of it drawn behind the screen before it comes down:
+      // the first frame of a battle is the one that hands every hull in
+      // sight to the graphics card, and that is a stall worth hiding too.
+      return new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      });
+    });
+  });
 });
 
 function joinBattle(m, replay = null) {
@@ -1852,7 +1900,10 @@ function frame(now) {
 }
 
 function drawFrame(dt) {
-  if (battle && current === 'battle') {
+  if (battle && current === 'battle' && battle.building) {
+    // Its fleet is still being built behind the loading screen (see
+    // Battle.prebuild): nothing of it is drawn until that is done.
+  } else if (battle && current === 'battle') {
     battle.update(dt);
     battle.render();
   } else if (current === 'map') {

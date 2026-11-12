@@ -833,6 +833,7 @@ export class Plating {
    */
   scorch(x, y, z, r, amount = 0.75) {
     const r2 = r * r;
+    const dark = 0.82 * amount;
     for (const part of this.parts) {
       if (z + r < part.minZ || z - r > part.maxZ) continue;
       markable(part.mesh);
@@ -840,6 +841,8 @@ export class Plating {
       if (!col) continue;
       const pos = part.mesh.geometry.attributes.position.array;
       const ca = col.array;
+      const cent = part.cent;
+      const ia = part.idx.array;
       let from = Infinity, to = -1;
       const lo = Math.max(0, Math.floor((z - r - part.minZ) / BUCKET));
       const hi = Math.min(part.buckets.length - 1,
@@ -850,25 +853,27 @@ export class Plating {
         for (let i = 0; i < list.length; i++) {
           const t = list[i];
           const o = t * 3;
-          const dx = part.cent[o] - x;
-          const dy = part.cent[o + 1] - y;
-          const dz = part.cent[o + 2] - z;
+          const dx = cent[o] - x;
+          const dy = cent[o + 1] - y;
+          const dz = cent[o + 2] - z;
           if (dx * dx + dy * dy + dz * dz > r2) continue;
           for (let k = 0; k < 3; k++) {
-            const v = part.idx.array[o + k];
+            const v = ia[o + k];
             const p = v * 3;
-            const d = Math.hypot(pos[p] - x, pos[p + 1] - y, pos[p + 2] - z);
+            const ex = pos[p] - x, ey = pos[p + 1] - y, ez = pos[p + 2] - z;
+            const e2 = ex * ex + ey * ey + ez * ez;
+            // Outside the ring: nothing to darken (the shade would be white).
+            if (e2 >= r2) continue;
             // Darkest at the lip and fading out, so the ring has an edge to it
             // rather than being a disc of grey.
-            const want = 1 - 0.82 * amount * Math.max(0, 1 - d / r) ** 1.4;
-            const q = v * 3;
+            const want = 1 - dark * (1 - Math.sqrt(e2) / r) ** 1.4;
+            const shade = Math.round(255 * want);
             for (let c = 0; c < 3; c++) {
-              const was = ca[q + c];
-              const now = Math.min(was, Math.round(255 * want));
-              if (now === was) continue;
-              ca[q + c] = now;
-              if (q < from) from = q;
-              if (q + 3 > to) to = q + 3;
+              const q = p + c;
+              if (ca[q] <= shade) continue;
+              ca[q] = shade;
+              if (p < from) from = p;
+              if (p + 3 > to) to = p + 3;
             }
           }
         }

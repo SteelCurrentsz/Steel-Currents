@@ -150,7 +150,13 @@ export class Heavies {
    * the stations `mask` names -- so a squadron that has lost two comes
    * through as a vic with two gaps in it.
    */
-  add(kind, x, y, z, heading, bank, pitch, count, holes = null, span = 31, mask = 0, trim = null) {
+  /**
+   * `poses`, when it is given, is where each station is on her own -- a
+   * squadron forming up over its airfield, each machine off the runway and
+   * round the circle by herself (see formPose): `poses[i]` is
+   * `{ x, y, z, h, bank }` in the world, and the vic is not used.
+   */
+  add(kind, x, y, z, heading, bank, pitch, count, holes = null, span = 31, mask = 0, trim = null, poses = null) {
     const b = this.batch(kind);
     const d = this.dummy;
     const n = Math.max(1, Math.min(VIC.length, count | 0));
@@ -166,15 +172,22 @@ export class Heavies {
     }
     for (let i = 0; i < VIC.length && b.n < this.max; i++) {
       if (mask ? !((mask >> i) & 1) : i >= n) continue;
-      const [ox, oy, oz] = VIC[i];
-      d.position.set(x + cs * ox + sn * oz, y + oy, z - sn * ox + cs * oz);
+      const own = poses && poses[i];
+      if (poses && !own) continue;
+      if (own) {
+        d.position.set(own.x, own.y, own.z);
+        d.rotation.set(-0.06, own.h, -(own.bank || 0));
+      } else {
+        const [ox, oy, oz] = VIC[i];
+        d.position.set(x + cs * ox + sn * oz, y + oy, z - sn * ox + cs * oz);
+      }
       // Nose up is a negative rotation about her own X axis, and a bank to
       // starboard is a negative one about her Z -- the same convention every
       // other aeroplane in the game is drawn with, and the heavies were the
       // one batch passing both straight through. A formation turning right
       // dropped her left wing, and cruised three degrees nose-down while she
       // was at it.
-      d.rotation.set(-(pitch || 0), heading, -(bank || 0));
+      if (!own) d.rotation.set(-(pitch || 0), heading, -(bank || 0));
       d.updateMatrix();
       // What the fighters and the flak have made of her skin. A heavy is
       // thirty metres across and flies straight and level through everything

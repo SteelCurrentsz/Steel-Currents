@@ -107,7 +107,9 @@ const PRELOAD = BOOT.slice(1).map((f) => {
   const rel = path.relative(ROOT, f).split(path.sep).join('/');
   return rel.startsWith('client/') ? rel.slice('client/'.length) : rel;
 });
-const STARTED = Date.now().toString(36);
+// The page carries the list of modules worked out when this process started,
+// so its tag changes with that list as well as with the file.
+const PRELOAD_TAG = crypto.createHash('sha1').update(PRELOAD.join('\n')).digest('hex').slice(0, 8);
 
 // Every file the game can ask for, as the page names it: what it imports
 // before its first frame, and what it fetches later -- each hull and the
@@ -178,11 +180,27 @@ function withPreloads(html) {
 const served = new Map();
 const ZIPPABLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg']);
 
-// The page carries the list of modules worked out when this process started,
-// so its tag changes with the process as well as with the file.
+// Tagged by what is in a file, not by when it was written. Every deploy checks
+// the game out afresh, so every file on the host is new by its clock even when
+// not a byte of it has changed -- and a tag off the clock had every returning
+// captain's browser fetch every hull again, forty megabytes, after every
+// deploy. Off the contents, what has not changed is a 304. Worked out once a
+// file and kept until its size or its clock moves.
+const HASHED = new Map();
+function contentTag(file, st) {
+  const k = HASHED.get(file);
+  if (k && k.size === st.size && k.mtime === st.mtimeMs) return k.tag;
+  let tag;
+  try {
+    tag = crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex').slice(0, 16);
+  } catch {
+    tag = `${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}`;
+  }
+  HASHED.set(file, { size: st.size, mtime: st.mtimeMs, tag });
+  return tag;
+}
 function tagOf(file, st) {
-  const tag = `${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}`;
-  return `"${tag}${file === INDEX ? `-${STARTED}` : ''}"`;
+  return `"${contentTag(file, st)}${file === INDEX ? `-${PRELOAD_TAG}` : ''}"`;
 }
 
 function serveFile(req, res, file) {
@@ -200,46 +218,84 @@ function serveFile(req, res, file) {
       return res.end();
     }
     const hit = served.get(file);
-    if (hit && hit.etag === etag) return send(req, res, head, hit);
-    fs.readFile(file, (err2, read) => {
-      if (err2) return notFound(res);
-      const data = file === INDEX ? Buffer.from(withPreloads(read.toString('utf8'))) : read;
-      const entry = { etag, data, gz: null };
-      if (ZIPPABLE.has(path.extname(file)) && data.length > 1024) {
-        entry.gz = zlib.gzipSync(data, { level: 6 });
-      }
-      served.set(file, entry);
-      send(req, res, head, entry);
-    });
+    if (hit && hit.etag === etag) return send(req, res, head, hit, file);
+    load(file, etag, (entry) => (entry ? send(req, res, head, entry, file) : notFound(res)));
   });
 }
 
-function send(req, res, head, entry) {
-  const zip = entry.gz && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
-  const body = zip ? entry.gz : entry.data;
-  res.writeHead(200, {
-    ...head,
-    ...(zip ? { 'Content-Encoding': 'gzip' } : {}),
-    'Content-Length': body.length,
+// A file read and zipped, once, however many ask for it at the same time.
+//
+// Zipped off the request path: a hull is five megabytes, and gzipSync on one
+// held up everything this process does for the best part of a second -- the
+// battles it is hosting too -- the first time anybody asked for it after a
+// deploy, and a fleet's worth of hulls are asked for at once.
+const loading = new Map();
+function load(file, etag, done) {
+  const key = `${file}|${etag}`;
+  const queued = loading.get(key);
+  if (queued) { queued.push(done); return; }
+  const waiting = [done];
+  loading.set(key, waiting);
+  const finish = (entry) => {
+    loading.delete(key);
+    if (entry) served.set(file, entry);
+    for (const fn of waiting) fn(entry);
+  };
+  fs.readFile(file, (err, read) => {
+    if (err) return finish(null);
+    const data = file === INDEX ? Buffer.from(withPreloads(read.toString('utf8'))) : read;
+    if (!(ZIPPABLE.has(path.extname(file)) && data.length > 1024)) return finish({ etag, data, gz: null });
+    zlib.gzip(data, { level: 6 }, (err2, gz) => finish({ etag, data: keepRaw(data, gz), gz: err2 ? null : gz }));
   });
-  res.end(req.method === 'HEAD' ? undefined : body);
+}
+
+// What is kept of a big file unzipped: nothing. Every browser asks for gzip,
+// and holding both copies of every hull ever asked for was a quarter of a
+// gigabyte on a host that has half of one. Anything that does not take gzip
+// is read off the disk again.
+const RAW_KEPT = 256 * 1024;
+function keepRaw(data, gz) {
+  return gz && data.length > RAW_KEPT ? null : data;
+}
+
+function send(req, res, head, entry, file = null) {
+  const zip = entry.gz && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+  const out = (body) => {
+    res.writeHead(200, {
+      ...head,
+      ...(zip ? { 'Content-Encoding': 'gzip' } : {}),
+      'Content-Length': body.length,
+    });
+    res.end(req.method === 'HEAD' ? undefined : body);
+  };
+  if (zip || entry.data) return out(zip ? entry.gz : entry.data);
+  // The unzipped copy was not kept: read again for the one that wants it.
+  fs.readFile(file, (err, read) => {
+    if (err) return notFound(res);
+    out(file === INDEX ? Buffer.from(withPreloads(read.toString('utf8'))) : read);
+  });
 }
 
 // The page and its modules zipped as the server comes up, off the request
 // path, so the first captain after a deploy is not kept waiting while three
 // megabytes are compressed one file at a time in front of him.
-for (const file of [INDEX, ...BOOT]) {
-  fs.stat(file, (err, st) => {
-    if (err || served.has(file)) return;
-    fs.readFile(file, (err2, read) => {
-      if (err2) return;
-      const data = file === INDEX ? Buffer.from(withPreloads(read.toString('utf8'))) : read;
-      zlib.gzip(data, { level: 6 }, (err3, gz) => {
-        if (err3 || served.has(file)) return;
-        served.set(file, { etag: tagOf(file, st), data, gz });
-      });
+// And then the hulls and the aircraft, one after another behind them, so the
+// first battle after a deploy is not waiting on its fleet being zipped either.
+{
+  const queue = [INDEX, ...BOOT, ...OFFLINE_FILES.filter((f) => !BOOT.includes(f))];
+  const next = () => {
+    const file = queue.shift();
+    if (!file) return;
+    fs.stat(file, (err, st) => {
+      if (err || !st.isFile()) return next();
+      const etag = tagOf(file, st);
+      const hit = served.get(file);
+      if (hit && hit.etag === etag) return next();
+      load(file, etag, () => setImmediate(next));
     });
-  });
+  };
+  // A few at a time: gzip runs on libuv's pool, and that pool has four.
+  for (let i = 0; i < 3; i++) next();
 }
 
 function notFound(res) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); }

@@ -18,13 +18,27 @@ import { BATTERIES, tankRoom } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import {
   cityPlans, cityToWorld, worldToCity, siteOnWorks, WALL_WIDTH, MAX_CITIES, MAX_WALLS,
+  TOWN_MIN_W, TOWN_MAX_W, TOWN_MIN_D, TOWN_MAX_D,
+  MAX_AIRBASES, MAX_HARBORS, airbasesOf, harborsOf, berthAlong, worksName,
 } from '../../shared/works.js';
 import { dryLand, BARRACKS_MEN, MAX_BARRACKS } from '../../shared/infantry.js';
 
 // What each kind of block is drawn as on the chart.
 const BLOCK_INK = {
   square: '#b8a98a', centre: '#8f8a80', mid: '#8a6f5c', res: '#6f7a58', park: '#4f7a45', port: '#6c675d',
+  field: '#5d7347', runway: '#9a9890', apron: '#7d7b74',
+  station: '#a39784', works: '#5f5a52', pitch: '#55874a',
 };
+
+/** The works the board can ask for, each kind's list in `this.works`. */
+const WORK_LIST = { city: 'cities', walls: 'walls', airbase: 'airbases', harbor: 'harbors' };
+/** Which list a built site came out of. */
+const listOfSite = (c) => (c.kind === 'airbase' ? 'airbases' : c.kind === 'harbor' ? 'harbors' : 'cities');
+const kindOfSite = (c) => c.kind || 'city';
+/** No works at all. */
+const noWorks = () => ({ cities: [], walls: [], airbases: [], harbors: [] });
+/** How far off a quay's face a ship let go is still taken alongside it. */
+const DOCK_REACH = 260;
 
 // The counter a ship or a gun is drawn as when the chart is zoomed right out,
 // and the peg beside it you turn her by. Generous, because this has to work
@@ -92,8 +106,9 @@ export class LayoutMap {
     this.view = { x: 0, z: 0, zoom: 1 };
     // The works ashore the captain asked for: `{ cities, walls }`, each a list
     // of seeds and the spots they were put down at. See shared/works.js.
-    this.works = { cities: [], walls: [] };
-    // 'city', 'walls' or 'barracks' while the next tap on the chart puts one down.
+    this.works = noWorks();
+    // 'city', 'walls', 'airbase', 'harbor' or 'barracks' while the next tap on
+    // the chart puts one down.
     this.placing = null;
     // The barracks the captain has put down, kept by where they are and
     // whose (0 his own side, 1 the enemy's) across visits to the chart; and
@@ -124,7 +139,7 @@ export class LayoutMap {
     // A town sited for one stretch of coast means nothing on another.
     const where = `${req.mapId}|${req.seed}|${req.half}|${req.lon}|${req.lat}`;
     const moved = this.worksSig !== where;
-    if (moved) this.works = { cities: [], walls: [] };
+    if (moved) this.works = noWorks();
     this.placing = null;
     this.worksSig = where;
     this.raise();
@@ -170,6 +185,8 @@ export class LayoutMap {
         t.x = was.x;
         t.z = was.z;
         t.heading = was.heading;
+        if (Number.isInteger(was.dock)) t.dock = was.dock;
+        if (Number.isInteger(was.base)) { t.base = was.base; t.slot = was.slot; }
         // A tank loaded into a landing craft stays loaded into her, if she is
         // still in the fleet.
         if (was.tank) {
@@ -181,6 +198,7 @@ export class LayoutMap {
           }
         }
       }
+      this.relink();
       for (const t of this.tokens) this.check(t);
     }
     // A different battlefield is looked at afresh; the same one keeps whatever
@@ -201,7 +219,8 @@ export class LayoutMap {
    */
   raise() {
     const req = this.req;
-    const ask = this.works.cities.length || this.works.walls.length ? this.works : null;
+    const w = this.works;
+    const ask = w.cities.length || w.walls.length || w.airbases.length || w.harbors.length ? w : null;
     this.world = generateWorld(req.seed, req.mapId, req.time, req.half,
       Number.isFinite(req.lon) && Number.isFinite(req.lat)
         ? { lon: req.lon, lat: req.lat } : null,
@@ -225,15 +244,19 @@ export class LayoutMap {
     const m = this.works.walls.length;
     set('lay-city', this.placing === 'city', n ? `+ Town (${n})` : '+ Town');
     set('lay-walls', this.placing === 'walls', m ? `+ Sea Walls (${m})` : '+ Sea Walls');
+    const na = this.works.airbases.length;
+    const nh = this.works.harbors.length;
+    set('lay-airbase', this.placing === 'airbase', na ? `+ Air Base (${na})` : '+ Air Base');
+    set('lay-harbor', this.placing === 'harbor', nh ? `+ Harbour (${nh})` : '+ Harbour');
     const nb = this.tokens.filter((t) => t.kind === 'barracks').length;
     set('lay-barracks', this.placing === 'barracks', nb ? `+ Barracks (${nb})` : '+ Barracks');
     const side = document.getElementById('lay-barracks-side');
-    if (side) side.hidden = !(nb || this.placing === 'barracks');
+    if (side) side.hidden = !(nb || na || this.placing === 'barracks' || this.placing === 'airbase');
     document.getElementById('lay-barracks-ally')?.classList.toggle('on', this.barracksSide === 0);
     document.getElementById('lay-barracks-enemy')?.classList.toggle('on', this.barracksSide === 1);
     const bb = document.getElementById('lay-barracks');
     if (bb) bb.disabled = nb >= MAX_BARRACKS;
-    for (const [id, k] of [['lay-city-x', n], ['lay-walls-x', m], ['lay-barracks-x', nb]]) {
+    for (const [id, k] of [['lay-city-x', n], ['lay-walls-x', m], ['lay-airbase-x', na], ['lay-harbor-x', nh], ['lay-barracks-x', nb]]) {
       const x = document.getElementById(id);
       if (x) x.hidden = !k;
     }
@@ -241,6 +264,10 @@ export class LayoutMap {
     if (cb) cb.disabled = n >= MAX_CITIES;
     const wb = document.getElementById('lay-walls');
     if (wb) wb.disabled = m >= MAX_WALLS;
+    const ab = document.getElementById('lay-airbase');
+    if (ab) ab.disabled = na >= MAX_AIRBASES;
+    const hb = document.getElementById('lay-harbor');
+    if (hb) hb.disabled = nh >= MAX_HARBORS;
   }
 
   /**
@@ -252,6 +279,8 @@ export class LayoutMap {
     this.hintOnce = this.placing === 'city'
       ? 'Tap the chart where the town should stand -- anywhere on land, or by the water for a harbour.'
       : this.placing === 'walls' ? 'Tap the chart by the shore that should be walled.'
+        : this.placing === 'airbase' ? `Tap the chart on dry land for a${this.barracksSide ? 'n enemy' : 'n allied'} air base: a runway and hangars. Drop bombers on it to base them there.`
+        : this.placing === 'harbor' ? 'Tap the chart by the shore for a harbour. Drop ships on its quay to dock them there.'
         : this.placing === 'barracks' ? `Tap the chart on land for a${this.barracksSide ? 'n enemy' : 'n allied'} barracks: ${BARRACKS_MEN} soldiers. Tap one to change sides.`
           : null;
     this.worksUi();
@@ -267,32 +296,175 @@ export class LayoutMap {
   setWorks(kind, on, at = null, index = -1) {
     if (!this.req) return;
     const seed = (Math.random() * 0xffffffff) >>> 0;
-    const list = kind === 'city' ? this.works.cities : this.works.walls;
+    const list = this.works[WORK_LIST[kind]];
     const spot = at ? { x: Math.round(at.x), z: Math.round(at.z) } : {};
     let added = -1;
     // Towns and walls are numbered together in the order they go down, so a
     // town put down on a wall is built round it rather than taking it away.
-    const next = 1 + Math.max(-1, ...[...this.works.cities, ...this.works.walls].map((a) => a.n ?? -1));
+    const next = 1 + Math.max(-1, ...Object.values(this.works).flat().map((a) => a.n ?? -1));
+    // An air base is somebody's: the side the toggle is on when it goes down.
+    const side = kind === 'airbase' ? (this.barracksSide === 1 ? { t: 1 } : {}) : {};
     if (!on) list.pop();
-    else if (index >= 0 && list[index]) list[index] = { seed: list[index].seed, ...spot, n: list[index].n ?? next };
-    else { list.push({ seed, ...spot, n: next }); added = list.length - 1; }
+    else if (index >= 0 && list[index]) {
+      const was = list[index];
+      list[index] = {
+        seed: was.seed, ...spot, n: was.n ?? next, ...(was.t === 1 ? { t: 1 } : {}),
+        // A town keeps the size its corners were dragged out to.
+        ...(Number.isFinite(was.w) ? { w: was.w, d: was.d } : {}),
+      };
+    } else { list.push({ seed, ...spot, n: next, ...side }); added = list.length - 1; }
     this.placing = null;
     this.raise();
     this.hintOnce = null;
     // One that came to nothing is not kept: it would only be another press of
     // the cross to get rid of something that is not there.
     if (added >= 0) {
-      const built = kind === 'city'
-        ? (this.world.works?.cities || []).some((c) => c.ask === added)
-        : (this.world.works?.walls || []).some((r) => r.set === added);
+      const built = kind === 'walls'
+        ? (this.world.works?.walls || []).some((r) => r.set === added)
+        : (this.world.works?.cities || []).some((c) => kindOfSite(c) === kind && c.ask === added);
       if (!built) {
         list.pop();
         this.raise();
         this.hintOnce = kind === 'city' ? 'There is no ground here with room for a town.'
-          : 'There is no shore here a wall could be built along that is not walled already.';
+          : kind === 'airbase' ? 'There is no level dry land near here long enough for a runway.'
+            : kind === 'harbor' ? 'There is no clear shore near here to build a harbour on.'
+              : 'There is no shore here a wall could be built along that is not walled already.';
       }
     }
+    this.relink();
     for (const t of this.tokens) this.check(t);
+    this.dirty = true;
+    this.paint();
+  }
+
+  /**
+   * A town's corners dragged out or in: the same town, on the same spot, at
+   * `W` by `D`. If there is no room for it at that size it stays the size it
+   * was, and the chart says so.
+   */
+  resizeTown(c, W, D) {
+    const list = this.works.cities;
+    const was = list[c.ask];
+    if (!was) return;
+    const x = Number.isFinite(was.x) ? was.x : Math.round(c.x);
+    const z = Number.isFinite(was.z) ? was.z : Math.round(c.z);
+    list[c.ask] = { ...was, x, z, w: Math.round(W), d: Math.round(D) };
+    this.raise();
+    const built = (this.world.works?.cities || []).some((q) => kindOfSite(q) === 'city' && q.ask === c.ask);
+    if (!built) {
+      list[c.ask] = was;
+      this.raise();
+      this.hintOnce = 'There is no room for a town that size here.';
+    } else this.hintOnce = null;
+    this.relink();
+    for (const t of this.tokens) this.check(t);
+    this.dirty = true;
+    this.paint();
+  }
+
+  /** Is this point on the screen on a corner of a town? Returns a drag that sizes it, or null. */
+  onTownCorner(p) {
+    const reach = 16;
+    for (const plan of this.plans || []) {
+      const c = plan.city;
+      if (c.kind) continue;
+      for (const [a, e] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const w = cityToWorld(c, (a * plan.W) / 2, (e * plan.D) / 2);
+        const q = this.toScreen(w.x, w.z);
+        if (Math.hypot(q.x - p.x, q.y - p.y) <= reach) return { mode: 'size', plan, size: null };
+      }
+    }
+    return null;
+  }
+
+  // ------------------------------------------------- harbours, air bases --
+
+  /**
+   * A ship let go near a harbour's quay goes alongside it, at the nearest
+   * stretch of quay with room for her; a bomber let go over an air base of
+   * her own side goes into one of its hangars, if there is one empty. Either
+   * starts the battle there.
+   */
+  linkToken(t) {
+    t.dock = null;
+    t.base = null;
+    if (t.kind === 'ship') {
+      const cls = SHIP_CLASSES[t.classId] || SHIP_CLASSES.fletcher;
+      for (const c of harborsOf(this.world)) {
+        const { u, v } = worldToCity(c, t.x, t.z);
+        if (Math.abs(u) > c.W / 2 + 40 || v < c.D / 2 - 60 || v > c.D / 2 + DOCK_REACH) continue;
+        const spot = this.freeBerth(c, t, cls, u);
+        if (!spot) { this.flash = `No room alongside the quay for ${t.name}.`; return; }
+        t.x = spot.x; t.z = spot.z; t.heading = spot.heading;
+        t.dock = c.index;
+        this.check(t);
+        this.flash = `${t.name} docked at the harbour. She sails when you give her way.`;
+        return;
+      }
+    } else if (t.kind === 'air') {
+      for (const plan of this.plans || []) {
+        const c = plan.city;
+        if (c.kind !== 'airbase') continue;
+        const { u, v } = worldToCity(c, t.x, t.z);
+        if (Math.abs(u) > c.W / 2 + 60 || Math.abs(v) > c.D / 2 + 60) continue;
+        if ((c.side || 0) !== t.team) { this.flash = `That air base belongs to the ${c.side ? 'enemy' : 'allies'}. Tap it to change its side.`; return; }
+        const hangars = plan.hangars || [];
+        const used = new Set(this.tokens.filter((o) => o !== t && o.base === c.index).map((o) => o.slot));
+        const k = hangars.findIndex((_, i) => !used.has(i));
+        if (k < 0) { this.flash = 'Every hangar at that air base is full.'; return; }
+        const h = hangars[k];
+        t.x = h.x; t.z = h.z; t.heading = h.rot;
+        t.base = c.index;
+        t.slot = k;
+        this.flash = `${t.name} in hangar ${k + 1}. She takes off down the runway when the battle starts.`;
+        return;
+      }
+    }
+  }
+
+  /** The stretch of a quay nearest `u` with room for her that no other ship is lying at. */
+  freeBerth(c, t, cls, u) {
+    const len = cls.hull.length;
+    const others = this.tokens.filter((o) => o !== t && o.kind === 'ship' && o.dock === c.index)
+      .map((o) => ({ u: worldToCity(c, o.x, o.z).u, len: (SHIP_CLASSES[o.classId] || SHIP_CLASSES.fletcher).hull.length }));
+    const room = c.W / 2 - len / 2 - 4;
+    if (room < -len * 0.25) return null;
+    let best = null;
+    for (let k = -40; k <= 40; k++) {
+      const uu = clamp(u + k * 10, -Math.max(0, room), Math.max(0, room));
+      if (others.some((o) => Math.abs(o.u - uu) < (o.len + len) / 2 + 8)) continue;
+      if (!best || Math.abs(uu - u) < Math.abs(best - u)) best = uu;
+    }
+    return best === null ? null : berthAlong(c, len, cls.hull.beam, best, t.heading);
+  }
+
+  /** After the works change: whatever was linked to a site that is gone, or moved, is let go or put back on it. */
+  relink() {
+    for (const t of this.tokens) {
+      if (t.kind === 'ship' && Number.isInteger(t.dock)) {
+        const c = this.world.works?.cities?.[t.dock];
+        if (c?.kind !== 'harbor') { t.dock = null; this.check(t); continue; }
+        const cls = SHIP_CLASSES[t.classId] || SHIP_CLASSES.fletcher;
+        const spot = this.freeBerth(c, t, cls, worldToCity(c, t.x, t.z).u);
+        if (spot) { t.x = spot.x; t.z = spot.z; t.heading = spot.heading; } else t.dock = null;
+        this.check(t);
+      } else if (t.kind === 'air' && Number.isInteger(t.base)) {
+        const plan = this.plans?.[t.base];
+        const h = plan?.city.kind === 'airbase' && (plan.city.side || 0) === t.team ? plan.hangars?.[t.slot] : null;
+        if (h) { t.x = h.x; t.z = h.z; t.heading = h.rot; } else t.base = null;
+      }
+    }
+  }
+
+  /** An air base over to the other side, and its bombers out of its hangars. */
+  flipAirbase(c) {
+    const ask = this.works.airbases[c.ask];
+    if (!ask) return;
+    if (ask.t === 1) delete ask.t; else ask.t = 1;
+    this.raise();
+    this.relink();
+    this.flash = `Air base now ${ask.t === 1 ? 'enemy' : 'allied'}.`;
+    this.worksUi();
     this.dirty = true;
     this.paint();
   }
@@ -365,8 +537,10 @@ export class LayoutMap {
       tokens: this.tokens.filter((t) => t.kind !== 'barracks').map((t) => ({
         ...key(t), x: Math.round(t.x), z: Math.round(t.z), heading: Math.round(t.heading * 1000) / 1000,
         ...(t.tank && t.craft ? { craft: key(t.craft), slot: t.slot } : {}),
+        ...(Number.isInteger(t.dock) ? { dock: t.dock } : {}),
+        ...(Number.isInteger(t.base) ? { base: t.base, hs: t.slot || 0 } : {}),
       })),
-      works: { cities: this.works.cities.slice(), walls: this.works.walls.slice() },
+      works: Object.fromEntries(Object.entries(this.works).map(([k, v]) => [k, v.slice()])),
       barracks: this.tokens.filter((t) => t.kind === 'barracks')
         .map((t) => ({ team: t.team, x: Math.round(t.x), z: Math.round(t.z), heading: t.heading })),
     };
@@ -377,10 +551,10 @@ export class LayoutMap {
     if (!plan || !this.req) return;
     if (plan.where && plan.where !== this.worksSig) return;
     const same = (a, b) => a && b && a.kind === b.kind && a.classId === b.classId && a.team === b.team && a.index === b.index;
-    this.works = {
-      cities: Array.isArray(plan.works?.cities) ? plan.works.cities.slice() : [],
-      walls: Array.isArray(plan.works?.walls) ? plan.works.walls.slice() : [],
-    };
+    this.works = noWorks();
+    for (const k of Object.keys(this.works)) {
+      if (Array.isArray(plan.works?.[k])) this.works[k] = plan.works[k].slice();
+    }
     this.raise();
     this.tokens = this.tokens.filter((t) => t.kind !== 'barracks');
     for (const p of plan.tokens || []) {
@@ -388,6 +562,9 @@ export class LayoutMap {
       if (!t || !Number.isFinite(p.x) || !Number.isFinite(p.z)) continue;
       t.x = p.x; t.z = p.z;
       if (Number.isFinite(p.heading)) t.heading = p.heading;
+      t.dock = Number.isInteger(p.dock) ? p.dock : null;
+      t.base = Number.isInteger(p.base) ? p.base : null;
+      if (t.base !== null) t.slot = Number.isInteger(p.hs) ? p.hs : 0;
       if (t.tank) {
         t.craft = p.craft ? this.tokens.find((o) => same(o, p.craft)) || null : null;
         t.slot = p.slot || 0;
@@ -410,10 +587,10 @@ export class LayoutMap {
       const { u, v } = worldToCity(plan.city, w.x, w.z);
       if (Math.abs(u) > plan.W / 2 || Math.abs(v) > plan.D / 2) continue;
       // Moved by where it was asked for, so it lands where it is dropped.
-      const ask = this.works.cities[plan.city.ask];
+      const ask = this.works[listOfSite(plan.city)][plan.city.ask];
       const ax = Number.isFinite(ask?.x) ? ask.x : plan.city.x;
       const az = Number.isFinite(ask?.z) ? ask.z : plan.city.z;
-      return { mode: 'town', plan, dx: w.x - ax, dz: w.z - az, at: null };
+      return { mode: 'town', plan, dx: w.x - ax, dz: w.z - az, at: null, down: p };
     }
     return null;
   }
@@ -454,7 +631,7 @@ export class LayoutMap {
         : 'Drag to move, the peg off the bow to turn, the water to pan. '
           + 'Scroll or pinch to zoom. Ships on the water, guns ashore, '
           + 'tanks ashore or dropped on a landing craft that can carry them'
-          + `${this.plans?.length ? ' -- in a town or on the walls too. Drag a town to move it.' : '.'}`);
+          + `${this.plans?.length ? ' -- in a town or on the walls too. Drag a town to move it, or its corners to size it.' : '.'}`);
       if (text !== this._hint) {
         this.hint.textContent = text;
         this.hint.classList.toggle('bad', !!why);
@@ -555,6 +732,8 @@ export class LayoutMap {
 
   /** Put everything somewhere it can legally be. */
   auto() {
+    // Formed up afresh, nothing is left alongside a quay or in a hangar.
+    for (const t of this.tokens) { t.dock = null; t.base = null; }
     const ships = this.tokens.filter((t) => t.kind === 'ship');
     // The same two lines the simulation forms its fleets up on, opened out to
     // suit the battlefield: four hundred yards between hulls is right at sea
@@ -808,8 +987,9 @@ export class LayoutMap {
       // And water under her whole keel: a berth on an island's shelf that a
       // destroyer floats on is the bottom for a battleship.
       const cls = SHIP_CLASSES[t.classId];
-      t.ok = inside && (cls ? afloatAt(this.world, cls, t.x, t.z, t.heading)
-        : !islandAt(this.world, t.x, t.z, t.clearance));
+      // Alongside a quay she is where a quay is built for her to be.
+      t.ok = Number.isInteger(t.dock) || (inside && (cls ? afloatAt(this.world, cls, t.x, t.z, t.heading)
+        : !islandAt(this.world, t.x, t.z, t.clearance)));
       t.shoal = inside && !t.ok && !islandAt(this.world, t.x, t.z, t.clearance);
     } else if (t.tank && t.craft) {
       // In a landing craft's well: wherever she is, it is.
@@ -1179,8 +1359,8 @@ export class LayoutMap {
         e.preventDefault();
         return;
       }
-      // A town, picked up by anywhere inside it.
-      const town = !hit ? this.onTown(p) : null;
+      // A town, sized by its corners or picked up by anywhere inside it.
+      const town = !hit ? this.onTownCorner(p) || this.onTown(p) : null;
       // Nothing under the finger: the chart itself is dragged instead.
       this.drag = hit || town || { mode: 'pan', from: p };
       // Where a tank was picked up from, to go back to if it is let go over a
@@ -1214,11 +1394,22 @@ export class LayoutMap {
         return;
       }
       if (!this.drag) return;
-      if (this.drag.mode === 'town') {
+      if (this.drag.mode === 'size') {
+        // Dragged out about its middle: the corner under the finger, and the
+        // one across from it mirrored.
+        const c = this.drag.plan.city;
+        const w = this.fromScreen(p.x, p.y);
+        const { u, v } = worldToCity(c, w.x, w.z);
+        const W = clamp(Math.abs(u) * 2, TOWN_MIN_W, TOWN_MAX_W);
+        const D = clamp(Math.abs(v) * 2, TOWN_MIN_D, TOWN_MAX_D);
+        this.drag.size = { W, D };
+        const yd = (m) => Math.round(m / 0.9144 / 10) * 10;
+        this.hintOnce = `Let go for a town ${yd(W).toLocaleString('en-US')} by ${yd(D).toLocaleString('en-US')} yards.`;
+      } else if (this.drag.mode === 'town') {
         const w = this.fromScreen(p.x, p.y);
         this.drag.at = { x: w.x - this.drag.dx, z: w.z - this.drag.dz };
         this.drag.shift = { x: w.x, z: w.z };
-        this.hintOnce = 'Let go to raise the town here.';
+        this.hintOnce = `Let go to build the ${worksName(this.drag.plan.city).toLowerCase()} here.`;
       } else if (this.drag.mode === 'pan') {
         const s = this.scale;
         this.view.x -= (CHART_X * (p.x - prev.x)) / s;
@@ -1226,6 +1417,9 @@ export class LayoutMap {
         this.clampView();
       } else if (this.drag.mode === 'move') {
         const t = this.drag.t;
+        // Picked up off a quay or out of a hangar, it is not there any more.
+        t.dock = null;
+        t.base = null;
         // A tank picked up out of a landing craft is unloaded from her.
         if (t.tank && t.craft) t.craft = null;
         if (t.tank) {
@@ -1298,10 +1492,21 @@ export class LayoutMap {
         }
         this.check(d.t);
       }
+      if (d && d.mode === 'size') {
+        this.hintOnce = null;
+        if (d.size) this.resizeTown(d.plan.city, d.size.W, d.size.D);
+      }
       if (d && d.mode === 'town') {
         this.hintOnce = null;
-        if (d.at) this.setWorks('city', true, d.at, d.plan.city.ask);
+        const c = d.plan.city;
+        const p = at(e);
+        // An air base tapped rather than dragged goes over to the other side.
+        if (c.kind === 'airbase' && d.down && Math.hypot(p.x - d.down.x, p.y - d.down.y) < 6) this.flipAirbase(c);
+        else if (d.at) this.setWorks(kindOfSite(c), true, d.at, c.ask);
       }
+      // A ship let go by a harbour's quay is taken alongside it, and a
+      // bomber let go over her own side's air base is put in its hangars.
+      if (d && d.mode === 'move' && (d.t.kind === 'ship' || d.t.kind === 'air')) this.linkToken(d.t);
       el.classList.remove('panning');
       try { el.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
       this.dirty = true;
@@ -1334,6 +1539,10 @@ export class LayoutMap {
     document.getElementById('lay-city-x')?.addEventListener('click', () => this.setWorks('city', false));
     document.getElementById('lay-walls')?.addEventListener('click', () => this.startPlacing('walls'));
     document.getElementById('lay-walls-x')?.addEventListener('click', () => this.setWorks('walls', false));
+    document.getElementById('lay-airbase')?.addEventListener('click', () => this.startPlacing('airbase'));
+    document.getElementById('lay-airbase-x')?.addEventListener('click', () => this.setWorks('airbase', false));
+    document.getElementById('lay-harbor')?.addEventListener('click', () => this.startPlacing('harbor'));
+    document.getElementById('lay-harbor-x')?.addEventListener('click', () => this.setWorks('harbor', false));
     document.getElementById('lay-barracks')?.addEventListener('click', () => this.startPlacing('barracks'));
     document.getElementById('lay-barracks-x')?.addEventListener('click', () => this.removeBarracks());
     const sideBtn = (id, team) => document.getElementById(id)?.addEventListener('click', () => {
@@ -1607,7 +1816,7 @@ export class LayoutMap {
     ctx.stroke();
     const d = this.drag;
     if (d && d.mode === 'town' && d.at && d.plan === plan) {
-      const ask = this.works.cities[c.ask];
+      const ask = this.works[listOfSite(c)][c.ask];
       const ox = d.at.x - (Number.isFinite(ask?.x) ? ask.x : c.x);
       const oz = d.at.z - (Number.isFinite(ask?.z) ? ask.z : c.z);
       ctx.beginPath();
@@ -1620,12 +1829,42 @@ export class LayoutMap {
       ctx.strokeStyle = 'rgba(255, 233, 180, 0.95)';
       ctx.stroke();
     }
+    // The size it is being dragged out to.
+    if (d && d.mode === 'size' && d.plan === plan && d.size) {
+      quad(-d.size.W / 2, d.size.W / 2, -d.size.D / 2, d.size.D / 2);
+      ctx.strokeStyle = 'rgba(255, 233, 180, 0.95)';
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
+    // A town's corners, to drag it bigger or smaller by -- the same way the
+    // battlefield's own corners are dragged on the chart of the world.
+    if (!c.kind && !this.director?.active) {
+      for (const [a, e] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const sized = d && d.mode === 'size' && d.plan === plan && d.size;
+        const w = cityToWorld(c, (a * (sized ? d.size.W : plan.W)) / 2, (e * (sized ? d.size.D : plan.D)) / 2);
+        const q = this.toScreen(w.x, w.z);
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, sized ? 7 : 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = sized ? 'rgba(255, 233, 180, 0.95)' : 'rgba(230, 207, 156, 0.85)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(40, 34, 26, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
     const mid = this.toScreen(c.x, c.z);
     ctx.font = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255, 240, 210, 0.85)';
-    ctx.fillText('TOWN', mid.x, mid.y - Math.max(10, (plan.D / 2) * s) - 6);
+    const label = c.kind === 'airbase' ? `AIR BASE · ${c.side ? 'ENEMY' : 'ALLIED'}` : worksName(c).toUpperCase();
+    if (c.kind === 'airbase') ctx.fillStyle = c.side ? 'rgba(255, 150, 130, 0.95)' : 'rgba(170, 210, 255, 0.95)';
+    ctx.fillText(label, mid.x, mid.y - Math.max(10, (plan.D / 2) * s) - 6);
+    // What is linked to it: the ships alongside, the bombers in its hangars.
+    const n = this.tokens.filter((t) => (c.kind === 'harbor' ? t.dock : t.base) === c.index && Number.isInteger(c.index)).length;
+    if (c.kind && n) {
+      ctx.font = '11px "Barlow Condensed", "Arial Narrow", sans-serif';
+      ctx.fillText(c.kind === 'harbor' ? `${n} docked` : `${n} in hangars`, mid.x, mid.y - Math.max(10, (plan.D / 2) * s) + 8);
+    }
   }
 
   drawToken(ctx, t) {
@@ -1861,6 +2100,10 @@ export class LayoutMap {
       .map((t) => ({
         x: Math.round(t.x), z: Math.round(t.z),
         h: Math.round(t.heading * 1000) / 1000,
+        // Alongside which harbour's quay, or in which air base's hangars: the
+        // site's number among the works, which the server raises the same.
+        ...(Number.isInteger(t.dock) ? { d: t.dock } : {}),
+        ...(Number.isInteger(t.base) ? { b: t.base, k: t.slot || 0 } : {}),
       }));
     return {
       allies: pick('ship', 0),
@@ -1879,6 +2122,8 @@ export class LayoutMap {
       works: this.world?.works ? {
         cities: this.works.cities.slice(),
         walls: this.works.walls.slice(),
+        airbases: this.works.airbases.slice(),
+        harbors: this.works.harbors.slice(),
       } : null,
     };
   }

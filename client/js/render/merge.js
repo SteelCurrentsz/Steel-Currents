@@ -234,24 +234,28 @@ export function mergeStatic(group, keyOf = null, opts = null) {
   if (found.length < (keyOf ? 1 : 2)) return 0;
 
   const byMat = new Map();
-  const m = new THREE.Matrix4();
   const nm = new THREE.Matrix3();
-  const v = new THREE.Vector3();
 
+  // Two passes. The first sorts every mesh into its bucket and counts what
+  // each bucket will hold; the second writes it straight into typed arrays of
+  // that size. Pushed a number at a time through a vector apiece, as it was,
+  // this was the largest single cost of building a ship -- and every number
+  // that comes out is worked exactly as Vector3 works it, so the weld is the
+  // same to the bit.
+  const jobs = [];
   for (const mesh of found) {
     // Indexing is kept: throwing it away to concatenate would turn a box from
     // eight vertices into thirty-six, and vertex work is not free just because
     // the draw call went away.
     const geo = mesh.geometry;
     const pos = geo.attributes.position;
-    let nor = geo.attributes.normal;
-    const col = geo.attributes.color;
-    m.multiplyMatrices(inv, mesh.matrixWorld);
-    nm.getNormalMatrix(m);
+    const m = new THREE.Matrix4().multiplyMatrices(inv, mesh.matrixWorld);
 
     // Normals do the projecting, so a face that has none needs them worked out
     // before it can be welded.
-    if (!nor) { geo.computeVertexNormals(); nor = geo.attributes.normal; }
+    if (!geo.attributes.normal) geo.computeVertexNormals();
+    const nor = geo.attributes.normal;
+    const col = geo.attributes.color;
 
     let key = null;
     if (keyOf) {
@@ -267,44 +271,26 @@ export function mergeStatic(group, keyOf = null, opts = null) {
     let bucket = byMat.get(slot);
     if (!bucket) {
       byMat.set(slot, (bucket = {
-        pos: [], nor: [], uv: [], col: [], idx: [], pieces: [], key, material: mesh.material,
+        nv: 0, ni: 0, pieces: [], key, material: mesh.material,
+        // A vertex-painted hull carries a colour attribute the weld has to
+        // carry too, or every welded mesh a material reads vertexColors from
+        // comes out of it multiplying by the zero the missing attribute
+        // defaults to -- painted black regardless of what colour it was
+        // actually given. A mesh with no paint of its own contributes white,
+        // which multiplies as no paint at all if it shares a bucket with one
+        // that has some. A bucket whose first mesh has none carries none.
+        painted: !!col,
+        // Normals (and the projected texture coordinates that go with them)
+        // only if every mesh in it has them.
+        lit: true,
       }));
     }
-    const base = bucket.pos.length / 3;
-    const idxFrom = bucket.idx.length;
-    const ownUv = opts && opts.keepUv ? geo.attributes.uv || null : null;
-
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m);
-      const px = v.x, py = v.y, pz = v.z;
-      bucket.pos.push(px, py, pz);
-      if (nor) {
-        v.fromBufferAttribute(nor, i).applyMatrix3(nm).normalize();
-        bucket.nor.push(v.x, v.y, v.z);
-        // Box projection off whichever way the face mostly looks: flat up for
-        // a deck, athwartships for a ship's side, fore and aft for a bulkhead.
-        const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
-        if (opts && opts.keepUv) bucket.uv.push(ownUv ? ownUv.getX(i) : 0, ownUv ? ownUv.getY(i) : 0);
-        else if (ay >= ax && ay >= az) bucket.uv.push(px, pz);
-        else if (ax >= az) bucket.uv.push(pz, py);
-        else bucket.uv.push(px, py);
-      }
-      // A vertex-painted hull carries a colour attribute the weld has to
-      // carry too, or every welded mesh a material reads vertexColors from
-      // comes out of it multiplying by the zero the missing attribute
-      // defaults to -- painted black regardless of what colour it was
-      // actually given. A mesh with no paint of its own contributes white,
-      // which multiplies as no paint at all if it ever shares a bucket with
-      // one that has some.
-      if (col) bucket.col.push(col.getX(i), col.getY(i), col.getZ(i));
-      else if (bucket.col.length) bucket.col.push(1, 1, 1);
-    }
-    if (geo.index) {
-      const ix = geo.index;
-      for (let i = 0; i < ix.count; i++) bucket.idx.push(base + ix.getX(i));
-    } else {
-      for (let i = 0; i < pos.count; i++) bucket.idx.push(base + i);
-    }
+    if (!nor) bucket.lit = false;
+    const base = bucket.nv;
+    const idxFrom = bucket.ni;
+    const ic = geo.index ? geo.index.count : pos.count;
+    bucket.nv += pos.count;
+    bucket.ni += ic;
     // What this mesh became, so it can be found again after the weld: which
     // vertices are its, which triangles are its, where it sits and how big it
     // is. The bounding sphere is in the ship's own frame, which is the frame
@@ -324,10 +310,81 @@ export function mergeStatic(group, keyOf = null, opts = null) {
       owner: owner.userData.pieceId,
       name: owner.name || mesh.name || '',
       v0: base, vn: pos.count,
-      i0: idxFrom, ic: bucket.idx.length - idxFrom,
+      i0: idxFrom, ic,
       cx: c.x, cy: c.y, cz: c.z,
       r: Math.hypot(sx, sy, sz),
     });
+    jobs.push({ mesh, bucket, m, base, idxFrom });
+  }
+
+  for (const bucket of byMat.values()) {
+    const n = bucket.nv;
+    bucket.pos = new Float32Array(n * 3);
+    if (bucket.lit) {
+      bucket.nor = new Float32Array(n * 3);
+      bucket.uv = new Float32Array(n * 2);
+    }
+    if (bucket.painted) bucket.col = new Uint8Array(n * 3);
+    bucket.idx = n > 65535 ? new Uint32Array(bucket.ni) : new Uint16Array(bucket.ni);
+  }
+
+  const keepUv = !!(opts && opts.keepUv);
+  for (const { mesh, bucket, m, base, idxFrom } of jobs) {
+    const geo = mesh.geometry;
+    const pos = geo.attributes.position;
+    const nor = geo.attributes.normal;
+    const col = geo.attributes.color;
+    const ownUv = keepUv ? geo.attributes.uv || null : null;
+    const e = m.elements;
+    nm.getNormalMatrix(m);
+    const f = nm.elements;
+    const P = bucket.pos, N = bucket.nor, U = bucket.uv, C = bucket.col;
+    const lit = bucket.lit && nor;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const w = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
+      const px = (e[0] * x + e[4] * y + e[8] * z + e[12]) * w;
+      const py = (e[1] * x + e[5] * y + e[9] * z + e[13]) * w;
+      const pz = (e[2] * x + e[6] * y + e[10] * z + e[14]) * w;
+      const o = (base + i) * 3;
+      P[o] = px; P[o + 1] = py; P[o + 2] = pz;
+      if (lit) {
+        const a = nor.getX(i), b = nor.getY(i), d = nor.getZ(i);
+        let nx = f[0] * a + f[3] * b + f[6] * d;
+        let ny = f[1] * a + f[4] * b + f[7] * d;
+        let nz = f[2] * a + f[5] * b + f[8] * d;
+        const k = 1 / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1);
+        nx *= k; ny *= k; nz *= k;
+        N[o] = nx; N[o + 1] = ny; N[o + 2] = nz;
+        // Box projection off whichever way the face mostly looks: flat up for
+        // a deck, athwartships for a ship's side, fore and aft for a bulkhead.
+        const t = (base + i) * 2;
+        const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+        if (keepUv) { U[t] = ownUv ? ownUv.getX(i) : 0; U[t + 1] = ownUv ? ownUv.getY(i) : 0; }
+        else if (ay >= ax && ay >= az) { U[t] = px; U[t + 1] = pz; }
+        else if (ax >= az) { U[t] = pz; U[t + 1] = py; }
+        else { U[t] = px; U[t + 1] = py; }
+      }
+      // Bytes, normalised: the same form pieces.js gives a buffer it paints,
+      // because Plating.scorch and the fittings write soot into it a byte at a
+      // time, and a float colour takes every one of those writes as a no-op.
+      if (C) {
+        if (col) {
+          C[o] = Math.round(col.getX(i) * 255);
+          C[o + 1] = Math.round(col.getY(i) * 255);
+          C[o + 2] = Math.round(col.getZ(i) * 255);
+        } else {
+          C[o] = 255; C[o + 1] = 255; C[o + 2] = 255;
+        }
+      }
+    }
+    const I = bucket.idx;
+    if (geo.index) {
+      const ix = geo.index;
+      for (let i = 0; i < ix.count; i++) I[idxFrom + i] = base + ix.getX(i);
+    } else {
+      for (let i = 0; i < pos.count; i++) I[idxFrom + i] = base + i;
+    }
     geo.dispose();
     mesh.removeFromParent();
   }
@@ -335,24 +392,14 @@ export function mergeStatic(group, keyOf = null, opts = null) {
   for (const bucket of byMat.values()) {
     const material = bucket.material;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(bucket.pos, 3));
-    if (bucket.nor.length === bucket.pos.length) {
-      geo.setAttribute('normal', new THREE.Float32BufferAttribute(bucket.nor, 3));
-      geo.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
+    geo.setAttribute('position', new THREE.BufferAttribute(bucket.pos, 3));
+    if (bucket.lit) {
+      geo.setAttribute('normal', new THREE.BufferAttribute(bucket.nor, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(bucket.uv, 2));
     }
-    if (bucket.col.length === bucket.pos.length) {
-      // Bytes, normalised: the same form pieces.js gives a buffer it paints,
-      // because Plating.scorch and the fittings write soot into it a byte at a
-      // time, and a float colour takes every one of those writes as a no-op.
-      const c = new Uint8Array(bucket.col.length);
-      for (let i = 0; i < c.length; i++) c[i] = Math.round(bucket.col[i] * 255);
-      geo.setAttribute('color', new THREE.BufferAttribute(c, 3, true));
-    }
-    const n = bucket.pos.length / 3;
-    geo.setIndex(n > 65535
-      ? new THREE.Uint32BufferAttribute(bucket.idx, 1)
-      : new THREE.Uint16BufferAttribute(bucket.idx, 1));
-    if (bucket.nor.length !== bucket.pos.length) geo.computeVertexNormals();
+    if (bucket.painted) geo.setAttribute('color', new THREE.BufferAttribute(bucket.col, 3, true));
+    geo.setIndex(new THREE.BufferAttribute(bucket.idx, 1));
+    if (!bucket.lit) geo.computeVertexNormals();
     const welded = new THREE.Mesh(geo, material);
     if (bucket.key !== null) welded.userData.mergeKey = bucket.key;
     welded.userData.pieces = bucket.pieces;

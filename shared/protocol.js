@@ -6,7 +6,7 @@ import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
   slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds, planeRack, CHAFF_LOAD,
-  canCallEscort, escortStrength,
+  canCallEscort, escortStrength, dockState, fieldReport,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -283,6 +283,9 @@ export function shipSnapshot(ship, full, state = null) {
       s.wz = Math.round(ship.wayZ);
     }
   }
+  // Alongside a harbour's quay, or on her way in to it: anybody can see a
+  // ship lying at a quay. 1 on her way in, 2 made fast.
+  if (ship.dock) s.dk = dockState(ship);
   return s;
 }
 
@@ -481,6 +484,16 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
    * recorded -- a till that has not yet filled -- leaks from the middle of
    * the tank on her right wing.
    */
+  // A forming squadron's stations: `[station, dx, dy, dz, heading, bank, ...]`.
+  const formReport = (b) => {
+    if (!b.fm || !b.fmPose) return undefined;
+    const out = [];
+    for (const k in b.fmPose) {
+      const f = b.fmPose[k];
+      out.push(Number(k), r1(f.x), r1(f.y), r1(f.z), r3(f.h), r3(f.bank));
+    }
+    return out;
+  };
   const leakReport = (p) => {
     const out = [];
     for (const a of p.machines || []) {
@@ -606,6 +619,10 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // her that anybody watching can actually see.
       d: b.phase === 'run' || b.doors ? 1 : 0,
       hp: Math.round(b.hp), mx: b.maxHp,
+      // Forming up over her airfield, each machine on her own: where each
+      // station is off her position, which way she is heading and how she is
+      // banked. See formPose.
+      fp: formReport(b),
       // Which of her are streaming fuel from a holed tank, and from where.
       lp: leakReport(b),
       // Which of her gun positions have been shot out, one bit each in the
@@ -692,6 +709,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     sd: state.inf ? soldierWire(state, team, ended) : undefined,
     bk: state.inf?.barracks?.length ? barracksWire(state) : undefined,
     sq: state.inf ? squadWire(state, team) : undefined,
+    // What this side's air bases are keeping in their hangars.
+    af: fieldReport(state, team),
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

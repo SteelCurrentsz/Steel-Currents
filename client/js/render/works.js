@@ -284,6 +284,10 @@ const WALLS = [
 /** And the roofs: terracotta, dark slate, grey slate, weathered copper, tar. */
 const ROOFS = [0xa0503a, 0x464a52, 0x62666c, 0x6b9a84, 0x45443f];
 const CHAR = [0.08, 0.07, 0.065];
+/** Whether the town is being drawn by night, with lights in its windows. */
+let LIT = false;
+/** The lamplight in a window: warm, and not all of it the same. */
+const WINDOW_LIGHT = [[1, 0.78, 0.42], [1, 0.86, 0.58], [0.95, 0.7, 0.38], [0.85, 0.82, 0.7]];
 
 // Vertex colours are read as linear light, and the palette above is written
 // the way paint is seen: brought into linear here, or every wall in the town
@@ -424,8 +428,12 @@ function bayOf(b) {
  * walls can stand to a ragged edge rather than a ruled line. `tops[k]` is how
  * high bay k stands.
  */
-function faceInto(bufs, F, key, tint, a0, c0, a1, c1, y0, tops, fh, shopBand = 0, inner = null) {
+function faceInto(bufs, F, key, tint, a0, c0, a1, c1, y0, tops, fh, shopBand = 0, inner = null, lit = null) {
   const n = tops.length;
+  // Outward from the face, for the lit windows to stand a hair proud of it.
+  const len = Math.hypot(a1 - a0, c1 - c0) || 1;
+  const oa = (-(c1 - c0) / len) * 0.06;
+  const oc = ((a1 - a0) / len) * 0.06;
   for (let k = 0; k < n; k++) {
     const f0 = k / n;
     const f1 = (k + 1) / n;
@@ -444,6 +452,23 @@ function faceInto(bufs, F, key, tint, a0, c0, a1, c1, y0, tops, fh, shopBand = 0
     // Painted rows run top-down in the canvas, so v is flipped.
     bufs.get(key).quad(F(pa, y, pc), F(qa, y, qc), F(qa, top, qc), F(pa, top, pc),
       [[0, -v0], [1, -v0], [1, -v1], [0, -v1]], tint);
+    // By night, a light on in some of the windows: a room here and there,
+    // more of them low down, where people are still up.
+    if (lit) {
+      const glow = bufs.get('lit');
+      for (let f = y; f + fh * 0.8 <= top + 0.01; f += fh) {
+        const storey = (f - y0) / fh;
+        if (lit() > 0.42 - Math.min(0.2, storey * 0.03)) continue;
+        const c = WINDOW_LIGHT[Math.floor(lit() * WINDOW_LIGHT.length)];
+        const k = 0.55 + lit() * 0.45;
+        const P = (s2, t2) => {
+          const u = pa + (qa - pa) * s2 + oa;
+          const w = pc + (qc - pc) * s2 + oc;
+          return F(u, f + fh * t2, w);
+        };
+        glow.quad(P(0.3, 0.27), P(0.7, 0.27), P(0.7, 0.74), P(0.3, 0.74), null, c.map((v) => v * k));
+      }
+    }
     // The inside of the same wall, burned black, where the roof has gone.
     if (inner) {
       bufs.get('plain').quad(F(qa + inner[0], y0, qc + inner[1]), F(pa + inner[0], y0, pc + inner[1]),
@@ -498,8 +523,14 @@ function buildingInto(bufs, b, L, ruin) {
   const d = ruin?.d || 0;
   // Smoke-blackened as it is knocked about, and black once it has burned.
   const scorch = Math.min(0.7, d * 0.7) + (ruin?.f ? 0.1 : 0);
-  const tint = mixc(col(pal.c), CHAR, scorch);
-  const key = b.kind === 'warehouse' ? 'warehouse' : pal.k;
+  // No two buildings in a street quite the same colour: weathering, a newer
+  // coat of paint, a different kiln's bricks.
+  const own = 0.88 + r() * 0.2;
+  const warm = (r() - 0.5) * 0.06;
+  const base = col(pal.c).map((v, k) => clamp(v * own * (1 + (k === 0 ? warm : k === 2 ? -warm : 0)), 0, 1));
+  const tint = mixc(base, CHAR, scorch);
+  const key = b.kind === 'warehouse' || b.kind === 'factory' ? 'warehouse' : pal.k;
+  if (b.roof === 'drum') { drumInto(bufs, b, F, tint, st, r); return; }
   const { bay, fh } = bayOf(b);
   const hw = b.w / 2;
   const hd = b.d / 2;
@@ -534,11 +565,23 @@ function buildingInto(bufs, b, L, ruin) {
   };
   const shop = b.extra?.shops && st < STAGE.falling ? Math.min(4.2, fh * 1.25) : 0;
   const inner = standing ? 0.35 : 0;
+  // Lights in it by night, while there is anybody left in it to put them on.
+  const lit = LIT && st < STAGE.gutted && !ruin?.f && LIVED.has(b.kind) ? rngOf(b.seed ^ 0x1197) : null;
   // Front, back, right, left: each wound so it faces out.
-  faceInto(bufs, F, key, tint, -hw, hd, hw, hd, 0, topsFor(b.w), fh, shop, inner ? [0, -inner] : null);
-  faceInto(bufs, F, key, tint, hw, -hd, -hw, -hd, 0, topsFor(b.w), fh, 0, inner ? [0, inner] : null);
-  faceInto(bufs, F, key, tint, hw, hd, hw, -hd, 0, topsFor(b.d), fh, 0, inner ? [-inner, 0] : null);
-  faceInto(bufs, F, key, tint, -hw, -hd, -hw, hd, 0, topsFor(b.d), fh, 0, inner ? [inner, 0] : null);
+  faceInto(bufs, F, key, tint, -hw, hd, hw, hd, 0, topsFor(b.w), fh, shop, inner ? [0, -inner] : null, lit);
+  faceInto(bufs, F, key, tint, hw, -hd, -hw, -hd, 0, topsFor(b.w), fh, 0, inner ? [0, inner] : null, lit);
+  faceInto(bufs, F, key, tint, hw, hd, hw, -hd, 0, topsFor(b.d), fh, 0, inner ? [-inner, 0] : null, lit);
+  faceInto(bufs, F, key, tint, -hw, -hd, -hw, hd, 0, topsFor(b.d), fh, 0, inner ? [inner, 0] : null, lit);
+  if (st < STAGE.falling) {
+    const pl = bufs.get('plain');
+    // A plinth of darker stone or engineering brick along its foot, and on a
+    // building of any height a string course over its ground floor.
+    boxInto(pl, F, -hw - 0.07, hw + 0.07, 0, 0.65, -hd - 0.07, hd + 0.07, tint.map((v) => v * 0.62));
+    if (b.floors >= 3 && b.h > 9 && (pal.k === 'stone' || pal.k === 'deco' || pal.k === 'stucco')) {
+      const y = shop || fh;
+      boxInto(pl, F, -hw - 0.1, hw + 0.1, y - 0.18, y + 0.18, -hd - 0.1, hd + 0.1, mixc(tint, [0.9, 0.88, 0.82], 0.35));
+    }
+  }
 
   // Holes the shells have made in it: black, and more of them the worse it is.
   if (st >= STAGE.hit) {
@@ -592,6 +635,27 @@ function buildingInto(bufs, b, L, ruin) {
       const [p1, q1] = P[(k + 1) % 4];
       pl.quad(F(p0, wallTop, q0), F(p1, wallTop, q1), F(a1, wallTop, c1), F(a0, wallTop, c0), null, cap);
     }
+    // A moulded cornice round the top, the way a building of the period
+    // finished its parapet, on the ones that were built to be looked at.
+    if (CORNICED.has(b.kind)) {
+      boxInto(pl, F, -hw - 0.4, hw + 0.4, wallTop - 0.55, wallTop - 0.05, -hd - 0.4, hd + 0.4, cap.map((v) => v * 0.95));
+      boxInto(pl, F, -hw - 0.25, hw + 0.25, wallTop - 0.85, wallTop - 0.55, -hd - 0.25, hd + 0.25, cap.map((v) => v * 0.8));
+    }
+    // What stands on a flat roof: the stair and lift housing, a ventilator
+    // or two and the odd chimney pot.
+    if (b.w * b.d > 180 && !b.tiers && b.kind !== 'stand') {
+      const ha = (r() - 0.5) * (b.w - 6);
+      const hc = (r() - 0.5) * (b.d - 6);
+      boxInto(pl, F, ha - 1.6, ha + 1.6, wallTop, wallTop + 2.6, hc - 2, hc + 2, tint.map((v) => v * 0.9));
+      boxInto(pl, F, ha - 1.8, ha + 1.8, wallTop + 2.6, wallTop + 2.8, hc - 2.2, hc + 2.2, [0.3, 0.3, 0.3]);
+      const nv = 1 + Math.floor(r() * 3);
+      for (let k = 0; k < nv; k++) {
+        const va = (r() - 0.5) * (b.w - 3);
+        const vc = (r() - 0.5) * (b.d - 3);
+        cylInto(pl, F, va, vc, 0.35, 0.35, eave, eave + 1.4, [0.32, 0.33, 0.34], 6);
+        cylInto(pl, F, va, vc, 0.55, 0.1, eave + 1.4, eave + 1.9, [0.28, 0.29, 0.3], 6, false);
+      }
+    }
     // Set back storeys, the way the zoning of the day made a tall building
     // step in as it rose.
     if (b.tiers) {
@@ -610,6 +674,34 @@ function buildingInto(bufs, b, L, ruin) {
         prevH = t.h;
       }
       void prevK;
+    }
+  } else if (b.roof === 'arch') {
+    // A hangar's barrel roof, sprung across its width and running from its
+    // doors to its back wall, and the arch closed off over each end.
+    const n = 12;
+    const H = b.roofH;
+    const prof = (k) => {
+      const th = (k / n) * Math.PI;
+      return [-(hw + o) * Math.cos(th), eave - 0.2 + H * Math.sin(th)];
+    };
+    for (let k = 0; k < n; k++) {
+      const [a0, y0] = prof(k);
+      const [a1, y1] = prof(k + 1);
+      roof.quad(F(a0, y0, hd + o), F(a1, y1, hd + o), F(a1, y1, -hd - o), F(a0, y0, -hd - o),
+        [[0, 0], [1, 0], [1, b.d / 3], [0, b.d / 3]], rc);
+      // Its underside, so it is not paper from inside the doors.
+      bufs.get('plain').quad(F(a0, y0, -hd - o), F(a1, y1, -hd - o), F(a1, y1, hd + o), F(a0, y0, hd + o), null, tint.map((v) => v * 0.45));
+    }
+    const pl = bufs.get('plain');
+    for (const [c, s] of [[hd, 1], [-hd, -1]]) {
+      for (let k = 0; k < n; k++) {
+        const [a0, y0] = prof(k);
+        const [a1, y1] = prof(k + 1);
+        const A = Math.max(-hw, Math.min(hw, a0));
+        const B = Math.max(-hw, Math.min(hw, a1));
+        if (s > 0) pl.tri(F(0, eave, c), F(B, Math.max(eave, y1), c), F(A, Math.max(eave, y0), c), null, null, null, tint);
+        else pl.tri(F(0, eave, c), F(A, Math.max(eave, y0), c), F(B, Math.max(eave, y1), c), null, null, null, tint);
+      }
     }
   } else if (b.roof === 'saw') {
     // North lights: a run of sloped roofs with glazing in their steep faces.
@@ -662,6 +754,58 @@ function buildingInto(bufs, b, L, ruin) {
     bufs.get('plain').quad(R(-L1, eave - drop, -S1), R(L1, eave - drop, -S1), R(L1, eave, -S1 + o), R(-L1, eave, -S1 + o), null, tint.map((v) => v * 0.6));
   }
   extrasInto(bufs, b, F, tint, r, false);
+}
+
+/** The kinds of building people live and work in, which show a light by night. */
+const LIVED = new Set(['house', 'terrace', 'flats', 'office', 'tower', 'hall', 'hospital', 'school',
+  'station', 'fire', 'cinema', 'control', 'church', 'market']);
+/** The ones built with a cornice along the top of the parapet. */
+const CORNICED = new Set(['office', 'flats', 'hall', 'hospital', 'cinema', 'fire', 'tower']);
+
+/**
+ * A gasholder: the round lift of the holder inside its cage of columns and
+ * girders. As it is knocked about it settles into its tank; a heap like any
+ * other once it has gone.
+ */
+function drumInto(bufs, b, F, tint, st, r) {
+  const R = b.w / 2;
+  const pl = bufs.get('plain');
+  if (st === STAGE.rubble) {
+    heapInto(pl, F, b.w, b.d, Math.max(1.5, b.h * 0.12), [0.3, 0.32, 0.3], b.seed);
+    return;
+  }
+  const lift = st >= STAGE.falling ? 0.35 : st >= STAGE.gutted ? 0.6 : 1;
+  const H = b.h * lift;
+  const shell = mixc([0.36, 0.42, 0.37], tint, 0.25);
+  // The tank it rises out of, and the lift itself with its crown.
+  cylInto(pl, F, 0, 0, R + 0.4, R + 0.4, 0, 2.4, shell.map((v) => v * 0.8), 24);
+  cylInto(pl, F, 0, 0, R, R, 2.4, H, shell, 24, false);
+  for (let k = 1; k < 4; k++) cylInto(pl, F, 0, 0, R + 0.08, R + 0.08, (H * k) / 4 - 0.15, (H * k) / 4 + 0.15, shell.map((v) => v * 0.7), 24, false);
+  cylInto(pl, F, 0, 0, R, R * 0.25, H, H + R * 0.12, shell.map((v) => v * 0.92), 24);
+  if (st >= STAGE.gutted) cylInto(pl, F, 0, 0, R * 0.24, 0.1, H + R * 0.12, H + R * 0.13, CHAR, 12);
+  // The guide frame: a ring of lattice columns and the girder round their tops.
+  const cage = [0.24, 0.27, 0.26];
+  const top = b.h + 3;
+  const n = 10;
+  for (let k = 0; k < n; k++) {
+    if (st >= STAGE.falling && r() < 0.4) continue;
+    const a = (k / n) * Math.PI * 2;
+    const ca = Math.cos(a) * (R + 1.2);
+    const cc = Math.sin(a) * (R + 1.2);
+    boxInto(pl, F, ca - 0.35, ca + 0.35, 0, top, cc - 0.35, cc + 0.35, cage);
+  }
+  if (st < STAGE.falling) {
+    for (const y of [top - 0.5, top * 0.55]) {
+      for (let k = 0; k < n; k++) {
+        const a0 = (k / n) * Math.PI * 2;
+        const a1 = ((k + 1) / n) * Math.PI * 2;
+        const p0 = [Math.cos(a0) * (R + 1.2), Math.sin(a0) * (R + 1.2)];
+        const p1 = [Math.cos(a1) * (R + 1.2), Math.sin(a1) * (R + 1.2)];
+        pl.quad(F(p0[0], y, p0[1]), F(p1[0], y, p1[1]), F(p1[0], y + 0.5, p1[1]), F(p0[0], y + 0.5, p0[1]), null, cage);
+        pl.quad(F(p1[0], y, p1[1]), F(p0[0], y, p0[1]), F(p0[0], y + 0.5, p0[1]), F(p1[0], y + 0.5, p1[1]), null, cage);
+      }
+    }
+  }
 }
 
 /** Chimneys, towers, porticoes, signs and the rest of what makes a building the one it is. */
@@ -720,6 +864,88 @@ function extrasInto(bufs, b, F, tint, r, ruined) {
     boxInto(pl, F, pa - 1.6, pa + 1.6, 2.6, 2.85, hd, hd + 2, [0.9, 0.9, 0.88]);
     for (const s of [-1, 1]) boxInto(pl, F, pa + s * 1.4 - 0.1, pa + s * 1.4 + 0.1, 0, 2.6, hd + 1.7, hd + 1.9, [0.95, 0.95, 0.92]);
   }
+  if (e.stack) {
+    // The works' chimney: round, tapering, banded near the top, and black
+    // round its mouth from what has come out of it.
+    const sa = hw - 3.2;
+    const sc = -hd + 3.2;
+    const brk = col(0x7c4434);
+    cylInto(pl, F, sa, sc, 2.3, 2.3, 0, 2, brk.map((v) => v * 0.8), 10);
+    cylInto(pl, F, sa, sc, 1.9, 1.15, 2, b.h + e.stack, brk, 10, false);
+    cylInto(pl, F, sa, sc, 1.32, 1.32, b.h + e.stack - 2.2, b.h + e.stack - 1.6, brk.map((v) => v * 0.7), 10, false);
+    cylInto(pl, F, sa, sc, 1.2, 1.2, b.h + e.stack - 0.9, b.h + e.stack, [0.08, 0.075, 0.07], 10, false);
+  }
+  if (e.cupola) {
+    // A bell turret on the ridge.
+    const y = b.h + b.roofH - 0.6;
+    const white = [0.9, 0.89, 0.84];
+    boxInto(pl, F, -1.1, 1.1, y, y + 2.4, -1.1, 1.1, white);
+    pl.quad(F(-0.5, y + 0.8, 1.12), F(0.5, y + 0.8, 1.12), F(0.5, y + 2, 1.12), F(-0.5, y + 2, 1.12), null, [0.12, 0.12, 0.14]);
+    cylInto(bufs.get('roof'), F, 0, 0, 1.7, 0, y + 2.4, y + 4.4, col(ROOFS[3]), 4, false);
+    cylInto(pl, F, 0, 0, 0.05, 0.05, y + 4.4, y + 5.6, [0.3, 0.3, 0.3], 4);
+  }
+  if (e.cross) {
+    // A red cross on white over the door.
+    const y = b.h - 3.2;
+    const P = (u, v) => F(u, y + v, hd + 0.09);
+    pl.quad(P(-2, -2), P(2, -2), P(2, 2), P(-2, 2), null, [0.92, 0.92, 0.9]);
+    const red = [0.7, 0.06, 0.05];
+    const Q = (u, v) => F(u, y + v, hd + 0.12);
+    pl.quad(Q(-1.5, -0.45), Q(1.5, -0.45), Q(1.5, 0.45), Q(-1.5, 0.45), null, red);
+    pl.quad(Q(-0.45, -1.5), Q(0.45, -1.5), Q(0.45, 1.5), Q(-0.45, 1.5), null, red);
+  }
+  if (e.bays) {
+    // The engine house doors, scarlet, and the station's name over them.
+    const n = e.bays;
+    const span = b.w * 0.86;
+    for (let k = 0; k < n; k++) {
+      const a0 = -span / 2 + (span * k) / n + 0.4;
+      const a1 = -span / 2 + (span * (k + 1)) / n - 0.4;
+      pl.quad(F(a0, 0.05, hd + 0.08), F(a1, 0.05, hd + 0.08), F(a1, 4.2, hd + 0.08), F(a0, 4.2, hd + 0.08), null, [0.58, 0.07, 0.05]);
+      pl.quad(F(a0 + 0.3, 2.6, hd + 0.1), F(a1 - 0.3, 2.6, hd + 0.1), F(a1 - 0.3, 3.8, hd + 0.1), F(a0 + 0.3, 3.8, hd + 0.1), null, [0.15, 0.18, 0.22]);
+    }
+    boxInto(pl, F, -span / 2, span / 2, 4.5, 5.3, hd, hd + 0.15, [0.85, 0.83, 0.76]);
+  }
+  if (e.canopy) {
+    // The forecourt's canopy on its iron columns, glazed down the middle.
+    const span = b.w * 0.8;
+    const out = 6;
+    boxInto(pl, F, -span / 2, span / 2, 4.4, 4.75, hd, hd + out, [0.3, 0.32, 0.3]);
+    pl.quad(F(-span / 2 + 1, 4.77, hd + out * 0.3), F(span / 2 - 1, 4.77, hd + out * 0.3), F(span / 2 - 1, 4.77, hd + out * 0.7), F(-span / 2 + 1, 4.77, hd + out * 0.7), null, [0.35, 0.45, 0.5]);
+    for (let a = -span / 2 + 1; a <= span / 2 - 1; a += 7) cylInto(pl, F, a, hd + out - 0.6, 0.13, 0.11, 0, 4.4, [0.2, 0.24, 0.22], 6);
+  }
+  if (e.bigtank) {
+    // A water tower's tank on top of its shaft, and the ladder up to it.
+    const top = b.h;
+    const tk = [0.62, 0.62, 0.58];
+    cylInto(pl, F, 0, 0, 4.2, 5.4, top, top + 1.2, tk.map((v) => v * 0.85), 14);
+    cylInto(pl, F, 0, 0, 5.4, 5.4, top + 1.2, top + 7, tk, 14, false);
+    cylInto(bufs.get('roof'), F, 0, 0, 5.7, 0.4, top + 7, top + 8.6, col(ROOFS[2]), 14);
+    boxInto(pl, F, -0.4, 0.4, 0, top + 1.2, hd + 0.05, hd + 0.25, [0.2, 0.2, 0.2]);
+  }
+  if (e.dormer && b.roof !== 'flat' && b.w >= b.d) {
+    // A dormer in the front slope.
+    const S1 = hd + 0.35;
+    const H = b.roofH;
+    const cf = S1 * 0.5;
+    const y0 = b.h + H * 0.5 - 0.2;
+    const y1 = y0 + 1.5;
+    const da = (r() - 0.5) * Math.max(0, b.w - 4);
+    boxInto(pl, F, da - 0.9, da + 0.9, y0, y1, cf - 1.6, cf, tint);
+    pl.quad(F(da - 0.55, y0 + 0.3, cf + 0.02), F(da + 0.55, y0 + 0.3, cf + 0.02), F(da + 0.55, y1 - 0.25, cf + 0.02), F(da - 0.55, y1 - 0.25, cf + 0.02), null, [0.12, 0.14, 0.17]);
+    const rc = col(ROOFS[b.roofCol] ?? ROOFS[0]);
+    bufs.get('roof').quad(F(da + 1.05, y1, cf + 0.15), F(da + 1.05, y1, cf - 1.8), F(da, y1 + 0.75, cf - 1.8), F(da, y1 + 0.75, cf + 0.15), null, rc);
+    bufs.get('roof').quad(F(da, y1 + 0.75, cf + 0.15), F(da, y1 + 0.75, cf - 1.8), F(da - 1.05, y1, cf - 1.8), F(da - 1.05, y1, cf + 0.15), null, rc);
+  }
+  if (e.stand) {
+    // A grandstand's raked seating under its roof, open to the pitch.
+    const rows = 6;
+    for (let k = 0; k < rows; k++) {
+      boxInto(pl, F, -hw + 0.4, hw - 0.4, 0, 0.6 + (rows - 1 - k) * 0.7, hd + k * 1.05, hd + (k + 1) * 1.05, k % 2 ? [0.5, 0.48, 0.44] : [0.56, 0.54, 0.5]);
+    }
+    boxInto(pl, F, -hw - 0.5, hw + 0.5, b.h - 0.3, b.h, -hd, hd + rows * 1.05 + 0.6, [0.34, 0.36, 0.38]);
+    for (let a = -hw + 0.6; a <= hw - 0.5; a += 8) cylInto(pl, F, a, hd + rows * 1.05 + 0.3, 0.12, 0.12, 0, b.h - 0.3, [0.25, 0.27, 0.26], 6);
+  }
   const brick = col(0x8a4a38);
   if (e.chimney || e.chimneys) {
     const n = e.chimneys ? Math.max(1, Math.floor(b.w / 7)) : 1;
@@ -736,8 +962,28 @@ function extrasInto(bufs, b, F, tint, r, ruined) {
     cylInto(pl, F, ta, tc, 1.5, 1.5, b.h + 3, b.h + 5.6, [0.45, 0.33, 0.24], 10);
     cylInto(pl, F, ta, tc, 1.6, 0, b.h + 5.6, b.h + 6.6, [0.3, 0.25, 0.2], 10, false);
   }
+  if (e.door) {
+    // A hangar's doors: most of its front, steel, in leaves, shut.
+    const dw = hw * 0.86;
+    const dh = b.h * 0.9;
+    const leaves = 6;
+    for (let k = 0; k < leaves; k++) {
+      const a0 = -dw + (2 * dw * k) / leaves + 0.08;
+      const a1 = -dw + (2 * dw * (k + 1)) / leaves - 0.08;
+      const shade = 0.34 + (k % 2) * 0.04;
+      pl.quad(F(a0, 0.05, hd + 0.08), F(a1, 0.05, hd + 0.08), F(a1, dh, hd + 0.08), F(a0, dh, hd + 0.08), null, [shade, shade + 0.02, shade + 0.03]);
+    }
+    boxInto(pl, F, -dw - 0.3, dw + 0.3, dh, dh + 0.5, hd, hd + 0.3, [0.22, 0.24, 0.25]);
+  }
+  if (e.glass) {
+    // A control tower's glazed cab, and the gallery round it.
+    const g = Math.min(hw, hd) - 1;
+    boxInto(pl, F, -hw - 0.6, hw + 0.6, b.h - 0.2, b.h + 0.15, -hd - 0.6, hd + 0.6, [0.8, 0.8, 0.78]);
+    boxInto(pl, F, -g, g, b.h + 0.15, b.h + 3.2, -g, g, [0.18, 0.26, 0.32]);
+    boxInto(pl, F, -g - 0.3, g + 0.3, b.h + 3.2, b.h + 3.6, -g - 0.3, g + 0.3, [0.85, 0.85, 0.82]);
+  }
   if (e.mast) {
-    const top = b.tiers ? b.tiers[b.tiers.length - 1].h : b.h;
+    const top = b.tiers ? b.tiers[b.tiers.length - 1].h : b.h + (e.glass ? 3.6 : 0);
     cylInto(pl, F, 0, 0, 0.35, 0.12, top, top + e.mast, [0.7, 0.7, 0.7], 6);
   }
 }
@@ -806,6 +1052,28 @@ function propModel(t) {
       cylInto(b, F, 0, 0, 0.14, 0.12, 0, 0.75, [0.75, 0.15, 0.1], 8);
       cylInto(b, F, 0, 0, 0.16, 0.02, 0.75, 0.9, [0.75, 0.15, 0.1], 8, false);
       break;
+    case 'crane': {
+      // A travelling portal crane: four legs straddling its rails, the
+      // machinery house on the portal, and its jib out over the quay.
+      const paint = [0.62, 0.42, 0.16];
+      for (const [sa, sc] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        boxInto(b, F, sa * 4 - 0.4, sa * 4 + 0.4, 0, 11, sc * 4 - 0.4, sc * 4 + 0.4, paint);
+      }
+      boxInto(b, F, -4.6, 4.6, 11, 12.4, -4.6, 4.6, paint);
+      boxInto(b, F, -2.8, 2.8, 12.4, 17, -3.5, 2.5, [0.7, 0.68, 0.62]);
+      boxInto(b, F, -2.9, 2.9, 17, 17.4, -3.6, 2.6, [0.3, 0.3, 0.3]);
+      // The A-frame and the jib, raked up out over the water.
+      boxInto(b, F, -0.5, 0.5, 17.4, 22, 0, 1, paint);
+      const jib = (t) => [0, 15 + t * 14, 2.6 + t * 28];
+      for (let k = 0; k < 6; k++) {
+        const p0 = jib(k / 6);
+        const p1 = jib((k + 1) / 6);
+        boxInto(b, F, -0.45, 0.45, p0[1], p1[1] + 0.9, p0[2], p1[2], paint);
+      }
+      cylInto(b, F, 0, 30.4, 0.05, 0.05, 6, 29, [0.1, 0.1, 0.1], 3);
+      boxInto(b, F, -0.5, 0.5, 5.4, 6, 29.9, 30.9, [0.15, 0.15, 0.15]);
+      break;
+    }
     case 'bollard':
       cylInto(b, F, 0, 0, 0.3, 0.26, 0, 0.6, [0.15, 0.15, 0.15], 8);
       cylInto(b, F, 0, 0, 0.38, 0.38, 0.6, 0.72, [0.15, 0.15, 0.15], 8);
@@ -847,11 +1115,120 @@ function propModel(t) {
       cylInto(b, F, 0, 0, 5.6, 0, 4.2, 6.6, [0.35, 0.55, 0.45], 8, false);
       break;
     }
+    case 'hedge':
+      blobInto(b, F, 0, 0.55, 0, 1.75, 0.6, 0.55, [0.2, 0.33, 0.16], 13);
+      break;
+    case 'busstop': {
+      // A shelter: a back panel, a roof on two posts, and the stop's flag.
+      const frame = [0.2, 0.3, 0.24];
+      for (const sa of [-1.5, 1.5]) boxInto(b, F, sa - 0.06, sa + 0.06, 0, 2.3, -0.7, -0.58, frame);
+      boxInto(b, F, -1.6, 1.6, 0.2, 2.2, -0.72, -0.66, [0.45, 0.55, 0.6]);
+      boxInto(b, F, -1.7, 1.7, 2.3, 2.42, -0.9, 0.5, frame);
+      boxInto(b, F, -1.2, 1.2, 0.45, 0.52, -0.6, -0.3, [0.45, 0.32, 0.2]);
+      cylInto(b, F, 2.2, 0.3, 0.05, 0.05, 0, 2.6, [0.6, 0.6, 0.6], 5);
+      boxInto(b, F, 2.0, 2.4, 2.25, 2.75, 0.28, 0.32, [0.75, 0.12, 0.1]);
+      break;
+    }
+    case 'hoarding':
+      // An advertising hoarding: a poster on a board on two legs. The poster
+      // takes the colour the instance is given.
+      for (const sa of [-2.2, 2.2]) boxInto(b, F, sa - 0.1, sa + 0.1, 0, 4.2, -0.15, 0.05, [0.4, 0.4, 0.38]);
+      boxInto(b, F, -3.2, 3.2, 1.2, 4.4, -0.1, 0.05, [0.92, 0.92, 0.92]);
+      boxInto(b, F, -2.9, 2.9, 1.4, 4.2, 0.05, 0.09, [0.95, 0.95, 0.95]);
+      break;
+    case 'bus': {
+      // A double-decker, scarlet, with a cream band and two decks of windows.
+      const red = [0.62, 0.08, 0.06];
+      boxInto(b, F, -1.25, 1.25, 0.35, 4.3, -4.6, 4.6, red);
+      boxInto(b, F, -1.27, 1.27, 1.25, 2.2, -4.3, 4.2, [0.15, 0.18, 0.22]);
+      boxInto(b, F, -1.27, 1.27, 2.9, 3.8, -4.4, 4.4, [0.15, 0.18, 0.22]);
+      boxInto(b, F, -1.28, 1.28, 2.45, 2.7, -4.62, 4.62, [0.86, 0.8, 0.62]);
+      for (const sc of [-3, 3]) for (const sa of [-1, 1]) boxInto(b, F, sa * 1.1 - 0.15, sa * 1.1 + 0.15, 0, 0.9, sc - 0.45, sc + 0.45, [0.06, 0.06, 0.06]);
+      break;
+    }
+    case 'lorry': {
+      // A lorry: the cab, the bonnet ahead of it and a flat bed under a
+      // sheeted load. White, to take the colour the instance is given.
+      const body = [0.9, 0.9, 0.9];
+      boxInto(b, F, -1.1, 1.1, 0.7, 2.6, 1.4, 3.0, body);
+      boxInto(b, F, -1.0, 1.0, 1.6, 2.4, 2.98, 3.02, [0.15, 0.18, 0.22]);
+      boxInto(b, F, -0.75, 0.75, 0.7, 1.7, 3.0, 4.2, body);
+      boxInto(b, F, -1.15, 1.15, 0.8, 1.05, -3.6, 1.4, [0.32, 0.28, 0.22]);
+      boxInto(b, F, -1.05, 1.05, 1.05, 2.4, -3.4, 1.2, [0.42, 0.44, 0.36]);
+      for (const sc of [-2.6, -1.4, 3.3]) for (const sa of [-1, 1]) boxInto(b, F, sa * 1.0 - 0.17, sa * 1.0 + 0.17, 0, 0.95, sc - 0.47, sc + 0.47, [0.06, 0.06, 0.06]);
+      break;
+    }
+    case 'ambulance': {
+      const cream = [0.88, 0.86, 0.78];
+      boxInto(b, F, -1.0, 1.0, 0.45, 2.5, -2.6, 1.6, cream);
+      boxInto(b, F, -0.85, 0.85, 0.45, 1.6, 1.6, 2.8, cream);
+      boxInto(b, F, -0.9, 0.9, 1.6, 2.3, 1.55, 1.65, [0.15, 0.18, 0.22]);
+      for (const sa of [-1, 1]) {
+        boxInto(b, F, sa * 1.0 - 0.02, sa * 1.0 + 0.02, 1.3, 2.1, -1.2, -0.4, [0.7, 0.06, 0.05]);
+        for (const sc of [-1.8, 1.9]) boxInto(b, F, sa * 0.9 - 0.15, sa * 0.9 + 0.15, 0, 0.75, sc - 0.38, sc + 0.38, [0.06, 0.06, 0.06]);
+      }
+      break;
+    }
+    case 'engine': {
+      // A fire engine, with its ladder on top and its bell.
+      const red = [0.66, 0.07, 0.05];
+      boxInto(b, F, -1.1, 1.1, 0.5, 2.3, -3.4, 2.2, red);
+      boxInto(b, F, -0.9, 0.9, 0.5, 1.7, 2.2, 3.4, red);
+      boxInto(b, F, -1.0, 1.0, 1.7, 2.4, 2.15, 2.25, [0.15, 0.18, 0.22]);
+      for (const sa of [-0.55, 0.55]) boxInto(b, F, sa - 0.06, sa + 0.06, 2.35, 2.5, -3.8, 2.0, [0.8, 0.78, 0.7]);
+      for (let k = 0; k < 10; k++) boxInto(b, F, -0.55, 0.55, 2.38, 2.46, -3.6 + k * 0.6, -3.55 + k * 0.6, [0.8, 0.78, 0.7]);
+      cylInto(b, F, 0.6, 2.6, 0.18, 0.08, 1.7, 2.0, [0.85, 0.7, 0.3], 8);
+      for (const sc of [-2.4, 2.6]) for (const sa of [-1, 1]) boxInto(b, F, sa * 1.0 - 0.17, sa * 1.0 + 0.17, 0, 0.95, sc - 0.47, sc + 0.47, [0.06, 0.06, 0.06]);
+      break;
+    }
+    case 'stall': {
+      // A market stall: trestles, a counter of produce and a striped awning
+      // that takes the instance's colour.
+      boxInto(b, F, -1.4, 1.4, 0.85, 0.95, -0.7, 0.7, [0.55, 0.42, 0.28]);
+      for (let k = 0; k < 6; k++) blobInto(b, F, -1.1 + k * 0.44, 1.05, 0.1, 0.2, 0.12, 0.25, k % 2 ? [0.7, 0.42, 0.15] : [0.35, 0.5, 0.18], k + 3);
+      for (const [sa, sc] of [[-1.3, -0.6], [1.3, -0.6], [-1.3, 0.6], [1.3, 0.6]]) boxInto(b, F, sa - 0.05, sa + 0.05, 0, sc < 0 ? 2.3 : 2.0, sc - 0.05, sc + 0.05, [0.35, 0.28, 0.2]);
+      b.quad(F(-1.5, 2.0, 0.85), F(1.5, 2.0, 0.85), F(1.5, 2.35, -0.75), F(-1.5, 2.35, -0.75), null, [0.95, 0.95, 0.95]);
+      b.quad(F(1.5, 2.0, 0.85), F(-1.5, 2.0, 0.85), F(-1.5, 2.35, -0.75), F(1.5, 2.35, -0.75), null, [0.7, 0.7, 0.7]);
+      break;
+    }
+    case 'goal': {
+      const white = [0.95, 0.95, 0.92];
+      for (const sa of [-3.66, 3.66]) boxInto(b, F, sa - 0.06, sa + 0.06, 0, 2.44, -0.06, 0.06, white);
+      boxInto(b, F, -3.7, 3.7, 2.38, 2.5, -0.06, 0.06, white);
+      b.quad(F(-3.66, 0, -1.8), F(3.66, 0, -1.8), F(3.66, 2.44, -0.05), F(-3.66, 2.44, -0.05), null, [0.75, 0.75, 0.72]);
+      break;
+    }
+    case 'flag':
+      cylInto(b, F, 0, 0, 0.03, 0.03, 0, 1.5, [0.9, 0.9, 0.9], 4);
+      b.quad(F(0, 1.1, 0), F(0, 1.1, 0.45), F(0, 1.45, 0.45), F(0, 1.45, 0), null, [0.85, 0.75, 0.1]);
+      b.quad(F(0, 1.1, 0.45), F(0, 1.1, 0), F(0, 1.45, 0), F(0, 1.45, 0.45), null, [0.85, 0.75, 0.1]);
+      break;
+    case 'crates':
+      boxInto(b, F, -0.8, 0.8, 0, 1.2, -0.6, 0.6, [0.5, 0.38, 0.24]);
+      boxInto(b, F, 0.85, 2.0, 0, 1.0, -0.5, 0.5, [0.45, 0.34, 0.22]);
+      boxInto(b, F, -0.5, 0.5, 1.2, 2.1, -0.45, 0.45, [0.55, 0.42, 0.27]);
+      cylInto(b, F, -1.5, 0.2, 0.35, 0.35, 0, 1.0, [0.25, 0.3, 0.28], 10);
+      break;
+    case 'clock':
+      // A street clock on its column, outside the station.
+      cylInto(b, F, 0, 0, 0.18, 0.12, 0, 3.4, [0.15, 0.18, 0.16], 8);
+      boxInto(b, F, -0.45, 0.45, 3.4, 4.3, -0.2, 0.2, [0.15, 0.18, 0.16]);
+      b.quad(F(-0.35, 3.5, 0.21), F(0.35, 3.5, 0.21), F(0.35, 4.2, 0.21), F(-0.35, 4.2, 0.21), null, [0.93, 0.92, 0.85]);
+      b.quad(F(0.35, 3.5, -0.21), F(-0.35, 3.5, -0.21), F(-0.35, 4.2, -0.21), F(0.35, 4.2, -0.21), null, [0.93, 0.92, 0.85]);
+      break;
     default:
       boxInto(b, F, -0.3, 0.3, 0, 1, -0.3, 0.3, [0.5, 0.5, 0.5]);
   }
   return b;
 }
+
+/** What goes on wheels, and burns and is thrown over by a burst rather than knocked down. */
+const VEHICLES = new Set(['car', 'lorry', 'bus', 'ambulance', 'engine']);
+/** Lorries' paint: works liveries, darker and duller than a private car's. */
+const LORRY_COLOURS = [0x3d4a36, 0x6a5232, 0x2e3e5c, 0x6e2a20, 0x5a5a52, 0x8a7a50];
+/** Posters on the hoardings, and the stripes of the stall awnings. */
+const POSTERS = [0xc8a040, 0x3b6ea8, 0xb84030, 0x5a8a50];
+const AWNINGS = [0xb83a30, 0x2f6a48, 0x2e4f8a, 0xc49030];
 
 const CAR_COLOURS = [0x1c1c1e, 0x2a3b2e, 0x5a1e1a, 0x24304a, 0x7a7466, 0x3e2f24];
 
@@ -878,6 +1255,7 @@ export class WorksView {
     this.fx = effects;
     this.flames = flames;
     this.night = time === 'night' || time === 'dusk';
+    LIT = this.night;
     this.group = new THREE.Group();
     this.group.name = 'works';
     scene.add(this.group);
@@ -905,6 +1283,7 @@ export class WorksView {
       }
       for (const k of this.chunks.keys()) this.buildChunk(k);
       this.props();
+      this.traffic();
     }
     this.walls = [];
     this.wallDirty = new Set();
@@ -918,7 +1297,10 @@ export class WorksView {
       map, vertexColors: true, roughness: 0.92, metalness: 0, ...extra,
     });
     const m = {};
-    for (const k of Object.keys(FACADE)) m[k] = std(canvasTexture(`f-${k}`, FACADE[k]));
+    // Painted at twice the ground's size: a facade is looked at from the
+    // street, close to, and at a hundred and twenty-eight pixels a bay its
+    // bricks and glazing bars went to mush.
+    for (const k of Object.keys(FACADE)) m[k] = std(canvasTexture(`f-${k}`, FACADE[k], 256, 256));
     m.roof = std(canvasTexture('g-roof', GROUND.roof));
     m.plain = std(null);
     // The marks the battle leaves on the sea walls: laid over the faces they
@@ -927,6 +1309,10 @@ export class WorksView {
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
     });
     m.glow = new THREE.MeshBasicMaterial({ vertexColors: true });
+    // A lit window: a hair in front of its wall, and drawn over it.
+    m.lit = new THREE.MeshBasicMaterial({
+      vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    });
     const ground = (k) => std(canvasTexture(`g-${k}`, GROUND[k]), {
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
@@ -953,6 +1339,7 @@ export class WorksView {
       ch.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     }
     const bufs = new Bufs();
+    LIT = this.night;
     for (const b of ch.list) buildingInto(bufs, b, b.level, ruinOf(this.world, b.id));
     ch.group = bufs.meshes(this.mats);
     this.group.add(ch.group);
@@ -965,6 +1352,7 @@ export class WorksView {
     const KIND = {
       [SURF.road]: 'asphalt', [SURF.walk]: 'slab', [SURF.lawn]: 'grass', [SURF.plaza]: 'setts',
       [SURF.yard]: 'gravel', [SURF.path]: 'gravel', [SURF.median]: 'grass',
+      [SURF.runway]: 'slab', [SURF.mark]: 'slab',
     };
     const TILE = { asphalt: 6, slab: 3, grass: 5, setts: 2.5, gravel: 4 };
     const bufs = new Bufs();
@@ -990,7 +1378,8 @@ export class WorksView {
           const u1 = -W / 2 + e * SURF_CELL;
           const v0 = -D / 2 + j * SURF_CELL;
           const v1 = v0 + SURF_CELL;
-          const c = t === SURF.path ? [0.92, 0.86, 0.74] : t === SURF.median ? [0.95, 1, 0.95] : [1, 1, 1];
+          const c = t === SURF.path ? [0.92, 0.86, 0.74] : t === SURF.median ? [0.95, 1, 0.95]
+            : t === SURF.runway ? [0.58, 0.58, 0.56] : t === SURF.mark ? [1, 1, 1] : [1, 1, 1];
           bufs.get(k).quad(P(u0, y, v1), P(u1, y, v1), P(u1, y, v0), P(u0, y, v0),
             [uvAt(u0, v1, k), uvAt(u1, v1, k), uvAt(u1, v0, k), uvAt(u0, v0, k)], c);
         }
@@ -1044,7 +1433,7 @@ export class WorksView {
     this.inst = {};
     for (const [t, list] of Object.entries(types)) {
       const buf = propModel(t);
-      const mat = t === 'car'
+      const mat = VEHICLES.has(t)
         ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3 })
         : this.mats.plain;
       const mesh = new THREE.InstancedMesh(buf.geometry(), mat, list.length);
@@ -1060,9 +1449,14 @@ export class WorksView {
       });
       mesh.userData.entries = entries;
       this.inst[t] = mesh;
-      if (t === 'car') {
+      // The ones painted one at a time: each car and lorry its own colour,
+      // each poster and awning its own. The rest of the vehicles are painted
+      // in their model, and start white so a fire can blacken them.
+      const pal = t === 'car' ? CAR_COLOURS : t === 'lorry' ? LORRY_COLOURS
+        : t === 'hoarding' ? POSTERS : t === 'stall' ? AWNINGS : null;
+      if (pal || VEHICLES.has(t)) {
         entries.forEach((e) => {
-          tmpC.setHex(CAR_COLOURS[e.p.c % CAR_COLOURS.length]);
+          if (pal) tmpC.setHex(pal[(e.p.c || 0) % pal.length]); else tmpC.setRGB(1, 1, 1);
           mesh.setColorAt(e.k, tmpC);
         });
       }
@@ -1092,6 +1486,103 @@ export class WorksView {
       const r = ruinOf(this.world, b.id);
       if (r?.c) this.clearProps(b.x, b.z, Math.hypot(b.w, b.d) / 2 + 2);
     }
+  }
+
+  // ---- traffic
+
+  /**
+   * Motor cars and buses going about the town's streets, up and down every
+   * one of them on their own side of the road -- until the shelling starts
+   * near them. Only drawn: nothing in the battle knows they are there.
+   */
+  traffic() {
+    const lanes = [];
+    for (const plan of this.plans) {
+      if (plan.city.kind) continue;
+      const { W, D } = plan;
+      for (const st of plan.across || []) {
+        for (const dir of [1, -1]) {
+          lanes.push({ plan, along: 'v', at: st.at + dir * (st.w / 4 + (st.kind === 'boulevard' ? 4 : 0)), lo: -D / 2, hi: D / 2, dir });
+        }
+      }
+      for (const st of plan.along || []) {
+        for (const dir of [1, -1]) {
+          lanes.push({ plan, along: 'u', at: st.at - dir * (st.w / 4), lo: -W / 2, hi: W / 2, dir });
+        }
+      }
+    }
+    const rng = rngOf(lanes.length * 7919 + 13);
+    this.cars = [];
+    for (const lane of lanes) {
+      const n = Math.max(0, Math.round(((lane.hi - lane.lo) / 220) * (0.5 + rng())));
+      for (let k = 0; k < n && this.cars.length < 500; k++) {
+        this.cars.push({
+          lane, s: lane.lo + rng() * (lane.hi - lane.lo), v: 6 + rng() * 6,
+          bus: rng() < 0.06, c: Math.floor(rng() * CAR_COLOURS.length), gone: false,
+        });
+      }
+    }
+    if (!this.cars.length) return;
+    const mk = (t, list) => {
+      if (!list.length) return null;
+      const mesh = new THREE.InstancedMesh(propModel(t).geometry(),
+        new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3 }), list.length);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      list.forEach((car, k) => {
+        car.mesh = mesh;
+        car.k = k;
+        if (t === 'car') tmpC.setHex(CAR_COLOURS[car.c]); else tmpC.setRGB(1, 1, 1);
+        mesh.setColorAt(k, tmpC);
+      });
+      mesh.frustumCulled = false;
+      this.group.add(mesh);
+      return mesh;
+    };
+    mk('car', this.cars.filter((c) => !c.bus));
+    mk('bus', this.cars.filter((c) => c.bus));
+    this.stepTraffic(0);
+  }
+
+  stepTraffic(dt) {
+    if (!this.cars?.length) return;
+    const touched = new Set();
+    for (const car of this.cars) {
+      const L = car.lane;
+      if (!car.gone) {
+        car.s += car.v * L.dir * dt;
+        if (car.s > L.hi) car.s = L.lo + (car.s - L.hi);
+        if (car.s < L.lo) car.s = L.hi - (L.lo - car.s);
+      }
+      const u = L.along === 'v' ? L.at : car.s;
+      const v = L.along === 'v' ? car.s : L.at;
+      const plan = L.plan;
+      // Only where there is street to drive on: off the end of the town, or
+      // where a building has come down across the road, it is not drawn.
+      const on = !car.gone && plan.surfAt(u, v) === SURF.road && !this.blocked(plan, u, v);
+      if (on) {
+        const w = cityToWorld(plan.city, u, v);
+        const yaw = plan.city.rot + (L.along === 'v' ? (L.dir > 0 ? 0 : Math.PI) : (L.dir > 0 ? Math.PI / 2 : -Math.PI / 2));
+        car.x = w.x;
+        car.z = w.z;
+        tmpE.set(0, yaw, 0);
+        tmpQ.setFromEuler(tmpE);
+        tmpM.compose(tmpV.set(w.x, plan.level + 0.04, w.z), tmpQ, tmpS.set(1, 1, 1));
+      } else {
+        tmpM.makeScale(0, 0, 0);
+      }
+      car.mesh.setMatrixAt(car.k, tmpM);
+      touched.add(car.mesh);
+    }
+    for (const m of touched) m.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Whether a heap of rubble lies across the street at a point of a town. */
+  blocked(plan, u, v) {
+    if (!this.rubbleAt) return false;
+    const list = this.rubbleAt.get(plan);
+    if (!list) return false;
+    for (const q of list) if (Math.abs(q.u - u) < q.r && Math.abs(q.v - v) < q.r) return true;
+    return false;
   }
 
   /** Put one prop's instance where and how it now is. */
@@ -1136,13 +1627,24 @@ export class WorksView {
   blast(x, z, cal = 152, y = null) {
     if (!this.prop) return;
     const reach = 3 + cal / 22;
+    // The traffic stops for good once the shells are falling in the streets:
+    // anything near enough is gone, and everything else in that town pulls
+    // over and is left where it stopped.
+    for (const car of this.cars || []) {
+      if (car.gone || car.x === undefined) continue;
+      const d = Math.hypot(car.x - x, car.z - z);
+      if (d < reach * 1.5) {
+        car.gone = true;
+        this.spray(car.x, (car.lane.plan.level || 0) + 1, car.z, 8, [0.2, 0.2, 0.2], 0.3);
+      } else if (d < 900) car.v = 0;
+    }
     for (const e of this.prop) {
       if (e.gone) continue;
       const d = Math.hypot(e.x - x, e.z - z);
       if (d > reach) continue;
       const away = Math.atan2(e.x - x, e.z - z);
       const near = 1 - d / reach;
-      if (e.t === 'car') {
+      if (VEHICLES.has(e.t)) {
         if (!e.burnt) {
           e.burnt = true;
           tmpC.setRGB(0.07, 0.06, 0.055);
@@ -1158,13 +1660,14 @@ export class WorksView {
         }
         continue;
       }
-      if (['bench', 'hydrant', 'bollard'].includes(e.t) || (['fountain', 'statue', 'bandstand', 'kiosk'].includes(e.t) && near > 0.6)) {
+      if (['bench', 'hydrant', 'bollard', 'hedge', 'crates', 'stall', 'flag'].includes(e.t)
+        || (['fountain', 'statue', 'bandstand', 'kiosk', 'busstop'].includes(e.t) && near > 0.6)) {
         e.gone = true;
         this.place(e);
         this.spray(e.x, e.y + 0.5, e.z, 6, [0.5, 0.48, 0.45], 0.35);
         continue;
       }
-      if (['fountain', 'statue', 'bandstand', 'kiosk'].includes(e.t)) continue;
+      if (['fountain', 'statue', 'bandstand', 'kiosk', 'busstop', 'goal'].includes(e.t)) continue;
       if (e.fallMax) continue;
       // Lamps, trees, telephone kiosks and pillar boxes go over.
       e.fallMax = e.t === 'tree' || e.t === 'bigtree' ? 1.38 : 1.5;
@@ -1698,6 +2201,13 @@ export class WorksView {
   }
 
   collapse(b, was) {
+    // What comes down blocks the street in front of it.
+    const plan = this.plans.find((q) => q.city.index === b.city);
+    if (plan) {
+      if (!this.rubbleAt) this.rubbleAt = new Map();
+      if (!this.rubbleAt.has(plan)) this.rubbleAt.set(plan, []);
+      this.rubbleAt.get(plan).push({ u: b.u, v: b.v, r: Math.max(b.w, b.d) / 2 + 6 });
+    }
     const bufs = new Bufs();
     buildingInto(bufs, b, b.level, was || null);
     const g = bufs.meshes(this.mats);
@@ -1713,6 +2223,11 @@ export class WorksView {
       lean: (Math.random() - 0.3) * 0.18,
     });
     this.underFall(b);
+    // A gasholder goes up as it comes down.
+    if (b.kind === 'gasholder' && this.fx) {
+      this.fx.explosion(b.x, L + h * 0.8, b.z, 2.6);
+      this.flames?.at(`town${b.id}`, b.x, L + 4, b.z, 1, Math.min(28, b.w));
+    }
     const pal = col((WALLS[b.wall] || WALLS[0]).c);
     const R = Math.hypot(b.w, b.d) / 2;
     for (let k = 0; k < 10; k++) {
@@ -1894,6 +2409,7 @@ export class WorksView {
     }
     this.stepFalling(dt);
     this.stepProps(dt);
+    this.stepTraffic(dt);
     this.stepDebris(dt);
     if (!this.plans.length) return;
     // Fire, in the burning buildings nearest the eye: flame out of the

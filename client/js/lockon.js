@@ -25,7 +25,7 @@ export function pickLockKind(rack, tk, d) {
   // The one best suited first, then anything else on her rails that is
   // built to go for that kind of target (AIR_MISSILE_HITS says which).
   const best = tk === 'a' ? (d < AIR_MISSILES.aim9.range * 0.85 ? ['aim9', 'aim120'] : ['aim120', 'aim9'])
-    : tk === 's' ? ['agm84', 'penguin', 'agm65'] : ['agm65'];
+    : tk === 's' ? ['agm84', 'penguin', 'kh25', 'agm65'] : ['agm65'];
   // (A B-52's AGM-86B goes at any of them: it is found among her rails below.)
   const order = [...best, ...Object.keys(rack || {}).filter((k) => !best.includes(k))];
   for (const k of order) {

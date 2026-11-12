@@ -477,6 +477,9 @@
       <p class="credit">"<a href="https://skfb.ly/p96qS" target="_blank" rel="noopener">SH-60B Seahawk Helicopter</a>"
         by Muhamad Mirza Arrafi is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/poZTv" target="_blank" rel="noopener">KA-27</a>"
+        by theutkarsh is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/puTvR" target="_blank" rel="noopener">McDonnell Douglas F/A-18C Hornet</a>"
         by Rhine_Lab_Muelsyse is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
@@ -1060,6 +1063,19 @@
       <button class="btn ghost" id="lay-walls" type="button" title="Build sea walls: press, then tap by the shore">+ Sea Walls</button>
       <button class="lay-x" id="lay-walls-x" type="button" aria-label="Take away the last sea walls" title="Take away the last sea walls" hidden>&times;</button>
     </div>
+    <!-- Air bases and harbours, under the sea walls. An air base goes on dry
+         land, with a runway and hangars: drop a bomber on it and she starts
+         the battle in a hangar, taking off down the runway and landing back
+         on it to rearm. A harbour goes by the shore, with a quay: drop a ship
+         by it and she starts the battle docked there. -->
+    <div class="lay-work">
+      <button class="btn ghost" id="lay-airbase" type="button" title="Build an air base: press, then tap anywhere on dry land. Runway and hangars for bombers and planes.">+ Air Base</button>
+      <button class="lay-x" id="lay-airbase-x" type="button" aria-label="Take away the last air base" title="Take away the last air base" hidden>&times;</button>
+    </div>
+    <div class="lay-work">
+      <button class="btn ghost" id="lay-harbor" type="button" title="Build a harbour: press, then tap by the shore. Ships can dock at its quay.">+ Harbour</button>
+      <button class="lay-x" id="lay-harbor-x" type="button" aria-label="Take away the last harbour" title="Take away the last harbour" hidden>&times;</button>
+    </div>
     <!-- Barracks: press, then tap the chart on land, and fifty soldiers fall
          in outside it. Tap a barracks to change whose it is. -->
     <div class="lay-work">
@@ -1067,8 +1083,8 @@
       <button class="lay-x" id="lay-barracks-x" type="button" aria-label="Take away the last barracks" title="Take away the last barracks" hidden>&times;</button>
     </div>
     <div class="lay-work lay-side" id="lay-barracks-side" hidden>
-      <button class="btn ghost on" id="lay-barracks-ally" type="button" title="New barracks are allied">Allied</button>
-      <button class="btn ghost" id="lay-barracks-enemy" type="button" title="New barracks are enemy">Enemy</button>
+      <button class="btn ghost on" id="lay-barracks-ally" type="button" title="New barracks and air bases are allied">Allied</button>
+      <button class="btn ghost" id="lay-barracks-enemy" type="button" title="New barracks and air bases are enemy">Enemy</button>
     </div>
   </div>
   <p id="lay-hint" class="deploy-hint"></p>

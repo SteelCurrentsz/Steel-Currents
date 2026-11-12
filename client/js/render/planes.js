@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, arado, kingfisher, besson, loire, walrus, kor1, ro43,
-  jake, mitchell, f18, e2d, sh60, muzzlesOf, dressPlane,
+  jake, mitchell, f18, e2d, sh60, ka27, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -965,8 +965,10 @@ export function flightModels() {
     // model's bounding box instead -- which is what it used to be -- it came
     // out low and behind the spinner, and read as a pale white plate under the
     // nose that no propeller has.
-    const hub = p.userData.prop;
-    if (hub) {
+    // Every airscrew she has: the Hawkeye has two, and the blur used to go on
+    // the first of them only.
+    const named = (p.userData.parts || []).filter((q) => /^prop\d*$/.test(q.name)).map((q) => q.node);
+    for (const hub of (named.length ? named : [p.userData.prop].filter(Boolean))) {
       hub.updateMatrixWorld(true);
       const at = new THREE.Vector3().setFromMatrixPosition(hub.matrixWorld);
       const v = new THREE.Vector3();
@@ -1051,6 +1053,8 @@ export function flightModels() {
   make('f18', (g) => f18(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   make('e2d', (g) => e2d(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   make('sh60', (g) => sh60(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  // And the Ka-27 off the Sovremenny's and the Slava's pads.
+  make('ka27', (g) => ka27(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Devastator the Hornet's torpedo squadron flew at Midway.
   out.devastator = devastatorFlightModel();
   MUZZLES.devastator = DEVASTATOR.guns.slice().sort((a, b) => a[0] - b[0]);
@@ -1115,7 +1119,7 @@ export const ROLE_TYPE = {
   fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'e2d', 'sh60', 'arado', 'kingfisher',
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'e2d', 'sh60', 'ka27', 'arado', 'kingfisher',
   'besson', 'loire', 'walrus', 'kor1', 'ro43', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */

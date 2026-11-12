@@ -123,7 +123,11 @@ export function arsenal(cls) {
   };
   const hasBoth = (battery) => !!(battery && battery.shells
     && battery.shells.ap && battery.shells.he);
-  if (cls.gun) {
+  // A boat with no gun mounted has no main battery to list: the Landing
+  // Craft Mechanized carries a stand-in gun so that anything asking every
+  // class for one gets an answer, and it used to be listed as a weapon called
+  // "None".
+  if (cls.gun && cls.turrets?.length) {
     rows.push({
       name: cls.gun.name || `${cls.gun.caliber} mm`,
       caliber: cls.gun.caliber,
@@ -1197,6 +1201,9 @@ class HudBase {
     if (rep) rep.textContent = DC_ORDER[stage];
     set('smoke', `×${own.smk ?? 0}`,
       own.sm === 1 ? 'active' : (own.smk ?? 0) > 0 ? 'ready' : 'spent');
+    set('dock', own.dk === 2 ? 'FAST' : own.dk === 3 ? 'OFF' : own.dk === 1 ? 'IN' : 'GO', own.dk ? 'active' : 'ready');
+    const dsp = this.acts.dock && this.acts.dock.querySelector('span');
+    if (dsp) dsp.textContent = own.dk ? 'Cast off (K)' : 'Dock (K)';
     this.paintParties(own);
     const hurt = (own.f || 0) + (own.fl || 0);
     this.el.connSub.textContent = stage >= 2 && (own.fl || 0)
@@ -2674,7 +2681,10 @@ class HudBase {
         ...(cls.planes && cls.planes.group ? [{ k: 'auto', label: 'Auto launch' }] : []),
         { k: 'plane', label: 'Pilot view' }]
       : [{ k: 'repair', label: 'Damage control' },
-        ...(cls.smokeCharges ? [{ k: 'smoke', label: 'Make smoke' }] : [])];
+        ...(cls.smokeCharges ? [{ k: 'smoke', label: 'Make smoke' }] : []),
+        // Into harbour, where there is one: alongside, the dockyard makes
+        // good her damage.
+        ...(this.world?.works?.cities?.some((c) => c.kind === 'harbor') ? [{ k: 'dock', label: 'Dock (K)' }] : [])];
     for (const a of list) {
       const b = document.createElement('button');
       b.type = 'button';

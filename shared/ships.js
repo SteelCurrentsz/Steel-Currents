@@ -409,6 +409,13 @@ export const AIR_MISSILES = {
     speed: 300, range: 12000, cruise: 8, turn: 0.6,
     damage: 2600, fire: 0.35, hp: 1, interval: 1, raise: 0, length: 3.0, popUp: 0,
   },
+  // The Kh-25ML a Ka-27 carries for a ship: a short-ranged missile that rides
+  // the laser spot her crew holds on the target all the way in.
+  kh25: {
+    name: 'Kh-25ML', short: 'KH-25', role: 'surface',
+    speed: 280, range: 10000, cruise: 10, turn: 0.6,
+    damage: 2800, fire: 0.35, hp: 1, interval: 1, raise: 0, length: 3.7, popUp: 0,
+  },
   // What a Hornet carries for other aircraft. The Sidewinder goes for the
   // heat of an engine and turns harder than anything it can be fired at; the
   // AMRAAM finds its own way in on its own radar from a long way out. Both
@@ -465,8 +472,61 @@ export const AIR_MISSILES = {
  * for a boat under the sea.
  */
 export const AIR_MISSILE_HITS = {
-  agm84: ['s'], penguin: ['s'], aim9: ['a'], aim120: ['a'], agm65: ['b', 's'], agm86: ['a', 's', 'b'],
+  agm84: ['s'], penguin: ['s'], kh25: ['s'], aim9: ['a'], aim120: ['a'], agm65: ['b', 's'], agm86: ['a', 's', 'b'],
 };
+
+/**
+ * The two loads a ship's helicopter can be sent out with, as her captain
+ * chooses in the yard: missiles for a ship, or her dipping sonar and homing
+ * torpedoes for a boat under the sea. The Seahawk's are the Nimitz's own.
+ */
+export const SEAHAWK_LOADOUTS = {
+  as: { name: 'Anti-Ship Load Out', note: 'two AGM-119 Penguins', role: 'torpedo', standoff: { kind: 'penguin', n: 2 } },
+  asw: { name: 'ASW Load Out', note: 'dipping sonar and two Mk 46 homing torpedoes', role: 'torpedo', asw: 2 },
+};
+export const KA27_LOADOUTS = {
+  as: { name: 'Anti-Ship Load Out', note: 'two Kh-25ML laser-guided missiles', role: 'torpedo', standoff: { kind: 'kh25', n: 2 } },
+  asw: { name: 'ASW Load Out', note: 'dipping sonar and two APR-3 homing torpedoes', role: 'torpedo', asw: 2 },
+};
+
+/** How high over her spot a helicopter hovers going and coming (see heloHover in sim.js). */
+const PAD_HOVER = 18;
+
+/**
+ * One helicopter off a destroyer's or a cruiser's pad: one machine in one
+ * squadron, which goes straight up off the spot to a hover over it and away,
+ * and comes home to the same spot and straight down onto it, as the Nimitz's
+ * Seahawks do. `pad` is the spot in her own frame, [across, along, up] as
+ * `{ x, z, y }`.
+ */
+function shipHelo({ type, label, pad, cruise, loadouts }) {
+  return {
+    squadrons: 1, perSquadron: 1, cruiseSpeed: cruise, strikeRange: 24000,
+    cruiseOf: { [type]: cruise },
+    type,
+    types: { fighter: type, dive: type, torpedo: type },
+    // Up off the spot to her hover, and handed to the sky there.
+    runOut: { torpedo: pad.z }, runHeight: { torpedo: pad.y + PAD_HOVER }, launchSpeed: { torpedo: 4 },
+    helipad: { ...pad },
+    // Her rotor wound up on the spot, and the climb to the hover.
+    deckRun: 16, deckNext: 9, deckCycle: 16,
+    // Home, refuelled and rearmed on deck, and sent out again.
+    turnaround: 75,
+    rearm: 45, torpDamage: 7000, torpSpeed: 40 * KNOTS, torpRange: 4000,
+    floodChance: 0.3, hp: 1600, dropSpread: 0.05,
+    bombDamage: 0, bombHit: 0, bombFire: 0, bombPen: 0, bombBore: 0,
+    group: {
+      total: 1,
+      min: { fighters: 0, dive: 0, torpedo: 1 },
+      max: { fighters: 0, dive: 0, torpedo: 1 },
+      minStrike: 0,
+      default: { fighters: 0, dive: 0, torpedo: 1 },
+    },
+    slots: {
+      torpedo: { type, label, default: 'asw', loadouts },
+    },
+  };
+}
 
 export const SHIP_CLASSES = {
   fletcher: {
@@ -1352,7 +1412,7 @@ export const SHIP_CLASSES = {
     type: 'DD',
     typeName: 'Destroyer',
     nation: 'sov',
-    blurb: 'Eight Moskit "Sunburn" anti-ship missiles, Uragan surface-to-air missiles, two twin 130 mm guns, four AK-630s, homing torpedoes and RBU-1000 rocket launchers that blow incoming torpedoes out of the water.',
+    blurb: 'Eight Moskit "Sunburn" anti-ship missiles, Uragan surface-to-air missiles, two twin 130 mm guns, four AK-630s, homing torpedoes, RBU-1000 rocket launchers that blow incoming torpedoes out of the water, and a Ka-27 helicopter.',
     hull: {
       // Where her funnel comes out, [across, along, up] in metres off her
       // model: what she makes smoke from. See funnelsOf in game.js.
@@ -1498,10 +1558,12 @@ export const SHIP_CLASSES = {
       // What her own fire control is called, on the switch that holds it.
       fcs: 'SAM',
     },
-    planes: null,
+    // Her Ka-27, one, on the pad abaft her funnel with her telescopic
+    // hangar behind it, loaded as her captain chooses (see KA27_LOADOUTS).
+    planes: shipHelo({ type: 'ka27', label: 'Ka-27 Helix', pad: { x: 0, z: -29, y: 9.9 }, cruise: 60, loadouts: KA27_LOADOUTS }),
     datasheet: {
       displacement: 7940,
-      aircraft: 0,
+      aircraft: 1,
       mainRounds: 2000,
       torpedoesCarried: 8,
       secondary: null,
@@ -1547,7 +1609,7 @@ export const SHIP_CLASSES = {
     type: 'CA',
     typeName: 'Missile Cruiser',
     nation: 'sov',
-    blurb: 'Sixteen P-1000 Vulcan anti-ship missiles, sixty-four S-300F and forty OSA-M surface-to-air missiles, a twin 130 mm gun, six AK-630s and RBU-6000 rocket launchers.',
+    blurb: 'Sixteen P-1000 Vulcan anti-ship missiles, sixty-four S-300F and forty OSA-M surface-to-air missiles, a twin 130 mm gun, six AK-630s, RBU-6000 rocket launchers and a Ka-27 helicopter.',
     hull: {
       // Where her funnel uptakes come out, [across, along, up] in metres off
       // her model: what she makes smoke from. See funnelsOf in game.js.
@@ -1685,10 +1747,12 @@ export const SHIP_CLASSES = {
       // What her own fire control is called, on the switch that holds it.
       fcs: 'SAM',
     },
-    planes: null,
+    // Her Ka-27, one, on the pad on her quarterdeck over the hangar under
+    // it, loaded as her captain chooses (see KA27_LOADOUTS).
+    planes: shipHelo({ type: 'ka27', label: 'Ka-27 Helix', pad: { x: 0, z: -86, y: 7.0 }, cruise: 60, loadouts: KA27_LOADOUTS }),
     datasheet: {
       displacement: 11490,
-      aircraft: 0,
+      aircraft: 1,
       mainRounds: 2000,
       torpedoesCarried: 0,
       secondary: null,
@@ -1738,7 +1802,7 @@ export const SHIP_CLASSES = {
     type: 'DD',
     typeName: 'Destroyer',
     nation: 'usa',
-    blurb: 'Aegis and ninety cells of Mk 41: Standard missiles that knock aeroplanes and missiles out of the sky, Tomahawks, ASROC that drops a homing torpedo on a submarine, Harpoons, a 5-inch gun and two Phalanx.',
+    blurb: 'Aegis and ninety cells of Mk 41: Standard missiles that knock aeroplanes and missiles out of the sky, Tomahawks, ASROC that drops a homing torpedo on a submarine, Harpoons, a 5-inch gun, two Phalanx and an MH-60 Seahawk.',
     hull: {
       // Where her funnels come out, [across, along, up] in metres off her
       // model: what she makes smoke from. See funnelsOf in game.js.
@@ -1876,10 +1940,12 @@ export const SHIP_CLASSES = {
       ],
       tubeElev: 0.656,
     },
-    planes: null,
+    // Her MH-60 Seahawk, one, on the flight deck on her fantail, loaded as
+    // the Nimitz's are (see SEAHAWK_LOADOUTS).
+    planes: shipHelo({ type: 'sh60', label: 'MH-60 Seahawk', pad: { x: 0, z: -63, y: 4.3 }, cruise: 68, loadouts: SEAHAWK_LOADOUTS }),
     datasheet: {
       displacement: 8300,
-      aircraft: 0,
+      aircraft: 1,
       mainRounds: 600,
       torpedoesCarried: 24,
       secondary: { caliber: 25, label: '25mm Mk 38', barrels: 2, rounds: 3000 },
@@ -7420,10 +7486,7 @@ export const SHIP_CLASSES = {
         },
         torpedo: {
           type: 'sh60', label: 'MH-60 Seahawk', default: 'asw',
-          loadouts: {
-            as: { name: 'Anti-Ship Load Out', note: 'two AGM-119 Penguins', role: 'torpedo', standoff: { kind: 'penguin', n: 2 } },
-            asw: { name: 'ASW Load Out', note: 'dipping sonar and two Mk 46 homing torpedoes', role: 'torpedo', asw: 2 },
-          },
+          loadouts: SEAHAWK_LOADOUTS,
         },
       },
     },

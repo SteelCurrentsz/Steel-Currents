@@ -359,7 +359,8 @@ export class Fittings {
       if (!list) continue;
       for (const piece of list) {
         if (!piece.on) continue;
-        const gap = Math.max(0, Math.hypot(piece.cx - x, piece.cy - y, piece.cz - z) - piece.r);
+        const px = piece.cx - x, py = piece.cy - y, pz = piece.cz - z;
+        const gap = Math.max(0, Math.sqrt(px * px + py * py + pz * pz) - piece.r);
         if (gap > r) continue;
         this.scorchPiece(piece, amount * (1 - gap / r));
       }

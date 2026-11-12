@@ -35,7 +35,9 @@ import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
   freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE, missileHits, missileRole, RAMP_RUN,
+  driveHull,
 } from '../../shared/sim.js';
+import { Held } from './predict.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
 import { lampPlan, planImage } from './render/searchlights.js';
@@ -274,6 +276,7 @@ const FLIGHT_NAME = {
   f18: 'her Hornets',
   e2d: 'her Hawkeye',
   sh60: 'her Seahawks',
+  ka27: 'her Ka-27',
   arado: 'her Arados',
   kingfisher: 'her Kingfishers',
   besson: 'her Besson',
@@ -293,7 +296,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 const PLANE_NAME = {
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
-  f18: 'F/A-18C Hornet', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk',
+  f18: 'F/A-18C Hornet', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   walrus: 'Supermarine Walrus', kor1: 'Beriev KOR-1', ro43: 'IMAM Ro.43',
   zero: 'A6M Zero',
@@ -317,6 +320,7 @@ const GUN_CALIBRE = {
   mitchell: 12.7,     // the fifty in her nose
   f18: 20,            // her M61 in the nose
   sh60: 7.62,         // the door gun
+  ka27: 7.62,         // the door gun
   arado: 20,          // two MG FF in the wings and an MG 17 over the engine
   kingfisher: 7.62,   // the one thirty she had
   // The Besson has nothing forward at all. Her one gun is the observer's
@@ -350,7 +354,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, sh60: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
 };
@@ -778,6 +782,7 @@ export class Battle {
       else if (k === 'plane') this.togglePilotView();
       else if (k === 'repair') this.net.send({ t: 'repair', ship });
       else if (k === 'smoke') this.net.send({ t: 'smoke', ship });
+      else if (k === 'dock') this.toggleDock();
       else if (k === 'party') this.net.send({ t: 'party', ship, i: v.i, job: v.job });
       audio.click();
     });
@@ -1242,9 +1247,19 @@ export class Battle {
     this.serverTime = snap.time;
     this.syncClock(now, st);
 
+    // Who is lying alongside a quay, or on the way in: the dock key is
+    // "dock" or "cast off" by it.
+    this.docked = new Map(snap.ships.filter((q) => q.dk).map((q) => [q.i, q.dk]));
     const own = snap.ships.find((s) => s.i === this.shipId);
     if (own) {
       const ls = this.localShip;
+      // In harbour her own prediction lies still with her, and once she is
+      // made fast her telegraph is rung down to stop: the next order rung up
+      // on it is what casts her off.
+      const dk = own.dk || 0;
+      if (dk === 2 && (ls.dockSt || 0) !== 2) { ls.notch = 1; this.hud.setNotch?.(1); }
+      ls.dockSt = dk;
+      ls.dock = dk === 2 ? { st: 'moored' } : dk === 3 ? { st: 'off' } : dk === 1 ? { st: 'approach' } : null;
       // An order given to her fleet from another ship of it: her helm and her
       // telegraph take it up, or her own prediction would steer against it.
       if ((own.fq || 0) !== (this.fleetSeq || 0)) {
@@ -3131,7 +3146,13 @@ export class Battle {
             const g = view.blastSteps(at.x, at.z, ev.b || 0);
             if (ev.ship === this.shipId) { g.own = true; q.unshift(g); } else q.push(g);
             // And the first of it now, in the frame the shock gets to her.
-            try { for (let k = 0; k < 4; k++) if (g.next().done) { q.splice(q.indexOf(g), 1); break; } } catch { /* the rest a frame at a time */ }
+            // On the clock: a whole fleet is struck in the same tick.
+            const until = performance.now() + 1.5;
+            try {
+              for (let k = 0; k < 4 && (k === 0 || performance.now() < until); k++) {
+                if (g.next().done) { q.splice(q.indexOf(g), 1); break; }
+              }
+            } catch { /* the rest a frame at a time */ }
           }
         }
           // The shock has reached one of ours.
@@ -3494,6 +3515,22 @@ export class Battle {
         // Made out of her funnels for as long as she is making it, off the
         // ship's own `sm` (see makeSmoke) -- not set down beside her once.
         case 'smoke': break;
+        // Into harbour and out of it, and her stores struck down.
+        case 'dock':
+          if (ev.ship === this.shipId) {
+            if (ev.st === 2) this.hud.ribbon('MADE FAST ALONGSIDE');
+            else if (ev.st === 1 && ev.tugs) this.hud.ribbon('TUGS ALONGSIDE');
+            else if (ev.st === 1) this.hud.ribbon('STANDING IN TO HARBOUR');
+            else this.hud.ribbon('CAST OFF');
+          }
+          break;
+        case 'dockStores': if (ev.ship === this.shipId) this.hud.ribbon('STORES STRUCK DOWN'); break;
+        // A heavy squadron of ours off its airfield, or back down on it; or
+        // carrier aeroplanes with no deck to come home to, put down there.
+        case 'fieldUp': if (ev.tm === this.team) this.hud.ribbon('BOMBERS TAKING OFF'); break;
+        case 'fieldDown':
+          if (ev.tm === this.team) this.hud.ribbon(ev.planes ? 'AIRCRAFT DIVERTED TO AIRFIELD' : 'BOMBERS LANDED: REARMING');
+          break;
         case 'repair':
           if (ev.ship === this.shipId) {
             // The first call-away shores; the second gets the pumps going.
@@ -4206,6 +4243,8 @@ export class Battle {
       case 'KeyB': this.toggleGunner(); break;
       case 'KeyR': this.net.send({ t: 'repair', ship: this.conned() }); break;
       case 'KeyT': this.net.send({ t: 'smoke', ship: this.conned() }); break;
+      // Into the nearest harbour with room for her, or out of it.
+      case 'KeyK': if (!this.director) this.toggleDock(); break;
       // The racks. One key, because there is one order: let go.
       case 'KeyG': this.dropCharges(null); break;
       case 'KeyC': {
@@ -5031,7 +5070,7 @@ export class Battle {
    * two snapshots, its hull on its own heading and its turret trained off
    * that. `t` is how far between them, as everything else here.
    */
-  placeTank(view, g, prev, t, ang) {
+  placeTank(view, g, prev, t, ang, ahead = 0) {
     const grp = view.group;
     const craft = g.ab ? this.scene.shipViews.get(g.ab) : null;
     const cls = craft && SHIP_CLASSES[craft.group?.userData?.classId || ''];
@@ -5071,10 +5110,26 @@ export class Battle {
       grp.position.copy(p);
       view.ride = null;
     } else {
-      const x = prev && !prev.ab ? lerp(g.x, prev.x, t) : g.x;
-      const z = prev && !prev.ab ? lerp(g.z, prev.z, t) : g.z;
-      const y = prev && !prev.ab ? lerp(g.y, prev.y, t) : g.y;
-      const h = prev && !prev.ab ? g.h + angleDelta(g.h, prev.h) * t : g.h;
+      let x = prev && !prev.ab ? lerp(g.x, prev.x, t) : g.x;
+      let z = prev && !prev.ab ? lerp(g.z, prev.z, t) : g.z;
+      let y = prev && !prev.ab ? lerp(g.y, prev.y, t) : g.y;
+      let h = prev && !prev.ab ? g.h + angleDelta(g.h, prev.h) * t : g.h;
+      // Past the newest snapshot: on along its heading at its speed, rather
+      // than stopped dead until the next one comes in.
+      if (!prev && ahead > 0 && g.al && Math.abs(g.sp || 0) > 0.05) {
+        x += Math.sin(h) * (g.sp || 0) * ahead;
+        z += Math.cos(h) * (g.sp || 0) * ahead;
+      }
+      // The tank in hand is where its driver has driven it on this screen,
+      // not where it was a fifth of a second ago (see predict.js); its turret
+      // keeps the bearing the battle has it on, off that hull.
+      const mine = this.heldTank(g);
+      if (mine) {
+        const turretAt = h + ang;
+        const d = this.commandBat.held.drawn;
+        x = d.x; z = d.z; y = d.y; h = d.h;
+        ang = wrapAngle(turretAt - h);
+      }
       // Sat on the ground as it is drawn, so it is not half buried in a
       // slope the simulation reads a little lower than the mesh -- and laid
       // over to it: nose up a bank, down into a dip, and canted on a hillside
@@ -5137,6 +5192,50 @@ export class Battle {
         fx.fire(hx, p.y + 2.2, hz, g.fi === 2 ? 0.7 : 0.35);
       }
     }
+  }
+
+  /**
+   * The hull of the tank in hand, driven on by this frame off its sticks and
+   * brought into line with the newest snapshot of it; or null if no tank on
+   * the ground is in hand, or this is not it.
+   */
+  heldTank(g) {
+    const c = this.commandBat;
+    const w = this.scene.world;
+    if (!c || !c.tank || c.id !== g.i || !w || !g.al) return null;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const s = snap && (snap.batteries || []).find((q) => q.i === g.i);
+    if (!s || s.ab) { c.held = null; return null; }
+    const T = BATTERIES[g.b]?.tank;
+    if (!T) return null;
+    if (!c.held) {
+      const body = { x: s.x, z: s.z, y: s.y, h: s.h, heading: s.h, speed: s.sp || 0, yaw: 0, roll: 0, th: c.drive.th, st: c.drive.st, ok: true, k: 1 };
+      const state = { world: w, events: [], predict: true };
+      c.held = new Held(body, (bd, dt) => {
+        bd.heading = bd.h;
+        driveHull(state, bd, T, bd.ok ? bd.th : 0, bd.ok ? bd.st : 0, bd.k, dt);
+        bd.h = bd.heading;
+        state.events.length = 0;
+      }, { snap: 8, dead: 0.05 });
+      c.heldWall = performance.now() / 1000;
+    }
+    const held = c.held;
+    held.correct(s, snap.st, (bd, q) => {
+      // What its crew can still give it, off what they say is broken; and a
+      // tank the battle has stopped, stopped here too.
+      const m = q.td ? q.td[0] : 0;
+      const crew = q.td ? q.td[1] : 1;
+      bd.ok = !(m & 15) && crew !== 0;
+      bd.k = (m & 64 ? 0.55 : 1);
+      if (Math.abs(q.sp || 0) < 0.05 && Math.abs(bd.speed) > 1.5 && Math.hypot(q.x - bd.x, q.z - bd.z) > 1.5) bd.speed = q.sp || 0;
+    });
+    const now = performance.now() / 1000;
+    const dt = clamp(now - (c.heldWall || now), 0, 0.25);
+    c.heldWall = now;
+    held.body.th = c.drive.th;
+    held.body.st = c.drive.st;
+    held.advance(dt * (this.clockRate ?? 1), this.serverNow(now));
+    return held.body;
   }
 
   /** Is the thing being watched a flight or a squadron of ours we could fly? */
@@ -7280,6 +7379,20 @@ export class Battle {
   }
 
   /**
+   * Into harbour, or out of it: the ship being conned is sent to the nearest
+   * quay with room for her, or cast off from the one she is lying at.
+   */
+  toggleDock() {
+    const ship = this.conned();
+    const w = this.world;
+    if (!w?.works?.cities?.some((c) => c.kind === 'harbor')) { this.hud.ribbon('NO HARBOUR', 'miss'); return; }
+    const dk = this.docked?.get(ship) || 0;
+    this.net.send({ t: dk ? 'undock' : 'dock', ship });
+    // Cast off, her own telegraph is rung up with her.
+    if (dk && ship === this.shipId && this.localShip.notch <= 1) this.localShip.notch = 2;
+  }
+
+  /**
    * Walk the camera over the battlefield.
    *
    * The view is not nailed to a hull. A drag with two fingers -- or shift and
@@ -7494,7 +7607,10 @@ export class Battle {
     while (q.length && performance.now() < until) {
       for (let i = 0; i < q.length && performance.now() < until; i++) {
         const steps = i === 0 && q[0].own ? 8 : 3;
-        for (let k = 0; k < steps; k++) {
+        // The clock is read between every step, not every few: one step can
+        // be a few milliseconds on a big ship, and eight of them unchecked
+        // were the frame-long hitch after a burst.
+        for (let k = 0; k < steps && (k === 0 || performance.now() < until); k++) {
           let r;
           try { r = q[i].next(); } catch (e) { r = { done: true }; console.error('Steel Currents: blast damage', e); }
           if (r.done) { q.splice(i, 1); i--; break; }
@@ -8221,7 +8337,7 @@ export class Battle {
       const prev = b ? (b.batteries || []).find((x) => x.i === g.i) : null;
       const ang = prev ? g.a + angleDelta(g.a, prev.a) * t : g.a;
       if (tank) {
-        this.placeTank(view, g, prev, t, ang);
+        this.placeTank(view, g, prev, t, ang, ahead);
         view.marker.visible = this.camMode === 'tactical';
         if (!g.al) this.scene.flames.at(`bat:${g.i}`, view.group.position.x, view.group.position.y + 1.5, view.group.position.z, 0.4, 3);
         continue;
@@ -8255,7 +8371,7 @@ export class Battle {
     }
 
     // The soldiers, and the barracks they came out of.
-    this.syncTroops(a, b, t, dt);
+    this.syncTroops(a, b, t, dt, ahead);
 
     // Shells, torpedoes and aircraft as instanced batches.
     const dummy = this.scene.dummy;
@@ -8664,12 +8780,15 @@ export class Battle {
         }
         continue;
       }
+      // Forming up over her airfield: each machine where she is on her own,
+      // on the ground or round the circle, interpolated the same way.
+      const poses = bm.fp ? this.formPoses(bm, nx, t, x, y, z) : null;
       this.scene.heavies.add(
         bm.b || 'lancaster', x, y, z, h, bank, 0.05,
-        Math.max(1, bm.n || 1), holes, hspan, mask, trim,
+        Math.max(1, bm.n || 1), holes, hspan, mask, trim, poses,
       );
       heavies.push({ ...bm, x, y, z, h, bank });
-      this.heavyAir(bm, x, y, z, h, bank, 0.05, gs, mask);
+      if (!poses) this.heavyAir(bm, x, y, z, h, bank, 0.05, gs, mask);
     }
     // And the ones on their way down, each on her own.
     for (const w of this.wrecks) {
@@ -8884,6 +9003,31 @@ export class Battle {
       if (!point(lp[k], h, p)) continue;
       this.scene.contrails.vent(`${id}/${lp[k]}`, p.x, p.y, p.z, 1);
     }
+  }
+
+  /**
+   * A forming squadron's machines in the world, each from her own five
+   * numbers off the wire (see formReport), interpolated toward the next
+   * snapshot's when there is one.
+   */
+  formPoses(bm, nx, t, x, y, z) {
+    const read = (fp) => {
+      const m = new Map();
+      for (let k = 0; k + 5 < fp.length; k += 6) m.set(fp[k], fp.slice(k + 1, k + 6));
+      return m;
+    };
+    const a = read(bm.fp);
+    const b = nx?.fp ? read(nx.fp) : null;
+    const out = [];
+    for (const [k, p] of a) {
+      const q = b?.get(k) || p;
+      const h = p[3] + angleDelta(p[3], q[3]) * t;
+      out[k] = {
+        x: x + lerp(p[0], q[0], t), y: y + lerp(p[1], q[1], t), z: z + lerp(p[2], q[2], t),
+        h, bank: lerp(p[4], q[4], t),
+      };
+    }
+    return out;
   }
 
   /**
@@ -9816,7 +9960,41 @@ export class Battle {
 
   resize(w, h) { this.scene.resize(w, h); this.lens?.resize(); }
 
+  /**
+   * Build every ship in the order of battle, one at a time, before the
+   * battle is shown (see BattleScene.prebuild). Her own ship first, then her
+   * side, then the enemy, who is built now and brought out when sighted
+   * rather than built in the frame he is. `onEach(done, of)` is told as each
+   * one is finished. A hull whose sculpt is not in yet is left to be drawn as
+   * her stand-in when she is seen, as before.
+   */
+  prebuild(onEach = null) {
+    const list = (this.roster || []).filter((r) => r && r.cls && r.alive !== false && SHIP_CLASSES[r.cls]);
+    const rank = (r) => (r.id === this.shipId ? 0 : r.team === this.team ? 1 : 2);
+    list.sort((a, b) => rank(a) - rank(b));
+    this.building = true;
+    return new Promise((resolve) => {
+      let i = 0;
+      const finish = () => { this.building = false; resolve(); };
+      const next = () => {
+        if (this.disposed || !this.scene || i >= list.length) return finish();
+        const r = list[i++];
+        try {
+          if (shipReady(r.cls)) this.scene.prebuild(r.id, r.cls, r.team, r.id === this.shipId);
+        } catch (e) {
+          console.warn('Steel Currents: a ship could not be built ahead', e);
+        }
+        onEach?.(i, list.length);
+        // A frame between each, so the loading screen is seen to move.
+        setTimeout(next, 0);
+      };
+      setTimeout(next, 0);
+    });
+  }
+
   dispose() {
+    this.disposed = true;
+    this.building = false;
     this.director?.dispose();
     this.director = null;
     this.targetView?.dispose();

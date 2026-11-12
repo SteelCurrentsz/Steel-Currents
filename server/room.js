@@ -10,6 +10,7 @@ import {
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack, driveTank, tankGround,
   callEscort, canCallEscort,
   fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE, fireLocked, dropChaff,
+ dockShip, undock, baseBomber,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -829,6 +830,18 @@ export class Room {
       // bridge is on her bridge.
       case 'repair': { const to = this.conned(ship, msg); if (to) useRepair(this.state, to); break; }
       case 'smoke': { const to = this.conned(ship, msg); if (to) useSmoke(this.state, to); break; }
+      // Into harbour, or out of it: the nearest quay with room for her, or the
+      // one asked for. Ringing down for way casts her off as well.
+      case 'dock': {
+        const to = this.conned(ship, msg);
+        if (to) dockShip(this.state, to, Number.isInteger(msg.h) ? msg.h : -1);
+        break;
+      }
+      case 'undock': {
+        const to = this.conned(ship, msg);
+        if (to && undock(this.state, to) && to.notch === 1) to.notch = 2;
+        break;
+      }
       // One of her damage control parties sent to a job, or stood down.
       case 'party': {
         const to = this.conned(ship, msg);

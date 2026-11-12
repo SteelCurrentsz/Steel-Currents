@@ -105,6 +105,9 @@ void main() {
 }
 `;
 
+/** The height materials a plan is drawn with, by paint and by whether it is per vertex: a few dozen at most. */
+const HEIGHT_MATS = new Map();
+
 function measuredPlan(view, renderer) {
   const g = view.group;
   const cls = view.cls;
@@ -146,7 +149,10 @@ function measuredPlan(view, renderer) {
   // A height material a mesh, by how dark its paint is and whether it is
   // painted per vertex: the black of a funnel cap is what tells it from a
   // platform, and a merged mesh carries its paint in its vertex colours.
-  const mats = new Map();
+  // Kept from ship to ship (see HEIGHT_MATS): thrown away after each, their
+  // two programs were compiled again for every class that joined a battle,
+  // and in the same breath as a read back from the card that waits for them.
+  const mats = HEIGHT_MATS;
   const swapped = [];
   const heightMat = (lum, vc) => {
     const key = `${Math.round(lum * 40)}:${vc ? 1 : 0}`;
@@ -174,7 +180,6 @@ function measuredPlan(view, renderer) {
     swapped.push([o, o.material]);
     o.material = heightMat(lum, vc);
   });
-  const mat = { dispose() { for (const m of mats.values()) m.dispose(); } };
   const scene = new THREE.Scene();
   if (keep.par) keep.par.remove(g);
   scene.add(g);
@@ -200,7 +205,6 @@ function measuredPlan(view, renderer) {
     g.scale.copy(keep.s);
     g.updateMatrixWorld(true);
     rt.dispose();
-    mat.dispose();
   }
   // Heights, in metres; NaN where there is nothing of her.
   const heights = new Float32Array(w * h);
