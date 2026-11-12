@@ -151,6 +151,20 @@ const HULLS = {
     <rect x="72" y="6" width="1.6" height="21"/>
     <rect x="76" y="20" width="7" height="4"/>
     <rect x="84" y="23" width="7" height="4"/>`,
+  // The Indianapolis: a long forecastle with two triple turrets forward, the
+  // inner one superfiring, a tall bridge and tripod foremast, two funnels,
+  // a tripod mainmast and one triple turret aft on her quarterdeck.
+  indianapolis: `
+    <path d="M2 28 L60 28 L60 30 L98 30 L95 37 L6 37 Z"/>
+    <rect x="10" y="24" width="8" height="4"/>
+    <rect x="19" y="21" width="8" height="4"/>
+    <rect x="28" y="15" width="9" height="13"/>
+    <rect x="31" y="7" width="3" height="9"/>
+    <path d="M38 28 L39 13 L43 13 L43 28 Z"/>
+    <rect x="50" y="9" width="1.6" height="19"/>
+    <path d="M54 28 L55 15 L59 15 L59 28 Z"/>
+    <rect x="62" y="22" width="9" height="8"/>
+    <rect x="80" y="26" width="8" height="4"/>`,
   // The Leviathan: a long cruiser hull, a tall bridge forward, two big
   // funnels with a lattice mast abaft each, and four quadruple turrets, two
   // at each end, the inner ones superfiring.

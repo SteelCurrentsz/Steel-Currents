@@ -2394,6 +2394,152 @@ export const SHIP_CLASSES = {
     },
   },
 
+  indianapolis: {
+    // USS Indianapolis, the second of the two Portlands and the last of the
+    // American Treaty cruisers: nine 8 in in three triple turrets -- A and B
+    // forward, B superfiring; C aft -- two funnels between tripod masts, a
+    // long forecastle, and thirty-two and a half knots out of four shafts.
+    // She was Spruance's flagship across the Central Pacific; she carried the
+    // parts of the first atomic bomb to Tinian in July 1945, and was sunk by
+    // I-58 four days later.
+    //
+    // She is drawn from the owner's model of her (see indianapolis.js and
+    // build/prepare-indianapolis-hull.mjs) -- "USS Indianapolis" by kriss50,
+    // under Creative Commons Attribution 4.0, credited on the Credits screen --
+    // brought up to her 185.9 m over all, which makes her 21.0 m across her
+    // bulges, floated at her mean draught of 6.4 m. She is armed as she was
+    // after her last refit at Mare Island in 1945, as the model arms her: her
+    // nine 8 in, her eight single 5 in/25 AA guns, six quadruple 40 mm Bofors
+    // and nineteen single 20 mm Oerlikons.
+    id: 'indianapolis',
+    name: 'Indianapolis',
+    fullName: 'USS Indianapolis',
+    className: 'Portland',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'usa',
+    blurb: 'Nine eight-inch guns, a fleet flagship\'s bridge and a sky full of Bofors: the Treaty cruiser that carried the bomb to Tinian.',
+    hull: {
+      // Where her two funnels come out, [across, along, up] in metres off
+      // her model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 12.5, 23.9], [0, -20, 21.2]], length: 185.9, beam: 21.0, draft: 6.4, superstructure: 1.2 },
+    hp: 28800,
+    // Thirty-two and a half knots off a hundred and seven thousand horsepower.
+    maxSpeed: 32.5 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.8,
+    turnRate: 0.08,
+    rudderShift: 7.0,
+    speedLossInTurn: 0.2,
+    concealment: 12200,
+    fireDetectPenalty: 4600,
+    // SK air search and SG surface search, and Mk 3 and Mk 4 fire control.
+    radarRange: 13000,
+    repairCooldown: 80,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // The Portlands were built light and given what the Treaty left over: four
+    // inches of side over her machinery, tapering to two and a quarter at its
+    // foot, two and a half inches of deck, and boxes of five and three-quarter
+    // inches round her magazines.
+    armor: { belt: 102, deck: 64, citadel: 146, bow: 13, superstructure: 10 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, C on her quarterdeck
+      // facing astern, each where the model stood it (see
+      // build/prepare-indianapolis-hull.mjs).
+      { id: 0, name: 'A', x: 0, z: 51.627, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 10.84 },
+      { id: 1, name: 'B', x: 0, z: 36.088, angle: 0, arc: 2.55, rest: 0, guns: 3, my: 13.73 },
+      { id: 2, name: 'C', x: 0, z: -62.73, angle: 3.14, arc: 2.6, rest: Math.PI, guns: 3, my: 7.63 },
+    ],
+    gun: {
+      name: '8"/55 Mk 9', role: 'surface',
+      // Five below the horizontal to forty-one up.
+      elev: { min: -0.087, max: 0.716 },
+      // Pivot to muzzle on the model's turret.
+      reach: 12.19,
+      // Three rounds a minute a gun, out of her Mk 14 triples.
+      caliber: 203, reload: 13, traverse: 0.2, range: 17800, sigma: 1.6,
+      shells: shells(203, 5100, 3200, 270, 853, 0.13),
+    },
+    torpedoes: null,
+    // Her eight single 5 in/25 Mk 19 AA guns, four a side on her boat deck
+    // abreast her funnels: the forward four facing ahead, the after four
+    // astern.
+    secondary: {
+      name: '5"/25 Mk 10', role: 'dp',
+      // Fifteen below the horizontal to eighty-five up.
+      elev: { min: -0.26, max: 1.48 },
+      reach: 3.54,
+      caliber: 127, reload: 3.4, traverse: 0.45, range: 6800, sigma: 1.15,
+      shells: shells(127, 1400, 1450, 45, 657, 0.07),
+      mounts: [
+        { x: -6.914, z: -15.004, angle: -1.4, arc: 1.6, rest: 0, guns: 1, my: 12.62 },
+        { x: 6.923, z: -15.004, angle: 1.4, arc: 1.6, rest: 0, guns: 1, my: 12.62 },
+        { x: -7.791, z: -22.061, angle: -1.5, arc: 1.6, rest: 0, guns: 1, my: 12.62 },
+        { x: 7.802, z: -22.061, angle: 1.5, arc: 1.6, rest: 0, guns: 1, my: 12.62 },
+        { x: -7.874, z: -32.478, angle: -1.64, arc: 1.6, rest: -Math.PI, guns: 1, my: 9.4 },
+        { x: 7.863, z: -32.478, angle: 1.64, arc: 1.6, rest: Math.PI, guns: 1, my: 9.4 },
+        { x: -6.93, z: -39.409, angle: -1.74, arc: 1.6, rest: -Math.PI, guns: 1, my: 9.4 },
+        { x: 6.92, z: -39.409, angle: 1.74, arc: 1.6, rest: Math.PI, guns: 1, my: 9.4 },
+      ],
+    },
+    aa: {
+      range: 4200, dps: 62,
+      guns: [
+        // Her six quadruple 40 mm Bofors: a pair abreast her bridge, a pair
+        // abreast her after funnel, and a pair on her fantail.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400, piece: 'quad',
+          elev: { min: -0.26, max: 1.57 },
+          mounts: [
+            { x: -6.767, z: 23.218, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 4, my: 14.58 },
+            { x: 6.768, z: 23.217, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 4, my: 14.58 },
+            { x: -7.524, z: -28.071, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 4, my: 13.85 },
+            { x: 7.524, z: -28.071, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 4, my: 13.85 },
+            { x: -3.186, z: -82.289, angle: -2.5, arc: 1.7, rest: -Math.PI, guns: 4, my: 8.87 },
+            { x: 3.183, z: -82.289, angle: 2.5, arc: 1.7, rest: Math.PI, guns: 4, my: 8.87 },
+          ] },
+        // Her nineteen single Oerlikons.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, piece: 'oer',
+          mounts: [
+            // The eight the model draws: a pair in tubs on her bow, a pair
+            // abreast her bridge, and four about her after superstructure.
+            { x: -2.554, z: 70.955, angle: -0.5, arc: 1.7, rest: 0, guns: 1, my: 11.08 },
+            { x: 2.554, z: 70.955, angle: 0.5, arc: 1.7, rest: 0, guns: 1, my: 11.08 },
+            { x: -5.033, z: 28.311, angle: -1.57, arc: 1.7, rest: -1.5708, guns: 1, my: 13.61 },
+            { x: 5.033, z: 28.311, angle: 1.57, arc: 1.7, rest: 1.5708, guns: 1, my: 13.61 },
+            { x: -3.029, z: -49.709, angle: -1.57, arc: 1.7, rest: -1.5359, guns: 1, my: 12.54 },
+            { x: 3.025, z: -49.709, angle: 1.57, arc: 1.7, rest: 1.5359, guns: 1, my: 12.54 },
+            { x: -1.937, z: -55.717, angle: -2.36, arc: 1.7, rest: -2.3562, guns: 1, my: 12.54 },
+            { x: 1.937, z: -55.717, angle: 2.36, arc: 1.7, rest: 2.3562, guns: 1, my: 12.54 },
+            // And the eleven more she carried, on her decks: abreast her A
+            // and B turrets, under her bridge, abreast her C turret, and aft.
+            { x: 4, z: 64.5, angle: 0.6, arc: 1.7, rest: 0.6, guns: 1, my: 10.94 },
+            { x: -4, z: 64.5, angle: -0.6, arc: 1.7, rest: -0.6, guns: 1, my: 10.94 },
+            { x: 6.25, z: 41, angle: 1.57, arc: 1.7, rest: 1.5708, guns: 1, my: 10.44 },
+            { x: -6.25, z: 41, angle: -1.57, arc: 1.7, rest: -1.5708, guns: 1, my: 10.44 },
+            { x: 6.25, z: 17.5, angle: 1.57, arc: 1.7, rest: 1.5708, guns: 1, my: 12.68 },
+            { x: -6.25, z: 17.5, angle: -1.57, arc: 1.7, rest: -1.5708, guns: 1, my: 12.68 },
+            { x: 7, z: -57, angle: 1.57, arc: 1.7, rest: 1.5708, guns: 1, my: 7.45 },
+            { x: -7, z: -57, angle: -1.57, arc: 1.7, rest: -1.5708, guns: 1, my: 7.45 },
+            { x: 4.5, z: -75, angle: 2.4, arc: 1.7, rest: 2.4, guns: 1, my: 7.78 },
+            { x: -4.5, z: -75, angle: -2.4, arc: 1.7, rest: -2.4, guns: 1, my: 7.78 },
+            { x: 0, z: -88.5, angle: 3.14, arc: 1.7, rest: Math.PI, guns: 1, my: 8.16 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 12755,
+      aircraft: 0,
+      mainRounds: 1350,
+      secondary: { caliber: 127, label: '5"', barrels: 8, rounds: 4000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 24, rounds: 48000 },
+        { caliber: 20, label: '20mm', barrels: 19, rounds: 45600 },
+      ],
+    },
+  },
+
   hipper: {
     // Four twin 8" turrets. Heavier than a light cruiser's and correspondingly
     // slower and narrower in their training.
@@ -12530,7 +12676,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'ajax', 'county', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins', 'lcm'];
 

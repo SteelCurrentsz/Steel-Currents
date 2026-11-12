@@ -46,7 +46,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildMusashi,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildLeviathan, buildCounty, buildAjax, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
+  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildLeviathan, buildCounty, buildIndianapolis, buildAjax, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -87,6 +87,7 @@ const SCULPTED = {
   nimitz: () => import('./nimitz.js').then((m) => { buildNimitz = m.buildNimitz; }),
   leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
   county: () => import('./county.js').then((m) => { buildCounty = m.buildCounty; }),
+  indianapolis: () => import('./indianapolis.js').then((m) => { buildIndianapolis = m.buildIndianapolis; }),
   ajax: () => import('./ajax.js').then((m) => { buildAjax = m.buildAjax; }),
   ticonderoga: () => import('./ticonderoga.js').then((m) => { buildTiconderoga = m.buildTiconderoga; }),
   guangzhou: () => import('./guangzhou.js').then((m) => { buildGuangzhou = m.buildGuangzhou; }),
@@ -1252,6 +1253,21 @@ function buildModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Indianapolis: the owner's model of her -- her hull, her bridge,
+  // her two funnels and every gun she carried in 1945.
+  if (cls.id === 'indianapolis') {
+    const built = buildIndianapolis();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: [],
     };
   }
 

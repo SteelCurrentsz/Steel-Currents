@@ -186,6 +186,10 @@ import {
 } from '../client/js/render/county.js';
 import { countySurfaceY, MOUNT_SEATS as COUNTY_SEATS } from '../client/js/render/countyHull.js';
 import {
+  buildIndianapolis, shellAt as indyShellAt, keelY as indyKeel, deckOver as indySheer, zAt as indyZAt,
+} from '../client/js/render/indianapolis.js';
+import { indianapolisSurfaceY, MOUNT_SEATS as INDY_SEATS } from '../client/js/render/indianapolisHull.js';
+import {
   buildAjax, shellAt as ajaxShellAt, keelY as ajaxKeel, deckOver as ajaxSheer, zAt as ajaxZAt,
 } from '../client/js/render/ajax.js';
 import { ajaxSurfaceY, MOUNT_SEATS as AJAX_SEATS } from '../client/js/render/ajaxHull.js';
@@ -3768,7 +3772,7 @@ check('the Credits screen credits the model the Leviathan is drawn from', () => 
 check('the HMS County is commissioned before the KMS Admiral Hipper, armed as her model is', () => {
   const i = SHIP_ORDER.indexOf('county');
   assert.ok(i >= 0, 'the County is not in the yard');
-  assert.equal(SHIP_ORDER[i + 1], 'hipper', `after the County comes ${SHIP_ORDER[i + 1]}`);
+  assert.ok(i < SHIP_ORDER.indexOf('hipper'), 'the County comes after the Hipper');
   const cls = SHIP_CLASSES.county;
   assert.equal(cls.fullName, 'HMS County');
   assert.equal(cls.type, 'CA', 'she is not a heavy cruiser');
@@ -3848,6 +3852,80 @@ check('the Credits screen credits the model the County is drawn from', () => {
   assert.ok(at >= 0, 'the model is not credited');
   const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
   assert.ok(credit.includes('https://skfb.ly/ptKSI') && credit.includes('kriss50')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
+    'the credit is not as its licence asks');
+});
+
+check('the USS Indianapolis is commissioned just before the KMS Admiral Hipper, armed as she was in 1945', () => {
+  const i = SHIP_ORDER.indexOf('indianapolis');
+  assert.ok(i >= 0, 'the Indianapolis is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'hipper', `after the Indianapolis comes ${SHIP_ORDER[i + 1]}`);
+  const cls = SHIP_CLASSES.indianapolis;
+  assert.equal(cls.fullName, 'USS Indianapolis');
+  assert.equal(cls.type, 'CA', 'she is not a heavy cruiser');
+  assert.equal(cls.nation, 'usa');
+  // Nine 8 in in three triple turrets, A and B forward, C aft.
+  assert.equal(cls.gun.caliber, 203);
+  assert.ok(cls.turrets.every((t) => t.guns === 3), 'her turrets are not triples');
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'C']);
+  // Eight single 5 in/25, dual-purpose.
+  assert.equal(cls.secondary.caliber, 127);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.deepEqual(cls.secondary.mounts.map((m) => m.guns), [1, 1, 1, 1, 1, 1, 1, 1]);
+  // Six quadruple Bofors and nineteen single Oerlikons; no torpedoes.
+  const by = (c) => cls.aa.guns.filter((g) => g.caliber === c).flatMap((g) => g.mounts.map((m) => m.guns));
+  assert.deepEqual(by(40), [4, 4, 4, 4, 4, 4]);
+  assert.equal(by(20).length, 19);
+  assert.ok(by(20).every((n) => n === 1));
+  assert.equal(cls.torpedoes, null);
+  const built = buildIndianapolis();
+  assert.equal(built.turrets.length, 3);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every one of her mountings stands on her deck, not in the air over it.
+  for (const [kind, list] of Object.entries(INDY_SEATS)) {
+    for (const st of list) {
+      const top = indianapolisSurfaceY(st.x, st.z);
+      assert.ok(Math.abs(top - st.y) < 1.5 || top < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${top}`);
+    }
+  }
+});
+
+check("the Indianapolis's shell has no holes in it", () => {
+  const built = buildIndianapolis();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = indySheer(t);
+    for (let y = indyKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
+      const w = indyShellAt(t, y);
+      if (w < 0.35) continue;
+      // Her shafts and their struts under her quarter.
+      if (indyZAt(t) < -60 && y < -2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, indyZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > indyKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Indianapolis is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('USS Indianapolis</a>');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/ptOpW') && credit.includes('kriss50')
     && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
     'the credit is not as its licence asks');
 });
