@@ -1031,6 +1031,8 @@ export class Battle {
     this.abort = new AbortController();
     const mine = { signal: this.abort.signal };
     document.getElementById('watch-back')?.addEventListener('click', () => this.cameraHome(), mine);
+    // Fighter escort for the heavy squadron under the camera: see toggleEscort.
+    document.getElementById('watch-escort')?.addEventListener('click', () => this.toggleEscort(), mine);
     document.getElementById('free-cam')?.addEventListener('click', () => this.freeCamera(), mine);
     document.getElementById('gun-leave')?.addEventListener('click', () => this.manGun(null), mine);
     // The battery ashore in hand, if any: see takeBattery.
@@ -1139,6 +1141,15 @@ export class Battle {
         this.hud.alert(m && m.why === 'empty' ? 'Mine rails empty'
           : m && m.why === 'under' ? 'Cannot lay mines submerged' : 'Next mine not yet aft');
       }),
+      // A heavy squadron's call for fighters, answered.
+      this.net.on('escorted', (m) => {
+        if (!m) return;
+        if (m.ok) this.hud.alert(m.on ? 'Escort called · fighters launching' : 'Escort stood down');
+        else this.hud.alert(m.why === 'nocarrier' ? 'No carrier with fighters to send an escort'
+          : 'Squadron not available');
+        if (!m.ok) this.escortAsked = null;
+        this.paintEscort();
+      }),
       // An attack ordered off the plot, and how many took it.
       this.net.on('attacked', (m) => {
         if (m.cease) this.hud.alert(m.n ? 'Ceased · back to their own officers' : 'Nothing to cease');
@@ -1223,6 +1234,7 @@ export class Battle {
     }
     this.snapshots.push({ ...snap, at: now, st });
     while (this.snapshots.length > 12) this.snapshots.shift();
+    this.paintEscort();
     // A director starts over the middle of the action, there being no bridge
     // of his own to start on.
     if (this.director && !this.roam && !this.watching && snap.ships.length) {
@@ -4333,6 +4345,45 @@ export class Battle {
     audio.click();
   }
 
+  /**
+   * The escort key on the watch banner: up while one of our own heavy
+   * squadrons is under the camera and either has fighters called or has a
+   * carrier on our side that could send them.
+   */
+  paintEscort() {
+    const el = document.getElementById('watch-escort');
+    if (!el) return;
+    const w = this.watching;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const bm = w && w.kind === 'bomber' && snap
+      ? (snap.bombers || []).find((q) => q.i === w.id) : null;
+    const mine = !!bm && bm.tm === this.team;
+    // What was asked for, until the wire agrees it is so.
+    if (mine && this.escortAsked && this.escortAsked.i === bm.i && this.escortAsked.on === !!bm.ec) {
+      this.escortAsked = null;
+    }
+    const on = mine && (this.escortAsked && this.escortAsked.i === bm.i ? this.escortAsked.on : !!bm.ec);
+    el.hidden = !mine || (!on && !bm.ca);
+    if (el.hidden) return;
+    const label = on ? `Stop escort${bm.ec && bm.en ? ` (${bm.en})` : ''}` : 'Call escort';
+    if (el.textContent !== label) el.textContent = label;
+    el.classList.toggle('on', on);
+  }
+
+  /** Call fighters to the heavy squadron under the camera, or stand them down. */
+  toggleEscort() {
+    const w = this.watching;
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const bm = w && w.kind === 'bomber' && snap
+      ? (snap.bombers || []).find((q) => q.i === w.id) : null;
+    if (!bm || bm.tm !== this.team) return;
+    const on = !(this.escortAsked && this.escortAsked.i === bm.i ? this.escortAsked.on : !!bm.ec);
+    this.escortAsked = { i: bm.i, on };
+    this.net.send({ t: 'escort', i: bm.i, on: on ? 1 : 0 });
+    this.paintEscort();
+    audio.click();
+  }
+
   /** Whether a unit off the snapshot is one of ours and still in it. */
   ownUnit(kind, id) {
     const snap = this.snapshots[this.snapshots.length - 1];
@@ -4488,6 +4539,7 @@ export class Battle {
     if (hit) this.roam = null;
     this.hud.setWatching(this.watching);
     this.hud.setWatchBanner(this.watching, this.watchPov);
+    this.paintEscort();
     // Picked one of your own flights off the plot: offer to take her. This is
     // the only way into the cockpit, and it is one tap from the chart.
     this.hud.setFlyOffer(this.canTake());

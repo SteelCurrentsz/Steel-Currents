@@ -8,6 +8,7 @@ import {
   releasePlane, strafe, flyBomber, dropStick, gunTurret, gunRear,
   dropCharges, setChargeDepth, orderPending, ORDER_WINDUP, siteBattery, layMine, submerged,
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack, driveTank, tankGround,
+  callEscort, canCallEscort,
   fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE, fireLocked, dropChaff,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
@@ -608,6 +609,17 @@ export class Room {
     if (msg.t === 'vector') {
       vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z),
         msg.k === 'bomber' ? 'bomber' : 'plane');
+      return;
+    }
+    // A heavy squadron of his side calling for fighter escort off a carrier,
+    // or standing it down. See callEscort.
+    if (msg.t === 'escort') {
+      const on = !!msg.on;
+      const ok = Number.isInteger(msg.i) && callEscort(this.state, ship.team, msg.i, on);
+      player.send({
+        t: 'escorted', i: msg.i, on: on ? 1 : 0, ok: ok ? 1 : 0,
+        why: ok ? undefined : on && !canCallEscort(this.state, ship.team) ? 'nocarrier' : 'gone',
+      });
       return;
     }
     // Units of his side picked off the plot and put, with everything they

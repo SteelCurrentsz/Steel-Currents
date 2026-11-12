@@ -64,6 +64,7 @@ import {
   stormSea, stepSeaway, seaOver, buffet, SWAMP_HOLD, LAMP_SEEN, freeboardOf, oneWay,
   landingFouled, touchdownOf, GROOVE, LANDING_CUT, torpedoKind, useSmoke, smokeBetween, SMOKE_LIFE,
 } from '../shared/sim.js';
+import { callEscort, canCallEscort, escortStrength } from '../shared/sim.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
   Pilot, AERO, HEAVY_AERO, alphaFor, flightAttitude, weathercock,
@@ -30390,6 +30391,67 @@ check('five load outs are kept on the device, saved over, described and emptied'
   assert.ok(deleteLoadout(4));
   assert.equal(listLoadouts()[4], null);
   delete globalThis.localStorage;
+});
+
+check('a heavy squadron calls fighters off a carrier to escort it, and stands them down', () => {
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const bm0 = addBomber(state, { bomberId: 'lancaster', team: 0, x: 0, z: 0, heading: 0 });
+  // No carrier, no escort.
+  assert.ok(!canCallEscort(state, 0), 'a side with no carrier could call fighters');
+  assert.ok(!callEscort(state, 0, bm0.id, true), 'the call went through with no carrier to answer it');
+  // A battleship has no fighters to send either.
+  addShip(state, { name: 'Iowa', classId: 'iowa', team: 0, index: 1 });
+  assert.ok(!canCallEscort(state, 0), 'a battleship counted as a carrier');
+  const cv = addShip(state, { name: 'Ent', classId: 'enterprise', team: 0, index: 0 });
+  bm0.x = cv.x + 3000; bm0.z = cv.z; bm0.heading = Math.PI / 2;
+  assert.ok(canCallEscort(state, 0));
+  // Not for the other side's squadron.
+  assert.ok(!callEscort(state, 1, bm0.id, true), 'the enemy called our heavies an escort');
+  assert.ok(callEscort(state, 0, bm0.id, true));
+  for (let i = 0; i < Math.round(90 / DT); i++) step(state, DT);
+  const esc = state.planes.filter((p) => !p.dead && p.escortHeavy === bm0.id);
+  assert.ok(esc.length >= 2, `only ${esc.length} fighters went up to escort her`);
+  assert.ok(esc.every((p) => p.role === 'fighter'), 'something other than a fighter went as escort');
+  assert.ok(!state.planes.some((p) => !p.dead && p.role !== 'fighter'), 'the strike aircraft went up with the escort');
+  assert.ok(escortStrength(state, bm0) >= esc.length);
+  // They close on her rather than wandering off.
+  const near = Math.min(...esc.map((p) => Math.hypot(p.x - bm0.x, p.z - bm0.z)));
+  assert.ok(near < 2500, `the nearest of the escort is ${near.toFixed(0)} m off the heavies`);
+  // An enemy fighter coming at her is what the escort goes after.
+  const foe = { ...esc[0], id: 999001, team: 1, owner: 0, x: bm0.x + 3000, z: bm0.z + 1500,
+    heading: Math.atan2(-3000, -1500), escortHeavy: 0, df: null, machines: esc[0].machines.map((m) => ({ ...m })) };
+  const want = pickAirTarget(state, esc[0]);
+  assert.ok(!want || !want.air, 'she went after something with nothing there');
+  state.planes.push(foe);
+  const now = pickAirTarget(state, esc[0]);
+  assert.ok(now && now.air && now.air.id === foe.id, 'the escort did not go for the fighter coming at the heavies');
+  state.planes.pop();
+  // Stood down, they go home.
+  assert.ok(callEscort(state, 0, bm0.id, false));
+  for (let i = 0; i < Math.round(15 / DT); i++) step(state, DT);
+  assert.ok(state.planes.filter((p) => !p.dead && p.role === 'fighter')
+    .every((p) => p.phase !== 'outbound' && !p.escortHeavy), 'the escort stayed out after it was stood down');
+});
+
+check('a bot side\'s heavies call an escort when enemy aircraft are about', () => {
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(state, { name: 'Ent', classId: 'enterprise', team: 0, index: 0 });
+  cv.isBot = true;
+  const bm = addBomber(state, { bomberId: 'lancaster', team: 0, x: cv.x + 3000, z: cv.z, heading: 0 });
+  const staff = createStaff(0, 0.85);
+  for (let i = 0; i < Math.round(3 / DT); i++) stepStaff(state, staff, DT);
+  assert.ok(!bm.escortCall, 'she called fighters with nothing about');
+  state.planes.push({ id: 999002, team: 1, role: 'fighter', x: bm.x + 6000, z: bm.z, y: 900, heading: 0, dead: false, count: 1 });
+  for (let i = 0; i < Math.round(3 / DT); i++) stepStaff(state, staff, DT);
+  assert.ok(bm.escortCall, 'the bot side never called its heavies an escort');
+  // A side with a captain of its own leaves the call to him.
+  const st2 = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  addShip(st2, { name: 'Ent', classId: 'enterprise', team: 0, index: 0 });
+  const bm2 = addBomber(st2, { bomberId: 'lancaster', team: 0, x: 3000, z: 0, heading: 0 });
+  st2.planes.push({ id: 999003, team: 1, role: 'fighter', x: 6000, z: 0, y: 900, heading: 0, dead: false, count: 1 });
+  const staff2 = createStaff(0, 0.85);
+  for (let i = 0; i < Math.round(3 / DT); i++) stepStaff(st2, staff2, DT);
+  assert.ok(!bm2.escortCall, 'the staff called an escort over a human captain\'s head');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

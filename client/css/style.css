@@ -2092,6 +2092,8 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   cursor: pointer;
 }
 .watch-back:hover { border-color: var(--sand); color: var(--sand-bright); }
+.watch-back.on { border-color: var(--ally); color: var(--ally); }
+.watch-back[hidden] { display: none; }
 
 
 /* The plot is a control now, not just a picture: `.battle > *` turns pointer
