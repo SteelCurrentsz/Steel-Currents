@@ -18142,6 +18142,8 @@ check('a turret trains inside its own arcs, and never through her own tail', () 
   for (const kind of HEAVY_KINDS) {
     const g = heavyBomber(kind);
     const turrets = g.userData.turrets;
+    // The B-52H flies with no guns at all: her tail guns came out in 1991.
+    if (!BOMBERS[kind].guns) { assert.equal(turrets.length, 0, `${kind} has guns she does not carry`); continue; }
     assert.ok(turrets.length > 0, `${kind} has no turrets at all`);
     const named = turrets.map((t) => t.name).join(',');
     for (const t of turrets) {
@@ -18192,6 +18194,7 @@ check('a turret trains inside its own arcs, and never through her own tail', () 
   }
   // And the figures on the datasheet are the figures the model is built to.
   for (const id of BOMBER_ORDER) {
+    if (!BOMBERS[id].guns) continue;
     assert.ok(/\d+°/.test(BOMBERS[id].arcs), `${id}'s sheet does not say how far her guns train`);
   }
 });
@@ -23448,6 +23451,7 @@ check("the arsenal panel lists what an aeroplane carries, and her turrets", () =
   // the mounting does.
   for (const kind of BOMBER_ORDER) {
     const rows = airArsenal(kind);
+    if (!BOMBERS[kind].guns) { assert.equal(rows.length, 0, `${kind} lists turrets she does not have`); continue; }
     assert.ok(rows.length >= 2, `${kind} has ${rows.length} turrets in her arsenal`);
     for (const w of rows) {
       assert.ok(w.turret, `${kind}: a row with no mounting behind it`);
