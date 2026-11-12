@@ -1186,6 +1186,9 @@ class HudBase {
     if (rep) rep.textContent = DC_ORDER[stage];
     set('smoke', `×${own.smk ?? 0}`,
       own.sm === 1 ? 'active' : (own.smk ?? 0) > 0 ? 'ready' : 'spent');
+    set('dock', own.dk === 2 ? 'FAST' : own.dk === 1 ? 'IN' : 'GO', own.dk ? 'active' : 'ready');
+    const dsp = this.acts.dock && this.acts.dock.querySelector('span');
+    if (dsp) dsp.textContent = own.dk ? 'Cast off (K)' : 'Dock (K)';
     this.paintParties(own);
     const hurt = (own.f || 0) + (own.fl || 0);
     this.el.connSub.textContent = stage >= 2 && (own.fl || 0)
@@ -2663,7 +2666,10 @@ class HudBase {
         ...(cls.planes && cls.planes.group ? [{ k: 'auto', label: 'Auto launch' }] : []),
         { k: 'plane', label: 'Pilot view' }]
       : [{ k: 'repair', label: 'Damage control' },
-        ...(cls.smokeCharges ? [{ k: 'smoke', label: 'Make smoke' }] : [])];
+        ...(cls.smokeCharges ? [{ k: 'smoke', label: 'Make smoke' }] : []),
+        // Into harbour, where there is one: alongside, the dockyard makes
+        // good her damage.
+        ...(this.world?.works?.cities?.some((c) => c.kind === 'harbor') ? [{ k: 'dock', label: 'Dock (K)' }] : [])];
     for (const a of list) {
       const b = document.createElement('button');
       b.type = 'button';

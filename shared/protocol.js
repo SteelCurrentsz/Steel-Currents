@@ -6,7 +6,7 @@ import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
   slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds, planeRack, CHAFF_LOAD,
-  canCallEscort, escortStrength,
+  canCallEscort, escortStrength, dockState, fieldReport,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -283,6 +283,9 @@ export function shipSnapshot(ship, full, state = null) {
       s.wz = Math.round(ship.wayZ);
     }
   }
+  // Alongside a harbour's quay, or on her way in to it: anybody can see a
+  // ship lying at a quay. 1 on her way in, 2 made fast.
+  if (ship.dock) s.dk = dockState(ship);
   return s;
 }
 
@@ -692,6 +695,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     sd: state.inf ? soldierWire(state, team, ended) : undefined,
     bk: state.inf?.barracks?.length ? barracksWire(state) : undefined,
     sq: state.inf ? squadWire(state, team) : undefined,
+    // What this side's air bases are keeping in their hangars.
+    af: fieldReport(state, team),
     over: state.over ? { winner: state.winner, reason: state.reason } : null,
   };
 }

@@ -51,6 +51,9 @@ export const PARAPET = 1.15;
 /** How many towns, and how many stretches of wall, a battle can ask for. */
 export const MAX_CITIES = 8;
 export const MAX_WALLS = 12;
+/** How many airfields, and how many harbours, a battle can ask for. */
+export const MAX_AIRBASES = 4;
+export const MAX_HARBORS = 6;
 /**
  * A building's id is its town's number times this, plus its own number in
  * the town: one list of ruins, and one stream of events, for every town.
@@ -65,6 +68,9 @@ function cleanOne(a) {
     ...(Number.isFinite(a.x) && Number.isFinite(a.z) ? { x: Math.round(a.x), z: Math.round(a.z) } : {}),
     // In what order the board put them down, towns and walls counted together.
     ...(Number.isFinite(a.n) ? { n: Math.max(0, Math.round(a.n)) } : {}),
+    // Whose an airfield is, off the board: 1 the enemy's, otherwise the
+    // captain's own side.
+    ...(a.t === 1 ? { t: 1 } : {}),
   };
 }
 
@@ -81,7 +87,10 @@ export function cleanAsk(ask) {
     .map(cleanOne).filter(Boolean).slice(0, max);
   const cities = list(ask.cities ?? ask.city, MAX_CITIES);
   const walls = list(ask.walls, MAX_WALLS);
-  return cities.length || walls.length ? { cities, walls } : null;
+  const airbases = list(ask.airbases, MAX_AIRBASES);
+  const harbors = list(ask.harbors, MAX_HARBORS);
+  return cities.length || walls.length || airbases.length || harbors.length
+    ? { cities, walls, airbases, harbors } : null;
 }
 
 /**
@@ -111,8 +120,27 @@ export function raiseWorks(world, ask) {
     c.base = c.index * CITY_IDS;
     works.cities.push(c);
   });
+  // The airfields and the harbours: sites of the same shape as a town's,
+  // levelled the same way and drawn up by their own plans (see drawAirbase
+  // and drawHarbor), so the shells, the fires and the men ashore find them
+  // exactly as they find a town.
+  const addSite = (c, kind, k, ak) => {
+    if (!c) return;
+    c.kind = kind;
+    c.ask = k;
+    c.n = ak.n ?? -1;
+    c.side = ak.t === 1 ? 1 : 0;
+    c.index = works.cities.length;
+    c.base = c.index * CITY_IDS;
+    works.cities.push(c);
+  };
+  a.airbases.forEach((ak, k) => addSite(siteAirbase(world, ak, works.cities), 'airbase', k, ak));
+  a.harbors.forEach((ak, k) => addSite(siteHarbor(world, ak, works.cities), 'harbor', k, ak));
   const runs = [];
   a.walls.forEach((wa, k) => runWalls(world, wa, k, runs));
+  // Each harbour's quay: a straight run of wall along its front, built out
+  // over whatever is there, with its berth dredged in front of it.
+  for (const c of works.cities) if (c.kind === 'harbor') runs.push(quayOf(c));
   works.walls = runs;
   if (!works.cities.length && !works.walls.length) world.works = null;
   world._ceiling = undefined;
@@ -394,6 +422,288 @@ function siteAt(world, ask) {
   return site;
 }
 
+// ---------------------------------------------------------------------------
+// Airfields and harbours
+// ---------------------------------------------------------------------------
+
+/** A runway's width, and where its middle line runs across the airfield's site. */
+export const RUNWAY_W = 46;
+const RUNWAY_V = 62;
+/** How deep an airfield's site is, across the runway. */
+const FIELD_D = 300;
+/** The runway lengths an airfield is tried at, longest first. */
+const FIELD_RUNS = [1500, 1250, 1000, 820];
+/** A harbour's site: its quay's length and how far its apron runs back. */
+const HARBOR_W = 560;
+const HARBOR_D = 190;
+/** How high a harbour's apron and its quay stand over the water. */
+const QUAY_TOP = 4.5;
+
+/** What share of a site's footprint is dry land. */
+function dryShare(world, site, nu = 9, nv = 5) {
+  let ok = 0;
+  let n = 0;
+  for (let a = 0; a < nu; a++) {
+    for (let b = 0; b < nv; b++) {
+      n++;
+      const p = cityToWorld(site, (a / (nu - 1) - 0.5) * site.W * 0.98, (b / (nv - 1) - 0.5) * site.D * 0.96);
+      if (rawGround(world, p.x, p.z) > 0.6) ok++;
+    }
+  }
+  return ok / n;
+}
+
+/** The level a site's ground is cut to: the middle of the ground under it, kept off the sea and off the peaks. */
+function siteLevel(world, site, rng, lo = 3.5) {
+  const isles = world.islands || [];
+  const hs = [];
+  for (let k = 0; k < 60; k++) {
+    const p = cityToWorld(site, (rng() - 0.5) * site.W, (rng() - 0.5) * site.D);
+    const h = rawGround(world, p.x, p.z);
+    if (h > 0.3) hs.push(h);
+  }
+  hs.sort((a, b) => a - b);
+  const med = hs.length ? hs[Math.floor(hs.length * 0.5)] : 4;
+  const top = site.isle >= 0 ? Math.max(16, (isles[site.isle]?.height || 20) * 0.8) : 420;
+  return Math.round(clamp(med, lo, top) * 10) / 10;
+}
+
+/**
+ * An airfield: a runway and the field round it, its taxiway and apron and
+ * the hangars along the apron, on dry land as near the spot asked for as
+ * there is room -- a runway is long, and it is laid the way the ground
+ * will take it. Its local u runs along the runway. Null if there is no
+ * ground anywhere near with room for even the shortest.
+ */
+function siteAirbase(world, ask, others = []) {
+  const rng = makeRng(ask.seed ^ 0xa1fb5e);
+  const isles = world.islands || [];
+  const half = world.half || 7000;
+  const spot = Number.isFinite(ask.x) ? { x: ask.x, z: ask.z } : { x: 0, z: 0 };
+  const cands = [];
+  if (Number.isFinite(ask.x) && rawGround(world, ask.x, ask.z) > 0.6) cands.push({ x: ask.x, z: ask.z, d: 0 });
+  const step = Math.max(140, half / 45);
+  const reach = Number.isFinite(ask.x) ? 3200 : half;
+  for (let z = spot.z - reach; z <= spot.z + reach; z += step) {
+    for (let x = spot.x - reach; x <= spot.x + reach; x += step) {
+      if (Math.abs(x) > half - 700 || Math.abs(z) > half - 700) continue;
+      if (rawGround(world, x, z) <= 1) continue;
+      cands.push({ x, z, d: Math.hypot(x - spot.x, z - spot.z) });
+    }
+  }
+  cands.sort((p, q) => p.d - q.d);
+  const top = cands.slice(0, 36);
+  const clash = (s) => others.some((o) => sitesOverlap(s, o, TOWN_GAP, TOWN_GAP));
+  let best = null;
+  for (const run of FIELD_RUNS) {
+    const W = run + 100;
+    for (const cnd of top) {
+      for (let r = 0; r < 12; r++) {
+        const rot = (r / 12) * Math.PI;
+        const s = { x: cnd.x, z: cnd.z, rot, W, D: FIELD_D };
+        const lim = half - W / 2 - 300;
+        if (Math.abs(s.x) > lim || Math.abs(s.z) > lim) continue;
+        const share = dryShare(world, s, 11, 5);
+        if (share < 0.96 || clash(s)) continue;
+        const score = -cnd.d - r * 0.01;
+        if (!best || score > best.score) best = { s, score };
+      }
+    }
+    if (best) break;
+  }
+  if (!best) return null;
+  const s = best.s;
+  const i = isles.length ? islandAt(world, s.x, s.z, 0) : null;
+  const site = {
+    ...s, inland: true, isle: i ? isles.indexOf(i) : -1,
+    flat: i ? 60 : 460, blend: i ? 120 : 600,
+  };
+  site.level = siteLevel(world, site, rng);
+  const near = others.find((o) => reaches(site, o));
+  if (near) site.level = near.level;
+  site.seed = ask.seed;
+  return site;
+}
+
+/**
+ * The shore nearest a point, and the way out to sea from it there:
+ * `{ x, z, nx, nz }`, or null with no shore in reach. Found by walking from
+ * the point the way the ground falls, to where it meets the water.
+ */
+function shoreNear(world, x, z) {
+  const isles = world.islands || [];
+  let bx;
+  let bz;
+  if (isles.length) {
+    let best = null;
+    for (const i of isles) {
+      if (i.r < 140) continue;
+      const a = Math.atan2(x - i.x, z - i.z);
+      const d = Math.abs(Math.hypot(x - i.x, z - i.z) - islandRadius(i, a));
+      if (!best || d < best.d) best = { i, d, a };
+    }
+    if (!best) return null;
+    bx = Math.sin(best.a);
+    bz = Math.cos(best.a);
+  } else {
+    const m = landMask(world);
+    if (!m.any) return null;
+    const g = 300;
+    const gx = shoreDistance(world, x + g, z) - shoreDistance(world, x - g, z);
+    const gz = shoreDistance(world, x, z + g) - shoreDistance(world, x, z - g);
+    const L = Math.hypot(gx, gz);
+    if (L < 1) return null;
+    bx = -gx / L;
+    bz = -gz / L;
+  }
+  // Along that line to where the ground crosses the water.
+  const cross = (px, pz, dx, dz) => {
+    const wet0 = rawGround(world, px, pz) <= 0.3;
+    for (let t = 0; t <= 4000; t += 6) {
+      const qx = px + dx * t * (wet0 ? -1 : 1);
+      const qz = pz + dz * t * (wet0 ? -1 : 1);
+      if ((rawGround(world, qx, qz) <= 0.3) !== wet0) return { x: qx, z: qz };
+    }
+    return null;
+  };
+  const p = cross(x, z, bx, bz);
+  if (!p) return null;
+  // The line of the shore there, from the crossings either side of it.
+  const tx = bz;
+  const tz = -bx;
+  const a = cross(p.x + tx * 160 - bx * 40, p.z + tz * 160 - bz * 40, bx, bz);
+  const b = cross(p.x - tx * 160 - bx * 40, p.z - tz * 160 - bz * 40, bx, bz);
+  let nx = bx;
+  let nz = bz;
+  if (a && b) {
+    const sx = a.x - b.x;
+    const sz = a.z - b.z;
+    const L = Math.hypot(sx, sz) || 1;
+    nx = sz / L;
+    nz = -sx / L;
+    if (nx * bx + nz * bz < 0) { nx = -nx; nz = -nz; }
+    // Not so far off the way the land falls that it faces along the shore.
+    if (nx * bx + nz * bz < 0.5) { nx = bx; nz = bz; }
+  }
+  return { x: p.x, z: p.z, nx, nz };
+}
+
+/**
+ * A harbour: a straight quay along the shore nearest the spot asked for,
+ * the apron behind it made up to the quay's height, and its sheds and
+ * cranes. Its local +v is out to sea, and its front edge is the quay's face,
+ * a little out from the shore so there is water alongside. Null with no
+ * shore near enough.
+ */
+function siteHarbor(world, ask, others = []) {
+  const isles = world.islands || [];
+  const half = world.half || 7000;
+  const from = Number.isFinite(ask.x) ? { x: ask.x, z: ask.z } : { x: 0, z: 0 };
+  const sh = shoreNear(world, from.x, from.z);
+  if (!sh) return null;
+  if (Number.isFinite(ask.x) && Math.hypot(sh.x - from.x, sh.z - from.z) > 2500) return null;
+  const rot = Math.atan2(sh.nx, sh.nz);
+  const W = HARBOR_W;
+  const D = HARBOR_D;
+  const out = 26;
+  // Clear of every site standing, and of their levelling: a harbour's apron
+  // is at the water, and an airfield's runway levelled down to it would be
+  // left on a slope.
+  const flatOf = (isle) => (isle ? { flat: 30, blend: 120 } : { flat: 300, blend: 450 });
+  const clash = (s2) => others.some((o) => sitesOverlap(s2, o, TOWN_GAP, TOWN_GAP)
+    || sitesOverlap(s2, o, s2.flat + s2.blend, o.flat) || sitesOverlap(s2, o, s2.flat, o.flat + o.blend));
+  let site = {
+    x: sh.x - sh.nx * (D / 2 - out), z: sh.z - sh.nz * (D / 2 - out), rot, W, D,
+    ...flatOf(isles.length > 0), inland: false,
+  };
+  const lim = half - W / 2 - 300;
+  if (Math.abs(site.x) > lim || Math.abs(site.z) > lim) return null;
+  if (clash(site)) {
+    // Along the shore either way until it is clear of what is there.
+    let moved = null;
+    for (let k = 1; k <= 14 && !moved; k++) {
+      for (const sgn of [1, -1]) {
+        const p = cityToWorld(site, sgn * k * 160, D / 2 - out);
+        const s2 = shoreNear(world, p.x, p.z);
+        if (!s2) continue;
+        const r2 = Math.atan2(s2.nx, s2.nz);
+        const c2 = { ...site, x: s2.x - s2.nx * (D / 2 - out), z: s2.z - s2.nz * (D / 2 - out), rot: r2 };
+        if (!clash(c2)) { moved = c2; break; }
+      }
+    }
+    if (!moved) return null;
+    site = moved;
+  }
+  // Something to stand on: a harbour built out entirely over open water is
+  // a breakwater, not a harbour.
+  if (dryShare(world, site, 7, 4) < 0.2) return null;
+  const i = isles.length ? islandAt(world, site.x - Math.sin(site.rot) * 40, site.z - Math.cos(site.rot) * 40, 30) : null;
+  site.isle = i ? isles.indexOf(i) : -1;
+  site.level = QUAY_TOP;
+  site.seed = ask.seed;
+  return site;
+}
+
+/** A harbour's quay: a run of wall along the front of its apron, face to the sea. */
+function quayOf(c) {
+  const pts = [];
+  const v = c.D / 2 - WALL_WIDTH / 2;
+  const n = Math.max(4, Math.round((c.W - 8) / WALL_STEP));
+  const nx = Math.sin(c.rot);
+  const nz = Math.cos(c.rot);
+  for (let k = 0; k <= n; k++) {
+    const u = -c.W / 2 + 4 + ((c.W - 8) * k) / n;
+    const p = cityToWorld(c, u, v);
+    pts.push([p.x, p.z, nx, nz].map((q) => Math.round(q * 1000) / 1000));
+  }
+  return { pts, top: c.level, width: WALL_WIDTH, set: -1, harbor: c.index, quay: true };
+}
+
+/** What a site is called on the plot: a town, an airfield or a harbour. */
+export function worksName(c) {
+  return c?.kind === 'airbase' ? 'Airfield' : c?.kind === 'harbor' ? 'Harbour' : 'Town';
+}
+
+/** Every airfield on the battlefield, as its site. */
+export function airbasesOf(world) {
+  return (world?.works?.cities || []).filter((c) => c.kind === 'airbase');
+}
+
+/** Every harbour on the battlefield, as its site. */
+export function harborsOf(world) {
+  return (world?.works?.cities || []).filter((c) => c.kind === 'harbor');
+}
+
+/**
+ * An airfield's runway in the world: its two ends, the bearing from the
+ * first to the second, its length and its height.
+ */
+export function runwayOf(c) {
+  const L = c.W - 100;
+  const a = cityToWorld(c, -L / 2, RUNWAY_V);
+  const b = cityToWorld(c, L / 2, RUNWAY_V);
+  return {
+    x0: a.x, z0: a.z, x1: b.x, z1: b.z, len: L, y: c.level,
+    heading: Math.atan2(b.x - a.x, b.z - a.z),
+  };
+}
+
+/**
+ * Where a ship of `len` by `beam` lies alongside a harbour's quay, with her
+ * middle as near `u` along it as there is quay for: `{ x, z, heading, u }`.
+ * She lies with her side to the face and a fender's breadth off it, heading
+ * whichever way along it `heading` is nearer.
+ */
+export function berthAlong(c, len, beam, u = 0, heading = 0) {
+  const room = Math.max(0, c.W / 2 - len / 2 - 4);
+  const uu = clamp(u, -room, room);
+  const p = cityToWorld(c, uu, c.D / 2 + beam / 2 + 3);
+  const along = Math.atan2(Math.cos(c.rot), -Math.sin(c.rot));
+  const d = Math.atan2(Math.sin(heading - along), Math.cos(heading - along));
+  const h = Math.abs(d) <= Math.PI / 2 ? along : along + Math.PI;
+  return { x: p.x, z: p.z, heading: Math.atan2(Math.sin(h), Math.cos(h)), u: uu };
+}
+
 /** A point in the town's frame -- u across the front, v out to sea -- in the world. */
 export function cityToWorld(c, u, v) {
   const s = Math.sin(c.rot);
@@ -438,17 +748,22 @@ export function worksGround(world, x, z, base) {
   if (!w) return base;
   let h = base;
   // Town by town, each levelled into what the ones before it left.
-  if (base > 0.3) {
-    for (const c of w.cities) {
-      const { u, v } = worldToCity(c, x, z);
-      const ou = Math.abs(u) - c.W / 2 - c.flat;
-      const ov = Math.abs(v) - c.D / 2 - c.flat;
-      const out = Math.max(ou, ov);
-      if (out < c.blend) {
-        const t = out <= 0 ? 1 : 1 - out / c.blend;
-        const e = t * t * (3 - 2 * t);
-        h = Math.max(0.35, h + (c.level - h) * e);
-      }
+  for (const c of w.cities) {
+    const { u, v } = worldToCity(c, x, z);
+    // A harbour's apron is made ground: filled out over the shallows to the
+    // line of its quay, whatever was there.
+    if (c.kind === 'harbor' && Math.abs(u) <= c.W / 2 && Math.abs(v) <= c.D / 2) {
+      h = c.level;
+      continue;
+    }
+    if (base <= 0.3) continue;
+    const ou = Math.abs(u) - c.W / 2 - c.flat;
+    const ov = Math.abs(v) - c.D / 2 - c.flat;
+    const out = Math.max(ou, ov);
+    if (out < c.blend) {
+      const t = out <= 0 ? 1 : 1 - out / c.blend;
+      const e = t * t * (3 - 2 * t);
+      h = Math.max(0.35, h + (c.level - h) * e);
     }
   }
   if (w.walls.length) {
@@ -689,11 +1004,17 @@ function onTaken(taken, x, z) {
 function inTown(world, x, z, before = Infinity) {
   const asked = world.works?.ask?.cities || [];
   for (const c of world.works?.cities || []) {
+    const { u, v } = worldToCity(c, x, z);
+    const pad = WALL_WIDTH / 2;
+    // Nobody's wall is run across an airfield or a harbour: a harbour has its
+    // own quay (see quayOf).
+    if (c.kind) {
+      if (Math.abs(u) <= c.W / 2 + pad && Math.abs(v) <= c.D / 2 + pad) return true;
+      continue;
+    }
     // A town put down after the wall was is built round the wall, and does
     // not take it away: the houses are kept off its walkway (see drawUp).
     if ((asked[c.ask]?.n ?? -1) > before) continue;
-    const { u, v } = worldToCity(c, x, z);
-    const pad = WALL_WIDTH / 2;
     if (Math.abs(u) > c.W / 2 + pad || Math.abs(v) > c.D / 2 + pad) continue;
     if (c.inland || v < c.D / 2 - FRONT_STRIP) return true;
   }
@@ -1029,9 +1350,11 @@ export const WALL_SCARS = 12;
 /** What a cell of the town's surface is. */
 export const SURF = {
   none: 0, road: 1, walk: 2, lawn: 3, plaza: 4, yard: 5, path: 6, median: 7,
+  // An airfield's: the runway's concrete, and the white paint on it.
+  runway: 8, mark: 9,
 };
 /** How far above the town's level each kind of surface stands. */
-export const SURF_RISE = [0, 0, 0.15, 0.12, 0.15, 0.05, 0.1, 0.18];
+export const SURF_RISE = [0, 0, 0.15, 0.12, 0.15, 0.05, 0.1, 0.18, 0, 0];
 /** How big a cell of the town's surface is. */
 export const SURF_CELL = 2.5;
 
@@ -1098,7 +1421,91 @@ function planAt(world, x, z, pad = 0) {
   return null;
 }
 
+/**
+ * Which cells of a site's surface are on its level: the drawn ground at the
+ * site's height at all four corners, on dry ground, and off every wall.
+ */
+function levelCells(world, c) {
+  const W = c.W;
+  const D = c.D;
+  const L = c.level;
+  // A harbour's apron is made ground: what counts as dry there is the ground
+  // with the works on it, not the shore it was built out from.
+  const dryAt = c.kind === 'harbor'
+    ? (x, z) => groundHeight(world, x, z) > 0.3
+    : (x, z) => rawGround(world, x, z) > 0.3;
+  const nu = Math.ceil(W / SURF_CELL);
+  const nv = Math.ceil(D / SURF_CELL);
+  const surf = new Uint8Array(nu * nv);
+  // A cell is ground the town can be built on when the drawn terrain is at
+  // the town's level at all four of its corners and none of it is a wall.
+  const level = new Uint8Array((nu + 1) * (nv + 1));
+  // Asking the drawn mesh is the expensive part, and it is only worth asking
+  // near the water: a point with dry land all round it for further than an
+  // island's mesh cell is on the level by construction (see worksGround).
+  // So a coarse map of how far each point is from the sea comes first.
+  const CC = 10;
+  // Not where another town's levelling reaches into this one's: there the
+  // ground is at the other town's level, however far it is from the sea.
+  const crowded = (world.works?.cities || []).some((o) => o !== c
+    && Math.hypot(o.x - c.x, o.z - c.z) < Math.hypot(o.W, o.D) / 2 + o.flat + o.blend + Math.hypot(W, D) / 2);
+  const SAFE = c.isle >= 0 && !crowded ? 70 : Infinity;
+  const cu = Math.ceil((W + 2 * SAFE) / CC) + 1 || 0;
+  const cv = Math.ceil((D + 2 * SAFE) / CC) + 1 || 0;
+  let far = null;
+  if (Number.isFinite(SAFE)) {
+    far = new Float32Array(cu * cv).fill(1e9);
+    for (let j = 0; j < cv; j++) {
+      for (let i = 0; i < cu; i++) {
+        const p = cityToWorld(c, -W / 2 - SAFE + i * CC, -D / 2 - SAFE + j * CC);
+        if (!dryAt(p.x, p.z)) far[j * cu + i] = 0;
+      }
+    }
+    // Two chamfer passes: distance to the nearest wet cell, in metres.
+    for (let j = 0; j < cv; j++) {
+      for (let i = 0; i < cu; i++) {
+        const k = j * cu + i;
+        if (i > 0) far[k] = Math.min(far[k], far[k - 1] + CC);
+        if (j > 0) far[k] = Math.min(far[k], far[k - cu] + CC);
+        if (i > 0 && j > 0) far[k] = Math.min(far[k], far[k - cu - 1] + CC * 1.42);
+        if (i < cu - 1 && j > 0) far[k] = Math.min(far[k], far[k - cu + 1] + CC * 1.42);
+      }
+    }
+    for (let j = cv - 1; j >= 0; j--) {
+      for (let i = cu - 1; i >= 0; i--) {
+        const k = j * cu + i;
+        if (i < cu - 1) far[k] = Math.min(far[k], far[k + 1] + CC);
+        if (j < cv - 1) far[k] = Math.min(far[k], far[k + cu] + CC);
+        if (i < cu - 1 && j < cv - 1) far[k] = Math.min(far[k], far[k + cu + 1] + CC * 1.42);
+        if (i > 0 && j < cv - 1) far[k] = Math.min(far[k], far[k + cu - 1] + CC * 1.42);
+      }
+    }
+  }
+  const dryFor = (u, v) => {
+    if (!far) return 0;
+    const i = Math.round((u + W / 2 + SAFE) / CC);
+    const j = Math.round((v + D / 2 + SAFE) / CC);
+    if (i < 0 || j < 0 || i >= cu || j >= cv) return 0;
+    return far[j * cu + i] - CC;
+  };
+  for (let j = 0; j <= nv; j++) {
+    for (let i = 0; i <= nu; i++) {
+      const u = -W / 2 + i * SURF_CELL;
+      const v = -D / 2 + j * SURF_CELL;
+      const p = cityToWorld(c, u, v);
+      const ok = (dryFor(u, v) > SAFE || Math.abs(drawnGround(world, p.x, p.z) - L) < 0.06)
+        && dryAt(p.x, p.z) && !wallAt(world, p.x, p.z, c.kind === 'harbor' ? 0.5 : 4);
+      level[j * (nu + 1) + i] = ok ? 1 : 0;
+    }
+  }
+  const lv = (i, j) => level[j * (nu + 1) + i];
+  const cellOk = (i, j) => lv(i, j) && lv(i + 1, j) && lv(i, j + 1) && lv(i + 1, j + 1);
+  return { nu, nv, surf, cellOk };
+}
+
 function drawUp(world, c) {
+  if (c.kind === 'airbase') return drawAirbase(world, c);
+  if (c.kind === 'harbor') return drawHarbor(world, c);
   const rng = makeRng(c.seed ^ 0x7c17e5);
   const W = c.W;
   const D = c.D;
@@ -1153,72 +1560,7 @@ function drawUp(world, c) {
   }
 
   // ---- the surface
-  const nu = Math.ceil(W / SURF_CELL);
-  const nv = Math.ceil(D / SURF_CELL);
-  const surf = new Uint8Array(nu * nv);
-  // A cell is ground the town can be built on when the drawn terrain is at
-  // the town's level at all four of its corners and none of it is a wall.
-  const level = new Uint8Array((nu + 1) * (nv + 1));
-  // Asking the drawn mesh is the expensive part, and it is only worth asking
-  // near the water: a point with dry land all round it for further than an
-  // island's mesh cell is on the level by construction (see worksGround).
-  // So a coarse map of how far each point is from the sea comes first.
-  const CC = 10;
-  // Not where another town's levelling reaches into this one's: there the
-  // ground is at the other town's level, however far it is from the sea.
-  const crowded = (world.works?.cities || []).some((o) => o !== c
-    && Math.hypot(o.x - c.x, o.z - c.z) < Math.hypot(o.W, o.D) / 2 + o.flat + o.blend + Math.hypot(W, D) / 2);
-  const SAFE = c.isle >= 0 && !crowded ? 70 : Infinity;
-  const cu = Math.ceil((W + 2 * SAFE) / CC) + 1 || 0;
-  const cv = Math.ceil((D + 2 * SAFE) / CC) + 1 || 0;
-  let far = null;
-  if (Number.isFinite(SAFE)) {
-    far = new Float32Array(cu * cv).fill(1e9);
-    for (let j = 0; j < cv; j++) {
-      for (let i = 0; i < cu; i++) {
-        const p = cityToWorld(c, -W / 2 - SAFE + i * CC, -D / 2 - SAFE + j * CC);
-        if (rawGround(world, p.x, p.z) <= 0.3) far[j * cu + i] = 0;
-      }
-    }
-    // Two chamfer passes: distance to the nearest wet cell, in metres.
-    for (let j = 0; j < cv; j++) {
-      for (let i = 0; i < cu; i++) {
-        const k = j * cu + i;
-        if (i > 0) far[k] = Math.min(far[k], far[k - 1] + CC);
-        if (j > 0) far[k] = Math.min(far[k], far[k - cu] + CC);
-        if (i > 0 && j > 0) far[k] = Math.min(far[k], far[k - cu - 1] + CC * 1.42);
-        if (i < cu - 1 && j > 0) far[k] = Math.min(far[k], far[k - cu + 1] + CC * 1.42);
-      }
-    }
-    for (let j = cv - 1; j >= 0; j--) {
-      for (let i = cu - 1; i >= 0; i--) {
-        const k = j * cu + i;
-        if (i < cu - 1) far[k] = Math.min(far[k], far[k + 1] + CC);
-        if (j < cv - 1) far[k] = Math.min(far[k], far[k + cu] + CC);
-        if (i < cu - 1 && j < cv - 1) far[k] = Math.min(far[k], far[k + cu + 1] + CC * 1.42);
-        if (i > 0 && j < cv - 1) far[k] = Math.min(far[k], far[k + cu - 1] + CC * 1.42);
-      }
-    }
-  }
-  const dryFor = (u, v) => {
-    if (!far) return 0;
-    const i = Math.round((u + W / 2 + SAFE) / CC);
-    const j = Math.round((v + D / 2 + SAFE) / CC);
-    if (i < 0 || j < 0 || i >= cu || j >= cv) return 0;
-    return far[j * cu + i] - CC;
-  };
-  for (let j = 0; j <= nv; j++) {
-    for (let i = 0; i <= nu; i++) {
-      const u = -W / 2 + i * SURF_CELL;
-      const v = -D / 2 + j * SURF_CELL;
-      const p = cityToWorld(c, u, v);
-      const ok = (dryFor(u, v) > SAFE || Math.abs(drawnGround(world, p.x, p.z) - L) < 0.06)
-        && rawGround(world, p.x, p.z) > 0.3 && !wallAt(world, p.x, p.z, 4);
-      level[j * (nu + 1) + i] = ok ? 1 : 0;
-    }
-  }
-  const lv = (i, j) => level[j * (nu + 1) + i];
-  const cellOk = (i, j) => lv(i, j) && lv(i + 1, j) && lv(i, j + 1) && lv(i + 1, j + 1);
+  const { nu, nv, surf, cellOk } = levelCells(world, c);
 
   // Districts, out from the square: the block nearest the middle of the
   // front half on the boulevard is the square.
@@ -1595,6 +1937,203 @@ function drawUp(world, c) {
       if (at(u, v2) === SURF.yard && !inside(u, v2)) props.push({ t: 'bollard', u, v: v2, r: 0 });
     }
   }
+  return finishPlan(c, { L, W, D, nu, nv, surf, blocks, buildings, props, across, along, at });
+}
+
+/**
+ * Paint and building tools for an airfield's or a harbour's plan, which are
+ * laid out by hand rather than in blocks: a surface painted over the level
+ * cells, and buildings put down on it where they fit.
+ */
+function siteKit(world, c, rng) {
+  const W = c.W;
+  const D = c.D;
+  const L = c.level;
+  const { nu, nv, surf, cellOk } = levelCells(world, c);
+  const at = (u, v) => {
+    const i = Math.floor((u + W / 2) / SURF_CELL);
+    const j = Math.floor((v + D / 2) / SURF_CELL);
+    if (i < 0 || j < 0 || i >= nu || j >= nv) return SURF.none;
+    return surf[j * nu + i];
+  };
+  const paint = (u0, u1, v0, v1, kind) => {
+    const i0 = Math.max(0, Math.floor((u0 + W / 2) / SURF_CELL));
+    const i1 = Math.min(nu - 1, Math.ceil((u1 + W / 2) / SURF_CELL) - 1);
+    const j0 = Math.max(0, Math.floor((v0 + D / 2) / SURF_CELL));
+    const j1 = Math.min(nv - 1, Math.ceil((v1 + D / 2) / SURF_CELL) - 1);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) if (surf[j * nu + i]) surf[j * nu + i] = kind;
+    }
+  };
+  const fill = (kind) => {
+    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) if (cellOk(i, j)) surf[j * nu + i] = kind;
+  };
+  const buildings = [];
+  const place = (slot, spec) => {
+    const s = Math.sin(spec.r);
+    const k = Math.cos(spec.r);
+    // On the site's paving or grass, every metre of it, and on its level.
+    for (let a = -spec.w / 2; a <= spec.w / 2 + 0.01; a += Math.min(2.4, spec.w / 2)) {
+      for (let b = -spec.d / 2; b <= spec.d / 2 + 0.01; b += Math.min(2.4, spec.d / 2)) {
+        const t = at(spec.u + k * a + s * b, spec.v - s * a + k * b);
+        if (t === SURF.none || t === SURF.runway || t === SURF.mark) return null;
+      }
+    }
+    for (const [a, e] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const q = cityToWorld(c, spec.u + k * a * (spec.w / 2 + 0.3) + s * e * (spec.d / 2 + 0.3),
+        spec.v - s * a * (spec.w / 2 + 0.3) + k * e * (spec.d / 2 + 0.3));
+      if (Math.abs(drawnGround(world, q.x, q.z) - L) > 0.06) return null;
+    }
+    const p = cityToWorld(c, spec.u, spec.v);
+    const roofH = spec.roof === 'flat' ? 0 : spec.roof === 'saw' ? 2.4
+      : Math.min(spec.w, spec.d) * (spec.pitch || 0.32);
+    const bld = {
+      id: c.base + slot, city: c.index, level: L, kind: spec.kind,
+      x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100,
+      u: spec.u, v: spec.v, rot: c.rot + spec.r,
+      w: spec.w, d: spec.d, h: spec.h, floors: spec.floors,
+      roof: spec.roof, roofH, mat: spec.mat,
+      wall: spec.wall, trim: spec.trim ?? 0, roofCol: spec.roofCol ?? 0,
+      tiers: spec.tiers || null, extra: spec.extra || {},
+      seed: Math.floor(rng() * 1e9),
+    };
+    bld.top = L + bld.h + roofH + (bld.extra.mast || 0);
+    const vol = bld.w * bld.d * (bld.h + roofH * 0.4);
+    bld.hp = Math.max(2, 3 * ((vol * BUILT[bld.mat].hp) / 100) ** 0.62);
+    buildings.push(bld);
+    return bld;
+  };
+  return { W, D, L, nu, nv, surf, at, paint, fill, place, buildings, props: [] };
+}
+
+/**
+ * An airfield, drawn up: grass, the runway with its paint, a taxiway
+ * along it and three links on to it, the apron, and the hangars along the
+ * apron with their doors on the taxiway -- each of them big enough for a
+ * flight of heavies -- the control tower, and the stores.
+ */
+function drawAirbase(world, c) {
+  const rng = makeRng(c.seed ^ 0x41f1e1d);
+  const K = siteKit(world, c, rng);
+  const { W, D, paint } = K;
+  const RL = W - 100;
+  const rv0 = RUNWAY_V - RUNWAY_W / 2;
+  const rv1 = RUNWAY_V + RUNWAY_W / 2;
+  K.fill(SURF.lawn);
+  paint(-RL / 2, RL / 2, rv0, rv1, SURF.runway);
+  // The paint: the edge lines, the centre line in dashes, and the piano
+  // keys at each threshold.
+  paint(-RL / 2, RL / 2, rv0 + 1, rv0 + 3.5, SURF.mark);
+  paint(-RL / 2, RL / 2, rv1 - 3.5, rv1 - 1, SURF.mark);
+  for (let u = -RL / 2 + 70; u < RL / 2 - 70; u += 60) paint(u, u + 30, RUNWAY_V - 1.25, RUNWAY_V + 1.25, SURF.mark);
+  for (const end of [-1, 1]) {
+    const a = end * (RL / 2 - 10);
+    const b = end * (RL / 2 - 40);
+    for (let k = 0; k < 8; k++) {
+      const v = rv0 + 6 + k * 4.6 + (k >= 4 ? 2.4 : 0);
+      paint(Math.min(a, b), Math.max(a, b), v, v + 2.5, SURF.mark);
+    }
+  }
+  // The taxiway and its links.
+  const TV = 2;
+  const TU = RL / 2 - 40;
+  paint(-TU - 9, TU + 9, TV - 9, TV + 9, SURF.road);
+  for (const u of [-TU, 0, TU]) paint(u - 9, u + 9, TV, rv0, SURF.road);
+  // The hangars, along the apron.
+  const n = RL >= 1100 ? 5 : RL >= 900 ? 4 : 3;
+  const HW = 50;
+  const HD = 58;
+  const gap = 18;
+  const row = n * HW + (n - 1) * gap;
+  const hv = -D / 2 + 12 + HD / 2;
+  paint(-row / 2 - 14, row / 2 + 14, hv + HD / 2, TV - 9, SURF.walk);
+  let slot = 0;
+  for (let k = 0; k < n; k++) {
+    const u = -row / 2 + HW / 2 + k * (HW + gap);
+    paint(u - HW / 2 - 4, u + HW / 2 + 4, hv - HD / 2 - 4, hv + HD / 2, SURF.walk);
+    K.place(slot++, {
+      kind: 'hangar', u, v: hv, r: 0, w: HW, d: HD, h: 12, floors: 1,
+      roof: 'arch', pitch: 0.24, mat: 'concrete', wall: 7, roofCol: 4,
+      extra: { door: 1 },
+    });
+  }
+  // The control tower at one end of the apron, and the stores at the other.
+  const cu = row / 2 + 46;
+  paint(cu - 14, cu + 14, hv - 10, TV - 9, SURF.walk);
+  K.place(slot++, {
+    kind: 'control', u: cu, v: hv + 6, r: 0, w: 14, d: 14, h: 13, floors: 3,
+    roof: 'flat', mat: 'concrete', wall: 9, trim: 1, extra: { glass: 1, mast: 7 },
+  });
+  for (const k of [0, 1]) {
+    const su = -row / 2 - 38 - k * 34;
+    paint(su - 14, su + 14, hv - 18, TV - 9, SURF.walk);
+    K.place(slot++, {
+      kind: 'warehouse', u: su, v: hv, r: 0, w: 22, d: 30, h: 7, floors: 1,
+      roof: 'gable', pitch: 0.2, mat: 'brick', wall: 1, roofCol: 2,
+    });
+  }
+  // Lamps along the front of the apron.
+  for (let u = -row / 2; u <= row / 2; u += 36) K.props.push({ t: 'lamp', u, v: TV - 10.5, r: 0 });
+  const blocks = [
+    { id: 0, kind: 'field', u0: -W / 2, u1: W / 2, v0: -D / 2, v1: D / 2, land: 1, cu: 0, cv: 0 },
+    { id: 1, kind: 'runway', u0: -RL / 2, u1: RL / 2, v0: rv0, v1: rv1, land: 1, cu: 0, cv: RUNWAY_V },
+    { id: 2, kind: 'apron', u0: -row / 2 - 14, u1: row / 2 + 14, v0: hv - HD / 2, v1: TV + 9, land: 1, cu: 0, cv: hv },
+  ];
+  const plan = finishPlan(c, {
+    L: K.L, W, D, nu: K.nu, nv: K.nv, surf: K.surf, blocks, buildings: K.buildings, props: K.props,
+    across: [], along: [], at: K.at,
+  });
+  plan.hangars = plan.buildings.filter((b) => b.kind === 'hangar');
+  return plan;
+}
+
+/**
+ * A harbour, drawn up: its apron behind the quay, the road along the back
+ * of it and the road along the quay, the transit sheds between them, the
+ * harbourmaster's office, and the travelling cranes at the quay's edge.
+ */
+function drawHarbor(world, c) {
+  const rng = makeRng(c.seed ^ 0x4a4b0e);
+  const K = siteKit(world, c, rng);
+  const { W, D, paint } = K;
+  K.fill(SURF.yard);
+  const front = D / 2 - WALL_WIDTH;
+  paint(-W / 2, W / 2, front - 16, front - 4, SURF.road);
+  paint(-W / 2, W / 2, -D / 2 + 6, -D / 2 + 18, SURF.road);
+  let slot = 0;
+  const SW = 74;
+  const SD = 34;
+  const n = Math.max(1, Math.floor((W - 90) / (SW + 16)));
+  const row = n * SW + (n - 1) * 16;
+  const sv = (front - 16 + (-D / 2 + 18)) / 2;
+  for (let k = 0; k < n; k++) {
+    const u = -row / 2 + SW / 2 + k * (SW + 16);
+    K.place(slot++, {
+      kind: 'warehouse', u, v: sv, r: 0, w: SW, d: SD, h: 9 + Math.floor(rng() * 2) * 3, floors: 2,
+      roof: rng() < 0.4 ? 'saw' : 'gable', pitch: 0.2, mat: 'brick', wall: Math.floor(rng() * 4), roofCol: 4,
+    });
+  }
+  K.place(slot++, {
+    kind: 'office', u: W / 2 - 22, v: sv, r: 0, w: 18, d: 16, h: 11, floors: 3,
+    roof: 'hip', pitch: 0.2, mat: 'stone', wall: 7, roofCol: 3, extra: { flag: 1 },
+  });
+  // The cranes, on their rails along the quay.
+  for (let u = -W / 2 + 60; u < W / 2 - 40; u += 95) K.props.push({ t: 'crane', u, v: front - 7, r: 0 });
+  for (let u = -W / 2 + 20; u < W / 2 - 10; u += 40) K.props.push({ t: 'lamp', u, v: front - 17, r: 0 });
+  const blocks = [
+    { id: 0, kind: 'port', u0: -W / 2, u1: W / 2, v0: -D / 2, v1: front, land: 1, cu: 0, cv: 0 },
+  ];
+  return finishPlan(c, {
+    L: K.L, W, D, nu: K.nu, nv: K.nv, surf: K.surf, blocks, buildings: K.buildings, props: K.props,
+    across: [], along: [], at: K.at,
+  });
+}
+
+/**
+ * A site's plan, finished: its props put into the world and numbered, and
+ * its buildings filed for the lookups and for the fire to spread by.
+ */
+function finishPlan(c, { L, W, D, nu, nv, surf, blocks, buildings, props, across, along, at }) {
   // Into the world, every one of them numbered -- but only those on the
   // town's own paving: where another town has cut into this one, the
   // fountain the square was to have had is not there to have.
@@ -2251,9 +2790,14 @@ export function worksTargets(world, t = 0) {
   if (had && Math.abs(t - had.t) < AIM_HOLD && had.ruin === world.ruin) return had.list;
   const list = [];
   const plans = cityPlans(world);
-  const many = plans.length > 1;
+  const count = {};
+  for (const p of plans) count[p.city.kind || 'town'] = (count[p.city.kind || 'town'] || 0) + 1;
+  const seen = {};
   plans.forEach((plan, i) => {
     const c = plan.city;
+    const kk = c.kind || 'town';
+    seen[kk] = (seen[kk] || 0) + 1;
+    const word = worksName(c);
     let best = null;
     let bd = Infinity;
     let left = 0;
@@ -2269,7 +2813,7 @@ export function worksTargets(world, t = 0) {
     }
     const at = best || c;
     list.push({
-      id: townTargetId(i), kind: 'town', i, name: many ? `Town ${i + 1}` : 'Town',
+      id: townTargetId(i), kind: 'town', i, name: count[kk] > 1 ? `${word} ${seen[kk]}` : word,
       x: at.x, z: at.z, y: plan.level + (best ? Math.min(6, best.h / 2) : 0),
       alive: !!best, left: all > 0 ? left / all : 0,
       heading: 0, speed: 0, team: -1,

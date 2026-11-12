@@ -45,6 +45,12 @@ import {
   predictSoldier,
 } from '../shared/infantry.js';
 import { driveHull } from '../shared/sim.js';
+import {
+  dockShip, dockState, undock as castOff, baseBomber, airfields, setFieldSides, REARM_TIME,
+} from '../shared/sim.js';
+import {
+  airbasesOf, harborsOf, runwayOf, berthAlong, cityPlans as worksPlans, cleanAsk as cleanWorksAsk, worldToCity as toSite,
+} from '../shared/works.js';
 import { Held } from '../client/js/predict.js';
 import {
   LOADOUT_SLOTS, listLoadouts, saveLoadout, deleteLoadout, describeLoadout,
@@ -30466,6 +30472,147 @@ check('a bot side\'s heavies call an escort when enemy aircraft are about', () =
   const staff2 = createStaff(0, 0.85);
   for (let i = 0; i < Math.round(3 / DT); i++) stepStaff(st2, staff2, DT);
   assert.ok(!bm2.escortCall, 'the staff called an escort over a human captain\'s head');
+});
+
+// ---------------------------------------------------------------------------
+// Air bases and harbours
+// ---------------------------------------------------------------------------
+
+/** The Solomons battlefield with an air base on its biggest island and a harbour on its shore. */
+function worksField(ask = null) {
+  const w0 = generateWorld(1234, 'solomon_narrows', null);
+  const big = w0.islands.slice().sort((a, b) => b.r - a.r)[0];
+  return generateWorld(1234, 'solomon_narrows', null, undefined, null, undefined, false, ask || {
+    airbases: [{ seed: 5, x: big.x, z: big.z, n: 0 }],
+    harbors: [{ seed: 7, x: big.x + big.r * 1.3, z: big.z, n: 1 }],
+  });
+}
+
+check('the board can ask for air bases and harbours, and an air base keeps its side', () => {
+  const a = cleanWorksAsk({ airbases: [{ seed: 3, x: 10, z: 20, n: 0, t: 1 }], harbors: [{ seed: 4, x: 1, z: 2 }] });
+  assert.equal(a.airbases.length, 1);
+  assert.equal(a.airbases[0].t, 1);
+  assert.equal(a.harbors.length, 1);
+  assert.equal(a.harbors[0].t, undefined);
+});
+
+check('an air base is raised on dry land: a level runway, hangars along its apron', () => {
+  const world = worksField();
+  const [ab] = airbasesOf(world);
+  assert.ok(ab, 'no air base was built');
+  const plan = worksPlans(world)[ab.index];
+  assert.ok(plan.hangars.length >= 3, `only ${plan.hangars.length} hangars`);
+  assert.ok(plan.buildings.some((b) => b.kind === 'control'), 'no control tower');
+  const rw = runwayOf(ab);
+  assert.ok(rw.len >= 800, `a ${rw.len} m runway`);
+  for (let k = 0; k <= 10; k++) {
+    const x = rw.x0 + ((rw.x1 - rw.x0) * k) / 10;
+    const z = rw.z0 + ((rw.z1 - rw.z0) * k) / 10;
+    assert.ok(Math.abs(groundHeight(world, x, z) - ab.level) < 0.5, `the runway is not level ${k / 10} along it`);
+  }
+});
+
+check('a harbour is built at the shore: a quay along its front with deep water alongside', () => {
+  const world = worksField();
+  const [h] = harborsOf(world);
+  assert.ok(h, 'no harbour was built');
+  const quay = world.works.walls.find((r) => r.harbor === h.index);
+  assert.ok(quay && quay.quay, 'the harbour has no quay');
+  const b = berthAlong(h, 250, 33, 0, 0);
+  assert.ok(groundHeight(world, b.x, b.z) < -12, `only ${groundHeight(world, b.x, b.z).toFixed(1)} m alongside`);
+  const back = toSite(h, b.x, b.z);
+  assert.ok(back.v > h.D / 2, 'the berth is not out in front of the quay');
+  assert.ok(Math.abs(groundHeight(world, h.x, h.z) - h.level) < 0.5, 'the apron is not made up to the quay');
+});
+
+check('a ship ordered into harbour is taken alongside, made good there, and casts off when rung up', () => {
+  const world = worksField();
+  const state = createState(world, { mode: 'deathmatch' });
+  const [h] = harborsOf(world);
+  // Somebody to fight, a long way off, or the battle is over before it starts.
+  const foe = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+  foe.x = -20000; foe.z = -20000;
+  const s = addShip(state, { name: 'S', classId: 'fletcher', team: 0, index: 0 });
+  s.x = h.x + Math.sin(h.rot) * 1400; s.z = h.z + Math.cos(h.rot) * 1400; s.heading = h.rot;
+  s.hp = s.maxHp * 0.5;
+  s.notch = 5;
+  assert.ok(dockShip(state, s), 'she was refused a berth');
+  for (let i = 0; i < Math.round(400 / DT) && dockState(s) !== 2; i++) step(state, DT);
+  assert.equal(dockState(s), 2, 'she was never made fast');
+  assert.ok(Math.hypot(s.x - s.dock.x, s.z - s.dock.z) < 1, 'she is not at her berth');
+  const hp = s.hp;
+  // Her client still sending the telegraph it had before is not an order.
+  applyInput(s, { notch: 5 });
+  for (let i = 0; i < Math.round(30 / DT); i++) step(state, DT);
+  assert.equal(dockState(s), 2, 'a stale telegraph cast her off');
+  assert.ok(s.hp > hp + s.maxHp * 0.05, 'the dockyard did nothing for her');
+  assert.ok(Math.abs(s.speed) < 0.01, 'she moved while made fast');
+  applyInput(s, { notch: 1 });
+  applyInput(s, { notch: 4 });
+  for (let i = 0; i < Math.round(20 / DT); i++) step(state, DT);
+  assert.equal(dockState(s), 0, 'ringing up did not cast her off');
+  assert.ok(s.speed > 1, 'she did not get under way');
+});
+
+check('ships the board laid alongside start the battle made fast, and two do not share a berth', () => {
+  const world = worksField();
+  const state = createState(world, { mode: 'deathmatch' });
+  const [h] = harborsOf(world);
+  const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
+  const b = addShip(state, { name: 'B', classId: 'fletcher', team: 0, index: 1 });
+  for (const s of [a, b]) { s.x = h.x + Math.sin(h.rot) * 200; s.z = h.z + Math.cos(h.rot) * 200; }
+  assert.ok(dockShip(state, a, h.index, true));
+  assert.ok(dockShip(state, b, h.index, true));
+  assert.equal(dockState(a), 2);
+  assert.equal(dockState(b), 2);
+  assert.ok(Math.abs(a.dock.u - b.dock.u) >= SHIP_CLASSES.fletcher.hull.length, 'two ships were laid at the same stretch of quay');
+  castOff(state, a);
+  assert.equal(dockState(a), 0);
+});
+
+check('a heavy squadron based at an air base takes off down the runway, lands back on it and rearms', () => {
+  const world = worksField();
+  const state = createState(world, { mode: 'deathmatch' });
+  setFieldSides(state, 0);
+  const [ab] = airbasesOf(world);
+  const e = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+  e.x = -20000; e.z = -20000;
+  const bm = addBomber(state, { bomberId: 'lancaster', team: 0, x: 0, z: 0 });
+  assert.ok(baseBomber(state, bm, ab.index, 1), 'she was refused a hangar');
+  assert.ok(!state.bombers.includes(bm), 'a squadron in its hangar is flying');
+  const seen = new Set();
+  let sent = false;
+  let landedAt = 0;
+  for (let i = 0; i < Math.round(700 / DT); i++) {
+    for (const ev of step(state, DT)) if (ev.e === 'fieldDown' && ev.i === bm.id) landedAt = state.t;
+    seen.add(bm.phase);
+    if (bm.phase === 'roll') assert.ok(Math.abs(bm.y - ab.level - 3) < 0.5, 'she is not rolling on the runway');
+    // Sent home empty as soon as she is up.
+    if (bm.phase === 'inbound' && !sent) { sent = true; bm.loads = 0; bm.phase = 'home'; }
+    if (landedAt && bm.phase === 'inbound') break;
+  }
+  for (const ph of ['roll', 'climb', 'approach', 'final', 'rollout', 'hangar']) assert.ok(seen.has(ph), `she never went through ${ph}`);
+  assert.ok(landedAt > 0, 'she never landed');
+  assert.ok(bm.alive && bm.loads === 2, 'she was not rearmed');
+  assert.ok(state.t - landedAt >= REARM_TIME, 'she went again before she was rearmed');
+  assert.ok(state.bombers.includes(bm), 'she did not take off again');
+});
+
+check('carrier aircraft with their deck gone put down at a friendly air base', () => {
+  const world = worksField({ airbases: [{ seed: 5, n: 0 }] });
+  const state = createState(world, { mode: 'deathmatch' });
+  setFieldSides(state, 0);
+  const [ab] = airbasesOf(world);
+  assert.ok(ab);
+  const cv = addShip(state, { name: 'CV', classId: 'enterprise', team: 0, index: 0 });
+  const e = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+  e.x = cv.x + 6000; e.z = cv.z + 3000;
+  for (let i = 0; i < Math.round(5 / DT); i++) step(state, DT);
+  assert.ok(launchStrike(state, cv));
+  for (let i = 0; i < Math.round(120 / DT); i++) step(state, DT);
+  cv.alive = false;
+  for (let i = 0; i < Math.round(700 / DT); i++) step(state, DT);
+  assert.ok(airfields(state)[0].planes > 0, 'nothing put down at the air base');
 });
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

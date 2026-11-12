@@ -611,6 +611,34 @@ function buildingInto(bufs, b, L, ruin) {
       }
       void prevK;
     }
+  } else if (b.roof === 'arch') {
+    // A hangar's barrel roof, sprung across its width and running from its
+    // doors to its back wall, and the arch closed off over each end.
+    const n = 12;
+    const H = b.roofH;
+    const prof = (k) => {
+      const th = (k / n) * Math.PI;
+      return [-(hw + o) * Math.cos(th), eave - 0.2 + H * Math.sin(th)];
+    };
+    for (let k = 0; k < n; k++) {
+      const [a0, y0] = prof(k);
+      const [a1, y1] = prof(k + 1);
+      roof.quad(F(a0, y0, hd + o), F(a1, y1, hd + o), F(a1, y1, -hd - o), F(a0, y0, -hd - o),
+        [[0, 0], [1, 0], [1, b.d / 3], [0, b.d / 3]], rc);
+      // Its underside, so it is not paper from inside the doors.
+      bufs.get('plain').quad(F(a0, y0, -hd - o), F(a1, y1, -hd - o), F(a1, y1, hd + o), F(a0, y0, hd + o), null, tint.map((v) => v * 0.45));
+    }
+    const pl = bufs.get('plain');
+    for (const [c, s] of [[hd, 1], [-hd, -1]]) {
+      for (let k = 0; k < n; k++) {
+        const [a0, y0] = prof(k);
+        const [a1, y1] = prof(k + 1);
+        const A = Math.max(-hw, Math.min(hw, a0));
+        const B = Math.max(-hw, Math.min(hw, a1));
+        if (s > 0) pl.tri(F(0, eave, c), F(B, Math.max(eave, y1), c), F(A, Math.max(eave, y0), c), null, null, null, tint);
+        else pl.tri(F(0, eave, c), F(A, Math.max(eave, y0), c), F(B, Math.max(eave, y1), c), null, null, null, tint);
+      }
+    }
   } else if (b.roof === 'saw') {
     // North lights: a run of sloped roofs with glazing in their steep faces.
     const n = Math.max(2, Math.round(b.w / 8));
@@ -736,8 +764,28 @@ function extrasInto(bufs, b, F, tint, r, ruined) {
     cylInto(pl, F, ta, tc, 1.5, 1.5, b.h + 3, b.h + 5.6, [0.45, 0.33, 0.24], 10);
     cylInto(pl, F, ta, tc, 1.6, 0, b.h + 5.6, b.h + 6.6, [0.3, 0.25, 0.2], 10, false);
   }
+  if (e.door) {
+    // A hangar's doors: most of its front, steel, in leaves, shut.
+    const dw = hw * 0.86;
+    const dh = b.h * 0.9;
+    const leaves = 6;
+    for (let k = 0; k < leaves; k++) {
+      const a0 = -dw + (2 * dw * k) / leaves + 0.08;
+      const a1 = -dw + (2 * dw * (k + 1)) / leaves - 0.08;
+      const shade = 0.34 + (k % 2) * 0.04;
+      pl.quad(F(a0, 0.05, hd + 0.08), F(a1, 0.05, hd + 0.08), F(a1, dh, hd + 0.08), F(a0, dh, hd + 0.08), null, [shade, shade + 0.02, shade + 0.03]);
+    }
+    boxInto(pl, F, -dw - 0.3, dw + 0.3, dh, dh + 0.5, hd, hd + 0.3, [0.22, 0.24, 0.25]);
+  }
+  if (e.glass) {
+    // A control tower's glazed cab, and the gallery round it.
+    const g = Math.min(hw, hd) - 1;
+    boxInto(pl, F, -hw - 0.6, hw + 0.6, b.h - 0.2, b.h + 0.15, -hd - 0.6, hd + 0.6, [0.8, 0.8, 0.78]);
+    boxInto(pl, F, -g, g, b.h + 0.15, b.h + 3.2, -g, g, [0.18, 0.26, 0.32]);
+    boxInto(pl, F, -g - 0.3, g + 0.3, b.h + 3.2, b.h + 3.6, -g - 0.3, g + 0.3, [0.85, 0.85, 0.82]);
+  }
   if (e.mast) {
-    const top = b.tiers ? b.tiers[b.tiers.length - 1].h : b.h;
+    const top = b.tiers ? b.tiers[b.tiers.length - 1].h : b.h + (e.glass ? 3.6 : 0);
     cylInto(pl, F, 0, 0, 0.35, 0.12, top, top + e.mast, [0.7, 0.7, 0.7], 6);
   }
 }
@@ -806,6 +854,28 @@ function propModel(t) {
       cylInto(b, F, 0, 0, 0.14, 0.12, 0, 0.75, [0.75, 0.15, 0.1], 8);
       cylInto(b, F, 0, 0, 0.16, 0.02, 0.75, 0.9, [0.75, 0.15, 0.1], 8, false);
       break;
+    case 'crane': {
+      // A travelling portal crane: four legs straddling its rails, the
+      // machinery house on the portal, and its jib out over the quay.
+      const paint = [0.62, 0.42, 0.16];
+      for (const [sa, sc] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        boxInto(b, F, sa * 4 - 0.4, sa * 4 + 0.4, 0, 11, sc * 4 - 0.4, sc * 4 + 0.4, paint);
+      }
+      boxInto(b, F, -4.6, 4.6, 11, 12.4, -4.6, 4.6, paint);
+      boxInto(b, F, -2.8, 2.8, 12.4, 17, -3.5, 2.5, [0.7, 0.68, 0.62]);
+      boxInto(b, F, -2.9, 2.9, 17, 17.4, -3.6, 2.6, [0.3, 0.3, 0.3]);
+      // The A-frame and the jib, raked up out over the water.
+      boxInto(b, F, -0.5, 0.5, 17.4, 22, 0, 1, paint);
+      const jib = (t) => [0, 15 + t * 14, 2.6 + t * 28];
+      for (let k = 0; k < 6; k++) {
+        const p0 = jib(k / 6);
+        const p1 = jib((k + 1) / 6);
+        boxInto(b, F, -0.45, 0.45, p0[1], p1[1] + 0.9, p0[2], p1[2], paint);
+      }
+      cylInto(b, F, 0, 30.4, 0.05, 0.05, 6, 29, [0.1, 0.1, 0.1], 3);
+      boxInto(b, F, -0.5, 0.5, 5.4, 6, 29.9, 30.9, [0.15, 0.15, 0.15]);
+      break;
+    }
     case 'bollard':
       cylInto(b, F, 0, 0, 0.3, 0.26, 0, 0.6, [0.15, 0.15, 0.15], 8);
       cylInto(b, F, 0, 0, 0.38, 0.38, 0.6, 0.72, [0.15, 0.15, 0.15], 8);
@@ -965,6 +1035,7 @@ export class WorksView {
     const KIND = {
       [SURF.road]: 'asphalt', [SURF.walk]: 'slab', [SURF.lawn]: 'grass', [SURF.plaza]: 'setts',
       [SURF.yard]: 'gravel', [SURF.path]: 'gravel', [SURF.median]: 'grass',
+      [SURF.runway]: 'slab', [SURF.mark]: 'slab',
     };
     const TILE = { asphalt: 6, slab: 3, grass: 5, setts: 2.5, gravel: 4 };
     const bufs = new Bufs();
@@ -990,7 +1061,8 @@ export class WorksView {
           const u1 = -W / 2 + e * SURF_CELL;
           const v0 = -D / 2 + j * SURF_CELL;
           const v1 = v0 + SURF_CELL;
-          const c = t === SURF.path ? [0.92, 0.86, 0.74] : t === SURF.median ? [0.95, 1, 0.95] : [1, 1, 1];
+          const c = t === SURF.path ? [0.92, 0.86, 0.74] : t === SURF.median ? [0.95, 1, 0.95]
+            : t === SURF.runway ? [0.58, 0.58, 0.56] : t === SURF.mark ? [1, 1, 1] : [1, 1, 1];
           bufs.get(k).quad(P(u0, y, v1), P(u1, y, v1), P(u1, y, v0), P(u0, y, v0),
             [uvAt(u0, v1, k), uvAt(u1, v1, k), uvAt(u1, v0, k), uvAt(u0, v0, k)], c);
         }

@@ -781,6 +781,7 @@ export class Battle {
       else if (k === 'plane') this.togglePilotView();
       else if (k === 'repair') this.net.send({ t: 'repair', ship });
       else if (k === 'smoke') this.net.send({ t: 'smoke', ship });
+      else if (k === 'dock') this.toggleDock();
       else if (k === 'party') this.net.send({ t: 'party', ship, i: v.i, job: v.job });
       audio.click();
     });
@@ -1245,9 +1246,19 @@ export class Battle {
     this.serverTime = snap.time;
     this.syncClock(now, st);
 
+    // Who is lying alongside a quay, or on the way in: the dock key is
+    // "dock" or "cast off" by it.
+    this.docked = new Map(snap.ships.filter((q) => q.dk).map((q) => [q.i, q.dk]));
     const own = snap.ships.find((s) => s.i === this.shipId);
     if (own) {
       const ls = this.localShip;
+      // In harbour her own prediction lies still with her, and once she is
+      // made fast her telegraph is rung down to stop: the next order rung up
+      // on it is what casts her off.
+      const dk = own.dk || 0;
+      if (dk === 2 && (ls.dockSt || 0) !== 2) { ls.notch = 1; this.hud.setNotch?.(1); }
+      ls.dockSt = dk;
+      ls.dock = dk === 2 ? { st: 'moored' } : dk === 1 ? { st: 'approach' } : null;
       // An order given to her fleet from another ship of it: her helm and her
       // telegraph take it up, or her own prediction would steer against it.
       if ((own.fq || 0) !== (this.fleetSeq || 0)) {
@@ -3463,6 +3474,22 @@ export class Battle {
         // Made out of her funnels for as long as she is making it, off the
         // ship's own `sm` (see makeSmoke) -- not set down beside her once.
         case 'smoke': break;
+        // Into harbour and out of it, and her stores struck down.
+        case 'dock':
+          if (ev.ship === this.shipId) {
+            if (ev.st === 2) this.hud.ribbon('MADE FAST ALONGSIDE');
+            else if (ev.st === 1 && ev.tugs) this.hud.ribbon('TUGS ALONGSIDE');
+            else if (ev.st === 1) this.hud.ribbon('STANDING IN TO HARBOUR');
+            else this.hud.ribbon('CAST OFF');
+          }
+          break;
+        case 'dockStores': if (ev.ship === this.shipId) this.hud.ribbon('STORES STRUCK DOWN'); break;
+        // A heavy squadron of ours off its airfield, or back down on it; or
+        // carrier aeroplanes with no deck to come home to, put down there.
+        case 'fieldUp': if (ev.tm === this.team) this.hud.ribbon('BOMBERS TAKING OFF'); break;
+        case 'fieldDown':
+          if (ev.tm === this.team) this.hud.ribbon(ev.planes ? 'AIRCRAFT DIVERTED TO AIRFIELD' : 'BOMBERS LANDED: REARMING');
+          break;
         case 'repair':
           if (ev.ship === this.shipId) {
             // The first call-away shores; the second gets the pumps going.
@@ -4173,6 +4200,8 @@ export class Battle {
       case 'KeyB': this.toggleGunner(); break;
       case 'KeyR': this.net.send({ t: 'repair', ship: this.conned() }); break;
       case 'KeyT': this.net.send({ t: 'smoke', ship: this.conned() }); break;
+      // Into the nearest harbour with room for her, or out of it.
+      case 'KeyK': if (!this.director) this.toggleDock(); break;
       // The racks. One key, because there is one order: let go.
       case 'KeyG': this.dropCharges(null); break;
       case 'KeyC': {
@@ -7254,6 +7283,20 @@ export class Battle {
     if (this.localShip.notch === want) return;
     this.localShip.notch = want;
     this.net.send({ t: 'input', notch: want });
+  }
+
+  /**
+   * Into harbour, or out of it: the ship being conned is sent to the nearest
+   * quay with room for her, or cast off from the one she is lying at.
+   */
+  toggleDock() {
+    const ship = this.conned();
+    const w = this.world;
+    if (!w?.works?.cities?.some((c) => c.kind === 'harbor')) { this.hud.ribbon('NO HARBOUR', 'miss'); return; }
+    const dk = this.docked?.get(ship) || 0;
+    this.net.send({ t: dk ? 'undock' : 'dock', ship });
+    // Cast off, her own telegraph is rung up with her.
+    if (dk && ship === this.shipId && this.localShip.notch <= 1) this.localShip.notch = 2;
   }
 
   /**

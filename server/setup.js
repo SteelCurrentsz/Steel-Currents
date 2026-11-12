@@ -10,7 +10,9 @@
 // back on the spawn line and no artillery at all. One copy, and that cannot
 // happen again.
 
-import { setAirGroup, setVlsLoad, troopsFor, embarkTank } from '../shared/sim.js';
+import {
+  setAirGroup, setVlsLoad, troopsFor, embarkTank, dockShip, baseBomber, setFieldSides,
+} from '../shared/sim.js';
 import { isTank } from '../shared/batteries.js';
 import { getClass } from '../shared/ships.js';
 import { isOpenSea } from '../shared/world.js';
@@ -32,6 +34,11 @@ export function berthsFrom(v, cap) {
       // A tank loaded into a landing craft on the chart: which hull of its
       // own side's fleet, in the chart's order, and which slot in her well.
       ...(Number.isInteger(b.c) && b.c >= 0 && Number.isInteger(b.s) && b.s >= 0 ? { c: b.c, s: b.s } : {}),
+      // A ship laid alongside a harbour's quay (`d`, the harbour's number
+      // among the works), or a squadron put in an air base's hangars (`b`,
+      // the air base's, and `k` which hangar).
+      ...(Number.isInteger(b.d) && b.d >= 0 ? { d: b.d } : {}),
+      ...(Number.isInteger(b.b) && b.b >= 0 ? { b: b.b, k: Number.isInteger(b.k) ? b.k : -1 } : {}),
     }
     : null));
 }
@@ -162,12 +169,21 @@ export function crewBattle(room, req, seat, limits = {}) {
   // and a list of berths -- the same shape as everything else.
   const allyAir = berthsFrom(layout.allyBombers, maxB);
   const enemyAir = berthsFrom(layout.enemyBombers, maxB);
+  // The air bases are the captain's side's or the other's, as the chart had
+  // them; a squadron the chart put in one of their hangars starts there.
+  setFieldSides(room.state, team);
+  const based = (bm, at) => { if (bm && at && Number.isInteger(at.b)) baseBomber(room.state, bm, at.b, at.k ?? -1); };
   gunsFrom(req.allyBombers, maxB).forEach((id, i) => {
-    room.addBomberOnTeam(team, id, allyAir?.[i] ?? null);
+    based(room.addBomberOnTeam(team, id, allyAir?.[i] ?? null), allyAir?.[i]);
   });
   gunsFrom(req.enemyBombers, maxB).forEach((id, i) => {
-    room.addBomberOnTeam(1 - team, id, enemyAir?.[i] ?? null);
+    based(room.addBomberOnTeam(1 - team, id, enemyAir?.[i] ?? null), enemyAir?.[i]);
   });
+  // And the ships the chart laid alongside a harbour's quay start the
+  // battle made fast there.
+  for (const [list, at] of [[fleets.ally, allyAt], [fleets.enemy, enemyAt]]) {
+    list.forEach((sh, k) => { if (sh && Number.isInteger(at?.[k]?.d)) dockShip(room.state, sh, at[k].d, true); });
+  }
   // The barracks off the chart, and the soldiers that fall in outside each
   // one. Its side is the chart's: `a` is the captain's own (allied), anything
   // else the enemy's. Out of sight of land there is nowhere to put one.
