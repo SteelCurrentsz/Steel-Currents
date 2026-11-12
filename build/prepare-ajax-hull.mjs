@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { simplifier, decimate as decimateWith } from './sculpt-source.mjs';
 import { heightmap, heightBytes, pack, packPieceCompact, stations, faceNormal } from './sculpt.mjs';
 import { measureLines } from './sculpt-parts.mjs';
+import { mirrorSides, sealFromOutside } from './seal.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(process.env.SCULPT_TOOLS ? path.join(process.env.SCULPT_TOOLS, 'index.js') : import.meta.url);
@@ -944,6 +945,17 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
     }
   }
   console.log(`cracks: ${plated} slivers between her plates closed, of ${open.length} open edges below ${MAXY} m`);
+}
+
+// ---- sealed ------------------------------------------------------------------------------
+// What the decimator took off one side of her and kept on the other is copied
+// across her centreline, and every face a ray from outside her meets first and
+// sees from behind -- daylight through her bridge, her deckhouses, her side --
+// is drawn from both sides (see build/seal.mjs).
+{
+  const m = mirrorSides(hull, { loa: LOA });
+  const s = sealFromOutside(hull);
+  console.log(`sealed: ${m.copied} faces copied across her centreline into ${m.cells} cells, ${s.made} seen from behind drawn from both sides`);
 }
 
 // Her weather decks are linoleum (1), held down with brass strips.
