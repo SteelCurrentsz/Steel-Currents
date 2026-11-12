@@ -2558,7 +2558,7 @@ export class BattleScene {
         }
       }
     }
-    if (!v) v = this.makeShipView(classId, team, isSelf);
+    if (!v) v = BattleScene.prototype.makeShipView.call(this, classId, team, isSelf);
     if (!this.shipViews.has(id)) {
       this.shipViews.set(id, v);
       // And her model put into the form the penetration camera cuts her
@@ -2604,7 +2604,7 @@ export class BattleScene {
    */
   prebuild(id, classId, team, isSelf) {
     if (this.shipViews.has(id) || (this.parked && this.parked.has(id))) return null;
-    const v = this.makeShipView(classId, team, isSelf);
+    const v = BattleScene.prototype.makeShipView.call(this, classId, team, isSelf);
     v.group.visible = false;
     (this.parked || (this.parked = new Map())).set(id, v);
     return v;
