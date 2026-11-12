@@ -1,0 +1,304 @@
+// USS Des Moines, drawn from the owner's model of her sister Salem.
+//
+// The last all-gun heavy cruisers the United States built, and the fastest
+// firing: two hundred and eighteen metres, nine 8 in/55 Mk 16 in three triple
+// turrets -- A and B forward, B superfiring; C aft -- that loaded their own
+// cased rounds at any elevation and fired ten a minute a gun, three times what
+// any 8 in before them could. Des Moines was completed in 1948, Salem in
+// 1949; both served out the 1950s as flagships of the Sixth Fleet.
+//
+// Her hull, her bridge, her funnels, her masts and her boats are the model --
+// "USS Salem (CA-139)" by kriss50 (https://skfb.ly/ptKUo), under Creative
+// Commons Attribution 4.0 -- (see salemHull.js and
+// build/prepare-salem-hull.mjs). Every gun of hers is the model's own, as the
+// class was armed when completed. What is built here is everything that moves
+// or fires:
+//
+//   * her three 8 in turrets, the model's gunhouses on their barbettes, their
+//     barrels on a cradle that elevates;
+//   * her six twin 5 in/38s, two a side and one at either end of her
+//     superstructure;
+//   * her ten twin 3 in/50s and her eight single 20 mm Oerlikons;
+//   * her four screws, the model's, which turn;
+//
+// and, inside her, her armour and her interior, fitted to her own lines.
+//
+// Local frame, as everywhere else: +Z is the bow, +Y is up, y = 0 is the
+// waterline.
+
+import * as THREE from '../../../vendor/three.module.js';
+import { arm } from './mounts.js';
+import { mergeStatic, mergeMoving } from './merge.js';
+import { dressShip } from './textures.js';
+import { buildInterior, bySection } from './interior.js';
+import { SHIP_CLASSES } from '../../../shared/ships.js';
+import { lightMounts } from '../../../shared/sim.js';
+import { cyl, strip, sheet } from './shipkit.js';
+import {
+  buildSalemHull, salemSurfaceY, MOUNT_SEATS, SCULPT_LINES, salemMaterials, gunPiece,
+} from './salemHull.js';
+import { SALEM_SCREWS as SCREWS } from './salemHull.data.js';
+import { decodePiece } from './sculpt.js';
+
+const CLS = SHIP_CLASSES.desmoines;
+export const LOA = CLS.hull.length;
+export const BEAM = CLS.hull.beam;
+export const DRAFT = CLS.hull.draft;
+
+const P = {
+  armour: 0x4a5158,
+};
+
+const MATS = {};
+function mat(color) {
+  if (!MATS[color]) MATS[color] = new THREE.MeshLambertMaterial({ color });
+  return MATS[color];
+}
+const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
+
+// ------------------------------------------------------------- her lines --
+
+const L = SCULPT_LINES;
+const along = (z) => Math.max(0, Math.min(L.nz - 1.0001, (z - L.z0) / L.dz));
+const lerp = (arr, f) => {
+  const i = Math.floor(f);
+  const u = f - i;
+  return arr[i] * (1 - u) + arr[Math.min(arr.length - 1, i + 1)] * u;
+};
+/** Her station at fraction t of her length, bow +1, as a z. */
+export const zAt = (t) => (t * LOA) / 2;
+/** The bottom of her keel at station t. */
+export function keelY(t) {
+  const f = along(zAt(t));
+  const i = Math.floor(f);
+  const a = L.keel[i] > 50 ? L.keel[Math.min(L.nz - 1, i + 1)] : L.keel[i];
+  const b = L.keel[Math.min(L.nz - 1, i + 1)] > 50 ? a : L.keel[Math.min(L.nz - 1, i + 1)];
+  const u = f - i;
+  return a * (1 - u) + b * u;
+}
+/** The deck over her insides at station t. */
+export function deckOver(t) {
+  return lerp(L.deck, along(zAt(t)));
+}
+/** How far out from her centreline her side is, at station t and height y. */
+export function shellAt(t, y) {
+  const f = along(zAt(t));
+  const g = Math.max(0, Math.min(L.ny - 1.0001, (y - L.y0) / L.dy));
+  const i = Math.floor(f);
+  const j = Math.floor(g);
+  const u = f - i;
+  const v = g - j;
+  const at = (a, b) => L.half[Math.min(L.nz - 1, a) * L.ny + Math.min(L.ny - 1, b)];
+  return (at(i, j) * (1 - u) + at(i + 1, j) * u) * (1 - v)
+    + (at(i, j + 1) * (1 - u) + at(i + 1, j + 1) * u) * v;
+}
+/** Her lines, for the interior and the tests. */
+export const LINES = { loa: LOA, sheer: deckOver, keelY, shellAt, zAt };
+const INNER_BOTTOM = 0.15;
+/** Where her deck is at (0, z): her own surface on the centreline. */
+export const deckAt = (z) => salemSurfaceY(0, z);
+
+// ---------------------------------------------------------------- guns ----
+
+/**
+ * A mounting off the owner's model of it (see gunPiece): what trains stands
+ * at `y`, faces `rest`, and carries its barrels on a cradle about their
+ * trunnions, laid back at the elevation the model stowed them at.
+ */
+function sculpted(g, kind, x, y, z, rest, trainRate, name) {
+  const piece = gunPiece(kind);
+  const m = new THREE.Group();
+  m.position.set(x, y, z);
+  m.rotation.y = rest;
+  m.userData.rest = 0;
+  m.userData.dynamic = true;
+  m.userData.mounting = true;
+  m.userData.trainRate = trainRate;
+  if (name) m.userData.name = name;
+  // Drawn from both sides: a shield is a sheet seen from behind as often as
+  // in front.
+  m.add(new THREE.Mesh(piece.house, salemMaterials().sheet));
+  const cradle = new THREE.Group();
+  cradle.position.set(...piece.trunnion);
+  cradle.rotation.x = -piece.pitch;
+  if (piece.guns) cradle.add(new THREE.Mesh(piece.guns, salemMaterials().sheet));
+  m.add(cradle);
+  arm(m, cradle, piece.muzzles);
+  g.add(m);
+  return m;
+}
+
+/** The seat the build measured for a mounting of her datasheet, by where it is. */
+function seatFor(list, x, z, what) {
+  let best = null, bd = Infinity;
+  for (const s of list) {
+    const d = Math.hypot(s.x - x, s.z - z);
+    if (d < bd) { bd = d; best = s; }
+  }
+  if (!best || bd > 0.6) throw new Error(`the Des Moines has a ${what} at ${x}, ${z} her model does not`);
+  return best;
+}
+
+function mainBattery(g) {
+  const turrets = CLS.turrets.map((t) => {
+    const s = seatFor(MOUNT_SEATS.main, t.x, t.z, 'turret');
+    return sculpted(g, 'main', s.x, s.y, s.z, t.angle, CLS.gun.traverse, t.name);
+  });
+  g.userData.turrets = turrets;
+  return turrets;
+}
+
+const stowed = (m) => (m.rest === undefined ? m.angle : m.rest);
+
+function mountings(g) {
+  const sec = CLS.secondary.mounts.map((spec) => {
+    const s = seatFor(MOUNT_SEATS.sec, spec.x, spec.z, '5 in/38');
+    const m = sculpted(g, 'sec', s.x, s.y, s.z, stowed(spec), CLS.secondary.traverse);
+    m.userData.sector = { angle: spec.angle, arc: spec.arc, stow: stowed(spec) };
+    return m;
+  });
+  const aa = [];
+  const lights = lightMounts(CLS);
+  for (const gun of CLS.aa.guns) {
+    const kind = gun.piece || (gun.role === 'dp' ? 'dp' : 'aa');
+    for (const spec of gun.mounts) {
+      const s = seatFor(MOUNT_SEATS[kind], spec.x, spec.z, `${gun.caliber} mm`);
+      const a = sculpted(g, kind, s.x, s.y, s.z, stowed(spec), kind === 'tri' ? 0.6 : 0.9);
+      a.userData.sector = { angle: spec.angle, arc: spec.arc, stow: stowed(spec) };
+      a.userData.stops = gun.elev || null;
+      a.userData.lift = spec.lift || null;
+      aa.push(a);
+    }
+  }
+  if (aa.length !== lights.length) throw new Error('the Des Moines built a light battery her datasheet does not list');
+  g.userData.secMounts = sec;
+  g.userData.aaMounts = aa;
+  return { sec, aa };
+}
+
+// ------------------------------------------------------------ her armour --
+
+/**
+ * Her armour, as structure inside the ship: none of it to be seen while her
+ * plating is whole, all of it when a shell has opened her up. The Des Moines
+ * carried the Baltimores' scheme, thickened:
+ *
+ *   the side          six inches over her machinery and her magazines,
+ *                     tapering to four at its foot, from her armour deck
+ *                     down under her waterline
+ *   the armour deck   three and a half inches over it
+ *   the box citadels  round her magazines fore and aft
+ *   the bulkheads     that close each box at both ends
+ */
+const BELT = [-48, 36];
+const MAGAZINES = [[38, 66], [-64, -46]];
+const ARMOUR_DECK = 3.4;
+const BELT_FOOT = -2.0;
+
+function armour(g) {
+  const inside = (o) => { o.userData.inside = true; return o; };
+  const at = (z, y, in_) => Math.max(0.4, shellAt((2 * z) / LOA, y) - in_);
+  const N = 32;
+  const box = (z0, z1, top, foot, inset) => {
+    const side = strip();
+    for (let i = 0; i < N; i++) {
+      const za = z0 + ((z1 - z0) * i) / N;
+      const zb = z0 + ((z1 - z0) * (i + 1)) / N;
+      for (const sgn of [-1, 1]) {
+        side.quad([sgn * at(za, top, inset), top, za], [sgn * at(za, foot, inset), foot, za],
+          [sgn * at(zb, foot, inset), foot, zb], [sgn * at(zb, top, inset), top, zb],
+          [-sgn, 0, 0]);
+      }
+    }
+    inside(side.mesh(g, M.armour));
+    for (const up of [true, false]) {
+      inside(sheet(g, M.armour, z0, z1, (z) => at(z, top, inset), () => top + (up ? 0.05 : -0.05), 24, up));
+    }
+    for (const z of [z0, z1]) {
+      const bh = strip();
+      const ys = [];
+      for (let y = foot; y < top; y += 1.0) ys.push(y);
+      ys.push(top);
+      for (let i = 0; i < ys.length - 1; i++) {
+        const wa = at(z, ys[i], inset + 0.3), wb = at(z, ys[i + 1], inset + 0.3);
+        for (const face of [1, -1]) {
+          bh.quad([-wa, ys[i], z], [wa, ys[i], z], [wb, ys[i + 1], z], [-wb, ys[i + 1], z], [0, 0, face]);
+        }
+      }
+      inside(bh.mesh(g, M.armour));
+    }
+  };
+  // The belt and its deck over her boiler and engine rooms.
+  box(BELT[0], BELT[1], ARMOUR_DECK, BELT_FOOT, 0.4);
+  // And her magazines, boxed in below her waterline.
+  for (const [z0, z1] of MAGAZINES) box(z0, z1, 0.6, -4.0, 2.0);
+}
+
+// --------------------------------------------------------------- screws --
+
+// Her four screws, each as the model drew it, on the end of its shaft: the
+// wing pair forward and the inner pair further aft.
+let screwGeo = null;
+function screws(g) {
+  if (!screwGeo) screwGeo = SCREWS.map((s) => decodePiece(s.piece));
+  SCREWS.forEach((s, i) => {
+    const hub = new THREE.Group();
+    hub.position.set(s.x, s.y, s.z);
+    hub.userData.dynamic = true;
+    hub.userData.screw = { hand: s.x < 0 ? -1 : 1 };
+    hub.add(new THREE.Mesh(screwGeo[i], salemMaterials().sheet));
+    g.add(hub);
+  });
+}
+
+// ---------------------------------------------------------------- build ----
+
+const STATIC = [
+  ['hullModel', buildSalemHull],
+  ['armour', armour],
+  ['screws', screws],
+];
+
+export function buildDesMoines() {
+  const g = new THREE.Group();
+  for (const [, build] of STATIC) build(g);
+  buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + INNER_BOTTOM, sheer: deckOver, zAt });
+  mergeStatic(g, bySection(LOA));
+  const turrets = mainBattery(g);
+  mountings(g);
+  mergeMoving(g);
+  g.userData.classId = 'desmoines';
+  dressShip(g);
+  return {
+    group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
+    secMounts: g.userData.secMounts || [],
+    aaMounts: g.userData.aaMounts || [],
+  };
+}
+
+/** Every piece of her and where it sits, for the tests. */
+export function desMoinesParts() {
+  const parts = [];
+  const builders = [...STATIC, ['mainBattery', mainBattery], ['mountings', mountings]];
+  for (const [name, build] of builders) {
+    const g = new THREE.Group();
+    build(g);
+    g.updateMatrixWorld(true);
+    g.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      let moving = false;
+      for (let n = o; n; n = n.parent) if (n.userData && n.userData.dynamic) { moving = true; break; }
+      o.geometry.computeBoundingBox();
+      const lb = o.geometry.boundingBox;
+      const bb = lb.clone().applyMatrix4(o.matrixWorld);
+      parts.push({
+        from: name,
+        min: [bb.min.x, bb.min.y, bb.min.z],
+        max: [bb.max.x, bb.max.y, bb.max.z],
+        size: [lb.max.x - lb.min.x, lb.max.y - lb.min.y, lb.max.z - lb.min.z],
+        moving,
+      });
+    });
+  }
+  return parts;
+}

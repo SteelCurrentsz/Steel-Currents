@@ -185,6 +185,23 @@ const HULLS = {
     <path d="M54 28 L55 15 L59 15 L59 28 Z"/>
     <rect x="62" y="22" width="9" height="8"/>
     <rect x="80" y="26" width="8" height="4"/>`,
+  // The Des Moines: a long flush deck sheered up to her bow, two triple
+  // turrets forward, the inner one superfiring with a twin 5 in over it, a
+  // tall block bridge, a lattice-topped foremast, two funnels close together
+  // with a mainmast between them, and one triple turret aft under a twin 5 in.
+  desmoines: `
+    <path d="M2 27 L20 29 L98 29 L95 37 L6 37 Z"/>
+    <rect x="20" y="25" width="8" height="4"/>
+    <rect x="27" y="22" width="8" height="4"/>
+    <rect x="34" y="19" width="5" height="4"/>
+    <rect x="38" y="14" width="10" height="15"/>
+    <rect x="49" y="5" width="1.8" height="14"/>
+    <path d="M51 29 L52 15 L56 15 L56 29 Z"/>
+    <rect x="58" y="10" width="1.6" height="19"/>
+    <path d="M61 29 L62 17 L65 17 L65 29 Z"/>
+    <rect x="66" y="22" width="9" height="7"/>
+    <rect x="67" y="19" width="5" height="4"/>
+    <rect x="73" y="25" width="8" height="4"/>`,
   // The Leviathan: a long cruiser hull, a tall bridge forward, two big
   // funnels with a lattice mast abaft each, and four quadruple turrets, two
   // at each end, the inner ones superfiring.

@@ -10846,6 +10846,141 @@ export const SHIP_CLASSES = {
       ],
     },
   },
+  desmoines: {
+    // USS Des Moines, the name ship of the last all-gun heavy cruisers the
+    // United States built, and the fastest-firing: nine 8 in/55 Mk 16 in
+    // three triple turrets -- A and B forward, B superfiring; C aft -- the
+    // first 8 in to load cased rounds automatically at any elevation, ten a
+    // minute a gun, three times what a Baltimore's could. Completed in 1948,
+    // she and her sister Salem served out the 1950s in the Mediterranean as
+    // flagships of the Sixth Fleet; they were the last of the gun cruisers as
+    // the missile came in.
+    //
+    // She is drawn from the owner's model of her sister (see desmoines.js and
+    // build/prepare-salem-hull.mjs) -- "USS Salem (CA-139)" by kriss50, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen --
+    // brought up to her 218.4 m over all and floated at her mean draught of
+    // 7.0 m. She is armed as the class was completed: her nine 8 in, twelve
+    // 5 in/38 in six twin mountings, twenty 3 in/50 in ten twin mountings and
+    // eight single 20 mm Oerlikons.
+    id: 'desmoines',
+    name: 'Des Moines',
+    fullName: 'USS Des Moines',
+    className: 'Des Moines',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'usa',
+    blurb: 'Nine automatic eight-inch guns firing ten rounds a minute apiece: the last and fastest-shooting gun cruiser ever built.',
+    hull: {
+      // Where her two funnels come out, [across, along, up] in metres off
+      // her model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, -7, 26.0], [0, -27, 24.4]], length: 218.4, beam: 23.3, draft: 7.0, superstructure: 1.3 },
+    hp: 39000,
+    // Thirty-three knots off a hundred and twenty thousand horsepower.
+    maxSpeed: 33 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.8,
+    turnRate: 0.075,
+    rudderShift: 7.0,
+    speedLossInTurn: 0.2,
+    concealment: 12400,
+    fireDetectPenalty: 4800,
+    // SPS-6 air search, SG-6 surface search, and Mk 13 and Mk 25 fire control.
+    radarRange: 15000,
+    repairCooldown: 80,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // Six inches of belt tapering to four at its foot, three and a half of
+    // armoured deck, and eight inches on her turret faces.
+    armor: { belt: 152, deck: 89, citadel: 152, bow: 25, superstructure: 20 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, C on her quarterdeck
+      // facing astern, each where the model stood it (see
+      // build/prepare-salem-hull.mjs).
+      { id: 0, name: 'A', x: 0, z: 58.398, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 9.46 },
+      { id: 1, name: 'B', x: 0, z: 43.764, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 12.13 },
+      { id: 2, name: 'C', x: 0, z: -54.71, angle: 3.14, arc: 2.6, rest: Math.PI, guns: 3, my: 9.68 },
+    ],
+    gun: {
+      name: '8"/55 Mk 16 RF', role: 'surface',
+      // Five below the horizontal to forty-one up.
+      elev: { min: -0.087, max: 0.72 },
+      // Pivot to muzzle on the model's turret.
+      reach: 12.89,
+      // The rapid-fire Mk 16: cased ammunition and an automatic loader, ten
+      // rounds a minute a gun at any elevation, the 335 lb super-heavy shell.
+      caliber: 203, reload: 6, traverse: 0.22, range: 18600, sigma: 1.5,
+      shells: shells(203, 5400, 3200, 290, 762, 0.13),
+    },
+    torpedoes: null,
+    // Twelve 5 in/38 in six twin Mk 38 mountings: one on her centreline at
+    // either end of her superstructure, superfiring over B and C, and two a
+    // side -- abreast her bridge facing ahead, abreast her after
+    // superstructure facing astern.
+    secondary: {
+      name: '5"/38 Mk 12', role: 'dp',
+      // Fifteen below the horizontal to eighty-five up.
+      elev: { min: -0.26, max: 1.48 },
+      reach: 5.24,
+      caliber: 127, reload: 3.8, traverse: 0.44, range: 8200, sigma: 1.15,
+      shells: shells(127, 1900, 1650, 76, 792, 0.07),
+      mounts: [
+        { x: 0, z: 31.457, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 14.82 },
+        { x: -8.471, z: 20.998, angle: -1.57, arc: 1.98, rest: 0, guns: 2, my: 9.6 },
+        { x: 8.471, z: 20.998, angle: 1.57, arc: 1.98, rest: 0, guns: 2, my: 9.6 },
+        { x: -9.35, z: -25.108, angle: -1.61, arc: 2.1, rest: -Math.PI, guns: 2, my: 9.66 },
+        { x: 9.35, z: -25.108, angle: 1.61, arc: 2.1, rest: Math.PI, guns: 2, my: 9.66 },
+        { x: 0, z: -42.386, angle: 3.14, arc: 2.6, rest: Math.PI, guns: 2, my: 12.24 },
+      ],
+    },
+    aa: {
+      range: 6000, dps: 78,
+      guns: [
+        // Her ten twin 3 in/50 Mk 33s: four a side about her superstructure,
+        // and a pair on her fantail.
+        { name: '3"/50 Mk 22', caliber: 76, role: 'dp', reload: 1.3, range: 6000, piece: 'tri',
+          elev: { min: -0.26, max: 1.48 },
+          mounts: [
+            { x: -7.211, z: 13.811, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 2, my: 13.77 },
+            { x: 7.211, z: 13.811, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 2, my: 13.77 },
+            { x: -7.997, z: 4.045, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 2, my: 13.3 },
+            { x: 7.997, z: 4.045, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 2, my: 13.3 },
+            { x: -8.535, z: -10.036, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 2, my: 13.33 },
+            { x: 8.535, z: -10.036, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 2, my: 13.33 },
+            { x: -6.433, z: -17.86, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 2, my: 13.49 },
+            { x: 6.433, z: -17.86, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 2, my: 13.49 },
+            { x: -5.055, z: -104.732, angle: -2.6, arc: 1.6, rest: -Math.PI, guns: 2, my: 11.32 },
+            { x: 5.055, z: -104.732, angle: 2.6, arc: 1.6, rest: Math.PI, guns: 2, my: 11.32 },
+          ] },
+        // Her eight single Oerlikons: a pair on her forecastle abreast B, a
+        // pair abreast her bridge, a pair abreast C's barbette and a pair on
+        // her quarterdeck.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, piece: 'oer',
+          mounts: [
+            { x: -8.59, z: 37.285, angle: -1.57, arc: 1.7, rest: -1.5708, guns: 1, my: 9.18 },
+            { x: 8.59, z: 37.285, angle: 1.57, arc: 1.7, rest: 1.5708, guns: 1, my: 9.18 },
+            { x: -5.116, z: 27.93, angle: -1.57, arc: 1.7, rest: -1.5708, guns: 1, my: 11.77 },
+            { x: 5.116, z: 27.93, angle: 1.57, arc: 1.7, rest: 1.5708, guns: 1, my: 11.77 },
+            { x: -7.122, z: -35.483, angle: -1.57, arc: 1.7, rest: -1.5708, guns: 1, my: 9.33 },
+            { x: 7.122, z: -35.483, angle: 1.57, arc: 1.7, rest: 1.5708, guns: 1, my: 9.22 },
+            { x: -8.906, z: -67.332, angle: -1.57, arc: 1.7, rest: -1.5708, guns: 1, my: 9.49 },
+            { x: 8.906, z: -67.332, angle: 1.57, arc: 1.7, rest: 1.5708, guns: 1, my: 9.49 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 17255,
+      aircraft: 0,
+      mainRounds: 1350,
+      secondary: { caliber: 127, label: '5"', barrels: 12, rounds: 6000 },
+      tertiary: [
+        { caliber: 76, label: '3"', barrels: 20, rounds: 12000, role: 'dp' },
+        { caliber: 20, label: '20mm', barrels: 8, rounds: 19200 },
+      ],
+    },
+  },
+
   leviathan: {
     // HMS Leviathan, a British super heavy cruiser: a cruiser hull brought up
     // to 210 m to carry sixteen 8 in in four quadruple turrets -- A and B
@@ -12852,19 +12987,19 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
- * yard opens: the Great War's hulls, the Second World War's, or the missile
- * age's. A hull is modern if she
+ * yard opens: the Great War's hulls, the Second World War's, or the post-war
+ * and missile age's. A hull is modern if she
  * sails as she was after 1945 (Missouri as recommissioned in 1991, the Nimitz, Leviathan, the
- * Ticonderoga, the Guangzhou, the Sovremenny, the Slava and the Arleigh Burke); everything
- * else is WWII.
+ * Des Moines, the Ticonderoga, the Guangzhou, the Sovremenny, the Slava and the Arleigh
+ * Burke); everything else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'burke', 'ticonderoga', 'leviathan', 'missouri', 'nimitz']);
+export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz']);
 // And the Great War's: the dreadnoughts that sailed as they were before 1919.
 export const WWI_SHIPS = new Set(['agincourt']);
 // And the ships that are not warships at all, whatever war they sailed in:
