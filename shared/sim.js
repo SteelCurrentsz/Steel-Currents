@@ -25,6 +25,7 @@ import {
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
 import { stepInfantry, blastInfantry } from './infantry.js';
+import { planRoute } from './tankroute.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa, mortarFlight, isTank, tankRoom,
 } from './batteries.js';
@@ -4992,7 +4993,7 @@ export function driveHull(state, bat, T, th, st, speedK, dt) {
   // A tank labours up a slope and runs on down one: what the engine can give
   // it on the level falls away as the hill steepens.
   const up = Math.max(0, grade) / TANK_MAX_GRADE;
-  const pull = clamp(1 - up * 0.6, 0.38, 1) * (1 + clamp(-grade, 0, 0.6) * 0.35);
+  const pull = clamp(1 - up * 0.55, 0.45, 1) * (1 + clamp(-grade, 0, 0.6) * 0.35);
   const want = (th >= 0 ? th * T.speed : th * T.reverse) * pull * speedK;
   // Easing on and off the throttle rather than snapping to it, and harder
   // on the brakes than on the gas.
@@ -5322,12 +5323,12 @@ function tankNearMiss(state, sh, bat) {
 
 /**
  * The steepest a tank will climb, as rise over run, read along the whole of
- * its hull: two in one, a little over sixty degrees. Steeper than a real
- * Sherman would take on, but the ground here is a coarse field, and a tank
- * that sticks on every hillside and lip of a crater is no use to anybody.
- * Going down it will take anything it will not tumble off.
+ * its hull: two and three-quarters in one, about seventy degrees. Far steeper
+ * than a real Sherman would take on, but the ground here is a coarse field,
+ * and a tank that sticks on every hillside, dune and lip of a crater is no
+ * use to anybody. Going down it will take anything it will not tumble off.
  */
-export const TANK_MAX_GRADE = 2.0;
+export const TANK_MAX_GRADE = 2.75;
 
 /** How long a tank's hull takes to get swinging, or stop swinging, in seconds. */
 const TANK_YAW_LAG = 0.22;
@@ -5402,8 +5403,9 @@ function tankFoe(state, bat, gun) {
     const d = dist(bat.x, bat.z, o.x, o.z);
     // Nearest first, but a tank or a gun that can shoot back counts as
     // nearer than a ship the same distance off, and anything past the gun's
-    // reach a good deal further off than it is.
-    const v = d * k * (d > gun.range ? 1.6 : 1);
+    // reach a good deal further off than it is -- a ship out of reach most of
+    // all, since all he can do about one is sit on the beach and wait for it.
+    const v = d * k * (d > gun.range ? (o.classId != null ? 2.6 : 1.6) : 1);
     if (v < bestV) { bestV = v; best = o; }
   };
   for (const s of state.ships) if (s.alive && s.team !== bat.team) look(s, 1);
@@ -5493,12 +5495,73 @@ function tankOpen(state, bat, T, h) {
     const g = tankGround(world, x, z);
     // Into the shallows it will go if it must, but not out of its depth.
     if (g < -T.wade * 0.5) return false;
-    if ((g - prevG) / (d - prevD) > TANK_MAX_GRADE * 0.9) return false;
+    if ((g - prevG) / (d - prevD) > TANK_MAX_GRADE) return false;
     if (town && worksFloor(world, x, z).blocked) return false;
     prevD = d;
     prevG = g;
   }
   return true;
+}
+
+/** How often a tank on the move reads its map again, in seconds. */
+const TANK_REROUTE = 15;
+
+/**
+ * The way to go next along the road he has picked to `goal` (see
+ * tankroute.js), reading the map again when the goal has moved, the route is
+ * old or he has strayed off it. Null when he is at the end of a route that
+ * stops short -- the water's edge, as near as the land gets him to it.
+ */
+function tankRouteHeading(state, bat, T, ai, goal) {
+  const dGoal = dist(bat.x, bat.z, goal.x, goal.z);
+  if (dGoal < 30) return headingTo(bat.x, bat.z, goal.x, goal.z);
+  let r = ai.route;
+  const stale = !r || dist(r.gx, r.gz, goal.x, goal.z) > Math.max(40, dGoal * 0.25)
+    // Old -- but not when it is already sitting at the water's edge it was
+    // making for, where reading the map again finds the same beach.
+    || (state.t > r.at + TANK_REROUTE && (r.reached || !r.pts.length
+      || dist(bat.x, bat.z, r.pts[r.pts.length - 1].x, r.pts[r.pts.length - 1].z) > 30))
+    || (r.pts.length && r.k < r.pts.length && dist(bat.x, bat.z, r.pts[r.k].x, r.pts[r.k].z) > 90);
+  // One map read a tick, between all the tanks on the field.
+  if (stale && state._tankRouteT !== state.t) {
+    state._tankRouteT = state.t;
+    const p = planRoute(state.world, bat, goal, {
+      ground: (x, z) => tankGround(state.world, x, z),
+      wade: T.wade, grade: TANK_MAX_GRADE, width: T.width,
+    });
+    r = ai.route = { pts: p ? p.pts : [], reached: p ? p.reached : true, k: 0, gx: goal.x, gz: goal.z, at: state.t };
+  }
+  if (!r || !r.pts.length) {
+    if (r && !r.reached) return null;
+    return headingTo(bat.x, bat.z, goal.x, goal.z);
+  }
+  // On to the nearest of the next few points, and past it once he is on it.
+  let k = r.k;
+  let kd = Infinity;
+  for (let j = r.k; j < Math.min(r.pts.length, r.k + 5); j++) {
+    const d = dist(bat.x, bat.z, r.pts[j].x, r.pts[j].z);
+    if (d < kd) { kd = d; k = j; }
+  }
+  while (k < r.pts.length - 1 && dist(bat.x, bat.z, r.pts[k].x, r.pts[k].z) < 14) k++;
+  r.k = k;
+  const p = r.pts[k];
+  if (k === r.pts.length - 1 && dist(bat.x, bat.z, p.x, p.z) < 14) {
+    if (!r.reached) return null;
+    return headingTo(bat.x, bat.z, goal.x, goal.z);
+  }
+  return headingTo(bat.x, bat.z, p.x, p.z);
+}
+
+/** The nearest of the enemy's men ashore, to go and find when there is nothing bigger to go after. */
+function tankInfantryFoe(state, bat) {
+  let best = null;
+  let bestD = 5000;
+  for (const s of state.soldiers || []) {
+    if (!s.alive || s.team === bat.team || s.aboard) continue;
+    const d = dist(bat.x, bat.z, s.x, s.z);
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  return best;
 }
 
 /** The commander's orders to his driver this tick: throttle and steering, as a player's stick gives them. */
@@ -5546,6 +5609,8 @@ function planTank(state, bat, T, gun, ai) {
   else ai.stuck = 0;
   if (ai.stuck >= 4) {
     ai.stuck = 0;
+    // And read the map again from where he has got to.
+    ai.route = null;
     ai.side = -ai.side;
     ai.back = 1.4;
     ai.th = 0;
@@ -5558,6 +5623,8 @@ function planTank(state, bat, T, gun, ai) {
   const ok = tankOk(bat);
   let want = bat.heading;
   let th = 0;
+  // Where it is driving to, by the roads it has picked across the map.
+  let goal = null;
   // With its own side's infantry ashore, it goes with them: up behind the
   // nearest squad and where they are going, unless it has something in its
   // sights to fight first, or is too knocked about to be any use to them.
@@ -5570,6 +5637,7 @@ function planTank(state, bat, T, gun, ai) {
     // it is there, turned the way they are going.
     th = d > 120 ? 1 : d > 45 ? 0.6 : d > 22 ? 0.3 : 0;
     if (th === 0) want = men.h;
+    else goal = men;
     ai.follow = men.sq;
   } else if (foe) {
     const d = dist(bat.x, bat.z, foe.x, foe.z);
@@ -5591,6 +5659,7 @@ function planTank(state, bat, T, gun, ai) {
       // drive nose first down the enemy's sights.
       want = to + ai.side * 0.25;
       th = 1;
+      goal = foe;
     } else if (close && d < 140) {
       // Too close to lay on: open the range again, still crossing.
       want = to + Math.PI - ai.side * 0.6;
@@ -5603,6 +5672,12 @@ function planTank(state, bat, T, gun, ai) {
       want = ok.traverse === 0 ? to : to + ai.side * 1.35;
       th = ok.traverse === 0 ? 0.15 : 0.5;
     }
+  } else if ((goal = tankInfantryFoe(state, bat))) {
+    // No gun or tank of theirs left, but their men are ashore: into the
+    // fight after them, its machine guns doing the work.
+    want = headingTo(bat.x, bat.z, goal.x, goal.z);
+    const d = dist(bat.x, bat.z, goal.x, goal.z);
+    th = d > 120 ? 1 : d > 50 ? 0.4 : 0;
   } else if (state.t > ai.sideAt) {
     // Nothing to go after: a slow look round the ground it is holding.
     ai.sideAt = state.t + 8 + state.rng() * 10;
@@ -5612,6 +5687,13 @@ function planTank(state, bat, T, gun, ai) {
   } else {
     want = ai.head;
     th = ai.th;
+  }
+  // Along the road it has picked rather than straight at it, and holding at
+  // the water's edge when the road runs out short of it.
+  if (goal && th > 0) {
+    const h = tankRouteHeading(state, bat, T, ai, goal);
+    if (h == null) th = 0;
+    else want = h;
   }
   // The nearest line to the one it wants that it can actually drive along.
   want = wrapAngle(want);

@@ -493,7 +493,9 @@ import {
   cityPlan, wallAt, worksFloor, stageOf, STAGE, standingHeight, inFootprint, SURF, worldToCity,
   applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
   worksTargets, worksTarget, townTargetId, wallTargetId, wallHp, WALL_SCARS,
+  cityToWorld, surfaceAt, buildingAt,
 } from '../shared/works.js';
+import { planRoute } from '../shared/tankroute.js';
 import { packData } from '../build/pack-data.mjs';
 import { gunzip, unpack } from '../client/js/unpack.js';
 // The sculpted ships are fetched on demand in the browser; here, all of them up front.
@@ -29520,6 +29522,67 @@ check('a battery put down in the town has the houses on its site pulled down, an
   assert.ok(world.ruin.b[b.id]?.c, 'the flats were left standing in the gun pit');
   assert.ok(Math.abs(bat.y - plan.level - 1.2) < 1.5, `the gun stands at ${bat.y} over a town at ${plan.level}`);
   assert.ok(!worksFloor(world, b.x, b.z).blocked, 'the cleared site is still in the way');
+});
+
+check('a tank left to its crew picks its road through the town along the streets', () => {
+  const world = islandTown();
+  const plan = cityPlan(world);
+  const a = cityToWorld(plan.city, -plan.W * 0.45, -plan.D * 0.45);
+  const b = cityToWorld(plan.city, plan.W * 0.45, -plan.D * 0.1);
+  const T = TANKS.sherman.tank;
+  const r = planRoute(world, a, b, {
+    ground: (x, z) => tankGround(world, x, z), wade: T.wade, grade: TANK_MAX_GRADE, width: T.width,
+  });
+  assert.ok(r && r.reached, 'it found no way across the town');
+  const home = buildingAt(world, a.x, a.z, 0);
+  let road = 0;
+  let n = 0;
+  let prev = a;
+  for (const p of r.pts) {
+    const L = Math.hypot(p.x - prev.x, p.z - prev.z);
+    for (let s = 0; s < L; s += 2) {
+      const x = prev.x + (p.x - prev.x) * s / L;
+      const z = prev.z + (p.z - prev.z) * s / L;
+      n++;
+      if (surfaceAt(world, x, z) === SURF.road) road++;
+      // (Out of the house it is put down in -- which comes down round it -- and through no other.)
+      const h = buildingAt(world, x, z, 0);
+      assert.ok(!h || h === home, 'its road runs through a house');
+    }
+    prev = p;
+  }
+  assert.ok(road / n > 0.6, `only ${Math.round(road / n * 100)}% of its road is on the streets`);
+  // And driven: it goes across the town to the enemy and keeps to the streets doing it.
+  const st = createState(world, { mode: 'deathmatch' });
+  const t = addBattery(st, { batteryId: 'sherman', team: 0, x: a.x, z: a.z, heading: 0 });
+  const e = addBattery(st, { batteryId: 'sherman', team: 1, x: b.x, z: b.z, heading: 0 });
+  const d0 = Math.hypot(t.x - e.x, t.z - e.z);
+  let on = 0;
+  let k = 0;
+  for (let i = 0; i < 30 * 60; i++) {
+    step(st);
+    if (i % 15 === 0) { k++; if (surfaceAt(world, t.x, t.z) === SURF.road) on++; }
+  }
+  assert.ok(Math.hypot(t.x - e.x, t.z - e.z) < d0 * 0.5, 'it did not get across the town');
+  assert.ok(on / k > 0.4, `it was on the streets only ${Math.round(on / k * 100)}% of the time`);
+});
+
+check('a tank going after something across the water drives to the shore facing it and stops there', () => {
+  const world = generateWorld(77, 'archipelago');
+  const land = world.islands.reduce((p, q) => ((q.r || 0) > (p.r || 0) ? q : p));
+  let from = null;
+  for (let r = land.r * 1.3; r > 30 && !from; r -= 5) {
+    if (tankGround(world, land.x + r, land.z) > 0.5) from = { x: land.x + r, z: land.z };
+  }
+  const sea = { x: land.x - land.r * 1.6, z: land.z };
+  const T = TANKS.sherman.tank;
+  const r = planRoute(world, from, sea, {
+    ground: (x, z) => tankGround(world, x, z), wade: T.wade, grade: TANK_MAX_GRADE, width: T.width,
+  });
+  assert.ok(r && !r.reached, 'it thinks it can drive out to sea');
+  assert.ok(tankGround(world, r.end.x, r.end.z) > -T.wade, 'its road ends in deep water');
+  assert.ok(Math.hypot(r.end.x - sea.x, r.end.z - sea.z) < Math.hypot(from.x - sea.x, from.z - sea.z) - land.r,
+    'its road does not take it across the island to the shore facing the sea');
 });
 
 check('a tank put down in the town pulls down the house it was put on, and drives off', () => {
