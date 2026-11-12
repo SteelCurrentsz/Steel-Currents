@@ -21,6 +21,7 @@ import { clamp, dist, headingTo, wrapAngle, angleDelta } from '../shared/math.js
 import { getClass } from '../shared/ships.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { heavyWingTarget } from '../shared/groups.js';
+import { callEscort, canCallEscort } from '../shared/sim.js';
 
 /** How long a contact is worth anything after the last report of it. */
 const STALE = 45;
@@ -637,6 +638,38 @@ function orderHeavies(state, staff, seen) {
   }
 }
 
+/** How near an enemy aeroplane has to be for a bot side's heavies to call fighters. */
+const ESCORT_THREAT = 15000;
+/** And how many of its heavy squadrons a bot side keeps fighters with at once. */
+const ESCORT_CALLS = 3;
+
+/**
+ * Fighter escort for a side's heavies, when nobody of that side is giving the
+ * orders himself.
+ *
+ * A heavy squadron with enemy aircraft about it calls for fighters, if its
+ * side has a carrier to send them -- only a few at a time, because every
+ * escort is a squadron's fighters that are not with the carrier strikes. On
+ * her way home she stands them down.
+ */
+function orderEscorts(state, staff) {
+  if (state.ships.some((s) => s.team === staff.team && !s.isBot)) return;
+  const own = (state.bombers || []).filter((bm) => bm.alive && bm.team === staff.team);
+  if (!own.length) return;
+  for (const bm of own) {
+    if (bm.escortCall && bm.phase === 'home') callEscort(state, staff.team, bm.id, false);
+  }
+  if (!canCallEscort(state, staff.team)) return;
+  let calls = own.filter((bm) => bm.escortCall).length;
+  for (const bm of own) {
+    if (calls >= ESCORT_CALLS) break;
+    if (bm.escortCall || bm.phase === 'home') continue;
+    const threat = state.planes.some((p) => !p.dead && p.team !== staff.team
+      && dist(p.x, p.z, bm.x, bm.z) < ESCORT_THREAT);
+    if (threat && callEscort(state, staff.team, bm.id, true)) calls += 1;
+  }
+}
+
 /**
  * One turn of the staff's thought, for one side.
  *
@@ -650,6 +683,7 @@ export function stepStaff(state, staff, dt) {
   if (staff.think > 0) return;
   staff.think = THINK;
   appreciate(state, staff);
+  orderEscorts(state, staff);
 }
 
 /**

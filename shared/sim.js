@@ -11212,7 +11212,7 @@ export function cruiseOf(P, f) {
 /** No nearer than this: closer than her own deck run is not a target. */
 export const MIN_STRIKE_RANGE = 1200;
 
-export function launchStrike(state, ship) {
+export function launchStrike(state, ship, escortFor = 0) {
   const cls = shipClass(ship);
   if (!cls.planes || !ship.alive) return false;
   if (ship.deckBusy > 0) return false;
@@ -11236,22 +11236,27 @@ export function launchStrike(state, ship) {
   // to run down. Until the last of it is off, a launch is the next of it.
   const load = ship.deckload > 0 ? ship.squadrons.find((s) => s.deckload) : null;
   if (load && load.state !== 'deck') return false;
+  // An escort for a heavy squadron is fighters only, and a deckload has none.
+  if (escortFor && load) return false;
   const sq = load || ship.squadrons.find((s) => s.state === 'deck' && s.cooldown <= 0 && !s.deckload);
   if (!sq) return false;
+  // An escort is sent to the heavies it is escorting, wherever they are now.
+  const escortee = escortFor
+    ? (state.bombers || []).find((q) => q.id === escortFor && q.alive && q.team === ship.team) : null;
+  if (escortFor && !escortee) return false;
+  const aimX = escortee ? escortee.x : ship.aimX;
+  const aimZ = escortee ? escortee.z : ship.aimZ;
   // As far as she is told to send them: there is no limit on how far out a
   // captain may order his aircraft.
-  const d = dist(ship.x, ship.z, ship.aimX, ship.aimZ);
+  const d = dist(ship.x, ship.z, aimX, aimZ);
   if (!Number.isFinite(d)) return false;
   // And not at a point on top of her. A squadron sent to where it already is
   // arrives on the next tick and is recovered on the one after -- the aircraft
   // is still on the lift when the simulation has already flown it out and
-  // brought it home, which is not a strike, it is a bookkeeping entry.
-  if (d < MIN_STRIKE_RANGE) return false;
-  sq.state = 'flying';
-  // Where she was sent, for any of it that comes home and is sent out again.
-  sq.tx = ship.aimX;
-  sq.tz = ship.aimZ;
-  ship.deckBusy = cls.planes.deckCycle ?? DECK_CYCLE;
+  // brought it home, which is not a strike, it is a bookkeeping entry. An
+  // escort is the exception: it is going to the heavies, not to the point,
+  // and they may well be overhead.
+  if (d < MIN_STRIKE_RANGE && !escortee) return false;
   // The order is not the launch. Pressing it rings the deck: the lift fetches
   // her up, she taxis forward, runs up against the brakes and goes down the
   // deck, and only when her wheels leave the planking is there an aeroplane in
@@ -11282,7 +11287,12 @@ export function launchStrike(state, ship) {
   // A group small enough to round away to nothing still sends what it has:
   // otherwise a captain who embarked two torpedo bombers watches a squadron
   // fly out, find the enemy and drop nothing at all.
-  if (fighters + bomb + torp === 0) {
+  // An escort is the fighters and nothing else. The squadron's bombers stay
+  // below; a fighter squadron that rounded to none still sends one.
+  if (escortee) {
+    bomb = 0; torp = 0;
+    if (fighters <= 0 && (group.fighters | 0) > 0) fighters = 1;
+  } else if (fighters + bomb + torp === 0) {
     if (group.torpedo > 0) torp = 1;
     else if (group.dive > 0) bomb = 1;
     else if (group.fighters > 0) fighters = 1;
@@ -11304,13 +11314,26 @@ export function launchStrike(state, ship) {
       role: 'level', count: 1, torp: 0, bomb: DL.bombs, type: DL.type, deckload: 1,
     }))
     : cls.planes.slots ? slotOrder(cls, group, fighters, bomb, torp) : launchOrder(fighters, bomb, torp);
+  if (escortee) {
+    // Only what flies as a fighter: a slot carrier's `fighters` type may have
+    // been loaded for something else, and that is no escort.
+    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].role !== 'fighter') queue.splice(i, 1);
+    if (!queue.length) return false;
+  }
+  sq.state = 'flying';
+  // Where she was sent, for any of it that comes home and is sent out again.
+  sq.tx = aimX;
+  sq.tz = aimZ;
+  ship.deckBusy = cls.planes.deckCycle ?? DECK_CYCLE;
   if (sq.deckload) fighters = 0;
   // A carrier whose types fly more than one job escorts with whichever of them
   // are flying as fighters.
   if (cls.planes.slots) fighters = queue.filter((f) => f.role === 'fighter').length;
   ship.launching = {
     sqId: sq.id, left: cls.planes.deckRun ?? DECK_RUN,
-    tx: ship.aimX, tz: ship.aimZ,
+    tx: aimX, tz: aimZ,
+    // The heavy squadron this launch is escorting, if that is what it is.
+    escortFor: escortee ? escortee.id : 0,
     // The first aeroplane off the deck leads the strike; the rest form on her.
     // Filled in when she is actually airborne, because until then there is no
     // aeroplane to be the leader.
@@ -11696,6 +11719,8 @@ function stepLaunch(state, ship, dt) {
       // Set while somebody is flying her by hand; see flyPlane.
       flown: false, flownAt: 0, dead: false,
       targetId: 0, targetAir: 0, targetHeavy: 0, targetBat: 0, turn: 0, bank: 0, roll: 0,
+      // The heavy squadron she has been sent up to escort. See escortOf.
+      escortHeavy: L.escortFor || 0,
     };
     // One of a deckload: she bombs on the level, and she does not come back
     // -- nothing that size lands on a carrier. See `away`.
@@ -11854,6 +11879,120 @@ function strikeMark(state, p) {
     x += q.x; z += q.z; n += 1;
   }
   return n ? { x: x / n, z: z / n, n } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Fighter escort for the heavies
+// ---------------------------------------------------------------------------
+//
+// A heavy squadron has gunners and nothing else, and a formation of bombers
+// with fighters about it and none of its own is a formation being taken apart
+// one machine at a time. So a heavy squadron may call for an escort -- if its
+// side has a carrier with fighters embarked to send one. The carrier flies
+// off a squadron's fighters, and nothing else of it, straight to the heavies;
+// they take station on the formation and go after anything of the other side
+// that comes at it, and no further. Stood down, or with the heavies gone, they
+// go home.
+
+/** How far from the heavies an escort goes out to meet something. */
+const ESCORT_REACH = 5500;
+/** And how far she will be drawn off them in a fight before she breaks it off. */
+const ESCORT_LEASH = 8000;
+/** How often a squadron that has called for an escort sees whether it has one. */
+const ESCORT_LOOK = 3;
+/** Patrol endurance on escort, in seconds: a bomber's sortie is a long one. */
+const ESCORT_ENDURANCE = 900;
+
+/** The heavy squadron an escort fighter is with, while it still wants her. */
+function escortOf(state, p) {
+  if (!p.escortHeavy) return null;
+  const bm = (state.bombers || []).find((q) => q.id === p.escortHeavy && q.alive);
+  return bm && bm.team === p.team && bm.escortCall ? bm : null;
+}
+
+/** Her station on the heavies: out on a flank, a little ahead and above. */
+function escortStation(p, bm) {
+  const side = (p.id % 2) ? 1 : -1;
+  const lat = side * (380 + 140 * ((p.slot || 0) % 3)) + Math.sin(p.life * 0.13 + p.id) * 160;
+  const ahead = 220 + Math.cos(p.life * 0.09 + p.id) * 180;
+  const sn = Math.sin(bm.heading || 0);
+  const cs = Math.cos(bm.heading || 0);
+  return { x: bm.x + sn * ahead + cs * lat, z: bm.z + cs * ahead - sn * lat };
+}
+
+/** Whether a ship is a carrier with fighters embarked to send as an escort. */
+function escortDeck(state, s) {
+  if (!s.alive) return false;
+  const cls = shipClass(s);
+  if (cls.type !== 'CV' || !cls.planes) return false;
+  const group = s.airGroup || defaultAirGroup(cls) || cls.planes.flight;
+  return !!group && (group.fighters | 0) > 0;
+}
+
+/** Can this side call an escort at all: does it have a carrier with fighters? */
+export function canCallEscort(state, team) {
+  return state.ships.some((s) => s.team === team && escortDeck(state, s));
+}
+
+/** The fighters with a heavy squadron now, and any on a deck run to join it. */
+export function escortStrength(state, bm) {
+  let n = 0;
+  for (const p of state.planes) {
+    if (!p.dead && p.escortHeavy === bm.id && p.phase === 'outbound') n += p.count || 1;
+  }
+  for (const s of state.ships) {
+    if (s.alive && s.team === bm.team && s.launching && s.launching.escortFor === bm.id) n += 1;
+  }
+  return n;
+}
+
+/**
+ * A heavy squadron calling for fighter escort, or standing it down.
+ *
+ * Returns false when there is no such squadron of the side's, or when it is
+ * calling and its side has no carrier to send one.
+ */
+export function callEscort(state, team, id, on) {
+  const bm = (state.bombers || []).find((q) => q.id === id && q.alive && q.team === team);
+  if (!bm) return false;
+  if (!on) {
+    bm.escortCall = false;
+    return true;
+  }
+  if (!canCallEscort(state, team)) return false;
+  if (!bm.escortCall) bm.escortT = 0;
+  bm.escortCall = true;
+  return true;
+}
+
+/**
+ * Every squadron that has called for an escort and has none with it gets one
+ * off the nearest carrier that can fly it off. Losses and fighters turning for
+ * home are made good the same way, for as long as the call stands.
+ */
+function stepEscortCalls(state, dt) {
+  for (const bm of state.bombers || []) {
+    if (!bm.alive || !bm.escortCall) continue;
+    bm.escortT = (bm.escortT || 0) - dt;
+    if (bm.escortT > 0) continue;
+    bm.escortT = ESCORT_LOOK;
+    if (!canCallEscort(state, bm.team)) {
+      // The last carrier is gone. The call goes with her.
+      bm.escortCall = false;
+      state.events.push({ e: 'escortLost', i: bm.id, tm: bm.team });
+      continue;
+    }
+    if (escortStrength(state, bm) > 0) continue;
+    const decks = state.ships
+      .filter((s) => s.team === bm.team && escortDeck(state, s))
+      .sort((a, b) => dist(a.x, a.z, bm.x, bm.z) - dist(b.x, b.z, bm.x, bm.z));
+    for (const s of decks) {
+      if (launchStrike(state, s, bm.id)) {
+        state.events.push({ e: 'escortUp', i: bm.id, tm: bm.team, ship: s.id });
+        break;
+      }
+    }
+  }
 }
 
 /** Near enough her station to count as joined up. */
@@ -12347,6 +12486,15 @@ function wantedHeight(state, p, carrier, inCompany) {
       return Math.max(60, Math.min(heavy.y, f.ceiling));
     }
   }
+  // On escort, a little above the heavies she is with: the height is what
+  // lets her come down on anything that goes for them.
+  if (p.phase === 'outbound' && p.escortHeavy && !p.targetAir) {
+    const esc = escortOf(state, p);
+    if (esc) {
+      const f = AIRFRAME[p.role] || AIRFRAME.fighter;
+      return Math.max(60, Math.min((esc.y ?? CRUISE_ALT) + 150, f.ceiling));
+    }
+  }
   // In company she flies her leader's height. That is what keeping station
   // means, and without it the flights drift apart in the vertical and then in
   // the horizontal too, because height is speed: one climbing while another is
@@ -12488,6 +12636,27 @@ function shieldTarget(state, p) {
  */
 export function pickAirTarget(state, p) {
   const REACH = 9000;
+  if (p.role === 'fighter' && p.escortHeavy) {
+    // On escort with a heavy squadron: whatever of theirs is in the air near
+    // the heavies, and the nearer it is to them and the more it is pointed at
+    // them, the sooner she goes for it. Nothing further off than that is any
+    // of her business. With nothing coming, her station on the formation.
+    const esc = escortOf(state, p);
+    if (esc) {
+      let air = null;
+      let best = Infinity;
+      for (const q of state.planes) {
+        if (q.dead || q.team === p.team || !mayHurt(state, p.team, q)) continue;
+        const d = dist(esc.x, esc.z, q.x, q.z);
+        if (d > ESCORT_REACH) continue;
+        const off = Math.abs(angleDelta(q.heading || 0, headingTo(q.x, q.z, esc.x, esc.z)));
+        const sc = d - (off < 0.8 ? 2000 : 0) - (q.role === 'fighter' ? 500 : 0);
+        if (sc < best) { best = sc; air = q; }
+      }
+      if (air) return { air };
+      return { escortHeavy: esc };
+    }
+  }
   if (p.role === 'fighter') {
     // A fighter told off to escort hunts from the strike rather than from
     // herself. That one change is the whole difference between an escort and a
@@ -13423,6 +13592,9 @@ function fightFor(state, p, dt) {
       }
     }
   }
+  // An escort does not let herself be drawn off the heavies she is with.
+  const esc = p.phase === 'outbound' ? escortOf(state, p) : null;
+  if (esc && dist(p.x, p.z, esc.x, esc.z) > ESCORT_LEASH) { p.targetAir = 0; return null; }
   const foe = p.targetAir ? state.planes.find((q) => q.id === p.targetAir && !q.dead) : null;
   // Gone, from a form-up: back to the circle. On passage the hunt finds her
   // the next thing.
@@ -14380,6 +14552,20 @@ function stepPlanes(state, dt) {
       releaseStrike(state, p.owner, p.sqId);
     }
 
+    // An escort stood down, or whose heavies have gone: she finishes the
+    // fight she is in, and goes home.
+    if (p.escortHeavy && p.phase === 'outbound' && !p.flown && !escortOf(state, p)) {
+      p.escortHeavy = 0;
+      p.escortDone = 1;
+    }
+    if (p.escortDone && !p.df && !p.flown) {
+      p.escortDone = 0;
+      if (p.phase === 'outbound') {
+        p.phase = 'return';
+        p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0; p.targetBat = 0; p.shieldFor = 0;
+      }
+    }
+
     // Every couple of seconds she looks again for the thing she is actually
     // after, which is not the same thing for every flight in the strike.
     p.hunt -= dt;
@@ -14401,6 +14587,10 @@ function stepPlanes(state, dt) {
         p.targetBat = want.battery.id;
         p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0;
         p.tx = want.battery.x; p.tz = want.battery.z;
+      } else if (want && want.escortHeavy) {
+        p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0; p.targetBat = 0;
+        const at = escortStation(p, want.escortHeavy);
+        p.tx = at.x; p.tz = at.z;
       } else if (want && want.escort) {
         // Her station on the strike: up-sun and astern of it, weaving, so she
         // has the height to come down on anything that comes at it.
@@ -14434,7 +14624,11 @@ function stepPlanes(state, dt) {
             ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
             : state.ships.find((q) => q.id === p.targetId && q.alive);
       if (mark) { p.tx = mark.x; p.tz = mark.z; }
-      else if (p.targetAir || p.targetId || p.targetHeavy || p.targetBat) {
+      else if (!p.targetAir && !p.targetId && !p.targetHeavy && !p.targetBat && p.escortHeavy) {
+        // On station with the heavies, who do not stay where they were.
+        const esc = escortOf(state, p);
+        if (esc) { const at = escortStation(p, esc); p.tx = at.x; p.tz = at.z; }
+      } else if (p.targetAir || p.targetId || p.targetHeavy || p.targetBat) {
         p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0; p.targetBat = 0;
         p.shieldFor = 0;
         p.hunt = 0;
@@ -14603,6 +14797,16 @@ function stepPlanes(state, dt) {
       if (station) {
         const off = dist(p.x, p.z, station.x, station.z);
         speed *= clamp(1 + (off - 120) / 900, 0.9, 1.22);
+      } else if (p.escortHeavy && p.phase === 'outbound' && !guide) {
+        // Keeping up with the heavies, which may cruise faster than she does:
+        // she opens the throttle to hold her station on them, up to what her
+        // airframe will give.
+        const esc = escortOf(state, p);
+        if (esc) {
+          const off = dist(p.x, p.z, goalX, goalZ);
+          const want = (esc.speed || cruising) * clamp(1 + (off - 250) / 1500, 0.92, 1.4);
+          speed = Math.max(speed, Math.min(want * wear.speed, (frm.vMax || want) * 0.95));
+        }
       }
 
       // The vertical, which she has weight in.
@@ -14825,7 +15029,7 @@ function stepPlanes(state, dt) {
           gunsSeen(state, p, mark.x, mark.z, false);
           goIn(state, p, mark);
         }
-      } else if (aloft(p) > (p.orderEscort && strikeMark(state, p)
+      } else if (aloft(p) > (p.escortHeavy ? ESCORT_ENDURANCE : p.orderEscort && strikeMark(state, p)
         ? 420 : p.targetHeavy ? 480 : 260)) {
         // Out of patrol endurance. It used to be a hundred and fifty seconds,
         // which was most of a sortie once a strike started spending a minute
@@ -18375,6 +18579,7 @@ export function step(state, dt = DT) {
   stepPlanes(state, dt);
   stepRearGunners(state, dt);
   stepBombers(state, dt);
+  stepEscortCalls(state, dt);
   stepNukes(state, dt);
   stepAirSpacing(state);
   stepMidAir(state);

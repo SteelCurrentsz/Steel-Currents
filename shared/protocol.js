@@ -6,6 +6,7 @@ import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
   slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds, planeRack, CHAFF_LOAD,
+  canCallEscort, escortStrength,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -593,6 +594,8 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   // with her doors. Her orders are not here and never will be: which ship her
   // side's staff has sent her after is the plan, and a plan the other side can
   // read off the wire is not a plan. See `stepBombers`.
+  const canEscort = (state.bombers || []).some((b) => b.alive && b.team === team)
+    && canCallEscort(state, team);
   const bombers = (state.bombers || [])
     .filter((b) => b.alive && (b.team === team || b.spottedBy[team] || ended))
     .map((b) => ({
@@ -618,6 +621,12 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       ot: b.order && b.team === team ? b.order.id : undefined,
       // Which squadron she is in, and where it has been sent, to her own side.
       wg: b.wing && b.team === team ? b.wing : undefined,
+      // Her fighter escort, to her own side: whether she has called for one,
+      // how many fighters are with her, and whether her side has a carrier
+      // that could send one at all.
+      ec: b.team === team && b.escortCall ? 1 : undefined,
+      en: b.team === team && b.escortCall ? escortStrength(state, b) : undefined,
+      ca: b.team === team && canEscort ? 1 : undefined,
       vx: b.vec && b.team === team ? Math.round(b.vec.x) : undefined,
       vz: b.vec && b.team === team ? Math.round(b.vec.z) : undefined,
       // And her leading machine's condition, for the damage board -- the same
