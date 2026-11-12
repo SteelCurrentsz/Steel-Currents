@@ -8904,6 +8904,24 @@ export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(
 
 /** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc', 'aam' (an aeroplane's, at aeroplanes), 'ground' (an aeroplane's, at a gun ashore). */
 export const missileRole = (K) => (K && K.role) || 'surface';
+
+/**
+ * What a kind may be laid on, by the letter its target goes by ('s' a ship,
+ * 'b' a gun ashore, 'g' the town, 'a' an aeroplane, 'm' a missile): what it
+ * was built for and nothing else -- an air-to-air missile goes for aircraft
+ * only -- unless the kind says it goes for everything (`hits`), as the
+ * B-52's nuclear AGM-86B does.
+ */
+export function missileHits(K) {
+  if (K && K.hits) return K.hits;
+  switch (missileRole(K)) {
+    case 'sam': return ['a', 'm'];
+    case 'abm': return ['m'];
+    case 'aam': return ['a'];
+    case 'ground': return ['b', 's'];
+    default: return ['s'];
+  }
+}
 /**
  * Where a kind goes up from: a Mk 41 cell ('vls'), an armoured box ('box'), a
  * canister ('tube') -- fired once -- or the arm of a launcher that is
@@ -9300,10 +9318,11 @@ export function fireMissile(state, ship, kind, targetId = 0, air = null) {
   const aew = aewOver(state, ship.team, ship.x, ship.z);
   const reachOf = role === 'sam' || role === 'abm' ? K.range : K.range * (aew ? AEW_MISSILE_REACH : 1);
   let target = null, tk = 's', tid = 0, aim = null, ground = null;
-  // Put on something by name: whatever it is, in the air, on the sea or on
-  // the land, if it is in reach. Only an ASROC is kept to the sea -- what it
-  // carries is a torpedo -- and only it goes for a boat under the sea.
-  const foe = !air && targetId && role !== 'asroc' ? missileFoe(state, ship.team, targetId) : null;
+  // Put on something by name: if it is the kind of thing this missile was
+  // built for (see missileHits) and in reach. Only an ASROC goes for a boat
+  // under the sea, and it has its own way of choosing.
+  const named = !air && targetId && role !== 'asroc' ? missileFoe(state, ship.team, targetId) : null;
+  const foe = named && missileHits(K).includes(named.tk) ? named : null;
   const foeReach = foe ? (goesForAir(foe) ? K.range : reachOf) : 0;
   if (foe && Math.hypot(foe.x - ship.x, foe.z - ship.z, goesForAir(foe) ? foe.y : 0) <= foeReach) {
     tk = foe.tk; tid = foe.id;
@@ -9417,17 +9436,20 @@ export function fireMissile(state, ship, kind, targetId = 0, air = null) {
 /** Lay a missile already in the air on another ship. Hers only, and not one going for something in the air. */
 export function retargetMissile(state, ship, id, targetId) {
   const m = state.missiles.find((q) => q.id === id);
-  if (!m || m.owner !== ship.id) return false;
-  const role = missileRole(kindOf(state, m));
+  // Not one going for something in the air: that is its own seeker's.
+  if (!m || m.owner !== ship.id || goesForAir(m)) return false;
+  const K = kindOf(state, m);
+  const role = missileRole(K);
   if (role === 'asroc') {
     const t = state.ships.find((q) => q.id === targetId);
     if (!asrocMark(state, ship, t)) return false;
     m.target = t.id;
     return true;
   }
-  // Anything else, onto anything at all: it turns for it from where it is.
+  // Anything else, onto another thing of the kind it was built for: it turns
+  // for it from where it is.
   const foe = missileFoe(state, m.team, targetId);
-  if (!foe) return false;
+  if (!foe || goesForAir(foe) || !missileHits(K).includes(foe.tk)) return false;
   m.target = foe.id;
   m.tk = foe.tk;
   m.lost = 0;
@@ -14346,8 +14368,8 @@ export function fireLocked(state, ship, msg) {
 /** One missile off her rail at `tg`, going the way her nose is. */
 function launchLocked(state, p, kind, K, tk, tg, side) {
   const h = p.heading || 0;
-  // Something in the air is flown at as an interceptor flies, whatever the
-  // missile was built for (see stepMissiles).
+  // Something in the air is flown at as an interceptor flies (see
+  // stepMissiles).
   const air = tk === 'a';
   const m = {
     id: eid(), owner: p.owner, team: p.team, kind,

@@ -33,7 +33,7 @@ import { stepLock, nextLock, lockLabel, rackLabel, hasRack } from './lockon.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
-  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE, RAMP_RUN,
+  freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE, missileHits, missileRole, RAMP_RUN,
 } from '../../shared/sim.js';
 import { windAt, rideOf } from '../../shared/sea.js';
 import { freshLamps, LAMP_PITCH } from '../../shared/searchlights.js';
@@ -1580,10 +1580,11 @@ export class Battle {
   }
 
   /**
-   * What her missiles can be laid on: every enemy her side can see -- ships
-   * on the sea, guns ashore, aeroplanes and heavies in the air -- nearest
-   * first. What the N key steps through. Every missile goes for any of them;
-   * a boat under the sea is an ASROC's, and is not here.
+   * What her missiles can be laid on: every enemy her side can see that one
+   * of her missiles is built to go for -- ships on the sea, and guns ashore
+   * or aeroplanes only if she carries something for them -- nearest first.
+   * What the N key steps through. A boat under the sea is an ASROC's, and is
+   * not here.
    */
   missileTargets() {
     const snap = this.snapshots[this.snapshots.length - 1];
@@ -1593,15 +1594,17 @@ export class Battle {
     const team = me.tm ?? this.team;
     const out = snap.ships.filter((q) => q.a && q.tm !== team && !q.d)
       .map((q) => ({ q, d: Math.hypot(q.x - me.x, q.z - me.z) }));
-    for (const b of snap.batteries || []) {
+    const can = new Set(Object.values(own.cls.missiles.kinds).filter((K) => missileRole(K) !== 'asroc')
+      .flatMap((K) => missileHits(K)));
+    if (can.has('b')) for (const b of snap.batteries || []) {
       if (!b.al || b.tm === team) continue;
       out.push({ q: { i: b.i, x: b.x, z: b.z, tk: 'b', name: 'Ground target' }, d: Math.hypot(b.x - me.x, b.z - me.z) });
     }
-    for (const p of this.planesNow || []) {
+    if (can.has('a')) for (const p of this.planesNow || []) {
       if (p.tm === team) continue;
       out.push({ q: { i: p.i, x: p.x, z: p.z, tk: 'a', name: 'Aircraft' }, d: Math.hypot(p.x - me.x, p.z - me.z) });
     }
-    for (const h of snap.bombers || []) {
+    if (can.has('a')) for (const h of snap.bombers || []) {
       if (h.tm === team) continue;
       out.push({ q: { i: h.i, x: h.x, z: h.z, tk: 'a', name: (BOMBERS[h.b] || {}).name || 'Bomber' }, d: Math.hypot(h.x - me.x, h.z - me.z) });
     }

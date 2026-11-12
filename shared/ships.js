@@ -443,6 +443,10 @@ export const AIR_MISSILES = {
   agm86: {
     name: 'AGM-86B ALCM', short: 'ALCM', role: 'surface', nuclear: true,
     warhead: 'W80-1',
+    // The one missile here that goes for anything: a ship, a gun, the town,
+    // an aeroplane or another missile. Every other kind goes only for what
+    // it was built for (see missileHits in sim.js).
+    hits: ['s', 'b', 'g', 'a', 'm'],
     speed: 246, range: 30000, cruise: 40, turn: 0.6,
     damage: 6000, fire: 0.6, hp: 1, interval: 1, raise: 0, length: 6.32, popUp: 0,
     // How near what it was sent at it goes off, in metres.
@@ -452,13 +456,13 @@ export const AIR_MISSILES = {
 
 /**
  * What each air-launched missile can be locked on to: `a` an aircraft, `s` a
- * ship, `b` a gun position ashore. Every missile goes for any of them -- a
- * missile is put on whatever it is put on, in the air, on the sea or on the
- * land -- but nothing here goes for a boat under the sea: that is a homing
- * torpedo's business, and an ASROC's.
+ * ship, `b` a gun position ashore. Each goes only for what it was built for,
+ * except the B-52's AGM-86B, which goes for any of them. Nothing here goes
+ * for a boat under the sea.
  */
-export const MISSILE_TARGETS = ['a', 's', 'b'];
-export const AIR_MISSILE_HITS = Object.fromEntries(Object.keys(AIR_MISSILES).map((k) => [k, MISSILE_TARGETS]));
+export const AIR_MISSILE_HITS = {
+  agm84: ['s'], penguin: ['s'], aim9: ['a'], aim120: ['a'], agm65: ['b', 's'], agm86: ['a', 's', 'b'],
+};
 
 export const SHIP_CLASSES = {
   fletcher: {

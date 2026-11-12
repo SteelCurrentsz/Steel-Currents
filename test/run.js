@@ -204,7 +204,7 @@ import { buildMissouri } from '../client/js/render/missouri.js';
 import { missouriSurfaceY, MOUNT_SEATS as MISSOURI_SEATS } from '../client/js/render/missouriHull.js';
 import {
   fireMissile, retargetMissile, normaliseVls, defaultVls, setVlsLoad, setAegisAuto, vlsCells, vlsKinds, MISSILE_CODE,
-  samKinds, fireLocked, planeRack, dropChaff, CHAFF_LOAD, lockHits,
+  samKinds, fireLocked, planeRack, dropChaff, CHAFF_LOAD, lockHits, missileHits,
 } from '../shared/sim.js';
 import { pickLockKind } from '../client/js/lockon.js';
 import {
@@ -1984,13 +1984,15 @@ check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun as
     }
     return null;
   };
-  // A ship: off her nose and out of reach are each refused. Every missile
-  // may be put on a ship, an aeroplane or a gun -- a Sidewinder included.
+  // A ship: the wrong missile, off her nose, and out of reach are each refused.
   p.x = 0; p.z = -1000; p.y = 300; p.speed = 200;
   aim(foe.x, 6, foe.z);
-  for (const k of ['aim9', 'aim120', 'agm65', 'agm84', 'penguin', 'agm86']) {
-    assert.deepEqual([...lockHits(k)].sort(), ['a', 'b', 's'], `the ${k} cannot be put on everything`);
-  }
+  assert.equal(fireLocked(state, c, { i: p.id, k: 'aim9', tk: 's', tg: foe.id }), 'kind');
+  // Each goes for what it was built for; only the B-52's AGM-86B for everything.
+  assert.deepEqual(lockHits('aim9'), ['a']);
+  assert.deepEqual(lockHits('aim120'), ['a']);
+  assert.deepEqual(lockHits('agm84'), ['s']);
+  assert.deepEqual([...lockHits('agm86')].sort(), ['a', 'b', 's']);
   p.heading += Math.PI;
   assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 's', tg: foe.id }), 'cone');
   p.z = -20000; aim(foe.x, 6, foe.z);
@@ -2022,9 +2024,7 @@ check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun as
   p.x = e.x - 2500; p.z = e.z; p.y = e.y ?? 300; aim(e.x, e.y ?? 300, e.z); p.lockCool = 0;
   // Her dispenser empty, so this is the missile against her and not her flares.
   e.chaff = 0;
-  // A Maverick may be put on an aeroplane as well as anything else: she has
-  // none left on her rails, and that is the only reason it does not go.
-  assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 'a', tg: e.id }), 'none', 'a Maverick was refused an aeroplane');
+  assert.equal(fireLocked(state, c, { i: p.id, k: 'agm65', tk: 'a', tg: e.id }), 'kind', 'a Maverick went at an aeroplane');
   const amraam = fireLocked(state, c, { i: p.id, k: 'aim120', tk: 'a', tg: e.id });
   assert.ok(amraam?.id, 'the AMRAAM would not go');
   // Its own end, not one of her carrier's Sea Sparrows going after something else.
@@ -30438,7 +30438,7 @@ check('a B-52 ordered onto an aeroplane fires a nuclear cruise missile at it, an
   assert.ok(bm.alive, 'she was caught in it herself');
 }));
 
-check('every missile can be laid on a ship, a gun ashore and an aeroplane, and none on a boat under the sea', () => pinned(() => {
+check('each missile goes only for what it was built for, and the nuclear AGM-86B for anything', () => pinned(() => {
   const mk = (kind, foeOf) => {
     const world = generateWorld(3301, 'open_ocean');
     world.islands = [];
@@ -30448,33 +30448,36 @@ check('every missile can be laid on a ship, a gun ashore and an aeroplane, and n
     setAegisAuto(me, false);
     const foe = foeOf(st);
     for (const s of st.ships) s.spottedBy = [true, true];
-    const m = fireMissile(st, me, kind, foe.id);
-    return { st, m, foe };
+    return { st, me, foe, m: fireMissile(st, me, kind, foe.id) };
   };
   const ship = (st) => { const t = addShip(st, { name: 'T', classId: 'fletcher', team: 1, index: 1 }); t.x = 0; t.z = 8000; t.speed = 0; return t; };
   const gun = (st) => addBattery(st, { batteryId: 'flak88', team: 1, x: 6000, z: 3000, heading: 0 });
   const plane = (st) => addBomber(st, { bomberId: 'lancaster', team: 1, x: 3000, z: 8000, heading: Math.PI });
-  for (const kind of ['tomahawk', 'harpoon', 'sm2', 'sm2er']) {
-    for (const [what, f, tk] of [['ship', ship, 's'], ['gun', gun, 'b'], ['aeroplane', plane, 'a']]) {
-      const { st, m, foe } = mk(kind, f);
-      assert.ok(m, `a ${kind} would not go at a ${what}`);
-      assert.equal(m.tk, tk, `a ${kind} at a ${what} went for the wrong kind of thing`);
-      let end = null;
-      for (let i = 0; i < 30 * 90 && !end; i++) {
-        for (const e of step(st, 1 / 30)) if (!end && e.i === m.id && (e.e === 'mslHit' || e.e === 'samBurst' || e.e === 'mslDown')) end = e;
-      }
-      assert.ok(end && (end.e === 'mslHit' || end.e === 'samBurst'), `a ${kind} at a ${what} never got there: ${JSON.stringify(end)}`);
-      void foe;
-    }
+  // A ship's missile for ships goes for a ship, and is never put on a gun or
+  // an aeroplane: given one, it goes for nothing at all.
+  for (const kind of ['tomahawk', 'harpoon']) {
+    assert.equal(mk(kind, ship).m?.tk, 's', `a ${kind} would not go at a ship`);
+    assert.ok(!mk(kind, gun).m, `a ${kind} went at a gun`);
+    assert.ok(!mk(kind, plane).m, `a ${kind} went at an aeroplane`);
   }
-  // A boat under the sea is a torpedo's, and an ASROC's: a Harpoon given one
-  // looks for something on the surface instead.
-  const { m } = mk('harpoon', (st) => {
-    const sub = addShip(st, { name: 'U', classId: Object.keys(SHIP_CLASSES).find((k) => SHIP_CLASSES[k].dive), team: 1, index: 1 });
-    sub.x = 0; sub.z = 6000; sub.depth = 30; sub.diveDepth = 30;
-    return sub;
-  });
-  assert.ok(!m || m.tk === 's', 'a Harpoon went for something under the sea');
+  // A surface-to-air missile goes for what is in the air, and nothing else.
+  for (const kind of ['sm2', 'sm2er']) {
+    assert.equal(mk(kind, plane).m?.tk, 'a', `a ${kind} would not go at an aeroplane`);
+    assert.ok(!mk(kind, ship).m, `a ${kind} went at a ship`);
+    assert.ok(!mk(kind, gun).m, `a ${kind} went at a gun`);
+  }
+  // In flight, one laid on a ship cannot be laid on a gun or an aeroplane.
+  {
+    const { st, me, m } = mk('harpoon', ship);
+    const g = gun(st), a = plane(st);
+    a.spottedBy = [true, true];
+    assert.ok(!retargetMissile(st, me, m.id, g.id), 'a Harpoon was laid on a gun');
+    assert.ok(!retargetMissile(st, me, m.id, a.id), 'a Harpoon was laid on an aeroplane');
+  }
+  // The B-52's AGM-86B goes for all of them.
+  assert.deepEqual([...missileHits(AIR_MSL.agm86)].sort(), ['a', 'b', 'g', 'm', 's']);
+  assert.deepEqual(missileHits(AIR_MSL.aim9), ['a']);
+  assert.deepEqual(missileHits(AIR_MSL.agm84), ['s']);
 }));
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
