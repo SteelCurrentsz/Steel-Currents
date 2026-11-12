@@ -3780,6 +3780,9 @@ check('the USS Brooklyn is commissioned after the USS Cleveland, armed as she wa
   assert.deepEqual(cls.turrets.map((t) => Math.sign(t.z)), [1, 1, 1, -1, -1]);
   // No.3 stows facing astern, as hers did.
   assert.ok(Math.abs(Math.abs(cls.turrets[2].rest) - Math.PI) < 0.05, 'her No.3 turret does not stow facing astern');
+  // And she fires on either beam, never dead astern into her own bridge.
+  assert.equal(layFloor(cls.turrets[2].mask, Math.PI), Infinity, 'her No.3 fires astern through her bridge');
+  assert.equal(layFloor(cls.turrets[2].mask, Math.PI / 2), -Infinity, 'her No.3 cannot fire on the beam');
   // Eight single 5"/25s, dual-purpose -- not the twin 5"/38s her model draws.
   assert.equal(cls.secondary.caliber, 127);
   assert.equal(cls.secondary.role, 'dp');

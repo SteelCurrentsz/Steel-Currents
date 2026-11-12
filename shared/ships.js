@@ -2150,8 +2150,10 @@ export const SHIP_CLASSES = {
       { id: 0, name: '1', x: 0, z: 56.942, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 8.89 },
       { id: 1, name: '2', x: 0, z: 44.789, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 10.41 },
       // No.3, down on her main deck between No.2's barbette and her bridge,
-      // faces astern and fires on either beam.
-      { id: 2, name: '3', x: 0, z: 34.568, angle: Math.PI, arc: 2.2, rest: Math.PI, guns: 3, my: 8.17 },
+      // faces astern and fires on either beam: never dead astern, into the
+      // face of her own bridge (the arc survey finds her fire dead there).
+      { id: 2, name: '3', x: 0, z: 34.568, angle: Math.PI, arc: 2.2, rest: Math.PI, guns: 3, my: 8.17,
+        mask: [[2.69, -2.69]] },
       { id: 3, name: '4', x: 0, z: -43.763, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 10.67 },
       { id: 4, name: '5', x: 0, z: -54.085, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 8.63 },
     ],
