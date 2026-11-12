@@ -2094,6 +2094,182 @@ export const SHIP_CLASSES = {
     },
   },
 
+  brooklyn: {
+    // USS Brooklyn (CL-40), the name ship of the American "six-inch cruisers":
+    // the London Treaty closed the heavy cruiser to new building, the Mogamis
+    // came out with fifteen 6.1 in guns, and the answer was fifteen 6"/47 in
+    // five triple turrets on a light cruiser's tonnage -- three forward, No.2
+    // superfiring over No.1 and No.3 down on her main deck abaft it, stowed
+    // facing astern; No.4 superfiring over No.5 aft -- and a hangar under her
+    // flush quarterdeck. She took convoys across the Atlantic, landed troops
+    // at Casablanca, and gave fire for the landings at Sicily, Salerno, Anzio
+    // and southern France.
+    //
+    // She is drawn from the owner's model of her (see brooklyn.js and
+    // build/prepare-brooklyn-hull.mjs) -- "USS Brooklyn" by kriss50, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen --
+    // brought up to her 185.4 m over all, which makes her 18.8 m across, and
+    // floated at 6.9 m. She is armed as she was in 1945: her fifteen 6 in,
+    // the eight single 5"/25s she kept all her life (the model draws the
+    // enclosed twin 5"/38s of her rebuilt sisters, which are taken off her),
+    // four quadruple and two twin 40 mm Bofors, and eighteen Oerlikons.
+    id: 'brooklyn',
+    name: 'Brooklyn',
+    fullName: 'USS Brooklyn',
+    className: 'Brooklyn',
+    type: 'CL',
+    typeName: 'Light Cruiser',
+    nation: 'usa',
+    blurb: 'Fifteen six-inch guns in five triple turrets: the Treaty cruiser that could put more steel in the air than anything her size.',
+    hull: {
+      // Where her two funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 3.5, 23.3], [0, -9.0, 22.2]], length: 185.4, beam: 18.8, draft: 6.9, superstructure: 1.1 },
+    hp: 27000,
+    // Thirty-two and a half knots off a hundred thousand horsepower.
+    maxSpeed: 32.5 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.85,
+    turnRate: 0.088,
+    rudderShift: 6.4,
+    speedLossInTurn: 0.19,
+    concealment: 10800,
+    fireDetectPenalty: 4300,
+    // SG surface search and SK air search by 1944, and Mk 3 and Mk 4 on her
+    // directors.
+    radarRange: 12000,
+    repairCooldown: 80,
+    repairHeal: 0.09,
+    smokeCharges: 0,
+    // Five and five-eighths inches of belt over her machinery and forward
+    // magazines, tapering to three and a quarter under water; two inches of
+    // armour deck; six-and-a-half-inch turret faces on six-inch barbettes.
+    armor: { belt: 143, deck: 51, citadel: 143, bow: 25, superstructure: 16 },
+    turrets: [
+      // Each where the model stands it (see build/prepare-brooklyn-hull.mjs).
+      { id: 0, name: '1', x: 0, z: 56.942, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 8.89 },
+      { id: 1, name: '2', x: 0, z: 44.789, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 10.41 },
+      // No.3, down on her main deck between No.2's barbette and her bridge,
+      // faces astern and fires on either beam: never dead astern, into the
+      // face of her own bridge (the arc survey finds her fire dead there).
+      { id: 2, name: '3', x: 0, z: 34.568, angle: Math.PI, arc: 2.2, rest: Math.PI, guns: 3, my: 8.17,
+        mask: [[2.69, -2.69]] },
+      { id: 3, name: '4', x: 0, z: -43.763, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 10.67 },
+      { id: 4, name: '5', x: 0, z: -54.085, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 8.63 },
+    ],
+    gun: {
+      name: '6"/47 Mk 16', role: 'surface',
+      // Five below the horizontal to sixty up.
+      elev: { min: -0.087, max: 1.047 },
+      // Pivot to muzzle on the model's turret.
+      reach: 8.37,
+      caliber: 152, reload: 6.4, traverse: 0.31, range: 15400, sigma: 1.7,
+      shells: shells(152, 3300, 2500, 165, 812, 0.12),
+    },
+    torpedoes: null,
+    // Her eight single 5"/25s on their open Mk 19 pedestals, two a side
+    // abreast her forward superstructure and two a side abreast her after
+    // superstructure, on the decks the model stands its twins on: quick to
+    // load at any elevation, short in the barrel and short in the range.
+    secondary: {
+      name: '5"/25 Mk 10', role: 'dp',
+      // Fifteen below the horizontal to eighty-five up.
+      elev: { min: -0.262, max: 1.484 },
+      reach: 3.97,
+      caliber: 127, reload: 3.5, traverse: 0.5, range: 7400, sigma: 1.2,
+      shells: shells(127, 1900, 1650, 64, 657, 0.07),
+      mounts: [
+        { x: -6.9, z: 15.5, angle: -1.2, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 10.25 },
+        { x: 6.9, z: 15.5, angle: 1.2, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 10.25 },
+        { x: -6.9, z: 10.0, angle: -1.6, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 10.25 },
+        { x: 6.9, z: 10.0, angle: 1.6, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 10.25 },
+        { x: -5.3, z: -20.0, angle: -1.6, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 10.25 },
+        { x: 5.3, z: -20.0, angle: 1.6, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 10.25 },
+        { x: -6.5, z: -24.3, angle: -1.9, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 10.25 },
+        { x: 6.5, z: -24.3, angle: 1.9, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 10.25 },
+      ],
+    },
+    aa: {
+      range: 5000, dps: 44,
+      guns: [
+        // Her four quadruple 40 mm, as the model draws them: a pair abreast
+        // her forward funnel, trained out on the beam, and a pair abaft her
+        // after superstructure, facing astern.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400, piece: 'quad',
+          mounts: [
+            { x: -6.55, z: 2.435, angle: -1.57, arc: 1.75, rest: -Math.PI / 2, guns: 4, my: 11.15 },
+            { x: 6.55, z: 2.435, angle: 1.57, arc: 1.75, rest: Math.PI / 2, guns: 4, my: 11.15 },
+            { x: -2.424, z: -31.777, angle: -2.5, arc: 1.75, rest: Math.PI, guns: 4, my: 11.15 },
+            { x: 2.424, z: -31.777, angle: 2.5, arc: 1.75, rest: Math.PI, guns: 4, my: 11.15 },
+          ] },
+        // And her two twin 40 mm, on her forecastle ahead of No.1.
+        { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.26, range: 3400,
+          mounts: [
+            { x: -2.6, z: 72.2, angle: -0.6, arc: 1.9, rest: 0, guns: 2, my: 9.1 },
+            { x: 2.6, z: 72.2, angle: 0.6, arc: 1.9, rest: 0, guns: 2, my: 9.1 },
+          ] },
+        // Twelve of her Oerlikons as the model draws them: on her forecastle
+        // deck abreast her bridge, on her bridge and its wings, along her
+        // main deck amidships and aft, and on her fantail.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, piece: 'oer',
+          mounts: [
+            { x: 0, z: 25.74, angle: 0, arc: 1.4, rest: 0, guns: 1, my: 13.21 },
+            { x: -7.173, z: 23.063, angle: -0.9, arc: 1.6, rest: 0, guns: 1, my: 8.05 },
+            { x: 7.173, z: 23.063, angle: 0.9, arc: 1.6, rest: 0, guns: 1, my: 8.05 },
+            { x: -3.501, z: 21.886, angle: -0.9, arc: 1.6, rest: 0, guns: 1, my: 12.66 },
+            { x: 3.501, z: 21.886, angle: 0.9, arc: 1.6, rest: 0, guns: 1, my: 12.66 },
+            { x: 7.424, z: -3.043, angle: 1.57, arc: 1.5, rest: Math.PI, guns: 1, my: 7.79 },
+            { x: -7.672, z: -8.353, angle: -1.57, arc: 1.5, rest: 0, guns: 1, my: 7.79 },
+            { x: -7.53, z: -14.163, angle: -1.57, arc: 1.5, rest: Math.PI, guns: 1, my: 7.79 },
+            { x: -7.473, z: -42.483, angle: -1.9, arc: 1.6, rest: Math.PI, guns: 1, my: 8.15 },
+            { x: 7.473, z: -42.483, angle: 1.9, arc: 1.6, rest: Math.PI, guns: 1, my: 8.15 },
+            { x: -4.513, z: -86.402, angle: -2.4, arc: 1.6, rest: Math.PI, guns: 1, my: 8.3 },
+            { x: 4.514, z: -86.402, angle: 2.4, arc: 1.6, rest: Math.PI, guns: 1, my: 8.3 },
+          ] },
+        // And the six the model leaves off her: a pair abreast No.3 turret, a
+        // pair on her quarterdeck abreast No.4, and a pair right aft.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800,
+          mounts: [
+            { x: -7.4, z: 28.0, angle: -1.3, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 7.8 },
+            { x: 7.4, z: 28.0, angle: 1.3, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 7.8 },
+            { x: -7.3, z: -48.0, angle: -1.8, arc: 1.6, rest: -Math.PI / 2, guns: 1, my: 7.7 },
+            { x: 7.3, z: -48.0, angle: 1.8, arc: 1.6, rest: Math.PI / 2, guns: 1, my: 7.7 },
+            { x: -3.2, z: -90.0, angle: -2.6, arc: 1.6, rest: Math.PI, guns: 1, my: 8.3 },
+            { x: 3.2, z: -90.0, angle: 2.6, arc: 1.6, rest: Math.PI, guns: 1, my: 8.3 },
+          ] },
+      ],
+    },
+    // Her four Seagulls, then Kingfishers, off the two catapults on her
+    // fantail, struck down into the hangar under it. Hers turn on turntables
+    // halfway along their girders and train out over her quarters, and a
+    // scout goes off the quarter the catapult is on; otherwise the evolution
+    // is the Cleveland's.
+    planes: {
+      squadrons: 2, perSquadron: 2, cruiseSpeed: 58, strikeRange: 9000,
+      rearm: 95, hp: 640, dropSpread: 0.06,
+      torpDamage: 0, torpSpeed: 0, torpRange: 0, floodChance: 0,
+      bombDamage: 900, bombHit: 0.32, bombFire: 0.1, bombPen: 25, bombBore: 0.2,
+      type: 'kingfisher',
+      catapult: true, deckRun: 8.6, deckCycle: 30,
+      // Where the shot leaves her, off the integrated shot from her own
+      // girders (see brooklyn.js): trained out over her quarter, a hundred
+      // and seventy-six metres out and well abaft the beam, twenty-five up.
+      runHeight: 24.9,
+      runOut: 176.5, runBearing: 2.353, runHeading: 1.982, launchSpeed: 32,
+      flight: { fighters: 0, dive: 2, torpedo: 0 },
+    },
+    datasheet: {
+      displacement: 12700,
+      aircraft: 4,
+      mainRounds: 3000,
+      secondary: { caliber: 127, label: '5"', barrels: 8, rounds: 4000 },
+      tertiary: [
+        { caliber: 40, label: '40mm', barrels: 20, rounds: 24000 },
+        { caliber: 20, label: '20mm', barrels: 18, rounds: 43200 },
+      ],
+    },
+  },
+
   ajax: {
     // HMS Ajax, a Leander-class light cruiser of 1935: eight 6 in in four twin
     // turrets -- A and B forward, B superfiring; X superfiring over Y aft --
@@ -12676,7 +12852,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'ticonderoga', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'hornet', 'enterprise', 'shokaku', 'shinano', 'agincourt', 'liberty', 'higgins', 'lcm'];
 

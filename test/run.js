@@ -194,6 +194,11 @@ import {
 } from '../client/js/render/ajax.js';
 import { ajaxSurfaceY, MOUNT_SEATS as AJAX_SEATS } from '../client/js/render/ajaxHull.js';
 import {
+  buildBrooklyn, shellAt as brooklynShellAt, keelY as brooklynKeel, deckOver as brooklynSheer, zAt as brooklynZAt,
+  CAT_X as BROOKLYN_CAT_X, CAT_Z as BROOKLYN_CAT_Z,
+} from '../client/js/render/brooklyn.js';
+import { brooklynSurfaceY, MOUNT_SEATS as BROOKLYN_SEATS } from '../client/js/render/brooklynHull.js';
+import {
   buildTiconderoga, shellAt as ticonderogaShellAt, keelY as ticonderogaKeel, deckOver as ticonderogaSheer, zAt as ticonderogaZAt,
 } from '../client/js/render/ticonderoga.js';
 import { ticonderogaSurfaceY, MOUNT_SEATS as TICONDEROGA_SEATS } from '../client/js/render/ticonderogaHull.js';
@@ -1430,7 +1435,7 @@ check('every catapult hands her scout over where and the way the plot has her, a
   // fifty degrees off the way she was flying.
   const ships = [
     ['iowa', () => buildIowa({ breakaway: false })], ['cleveland', buildCleveland],
-    ['baltimore', buildBaltimore], ['massachusetts', buildMassachusetts],
+    ['baltimore', buildBaltimore], ['brooklyn', buildBrooklyn], ['massachusetts', buildMassachusetts],
     ['musashi', buildMusashi], ['fuso', buildFuso], ['kongo', buildKongo],
     ['bismarck', buildBismarck], ['richelieu', buildRichelieu],
     ['hipper', buildHipper], ['spee', buildSpee], ['scheer', buildScheer], ['soyuz', () => buildSoyuz().group],
@@ -3769,6 +3774,146 @@ check('the Credits screen credits the model the Leviathan is drawn from', () => 
     'the credit is not as its licence asks');
 });
 
+check('the USS Brooklyn is commissioned after the USS Cleveland, armed as she was in 1945', () => {
+  const i = SHIP_ORDER.indexOf('brooklyn');
+  assert.ok(i >= 0, 'the Brooklyn is not in the yard');
+  assert.equal(SHIP_ORDER[i - 1], 'cleveland', `before the Brooklyn comes ${SHIP_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.brooklyn;
+  assert.equal(cls.fullName, 'USS Brooklyn');
+  assert.equal(cls.type, 'CL', 'she is not a light cruiser');
+  assert.equal(cls.nation, 'usa');
+  // Fifteen 6"/47 in five triple turrets, three forward and two aft.
+  assert.equal(cls.gun.caliber, 152);
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3, 3, 3, 3]);
+  assert.deepEqual(cls.turrets.map((t) => Math.sign(t.z)), [1, 1, 1, -1, -1]);
+  // No.3 stows facing astern, as hers did.
+  assert.ok(Math.abs(Math.abs(cls.turrets[2].rest) - Math.PI) < 0.05, 'her No.3 turret does not stow facing astern');
+  // And she fires on either beam, never dead astern into her own bridge.
+  assert.equal(layFloor(cls.turrets[2].mask, Math.PI), Infinity, 'her No.3 fires astern through her bridge');
+  assert.equal(layFloor(cls.turrets[2].mask, Math.PI / 2), -Infinity, 'her No.3 cannot fire on the beam');
+  // Eight single 5"/25s, dual-purpose -- not the twin 5"/38s her model draws.
+  assert.equal(cls.secondary.caliber, 127);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.ok(cls.secondary.name.includes('/25'), `her 5 in is a ${cls.secondary.name}`);
+  assert.deepEqual(cls.secondary.mounts.map((m) => m.guns), [1, 1, 1, 1, 1, 1, 1, 1]);
+  // Four quadruple and two twin 40 mm, and eighteen Oerlikons.
+  const by = (c) => cls.aa.guns.filter((g) => g.caliber === c).flatMap((g) => g.mounts.map((m) => m.guns)).sort();
+  assert.deepEqual(by(40), [2, 2, 4, 4, 4, 4]);
+  assert.equal(by(20).length, 18);
+  assert.ok(by(20).every((n) => n === 1), 'her Oerlikons are not singles');
+  // No torpedoes, and two catapults with their scouts.
+  assert.equal(cls.torpedoes, null);
+  assert.ok(cls.planes && cls.planes.catapult, 'she has no catapults');
+  const built = buildBrooklyn();
+  assert.equal(built.turrets.length, 5);
+  assert.equal(built.secMounts.length, 8);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every mounting the model stands on her stands on her deck, not in the
+  // air over it; and every 5"/25 stands on a deck, not over her side.
+  // A deck within a metre of it, not straight under its pivot: her
+  // centreline Oerlikon stands on a platform under the overhang of her
+  // bridge.
+  const nearest = (x, z, y) => {
+    let best = Infinity;
+    for (let dx = -1; dx <= 1; dx += 0.5) for (let dz = -1; dz <= 1; dz += 0.5) {
+      best = Math.min(best, Math.abs(brooklynSurfaceY(x + dx, z + dz) - y));
+    }
+    return best;
+  };
+  for (const [kind, list] of Object.entries(BROOKLYN_SEATS)) {
+    for (const st of list) {
+      const top = brooklynSurfaceY(st.x, st.z);
+      assert.ok(nearest(st.x, st.z, st.y) < 0.5 || top < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${top}`);
+    }
+  }
+  for (const m of built.secMounts) {
+    const top = brooklynSurfaceY(m.position.x, m.position.z);
+    assert.ok(top > 5 && Math.abs(top - m.position.y) < 0.3,
+      `her 5"/25 at ${m.position.x.toFixed(1)}, ${m.position.z.toFixed(1)} stands at ${m.position.y.toFixed(2)} over a deck at ${top}`);
+  }
+});
+
+check("the Brooklyn's shell has no holes in it", () => {
+  const built = buildBrooklyn();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = brooklynSheer(t);
+    for (let y = brooklynKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
+      const w = brooklynShellAt(t, y);
+      if (w < 0.35) continue;
+      // Her shafts and their brackets under her quarter.
+      if (brooklynZAt(t) < -55 && y < -2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, brooklynZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > brooklynKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.ok(holes.length <= 2, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Brooklyn flies her scouts off her own catapults, off the quarter the plot puts them', () => {
+  const built = buildBrooklyn();
+  const g = built.group;
+  const deck = g.userData.deck;
+  const cats = deck.cats;
+  assert.equal(cats.length, 2, `she has ${cats.length} catapults`);
+  const fromAft = () => cats.map((c) => Math.abs(angleDelta(Math.PI, c.group.rotation.y)));
+  g.userData.step(0);
+  assert.ok(fromAft().every((a) => a < 0.2), 'she does not stow her catapults pointing astern');
+  for (const c of cats) {
+    const p = c.group.position;
+    assert.ok(Math.abs(Math.abs(p.x) - BROOKLYN_CAT_X) < 0.5 && Math.abs(p.z - BROOKLYN_CAT_Z) < 0.01,
+      `a catapult stands at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
+    // On the model's own pedestal, a short drum standing on her quarterdeck.
+    const top = brooklynSurfaceY(p.x, p.z);
+    assert.ok(p.y > top && p.y - top < 1.0, `a catapult stands at ${p.y.toFixed(2)} over her deck at ${top}`);
+  }
+  for (let n = 0; n < 2; n++) {
+    const t0 = n * 100;
+    g.userData.launch(t0);
+    const live = deck.live;
+    let away = null;
+    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
+      g.userData.step(t);
+      g.updateMatrixWorld(true);
+      if (deck.airborne && away === null) away = t - t0;
+    }
+    const want = SHIP_CLASSES.brooklyn.planes.deckRun;
+    assert.ok(away !== null && Math.abs(away - want) < 0.2,
+      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${want}s on the plot`);
+    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+    const off = launchOffset(SHIP_CLASSES.brooklyn, n === 0 ? -1 : 1);
+    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
+    assert.ok(Math.sign(end.x) === Math.sign(live.group.position.x), 'the scout went off the other quarter');
+    assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
+      `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
+      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
+    g.userData.recover();
+    g.userData.step(t0 + 60);
+  }
+});
+
+check('the Credits screen credits the model the Brooklyn is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('USS Brooklyn</a>');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/ptOVJ') && credit.includes('kriss50')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
+    'the credit is not as its licence asks');
+});
+
 check('the HMS County is commissioned before the KMS Admiral Hipper, armed as her model is', () => {
   const i = SHIP_ORDER.indexOf('county');
   assert.ok(i >= 0, 'the County is not in the yard');
@@ -3930,10 +4075,10 @@ check('the Credits screen credits the model the Indianapolis is drawn from', () 
     'the credit is not as its licence asks');
 });
 
-check('the HMS Ajax is commissioned after the USS Cleveland, armed as she and her model were', () => {
+check('the HMS Ajax is commissioned after the USS Cleveland and the USS Brooklyn, armed as she and her model were', () => {
   const i = SHIP_ORDER.indexOf('ajax');
   assert.ok(i >= 0, 'the Ajax is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'cleveland', `before the Ajax comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 1], 'brooklyn', `before the Ajax comes ${SHIP_ORDER[i - 1]}`);
   const cls = SHIP_CLASSES.ajax;
   assert.equal(cls.fullName, 'HMS Ajax');
   assert.equal(cls.type, 'CL', 'she is not a light cruiser');
