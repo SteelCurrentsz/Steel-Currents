@@ -4120,8 +4120,9 @@ check("the Des Moines's shell has no holes in it", () => {
     for (let y = dmKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
       const w = dmShellAt(t, y);
       if (w < 0.35) continue;
-      // Her shafts and their struts under her quarter.
-      if (dmZAt(t) < -65 && y < -2) continue;
+      // Her shafts and their struts under her quarter: the wing shafts run
+      // from their screws, 8 m out at -72 m, in to her hull at -55 m.
+      if (dmZAt(t) < -55 && y < -2) continue;
       tested++;
       for (const side of [-1, 1]) {
         ray.set(new THREE.Vector3(side * 60, y, dmZAt(t)), new THREE.Vector3(-side, 0, 0));
