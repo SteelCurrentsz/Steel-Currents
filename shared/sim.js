@@ -10,7 +10,7 @@ import { getClass, SHIP_CLASSES, AIR_MISSILES, AIR_MISSILE_HITS } from './ships.
 import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
-import { slotAt, vicAt } from './formation.js';
+import { slotAt, vicAt, formPoses, formDone, formRunwayTime } from './formation.js';
 import { NUKE, MAX_BURSTS, nukeFront, nukeBite, nukeWave, waveHeight } from './nuke.js';
 import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
@@ -13212,8 +13212,13 @@ function flyingMachines(p, heavy) {
   for (const a of p.machines) {
     if (!a.alive || a.left) continue;
     const k = machineSlot(p, a);
-    (heavy ? vicAt : slotAt)(k, p.heading || 0, at);
-    (heavy ? vicAt : slotAt)(k, p.ph ?? p.heading ?? 0, was);
+    if (heavy) {
+      heavyOffset(p, k, p.heading || 0, at);
+      heavyOffset(p, k, p.ph ?? p.heading ?? 0, was);
+    } else {
+      slotAt(k, p.heading || 0, at);
+      slotAt(k, p.ph ?? p.heading ?? 0, was);
+    }
     out.push({
       a, x: p.x + at.x, y: py + at.y, z: p.z + at.z,
       x0: px0 + was.x, y0: py0 + was.y, z0: pz0 + was.z,
@@ -15831,7 +15836,7 @@ function dropBomb(state, bm, L) {
     // An escort that has gone down took her stick with her.
     if (!atomic && !from) return;
     if (from) {
-      const at = vicAt(machineSlot(bm, from), bm.heading || 0);
+      const at = heavyOffset(bm, machineSlot(bm, from));
       ox = at.x; oy = at.y; oz = at.z;
     }
     if (atomic) state.events.push({ e: 'nukeAway', i: bm.id, tm: bm.team, x: r(bm.x + ox), y: r(bm.y + oy), z: r(bm.z + oz) });
@@ -16058,7 +16063,7 @@ function loseHeavy(state, bm, a, why) {
   a.gone = true;
   a.alive = false;
   const slot = machineSlot(bm, a);
-  const at = vicAt(slot, bm.heading || 0);
+  const at = heavyOffset(bm, slot);
   const x = bm.x + at.x, y = bm.y + at.y, z = bm.z + at.z;
   const ev = {
     e: 'bomberDown', i: bm.id, tm: bm.team, x: r(x), y: r(y), z: r(z), h: r(bm.heading),
@@ -18644,6 +18649,9 @@ const DOCK_NOTCH = 1;
 const TUG_REACH = 300;
 const TUG_SPEED = 4;
 const TUG_TURN = 0.06;
+/** How far off the quay the tugs pull a ship casting off, and how long they have her for at most. */
+const CAST_OFF = 30;
+const CAST_OFF_TIME = 12;
 /** What a dockyard makes good a second: a share of her hull. */
 const YARD_RATE = 0.004;
 /** How long a squadron is in its hangar being refuelled and bombed up. */
@@ -18651,7 +18659,7 @@ export const REARM_TIME = 75;
 /** How long the runway is busy with one formation taking off. */
 const RUNWAY_GAP = 22;
 /** The phases of a heavy squadron's flying that are her airfield's business, not the bombing problem's. */
-const FIELD_PHASES = new Set(['roll', 'climb', 'approach', 'final', 'rollout']);
+const FIELD_PHASES = new Set(['form', 'climb', 'approach', 'final', 'rollout']);
 /** How far out on the extended centre line a heavy joins her final approach, and how steep it is. */
 const FINAL_OUT = 3600;
 const GLIDE = 0.055;
@@ -18720,9 +18728,9 @@ export function undock(state, ship) {
   return true;
 }
 
-/** Whether she is alongside: 0 no, 1 on her way in, 2 made fast. */
+/** Whether she is alongside: 0 no, 1 on her way in, 2 made fast, 3 being taken off by the tugs. */
 export function dockState(ship) {
-  return !ship?.dock ? 0 : ship.dock.st === 'moored' ? 2 : 1;
+  return !ship?.dock ? 0 : ship.dock.st === 'moored' ? 2 : ship.dock.st === 'off' ? 3 : 1;
 }
 
 /** Her way into harbour, and her time alongside. */
@@ -18769,10 +18777,35 @@ function stepDock(state, ship, dt) {
     }
     return;
   }
+  if (d.st === 'off') {
+    // Casting off: the tugs pull her off the quay and swing her bow out to
+    // sea, so she does not go ahead along the face of it into whatever is at
+    // the end -- and then let her go.
+    d.t += dt;
+    const nx = Math.sin(c.rot);
+    const nz = Math.cos(c.rot);
+    const off = Math.min(TUG_SPEED * dt, Math.max(0, CAST_OFF - ((ship.x - d.x) * nx + (ship.z - d.z) * nz)));
+    ship.x += nx * off;
+    ship.z += nz * off;
+    const turn = angleDelta(ship.heading, d.out);
+    ship.heading = wrapAngle(ship.heading + clamp(turn, -TUG_TURN * 2 * dt, TUG_TURN * 2 * dt));
+    if (d.t >= CAST_OFF_TIME || (Math.abs(turn) < 0.01 && off <= 0)) undock(state, ship);
+    return;
+  }
   // Made fast. Way rung down on her is her casting off -- or, for a ship
   // nobody is conning, her own captain's judgement that she is fit for sea.
   const auto = ship.isBot && !ship.heldBy;
-  if (auto ? d.t >= 30 && ship.hp >= cls.hp * 0.98 : ship.notch !== DOCK_NOTCH) { undock(state, ship); return; }
+  if (auto ? d.t >= 30 && ship.hp >= cls.hp * 0.98 : ship.notch !== DOCK_NOTCH) {
+    // Her bow out from the quay, on whichever side she lies heading: a
+    // third of the way round from along the face to straight out.
+    const nx = Math.sin(c.rot);
+    const nz = Math.cos(c.rot);
+    const out = Math.atan2(nx, nz);
+    d.out = wrapAngle(ship.heading + angleDelta(ship.heading, out) * 0.4);
+    d.st = 'off';
+    d.t = 0;
+    return;
+  }
   ship.notch = DOCK_NOTCH;
   ship.x = d.x; ship.z = d.z; ship.heading = d.heading;
   ship.speed = 0;
@@ -18892,7 +18925,11 @@ function stow(state, bm, f, h, rearm) {
   if (i >= 0) state.bombers.splice(i, 1);
 }
 
-/** Out of her hangar and onto the end of the runway, rolling. */
+/**
+ * Out of her hangar and away: the squadron's machines onto the perimeter
+ * track, and each in turn down the runway and up into the circle over the
+ * field, where they close up before they set course. See formPose.
+ */
 function takeOff(state, f, h) {
   const bm = h.bm;
   const c = state.world.works.cities[f.i];
@@ -18905,19 +18942,69 @@ function takeOff(state, f, h) {
   h.bm = null;
   const b = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
   if (!bm.loads) bm.loads = b.atomic ? 1 : 2;
+  const cruise = b.cruise * 0.44704;
+  const dx = Math.sin(heading);
+  const dz = Math.cos(heading);
+  // The perimeter track is on the hangars' side of the runway: towards the
+  // middle of the field's site from the runway's centre line.
+  const lx = -Math.sin(c.rot);
+  const lz = -Math.cos(c.rot);
+  // Round the circle the way that keeps it over the battlefield rather than
+  // off the edge of it.
+  const px = sx + dx * 1300;
+  const pz = sz + dz * 1300;
+  const turn = Math.cos(heading) * -px - Math.sin(heading) * -pz >= 0 ? 1 : -1;
+  const up = (bm.machines || []).filter((a) => a.alive && !a.left).map((a) => machineSlot(bm, a)).sort((p, q) => p - q);
+  bm.fm = {
+    t: 0, sx, sz, dx, dz, lx, lz, y0: rw.y + 3, lift: cruise * 0.62, v: cruise, alt: bombAlt(b), turn,
+    n: Math.max(1, up.length), st: up.length ? up : [0],
+  };
   bm.stowed = false;
   bm.alive = true;
-  bm.phase = 'roll';
-  bm.heading = heading;
-  bm.x = sx + Math.sin(heading) * 60;
-  bm.z = sz + Math.cos(heading) * 60;
-  bm.y = rw.y + 3;
+  bm.phase = 'form';
   bm.speed = 0;
   bm.bank = 0; bm.roll = 0; bm.turn = 0;
   bm.awayTo = 0; bm.hold = 0; bm.overshot = false;
   bm.stick = 0; bm.doors = false;
+  formStep(bm, 0);
   state.bombers.push(bm);
   state.events.push({ e: 'fieldUp', i: bm.id, tm: bm.team, f: f.i });
+}
+
+/**
+ * Where each machine of a squadron forming up over its field is, at the
+ * forming up's own clock: the leader is the squadron's position, as it is in
+ * the vic, and every machine's place is kept by her station in `fmPose`.
+ */
+function formStep(bm, dt) {
+  const fm = bm.fm;
+  fm.t += dt;
+  const poses = formPoses(fm, fm.t, bm.fmPoses || (bm.fmPoses = []));
+  const lead = poses[0];
+  // The squadron's own position is where station nought of the vic would be,
+  // so the leader is at her station off it just as she will be once they
+  // have closed up.
+  const home = vicAt(fm.st[0], lead.h);
+  const was = bm.heading;
+  bm.x = lead.x - home.x;
+  bm.y = lead.y - home.y;
+  bm.z = lead.z - home.z;
+  bm.heading = lead.h;
+  bm.speed = lead.v;
+  bm.bank = lead.bank;
+  bm.turn = dt > 0 ? clamp(angleDelta(was, lead.h) / dt, -1, 1) : 0;
+  const at = bm.fmPose || (bm.fmPose = {});
+  for (let r = 0; r < fm.n; r++) {
+    const p = poses[r];
+    at[fm.st[r]] = { x: p.x - bm.x, y: p.y - bm.y, z: p.z - bm.z, h: p.h, bank: p.bank, air: p.air };
+  }
+}
+
+/** Where machine `k` of a heavy squadron is off its position: in the vic, or wherever forming up has her. */
+export function heavyOffset(bm, k, heading = bm.heading || 0, out = { x: 0, y: 0, z: 0 }) {
+  const f = bm.fm && bm.fmPose?.[k];
+  if (f) { out.x = f.x; out.y = f.y; out.z = f.z; return out; }
+  return vicAt(k, heading, out);
 }
 
 /** Whether she has a field of her own to go home to, with a hangar to go into. */
@@ -18949,12 +19036,18 @@ function stepFieldFlight(state, bm, dt) {
     bm.x += Math.sin(bm.heading) * bm.speed * dt;
     bm.z += Math.cos(bm.heading) * bm.speed * dt;
   };
-  if (bm.phase === 'roll') {
-    bm.speed += 2.4 * dt;
-    bm.y = floor;
-    bm.bank = 0; bm.turn = 0;
-    fly();
-    if (bm.speed >= cruise * 0.62) bm.phase = 'climb';
+  if (bm.phase === 'form') {
+    if (!bm.fm) { bm.phase = 'climb'; return; }
+    formStep(bm, dt);
+    if (bm.fm.t >= formDone(bm.fm)) {
+      // All up and closed up: course for the target.
+      bm.fm = null;
+      bm.fmPose = null;
+      bm.fmPoses = null;
+      bm.speed = cruise;
+      bm.phase = bm.y >= bombAlt(b) - 0.5 ? 'inbound' : 'climb';
+      if (bm.phase === 'inbound') { bm.y = bombAlt(b); bm.bank = 0; bm.turn = 0; }
+    }
     return;
   }
   if (bm.phase === 'climb') {
@@ -19040,8 +19133,10 @@ function stepFields(state, dt) {
       }
       if (f.busy > 0 || state.t < h.ready || f.team !== h.bm.team || h.bm.held) continue;
       if (!runwayOpen(state, c)) continue;
+      const bm = h.bm;
       takeOff(state, f, h);
-      f.busy = RUNWAY_GAP;
+      // The runway is theirs until the last of them is off it.
+      f.busy = Math.max(RUNWAY_GAP, bm.fm ? formRunwayTime(bm.fm) : 0);
     }
   }
 }

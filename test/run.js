@@ -50,6 +50,7 @@ import {
 } from '../shared/sim.js';
 import {
   airbasesOf, harborsOf, runwayOf, berthAlong, cityPlans as worksPlans, cleanAsk as cleanWorksAsk, worldToCity as toSite,
+  TOWN_MAX_W, TOWN_MIN_D,
 } from '../shared/works.js';
 import { Held } from '../client/js/predict.js';
 import {
@@ -28871,7 +28872,8 @@ check('a town on fire burns, spreads to the timber next door and burns itself ou
   const world = islandTown();
   const st = createState(world, {});
   const plan = cityPlan(world);
-  const house = plan.buildings.find((q) => q.kind === 'house' && q.mat === 'wood' && q.near.length);
+  const house = plan.buildings.find((q) => q.kind === 'house' && q.mat === 'wood'
+    && q.near.some((id) => plan.byId.get(id)?.mat === 'wood'));
   assert.ok(house, 'no timber house with neighbours');
   world.ruin.b[house.id] = { d: 0, f: 1 };
   for (let i = 0; i < 30 * 240; i++) step(st, DT);
@@ -30586,16 +30588,122 @@ check('a heavy squadron based at an air base takes off down the runway, lands ba
   for (let i = 0; i < Math.round(700 / DT); i++) {
     for (const ev of step(state, DT)) if (ev.e === 'fieldDown' && ev.i === bm.id) landedAt = state.t;
     seen.add(bm.phase);
-    if (bm.phase === 'roll') assert.ok(Math.abs(bm.y - ab.level - 3) < 0.5, 'she is not rolling on the runway');
+    if (bm.phase === 'form' && bm.speed > 1 && bm.speed < 40) assert.ok(Math.abs(bm.y - ab.level - 3) < 0.5, 'she is not rolling on the runway');
     // Sent home empty as soon as she is up.
     if (bm.phase === 'inbound' && !sent) { sent = true; bm.loads = 0; bm.phase = 'home'; }
     if (landedAt && bm.phase === 'inbound') break;
   }
-  for (const ph of ['roll', 'climb', 'approach', 'final', 'rollout', 'hangar']) assert.ok(seen.has(ph), `she never went through ${ph}`);
+  for (const ph of ['form', 'approach', 'final', 'rollout', 'hangar']) assert.ok(seen.has(ph), `she never went through ${ph}`);
   assert.ok(landedAt > 0, 'she never landed');
   assert.ok(bm.alive && bm.loads === 2, 'she was not rearmed');
   assert.ok(state.t - landedAt >= REARM_TIME, 'she went again before she was rearmed');
   assert.ok(state.bombers.includes(bm), 'she did not take off again');
+});
+
+check('a squadron off an air base takes off one machine at a time and circles the field until all three are up', () => {
+  const world = worksField();
+  const state = createState(world, { mode: 'deathmatch' });
+  setFieldSides(state, 0);
+  const [ab] = airbasesOf(world);
+  const e = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+  e.x = -20000; e.z = -20000;
+  const bm = addBomber(state, { bomberId: 'lancaster', team: 0, x: 0, z: 0 });
+  assert.equal(bm.count, 3);
+  assert.ok(baseBomber(state, bm, ab.index, 0));
+  const offAt = [];
+  let maxFromField = 0;
+  let allUpAt = -1;
+  let leftAt = -1;
+  for (let i = 0; i < Math.round(400 / DT) && leftAt < 0; i++) {
+    step(state, DT);
+    if (bm.phase !== 'form') {
+      if (state.bombers.includes(bm)) leftAt = state.t;
+      continue;
+    }
+    for (const k of [0, 1, 2]) {
+      const p = bm.fmPose[k];
+      if (offAt[k] === undefined && bm.y + p.y > ab.level + 3.5) offAt[k] = state.t;
+    }
+    if (allUpAt < 0 && offAt.filter((v) => v !== undefined).length === 3) allUpAt = state.t;
+    maxFromField = Math.max(maxFromField, Math.hypot(bm.x - ab.x, bm.z - ab.z));
+  }
+  assert.equal(offAt.filter((v) => v !== undefined).length, 3, 'not all three got off the ground');
+  assert.ok(offAt[1] - offAt[0] > 15 && offAt[2] - offAt[1] > 15, `they did not go off one at a time: ${offAt.map(Math.round)}`);
+  assert.ok(leftAt > allUpAt + 30, 'the squadron set course before the last of it was up and round');
+  assert.ok(maxFromField < 4500, `the leader wandered ${Math.round(maxFromField)} m from the field while forming up`);
+  // Closed up into the vic as she sets course.
+  assert.ok(bm.phase === 'inbound' || bm.phase === 'climb');
+  assert.ok(!bm.fm && !bm.fmPose);
+});
+
+check('an air base does not push a harbour or a town off the spot asked for, nor bring them to its level', () => {
+  const w0 = generateWorld(1234, 'solomon_narrows', null);
+  const big = w0.islands.slice().sort((a, b) => b.r - a.r)[0];
+  // On the shore abeam of the runway, a few hundred metres off its side:
+  // clear of it, but well inside the reach of its levelling.
+  const [f] = airbasesOf(worksField({ airbases: [{ seed: 5, x: big.x, z: big.z, n: 0 }] }));
+  const out = f.rot + (Math.sin(f.rot) * (big.x - f.x) + Math.cos(f.rot) * (big.z - f.z) > 0 ? Math.PI : 0);
+  const harbour = { seed: 7, x: Math.round(big.x + Math.sin(out) * big.r * 1.3), z: Math.round(big.z + Math.cos(out) * big.r * 1.3), n: 1 };
+  const alone = harborsOf(worksField({ harbors: [harbour] }))[0];
+  const withField = worksField({ airbases: [{ seed: 5, x: big.x, z: big.z, n: 0 }], harbors: [harbour] });
+  const [h] = harborsOf(withField);
+  const [ab] = airbasesOf(withField);
+  assert.ok(alone && h && ab);
+  assert.ok(Math.hypot(h.x - alone.x, h.z - alone.z) < 1, `the harbour was pushed ${Math.round(Math.hypot(h.x - alone.x, h.z - alone.z))} m along the shore by the air base`);
+  // On a real coast, where an air base's levelling reaches a kilometre out:
+  // a town and a harbour a mile off it stay where they were put, the runway
+  // keeps the height of its own ground, and nobody loses a building to it.
+  const place = { lon: -4.15, lat: 50.36 };
+  const gen = (ask) => generateWorld(77, 'north_atlantic', null, 9000, place, null, false, ask);
+  const town = { seed: 3, x: -6000, z: -2250, n: 1 };
+  const quay = { seed: 4, x: -5150, z: -2130, n: 2 };
+  const field = { seed: 2, x: -7000, z: -1250, n: 0 };
+  const t0 = cityPlans(gen({ cities: [town] }))[0];
+  const q0 = harborsOf(gen({ harbors: [quay] }))[0];
+  const f0 = airbasesOf(gen({ airbases: [field] }))[0];
+  const all = gen({ cities: [town], harbors: [quay], airbases: [field] });
+  const plans = cityPlans(all);
+  const t1 = plans.find((p) => !p.city.kind);
+  const q1 = harborsOf(all)[0];
+  const f1 = airbasesOf(all)[0];
+  assert.ok(t1 && q1 && f1, 'something was not built');
+  assert.ok(Math.hypot(t1.city.x - t0.city.x, t1.city.z - t0.city.z) < 1, 'the town was moved');
+  assert.ok(Math.hypot(q1.x - q0.x, q1.z - q0.z) < 1, `the harbour was pushed ${Math.round(Math.hypot(q1.x - q0.x, q1.z - q0.z))} m`);
+  assert.equal(f1.level, f0.level, 'the air base was cut down to the town\'s level');
+  assert.ok(t1.buildings.length >= t0.buildings.length * 0.9, `the town went from ${t0.buildings.length} buildings to ${t1.buildings.length}`);
+  assert.equal(plans.find((p) => p.city === f1).hangars.length, cityPlans(gen({ airbases: [field] }))[0].hangars.length, 'the air base lost a hangar');
+});
+
+check('a town can be asked for at a size, and the board drags it out by its corners', () => {
+  const a = cleanWorksAsk({ cities: [{ seed: 1, x: 0, z: 0, w: 99999, d: 5 }, { seed: 2, w: 900, d: 600 }, { seed: 3, w: 900 }] });
+  assert.equal(a.cities[0].w, TOWN_MAX_W);
+  assert.equal(a.cities[0].d, TOWN_MIN_D);
+  assert.equal(a.cities[1].w, 900);
+  assert.equal(a.cities[2].w, undefined, 'a width with no depth is not a size');
+  // On the board: put one down, drag it out, and move it.
+  const lay = Object.create(LayoutMap.prototype);
+  lay.req = { seed: 12345, mapId: 'coral_shelf', time: null, half: 12000 };
+  lay.works = { cities: [], walls: [], airbases: [], harbors: [] };
+  lay.tokens = [];
+  const bare = generateWorld(12345, 'coral_shelf', null, 12000, null, null, false, null);
+  const isle = bare.islands.slice().sort((p, q) => q.r - p.r)[0];
+  lay.setWorks('city', true, { x: isle.x, z: isle.z });
+  const c0 = lay.world.works.cities[0];
+  assert.ok(c0, 'no town was put down');
+  lay.resizeTown(c0, 420, 300);
+  const c1 = lay.world.works.cities[0];
+  assert.equal(c1.W, 420);
+  assert.equal(c1.D, 300);
+  assert.ok(Math.hypot(c1.x - c0.x, c1.z - c0.z) < 1, 'sizing it moved it');
+  const small = cityPlans(lay.world)[0].buildings.length;
+  lay.resizeTown(c1, 1000, 640);
+  const c2 = lay.world.works.cities[0];
+  assert.equal(c2.W, 1000);
+  assert.ok(cityPlans(lay.world)[0].buildings.length > small * 1.5, 'a bigger town has no more in it');
+  // Moved, it keeps its size.
+  lay.setWorks('city', true, { x: isle.x + 40, z: isle.z + 40 }, 0);
+  assert.equal(lay.world.works.cities[0].W, 1000);
+  assert.equal(lay.works.cities[0].w, 1000);
 });
 
 check('carrier aircraft with their deck gone put down at a friendly air base', () => {

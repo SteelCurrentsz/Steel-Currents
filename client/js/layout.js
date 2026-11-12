@@ -18,6 +18,7 @@ import { BATTERIES, tankRoom } from '../../shared/batteries.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import {
   cityPlans, cityToWorld, worldToCity, siteOnWorks, WALL_WIDTH, MAX_CITIES, MAX_WALLS,
+  TOWN_MIN_W, TOWN_MAX_W, TOWN_MIN_D, TOWN_MAX_D,
   MAX_AIRBASES, MAX_HARBORS, airbasesOf, harborsOf, berthAlong, worksName,
 } from '../../shared/works.js';
 import { dryLand, BARRACKS_MEN, MAX_BARRACKS } from '../../shared/infantry.js';
@@ -26,6 +27,7 @@ import { dryLand, BARRACKS_MEN, MAX_BARRACKS } from '../../shared/infantry.js';
 const BLOCK_INK = {
   square: '#b8a98a', centre: '#8f8a80', mid: '#8a6f5c', res: '#6f7a58', park: '#4f7a45', port: '#6c675d',
   field: '#5d7347', runway: '#9a9890', apron: '#7d7b74',
+  station: '#a39784', works: '#5f5a52', pitch: '#55874a',
 };
 
 /** The works the board can ask for, each kind's list in `this.works`. */
@@ -305,7 +307,11 @@ export class LayoutMap {
     if (!on) list.pop();
     else if (index >= 0 && list[index]) {
       const was = list[index];
-      list[index] = { seed: was.seed, ...spot, n: was.n ?? next, ...(was.t === 1 ? { t: 1 } : {}) };
+      list[index] = {
+        seed: was.seed, ...spot, n: was.n ?? next, ...(was.t === 1 ? { t: 1 } : {}),
+        // A town keeps the size its corners were dragged out to.
+        ...(Number.isFinite(was.w) ? { w: was.w, d: was.d } : {}),
+      };
     } else { list.push({ seed, ...spot, n: next, ...side }); added = list.length - 1; }
     this.placing = null;
     this.raise();
@@ -329,6 +335,46 @@ export class LayoutMap {
     for (const t of this.tokens) this.check(t);
     this.dirty = true;
     this.paint();
+  }
+
+  /**
+   * A town's corners dragged out or in: the same town, on the same spot, at
+   * `W` by `D`. If there is no room for it at that size it stays the size it
+   * was, and the chart says so.
+   */
+  resizeTown(c, W, D) {
+    const list = this.works.cities;
+    const was = list[c.ask];
+    if (!was) return;
+    const x = Number.isFinite(was.x) ? was.x : Math.round(c.x);
+    const z = Number.isFinite(was.z) ? was.z : Math.round(c.z);
+    list[c.ask] = { ...was, x, z, w: Math.round(W), d: Math.round(D) };
+    this.raise();
+    const built = (this.world.works?.cities || []).some((q) => kindOfSite(q) === 'city' && q.ask === c.ask);
+    if (!built) {
+      list[c.ask] = was;
+      this.raise();
+      this.hintOnce = 'There is no room for a town that size here.';
+    } else this.hintOnce = null;
+    this.relink();
+    for (const t of this.tokens) this.check(t);
+    this.dirty = true;
+    this.paint();
+  }
+
+  /** Is this point on the screen on a corner of a town? Returns a drag that sizes it, or null. */
+  onTownCorner(p) {
+    const reach = 16;
+    for (const plan of this.plans || []) {
+      const c = plan.city;
+      if (c.kind) continue;
+      for (const [a, e] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const w = cityToWorld(c, (a * plan.W) / 2, (e * plan.D) / 2);
+        const q = this.toScreen(w.x, w.z);
+        if (Math.hypot(q.x - p.x, q.y - p.y) <= reach) return { mode: 'size', plan, size: null };
+      }
+    }
+    return null;
   }
 
   // ------------------------------------------------- harbours, air bases --
@@ -585,7 +631,7 @@ export class LayoutMap {
         : 'Drag to move, the peg off the bow to turn, the water to pan. '
           + 'Scroll or pinch to zoom. Ships on the water, guns ashore, '
           + 'tanks ashore or dropped on a landing craft that can carry them'
-          + `${this.plans?.length ? ' -- in a town or on the walls too. Drag a town to move it.' : '.'}`);
+          + `${this.plans?.length ? ' -- in a town or on the walls too. Drag a town to move it, or its corners to size it.' : '.'}`);
       if (text !== this._hint) {
         this.hint.textContent = text;
         this.hint.classList.toggle('bad', !!why);
@@ -1313,8 +1359,8 @@ export class LayoutMap {
         e.preventDefault();
         return;
       }
-      // A town, picked up by anywhere inside it.
-      const town = !hit ? this.onTown(p) : null;
+      // A town, sized by its corners or picked up by anywhere inside it.
+      const town = !hit ? this.onTownCorner(p) || this.onTown(p) : null;
       // Nothing under the finger: the chart itself is dragged instead.
       this.drag = hit || town || { mode: 'pan', from: p };
       // Where a tank was picked up from, to go back to if it is let go over a
@@ -1348,7 +1394,18 @@ export class LayoutMap {
         return;
       }
       if (!this.drag) return;
-      if (this.drag.mode === 'town') {
+      if (this.drag.mode === 'size') {
+        // Dragged out about its middle: the corner under the finger, and the
+        // one across from it mirrored.
+        const c = this.drag.plan.city;
+        const w = this.fromScreen(p.x, p.y);
+        const { u, v } = worldToCity(c, w.x, w.z);
+        const W = clamp(Math.abs(u) * 2, TOWN_MIN_W, TOWN_MAX_W);
+        const D = clamp(Math.abs(v) * 2, TOWN_MIN_D, TOWN_MAX_D);
+        this.drag.size = { W, D };
+        const yd = (m) => Math.round(m / 0.9144 / 10) * 10;
+        this.hintOnce = `Let go for a town ${yd(W).toLocaleString('en-US')} by ${yd(D).toLocaleString('en-US')} yards.`;
+      } else if (this.drag.mode === 'town') {
         const w = this.fromScreen(p.x, p.y);
         this.drag.at = { x: w.x - this.drag.dx, z: w.z - this.drag.dz };
         this.drag.shift = { x: w.x, z: w.z };
@@ -1434,6 +1491,10 @@ export class LayoutMap {
           }
         }
         this.check(d.t);
+      }
+      if (d && d.mode === 'size') {
+        this.hintOnce = null;
+        if (d.size) this.resizeTown(d.plan.city, d.size.W, d.size.D);
       }
       if (d && d.mode === 'town') {
         this.hintOnce = null;
@@ -1768,7 +1829,29 @@ export class LayoutMap {
       ctx.strokeStyle = 'rgba(255, 233, 180, 0.95)';
       ctx.stroke();
     }
+    // The size it is being dragged out to.
+    if (d && d.mode === 'size' && d.plan === plan && d.size) {
+      quad(-d.size.W / 2, d.size.W / 2, -d.size.D / 2, d.size.D / 2);
+      ctx.strokeStyle = 'rgba(255, 233, 180, 0.95)';
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
+    // A town's corners, to drag it bigger or smaller by -- the same way the
+    // battlefield's own corners are dragged on the chart of the world.
+    if (!c.kind && !this.director?.active) {
+      for (const [a, e] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const sized = d && d.mode === 'size' && d.plan === plan && d.size;
+        const w = cityToWorld(c, (a * (sized ? d.size.W : plan.W)) / 2, (e * (sized ? d.size.D : plan.D)) / 2);
+        const q = this.toScreen(w.x, w.z);
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, sized ? 7 : 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = sized ? 'rgba(255, 233, 180, 0.95)' : 'rgba(230, 207, 156, 0.85)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(40, 34, 26, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
     const mid = this.toScreen(c.x, c.z);
     ctx.font = '600 12px "Barlow Condensed", "Arial Narrow", sans-serif';
     ctx.textAlign = 'center';

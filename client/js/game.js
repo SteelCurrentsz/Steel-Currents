@@ -1258,7 +1258,7 @@ export class Battle {
       const dk = own.dk || 0;
       if (dk === 2 && (ls.dockSt || 0) !== 2) { ls.notch = 1; this.hud.setNotch?.(1); }
       ls.dockSt = dk;
-      ls.dock = dk === 2 ? { st: 'moored' } : dk === 1 ? { st: 'approach' } : null;
+      ls.dock = dk === 2 ? { st: 'moored' } : dk === 3 ? { st: 'off' } : dk === 1 ? { st: 'approach' } : null;
       // An order given to her fleet from another ship of it: her helm and her
       // telegraph take it up, or her own prediction would steer against it.
       if ((own.fq || 0) !== (this.fleetSeq || 0)) {
@@ -8684,12 +8684,15 @@ export class Battle {
         }
         continue;
       }
+      // Forming up over her airfield: each machine where she is on her own,
+      // on the ground or round the circle, interpolated the same way.
+      const poses = bm.fp ? this.formPoses(bm, nx, t, x, y, z) : null;
       this.scene.heavies.add(
         bm.b || 'lancaster', x, y, z, h, bank, 0.05,
-        Math.max(1, bm.n || 1), holes, hspan, mask, trim,
+        Math.max(1, bm.n || 1), holes, hspan, mask, trim, poses,
       );
       heavies.push({ ...bm, x, y, z, h, bank });
-      this.heavyAir(bm, x, y, z, h, bank, 0.05, gs, mask);
+      if (!poses) this.heavyAir(bm, x, y, z, h, bank, 0.05, gs, mask);
     }
     // And the ones on their way down, each on her own.
     for (const w of this.wrecks) {
@@ -8904,6 +8907,31 @@ export class Battle {
       if (!point(lp[k], h, p)) continue;
       this.scene.contrails.vent(`${id}/${lp[k]}`, p.x, p.y, p.z, 1);
     }
+  }
+
+  /**
+   * A forming squadron's machines in the world, each from her own five
+   * numbers off the wire (see formReport), interpolated toward the next
+   * snapshot's when there is one.
+   */
+  formPoses(bm, nx, t, x, y, z) {
+    const read = (fp) => {
+      const m = new Map();
+      for (let k = 0; k + 5 < fp.length; k += 6) m.set(fp[k], fp.slice(k + 1, k + 6));
+      return m;
+    };
+    const a = read(bm.fp);
+    const b = nx?.fp ? read(nx.fp) : null;
+    const out = [];
+    for (const [k, p] of a) {
+      const q = b?.get(k) || p;
+      const h = p[3] + angleDelta(p[3], q[3]) * t;
+      out[k] = {
+        x: x + lerp(p[0], q[0], t), y: y + lerp(p[1], q[1], t), z: z + lerp(p[2], q[2], t),
+        h, bank: lerp(p[4], q[4], t),
+      };
+    }
+    return out;
   }
 
   /**

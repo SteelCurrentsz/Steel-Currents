@@ -1186,7 +1186,7 @@ class HudBase {
     if (rep) rep.textContent = DC_ORDER[stage];
     set('smoke', `×${own.smk ?? 0}`,
       own.sm === 1 ? 'active' : (own.smk ?? 0) > 0 ? 'ready' : 'spent');
-    set('dock', own.dk === 2 ? 'FAST' : own.dk === 1 ? 'IN' : 'GO', own.dk ? 'active' : 'ready');
+    set('dock', own.dk === 2 ? 'FAST' : own.dk === 3 ? 'OFF' : own.dk === 1 ? 'IN' : 'GO', own.dk ? 'active' : 'ready');
     const dsp = this.acts.dock && this.acts.dock.querySelector('span');
     if (dsp) dsp.textContent = own.dk ? 'Cast off (K)' : 'Dock (K)';
     this.paintParties(own);

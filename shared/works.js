@@ -13,7 +13,12 @@
 // square, brick flats and shops past those, terraces and detached houses with
 // gardens on the outskirts, a park, and warehouses along the waterfront.
 // Kerbs and pavements, lamp-posts, street trees, benches, telephone kiosks
-// and motor cars parked at the kerb.
+// and motor cars parked at the kerb. A town of any size has its railway
+// station at the head of the boulevard, a school, a hospital, a fire station
+// and a covered market, a football ground, and out on its inland edge the
+// works: factories with their chimney stacks, a gasholder or a water tower,
+// and lorries in the yards. How big it is the board decides, by dragging its
+// corners out, from a village of a few streets to a city.
 //
 // It stands on the ground the simulation stands everything else on. The site
 // is levelled -- cut into the hill behind and made up where it falls away, as
@@ -55,6 +60,14 @@ export const MAX_WALLS = 12;
 export const MAX_AIRBASES = 4;
 export const MAX_HARBORS = 6;
 /**
+ * The sizes a town can be dragged out to on the board, in metres: from a
+ * village of a few streets to a city of fifteen hundred buildings.
+ */
+export const TOWN_MIN_W = 220;
+export const TOWN_MAX_W = 1800;
+export const TOWN_MIN_D = 170;
+export const TOWN_MAX_D = 1100;
+/**
  * A building's id is its town's number times this, plus its own number in
  * the town: one list of ruins, and one stream of events, for every town.
  */
@@ -71,6 +84,11 @@ function cleanOne(a) {
     // Whose an airfield is, off the board: 1 the enemy's, otherwise the
     // captain's own side.
     ...(a.t === 1 ? { t: 1 } : {}),
+    // How big a town was asked for, across its front and back from it, when
+    // its corners were dragged out on the board. Left to itself a town is
+    // as big as the ground it stands on makes it.
+    ...(Number.isFinite(a.w) && Number.isFinite(a.d)
+      ? { w: Math.round(clamp(a.w, TOWN_MIN_W, TOWN_MAX_W)), d: Math.round(clamp(a.d, TOWN_MIN_D, TOWN_MAX_D)) } : {}),
   };
 }
 
@@ -196,8 +214,10 @@ function siteCity(world, ask, others = []) {
       ? Math.atan2(want.x - i.x, want.z - i.z)
       : Math.atan2(-i.x, -i.z);
     const Rb = islandRadius(i, b);
-    const W = clamp(i.r * 1.25, 200, 760);
-    const D = clamp(i.r * 0.8, 150, 460);
+    // As big as the island makes room for, or as big as the board dragged
+    // it out to.
+    const W = ask.w ?? clamp(i.r * 1.25, 200, 760);
+    const D = ask.d ?? clamp(i.r * 0.8, 150, 460);
     const out = Rb - D / 2 + 12;
     site = {
       x: i.x + Math.sin(b) * out, z: i.z + Math.cos(b) * out, rot: b, W, D,
@@ -213,8 +233,8 @@ function siteCity(world, ask, others = []) {
     // (or near the middle of the battle), each faced out to sea and scored on
     // how much of the town's site would be dry land. A town is built where
     // there is room for one, not across the mouth of an estuary.
-    const W = 760;
-    const D = 480;
+    const W = ask.w ?? 760;
+    const D = ask.d ?? 480;
     const target = Number.isFinite(ask.x) ? { x: ask.x, z: ask.z } : { x: 0, z: 0 };
     const face = (px, pz) => {
       const g = 300;
@@ -310,6 +330,11 @@ function siteCity(world, ask, others = []) {
 
 /** How far apart two towns' streets are kept: a field or two between them. */
 const TOWN_GAP = 30;
+/**
+ * And how far an airfield or a harbour is kept off any other site: room for
+ * the ground to run from the one's level to the other's.
+ */
+const SITE_GAP = 40;
 
 /**
  * Whether two towns' sites overlap, each widened by its pad: the separating
@@ -328,7 +353,12 @@ function sitesOverlap(a, b, padA = 0, padB = 0) {
   return true;
 }
 
-/** Whether the levelling of either of two towns reaches the other's streets. */
+/**
+ * Whether the levelling of either of two towns reaches the other's streets.
+ * Two towns that close are built on the one level. An airfield or a harbour
+ * keeps its own whatever is near it, and the ground between is blended from
+ * the one level to the other (see worksGround).
+ */
 function reaches(a, b) {
   return sitesOverlap(a, b, a.flat + a.blend, b.flat) || sitesOverlap(a, b, a.flat, b.flat + b.blend);
 }
@@ -406,7 +436,7 @@ function siteAt(world, ask) {
     const b = off > 1 ? Math.atan2(ask.x - i.x, ask.z - i.z) : Math.atan2(-i.x, -i.z);
     site = {
       x: ask.x, z: ask.z, rot: b,
-      W: clamp(i.r * 1.25, 200, 760), D: clamp(i.r * 0.8, 150, 460),
+      W: ask.w ?? clamp(i.r * 1.25, 200, 760), D: ask.d ?? clamp(i.r * 0.8, 150, 460),
       flat: 80, blend: 130, isle: isles.indexOf(i),
     };
   } else {
@@ -415,7 +445,7 @@ function siteAt(world, ask) {
     const gx = shoreDistance(world, ask.x + g, ask.z) - shoreDistance(world, ask.x - g, ask.z);
     const gz = shoreDistance(world, ask.x, ask.z + g) - shoreDistance(world, ask.x, ask.z - g);
     const b = Math.hypot(gx, gz) > 1 ? Math.atan2(-gx, -gz) : Math.atan2(-ask.x, -ask.z);
-    site = { x: ask.x, z: ask.z, rot: b, W: 760, D: 480, flat: 460, blend: 600, isle: -1 };
+    site = { x: ask.x, z: ask.z, rot: b, W: ask.w ?? 760, D: ask.d ?? 480, flat: 460, blend: 600, isle: -1 };
   }
   // A waterfront if the sea is at the front of it.
   site.inland = !wetFront(world, site);
@@ -518,9 +548,9 @@ function siteAirbase(world, ask, others = []) {
     ...s, inland: true, isle: i ? isles.indexOf(i) : -1,
     flat: i ? 60 : 460, blend: i ? 120 : 600,
   };
+  // Its own level, off its own ground: a town or a harbour along the way
+  // does not bring a runway on a hill down to the sea.
   site.level = siteLevel(world, site, rng);
-  const near = others.find((o) => reaches(site, o));
-  if (near) site.level = near.level;
   site.seed = ask.seed;
   return site;
 }
@@ -606,12 +636,12 @@ function siteHarbor(world, ask, others = []) {
   const W = HARBOR_W;
   const D = HARBOR_D;
   const out = 26;
-  // Clear of every site standing, and of their levelling: a harbour's apron
-  // is at the water, and an airfield's runway levelled down to it would be
-  // left on a slope.
+  // Clear of every site standing, with a gap between: the ground between a
+  // harbour's apron and an airfield up the hill behind it is blended from
+  // the one level to the other (see worksGround), so a harbour is only kept
+  // off the other sites' own ground, not off the whole of their levelling.
   const flatOf = (isle) => (isle ? { flat: 30, blend: 120 } : { flat: 300, blend: 450 });
-  const clash = (s2) => others.some((o) => sitesOverlap(s2, o, TOWN_GAP, TOWN_GAP)
-    || sitesOverlap(s2, o, s2.flat + s2.blend, o.flat) || sitesOverlap(s2, o, s2.flat, o.flat + o.blend));
+  const clash = (s2) => others.some((o) => sitesOverlap(s2, o, SITE_GAP, SITE_GAP));
   let site = {
     x: sh.x - sh.nx * (D / 2 - out), z: sh.z - sh.nz * (D / 2 - out), rot, W, D,
     ...flatOf(isles.length > 0), inland: false,
@@ -733,6 +763,11 @@ export function worldToCity(c, x, z) {
 let PRISTINE = false;
 export function pristine() { return PRISTINE; }
 
+// How sharply two sites' levellings give way to each other between them: the
+// say each has goes as its distance to the power of this, so each keeps its
+// own level until well over towards the other.
+const BLEND_POW = 16;
+
 /**
  * The ground with the works on it, given the ground without them.
  *
@@ -747,25 +782,36 @@ export function worksGround(world, x, z, base) {
   const w = world.works;
   if (!w) return base;
   let h = base;
-  // Town by town, each levelled into what the ones before it left.
+  // Every site's own footprint is on its level exactly. Round it, its
+  // levelling runs out over its margin and is blended back into the hill;
+  // where the margins of two sites at different heights meet, each has the
+  // more say the nearer the point is to it, so the ground runs from the one
+  // level to the other across the gap between them rather than one site
+  // having to be put on the other's level, or kept a mile off it.
+  let num = 0;
+  let den = 0;
+  // How much of the ground is left as it was, after every site's levelling
+  // has had its pull on it.
+  let left = 1;
   for (const c of w.cities) {
     const { u, v } = worldToCity(c, x, z);
+    const out = Math.max(Math.abs(u) - c.W / 2, Math.abs(v) - c.D / 2);
     // A harbour's apron is made ground: filled out over the shallows to the
     // line of its quay, whatever was there.
-    if (c.kind === 'harbor' && Math.abs(u) <= c.W / 2 && Math.abs(v) <= c.D / 2) {
-      h = c.level;
-      continue;
-    }
+    if (out <= 0 && (c.kind === 'harbor' || base > 0.3)) { num = c.level; den = 1; left = 0; h = null; break; }
     if (base <= 0.3) continue;
-    const ou = Math.abs(u) - c.W / 2 - c.flat;
-    const ov = Math.abs(v) - c.D / 2 - c.flat;
-    const out = Math.max(ou, ov);
-    if (out < c.blend) {
-      const t = out <= 0 ? 1 : 1 - out / c.blend;
-      const e = t * t * (3 - 2 * t);
-      h = Math.max(0.35, h + (c.level - h) * e);
-    }
+    const far = out - c.flat;
+    if (far >= c.blend) continue;
+    const t = far <= 0 ? 1 : 1 - far / c.blend;
+    const e = t * t * (3 - 2 * t);
+    const wt = e / Math.max(0.5, out) ** BLEND_POW;
+    num += wt * c.level;
+    den += wt;
+    left *= 1 - e;
   }
+  if (h === null) h = num;
+  else if (den > 0) h = Math.max(0.35, base + (num / den - base) * (1 - left));
+  else h = base;
   if (w.walls.length) {
     // The berth along the face: dredged out, the way the water alongside a
     // sea wall always is -- a wall is built where there is deep water to
@@ -871,7 +917,7 @@ export function worksCeiling(world) {
   if (!w) return 0;
   let top = 0;
   for (const r of w.walls) top = Math.max(top, r.top + PARAPET);
-  for (const c of w.cities) top = Math.max(top, c.level + 70);
+  for (const c of w.cities) top = Math.max(top, c.level + 100);
   return top;
 }
 
@@ -1587,17 +1633,39 @@ function drawUp(world, c) {
   const live = blocks.filter((b) => b.land > 0.25);
   const byHub = live.filter((b) => !b.front).sort((a, b) => a.r - b.r);
   if (byHub[0]) byHub[0].kind = 'square';
+  // A city has more of a middle than a market town does.
   let centre = 0;
+  const centres = Math.max(7, Math.round(live.length * 0.08));
   for (const b of byHub.slice(1)) {
-    if (b.r < 0.27 && centre < 7) { b.kind = 'centre'; centre++; } else if (b.r < 0.42) b.kind = 'mid';
+    if (b.r < 0.27 && centre < centres) { b.kind = 'centre'; centre++; } else if (b.r < 0.42) b.kind = 'mid';
   }
   for (const b of live) if (b.front) b.kind = 'port';
   // A park or two in the ring between the middle of the town and its edge.
   const ring = live.filter((b) => (b.kind === 'mid' || b.kind === 'res') && !b.front);
-  for (let k = 0; k < Math.min(2, Math.floor(ring.length / 5) + 1) && ring.length; k++) {
+  for (let k = 0; k < Math.min(Math.max(2, Math.round(live.length / 30)), Math.floor(ring.length / 5) + 1) && ring.length; k++) {
     const pick = ring.splice(Math.floor(rng() * ring.length), 1)[0];
     pick.kind = 'park';
   }
+  // The railway station: at the inland end of the boulevard, where the line
+  // comes into a town of any size, facing down it to the sea.
+  const onBoulevard = (b) => Math.min(Math.abs(b.u0 - BOULEVARD / 2), Math.abs(b.u1 + BOULEVARD / 2)) < 2;
+  if (live.length >= 12) {
+    const st = live.filter((b) => !b.front && onBoulevard(b) && b.kind !== 'square' && b.cv < -D * 0.15
+      && b.u1 - b.u0 > 50 && b.v1 - b.v0 > 40)
+      .sort((a, b) => a.cv - b.cv)[0];
+    if (st) st.kind = 'station';
+  }
+  // The works: the gasworks, a factory or two and their yards, out on the
+  // edge of a town big enough to have them, away from the sea and the square.
+  const outer = live.filter((b) => (b.kind === 'res' || b.kind === 'mid') && !b.front && b.cv < 0)
+    .sort((a, b) => b.r - a.r);
+  const nWorks = live.length >= 40 ? 3 : live.length >= 22 ? 2 : live.length >= 12 ? 1 : 0;
+  for (const b of outer.slice(0, nWorks)) b.kind = 'works';
+  // A sports ground, with its stand, in a town that can spare a block that
+  // big for one.
+  const pitch = live.filter((b) => b.kind === 'res' && !b.front && b.u1 - b.u0 > 80 && b.v1 - b.v0 > 52)
+    .sort((a, b) => b.r - a.r)[0];
+  if (pitch && live.length >= 18) pitch.kind = 'pitch';
 
   // Paint the surface: road everywhere the town is, then each block on top.
   for (let j = 0; j < nv; j++) {
@@ -1624,9 +1692,9 @@ function drawUp(world, c) {
     paint(b.u0, b.u1, b.v0, b.v1, SURF.walk);
     const inner = { u0: b.u0 + WALK, u1: b.u1 - WALK, v0: b.v0 + WALK, v1: b.v1 - WALK };
     b.inner = inner;
-    const fill = b.kind === 'park' ? SURF.lawn : b.kind === 'square' ? SURF.plaza
-      : b.kind === 'port' ? SURF.yard : b.kind === 'res' ? SURF.lawn
-        : b.kind === 'mid' ? SURF.yard : SURF.walk;
+    const fill = b.kind === 'park' || b.kind === 'pitch' ? SURF.lawn : b.kind === 'square' ? SURF.plaza
+      : b.kind === 'port' || b.kind === 'works' ? SURF.yard : b.kind === 'res' ? SURF.lawn
+        : b.kind === 'mid' ? SURF.lawn : b.kind === 'station' ? SURF.plaza : SURF.walk;
     paint(inner.u0, inner.u1, inner.v0, inner.v1, fill);
     if (b.kind === 'park') {
       // Paths: across it both ways, and round it.
@@ -1664,6 +1732,9 @@ function drawUp(world, c) {
     return true;
   };
   const place = (b, slot, spec) => {
+    // Drawn whether it is built or not, so one building that does not fit
+    // does not change every one laid out after it.
+    const seed = Math.floor(rng() * 1e9);
     if (!fits(spec.u, spec.v, spec.r, spec.w, spec.d)) return null;
     // And the drawn ground itself at its corners, which is the last word on
     // whether it is standing on anything.
@@ -1697,9 +1768,9 @@ function drawUp(world, c) {
       wall: spec.wall, trim: spec.trim ?? 0, roofCol: spec.roofCol ?? 0,
       tiers: spec.tiers || null,
       extra: spec.extra || {},
-      seed: Math.floor(rng() * 1e9),
+      seed,
     };
-    bld.top = L + bld.h + roofH + (bld.extra.spire || 0) + (bld.extra.clock || 0);
+    bld.top = L + bld.h + roofH + (bld.extra.spire || 0) + (bld.extra.clock || 0) + (bld.extra.bigtank ? 8 : 0);
     const vol = bld.w * bld.d * (bld.h + roofH * 0.4);
     // Not in proportion to the volume: a block of offices five times the size
     // of a terrace does not take five times the shells to bring down, because
@@ -1713,6 +1784,20 @@ function drawUp(world, c) {
 
   const WALLS = { brick: [0, 1, 2, 3], stucco: [4, 5, 6], stone: [7, 8], deco: [9, 10, 11], wood: [12, 13, 14] };
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+  const count = (kind) => buildings.reduce((n, q) => n + (q.kind === kind ? 1 : 0), 0);
+  // The public buildings a town has one of each of, put up in the ring round
+  // its middle as blocks with room for them come up.
+  const civic = ['school', 'hospital', 'fire', 'market'];
+  // Whatever the blocks are left with that is not a building, to dress them with.
+  const lawnProps = (b, every = 160) => {
+    const I = b.inner;
+    const n = Math.round(((I.u1 - I.u0) * (I.v1 - I.v0)) / every);
+    for (let k = 0; k < n; k++) {
+      const u = I.u0 + 4 + rng() * (I.u1 - I.u0 - 8);
+      const v2 = I.v0 + 4 + rng() * (I.v1 - I.v0 - 8);
+      props.push({ t: 'tree', u, v: v2, r: rng() * TAU, big: rng() < 0.4 ? 1 : 0, soft: 1 });
+    }
+  };
 
   for (const b of blocks) {
     if (b.land <= 0.25 || !b.inner) continue;
@@ -1752,6 +1837,10 @@ function drawUp(world, c) {
       place(b, slot++, { ...hall, u: b.cu, v: I.v0 + hall.d / 2 + 1, r: 0 });
       props.push({ t: 'fountain', u: b.cu, v: b.cv + id * 0.12, r: 0 });
       props.push({ t: 'statue', u: b.cu, v: I.v1 - 8, r: 0 });
+      // Market day: a row of stalls down each side of the square.
+      for (const sgn of [-1, 1]) {
+        for (let k = 0; k < 3; k++) props.push({ t: 'stall', u: b.cu + sgn * (iw / 2 - 16), v: I.v0 + id * 0.42 + k * 7, r: sgn > 0 ? -Math.PI / 2 : Math.PI / 2, c: Math.floor(rng() * 4) });
+      }
       for (const s of [-1, 1]) {
         props.push({ t: 'kiosk', u: b.cu + s * (iw / 2 - 8), v: I.v1 - 7, r: Math.PI });
         for (let k = 0; k < 3; k++) props.push({ t: 'bench', u: b.cu + s * (10 + k * 7), v: b.cv + id * 0.12 + s * 9, r: s > 0 ? Math.PI : 0 });
@@ -1780,6 +1869,128 @@ function drawUp(world, c) {
       }
       continue;
     }
+    if (b.kind === 'station') {
+      // The station: a long stone building with its clock and the booking
+      // hall in the middle, a canopy over the forecourt, cabs and a bus
+      // waiting on the rank in front of it.
+      const w = Math.min(iw - 6, 74);
+      const d = Math.min(id * 0.42, 22);
+      // Set back from its forecourt, in the middle of the block rather than
+      // on the edge of the town, where the ground runs off its level.
+      const sv = I.v1 - 16 - d / 2;
+      place(b, slot++, {
+        kind: 'station', w, d, h: 11, floors: 2, roof: 'hip', pitch: 0.2, mat: 'stone',
+        wall: pick(WALLS.stone), roofCol: 1, extra: { clock: 12, canopy: 1, flag: 1 },
+        u: b.cu, v: sv, r: 0,
+      });
+      // The goods shed behind it, along the line.
+      const gd = Math.min(id * 0.25, 14);
+      if (sv - d / 2 - gd - 6 > I.v0 + 8) {
+        place(b, slot++, {
+          kind: 'warehouse', w: Math.min(iw - 8, 60), d: gd, h: 7, floors: 1, roof: 'gable',
+          pitch: 0.2, mat: 'brick', wall: pick(WALLS.brick), roofCol: 1, u: b.cu, v: sv - d / 2 - gd / 2 - 6, r: 0,
+        });
+      }
+      props.push({ t: 'bus', u: b.cu - w * 0.3, v: I.v1 - 5, r: Math.PI / 2 });
+      for (let k = 0; k < 3; k++) props.push({ t: 'car', u: b.cu + 6 + k * 6.5, v: I.v1 - 5, r: Math.PI / 2, c: Math.floor(rng() * 6) });
+      props.push({ t: 'clock', u: b.cu, v: I.v1 - 12, r: 0 });
+      for (const sgn of [-1, 1]) props.push({ t: 'bench', u: b.cu + sgn * 14, v: I.v1 - 12, r: Math.PI });
+      continue;
+    }
+    if (b.kind === 'works') {
+      // A factory along the back of the block, its north lights to the sky
+      // and its chimney stack beside it; the gasworks' holder or a water
+      // tower; and a yard with lorries and stacked goods.
+      const fw = Math.min(iw - 6, 84);
+      const fd = Math.min(id * 0.5, 34);
+      place(b, slot++, {
+        kind: 'factory', w: fw, d: fd, h: 9 + Math.floor(rng() * 2) * 3, floors: 2, roof: 'saw', pitch: 0.2,
+        mat: 'brick', wall: pick(WALLS.brick), roofCol: pick([1, 4]),
+        extra: { stack: 26 + Math.floor(rng() * 14) },
+        u: b.cu, v: I.v0 + fd / 2 + 1, r: 0,
+      });
+      const room = id - fd - 6;
+      if (room > 22) {
+        const R = Math.min(room - 4, iw * 0.35, 30);
+        const gas = rng() < 0.6;
+        place(b, slot++, gas ? {
+          kind: 'gasholder', w: R, d: R, h: Math.min(R * 0.75, 18), floors: 1, roof: 'drum', mat: 'concrete',
+          wall: 7, roofCol: 2, u: I.u1 - R / 2 - 3, v: I.v1 - R / 2 - 2, r: 0,
+        } : {
+          kind: 'watertower', w: 9, d: 9, h: 20, floors: 1, roof: 'flat', mat: 'concrete',
+          wall: 9, extra: { bigtank: 1 }, u: I.u1 - 8, v: I.v1 - 8, r: 0,
+        });
+        for (let k = 0; k < 2; k++) {
+          props.push({ t: 'lorry', u: I.u0 + 8 + k * 9, v: I.v1 - 7, r: 0, c: Math.floor(rng() * 6) });
+        }
+        // Stacked goods in the yard, clear of the holder or the tower.
+        const yard = I.u1 - (gas ? R : 16) - 8 - (I.u0 + 30);
+        for (let k = 0; k < 5 && yard > 3; k++) {
+          props.push({ t: 'crates', u: I.u0 + 30 + rng() * yard, v: I.v1 - 4 - rng() * Math.max(2, room * 0.4), r: rng() * TAU });
+        }
+      }
+      continue;
+    }
+    if (b.kind === 'pitch') {
+      // A football ground: the pitch, a goal at each end, a covered stand
+      // down one side and a scoreboard.
+      const pw = Math.min(iw - 16, 100);
+      const pd = Math.min(id - 20, 64);
+      for (const sgn of [-1, 1]) props.push({ t: 'goal', u: b.cu + sgn * (pw / 2 - 1), v: b.cv + 3, r: sgn > 0 ? -Math.PI / 2 : Math.PI / 2 });
+      for (let k = 0; k < 4; k++) props.push({ t: 'flag', u: b.cu + (k % 2 ? 1 : -1) * pw / 2, v: b.cv + 3 + (k < 2 ? 1 : -1) * pd / 2, r: 0 });
+      place(b, slot++, {
+        kind: 'stand', w: Math.min(pw * 0.6, 50), d: 9, h: 7, floors: 1, roof: 'flat', mat: 'wood',
+        wall: pick(WALLS.wood), extra: { stand: 1 }, u: b.cu, v: I.v0 + 6, r: 0,
+      });
+      continue;
+    }
+    if (b.kind === 'mid' && civic.length && iw > 50 && id > 40 && rng() < 0.45) {
+      const what = civic.shift();
+      if (what === 'school') {
+        place(b, slot++, {
+          kind: 'school', w: Math.min(iw - 10, 62), d: Math.min(id * 0.45, 20), h: 9.4, floors: 2, roof: 'hip', pitch: 0.28,
+          mat: 'brick', wall: pick(WALLS.brick), roofCol: 1, extra: { cupola: 1, chimneys: 1 },
+          u: b.cu, v: I.v0 + Math.min(id * 0.45, 20) / 2 + 2, r: 0,
+        });
+        // Its playground, with a tree or two at the railings.
+        for (let k = 0; k < 4; k++) props.push({ t: 'tree', u: I.u0 + 5 + k * (iw - 10) / 3, v: I.v1 - 3, r: 0, big: 0 });
+      } else if (what === 'hospital') {
+        const d = Math.min(id * 0.5, 24);
+        place(b, slot++, {
+          kind: 'hospital', w: Math.min(iw - 8, 72), d, h: 13.5, floors: 4, roof: 'flat', mat: 'concrete',
+          wall: pick(WALLS.stucco), trim: 0, extra: { cross: 1, flag: 1 },
+          u: b.cu, v: I.v0 + d / 2 + 2, r: 0,
+        });
+        props.push({ t: 'ambulance', u: b.cu + 10, v: I.v1 - 5, r: Math.PI / 2 });
+        lawnProps({ inner: { u0: I.u0, u1: I.u1, v0: I.v0 + d + 6, v1: I.v1 - 8 } }, 220);
+      } else if (what === 'fire') {
+        place(b, slot++, {
+          kind: 'fire', w: Math.min(iw * 0.45, 26), d: 16, h: 8.5, floors: 2, roof: 'flat', mat: 'brick',
+          wall: pick(WALLS.brick), trim: 0, extra: { bays: 3, hose: 1 },
+          u: I.u0 + Math.min(iw * 0.45, 26) / 2 + 1, v: I.v1 - 9, r: 0,
+        });
+        props.push({ t: 'engine', u: I.u0 + 8, v: I.v1 + 1.4, r: Math.PI / 2 });
+        const deep = Math.min(22, id / 2 - 3);
+        place(b, slot++, {
+          kind: 'flats', w: Math.min(iw * 0.45, 30), d: deep, h: 3 * 3.2 + 0.8, floors: 3, roof: 'flat',
+          mat: 'brick', wall: pick(WALLS.brick), roofCol: 0, extra: { shops: 1 },
+          u: I.u1 - Math.min(iw * 0.45, 30) / 2 - 1, v: I.v1 - deep / 2, r: 0,
+        });
+      } else {
+        // The covered market: a long iron-and-glass hall, and stalls out in
+        // front of it.
+        const d = Math.min(id * 0.5, 26);
+        place(b, slot++, {
+          kind: 'market', w: Math.min(iw - 8, 56), d, h: 8, floors: 1, roof: 'arch', pitch: 0.3, mat: 'brick',
+          wall: pick(WALLS.brick), roofCol: 3, extra: {},
+          u: b.cu, v: I.v0 + d / 2 + 2, r: Math.PI,
+        });
+        for (let k = 0; k < Math.floor((iw - 12) / 7); k++) {
+          props.push({ t: 'stall', u: I.u0 + 6 + k * 7, v: I.v1 - 5, r: 0, c: Math.floor(rng() * 4) });
+        }
+      }
+      continue;
+    }
     if (b.kind === 'port') {
       // Warehouses along the waterfront, gable-end to the quay.
       rows(Math.min(26, id * 0.42), 28, 46, (w, d) => ({
@@ -1795,7 +2006,7 @@ function drawUp(world, c) {
       const deep = Math.min(30, id / 2 - 2);
       rows(deep, 18, 34, (w, d) => {
         const r = rng();
-        if (r < 0.09 && !buildings.some((q) => q.kind === 'tower') && w > 24) {
+        if (r < 0.09 && count('tower') < 1 + Math.floor(live.length / 50) && w > 24) {
           const h = 48 + Math.floor(rng() * 4) * 4;
           return {
             kind: 'tower', w, d, h, floors: Math.round(h / 3.6), roof: 'flat', mat: 'concrete',
@@ -1804,7 +2015,7 @@ function drawUp(world, c) {
             extra: { mast: 9 },
           };
         }
-        if (r < 0.16 && !buildings.some((q) => q.kind === 'cinema')) {
+        if (r < 0.16 && count('cinema') < 1 + Math.floor(live.length / 60)) {
           return {
             kind: 'cinema', w, d, h: 14, floors: 3, roof: 'flat', mat: 'concrete',
             wall: pick(WALLS.deco), trim: 2, extra: { marquee: 1, sign: 1 },
@@ -1824,7 +2035,7 @@ function drawUp(world, c) {
     }
     if (b.kind === 'mid') {
       // Brick and stucco flats over shops, and a church somewhere about.
-      if (!buildings.some((q) => q.kind === 'church') && iw > 44 && id > 40) {
+      if (count('church') < 1 + Math.floor(live.length / 45) && iw > 44 && id > 40 && (!count('church') || rng() < 0.3)) {
         place(b, slot++, {
           kind: 'church', w: 16, d: Math.min(38, id - 10), h: 13, floors: 1, roof: 'gable', pitch: 0.62,
           mat: 'stone', wall: pick(WALLS.stone), roofCol: 2, extra: { spire: 26 },
@@ -1833,6 +2044,14 @@ function drawUp(world, c) {
         continue;
       }
       const deep = Math.min(22, id / 2 - 3);
+      // The back gardens between the two rows: a strip of green with its
+      // trees, and a wash-house or two at the bottom of the yards.
+      if (id - deep * 2 > 8) {
+        const n = Math.round(iw / 16);
+        for (let k = 0; k < n; k++) {
+          props.push({ t: 'tree', u: I.u0 + 5 + rng() * (iw - 10), v: b.cv + (rng() - 0.5) * (id - deep * 2 - 4), r: rng() * TAU, big: rng() < 0.35 ? 1 : 0 });
+        }
+      }
       rows(deep, 14, 24, (w, d) => {
         const floors = 3 + Math.floor(rng() * 3);
         const brick = rng() < 0.62;
@@ -1860,9 +2079,23 @@ function drawUp(world, c) {
           kind: 'house', w: Math.max(7, w - 4 - rng() * 3), d: 8 + rng() * 3, h: floors * 3 + 0.4, floors,
           roof: rng() < 0.6 ? 'gable' : 'hip', pitch: 0.36 + rng() * 0.12,
           mat: wood ? 'wood' : 'brick', wall: wood ? pick(WALLS.wood) : pick([...WALLS.brick, ...WALLS.stucco]),
-          roofCol: pick([0, 1, 2, 3]), extra: { chimney: 1, porch: rng() < 0.6 ? 1 : 0 },
+          roofCol: pick([0, 1, 2, 3]), extra: { chimney: 1, porch: rng() < 0.6 ? 1 : 0, dormer: rng() < 0.3 ? 1 : 0 },
         };
       }, 0, 5);
+      // Front hedges along the pavement, a gap left for each gate, and a
+      // garden tree here and there behind the houses.
+      for (const face of [1, -1]) {
+        const v2 = face > 0 ? I.v1 - 0.8 : I.v0 + 0.8;
+        for (let u = I.u0 + 2; u < I.u1 - 2; u += 3.2) {
+          if (((u - I.u0) % 17) < 3.2) continue;
+          props.push({ t: 'hedge', u, v: v2, r: 0 });
+        }
+      }
+      if (id > 34) {
+        for (let k = 0; k < Math.round(iw / 22); k++) {
+          props.push({ t: 'tree', u: I.u0 + 6 + rng() * (iw - 12), v: b.cv + (rng() - 0.5) * 4, r: rng() * TAU, big: rng() < 0.3 ? 1 : 0, soft: 1 });
+        }
+      }
     }
   }
 
@@ -1914,10 +2147,26 @@ function drawUp(world, c) {
         const u = e.along === 'u' ? e.u0 + s : e.u + (e.u > b.cu ? out : -out);
         const v2 = e.along === 'u' ? e.v + (e.v > b.cv ? out : -out) : e.v0 + s;
         if (at(u, v2) !== SURF.road) continue;
-        props.push({ t: 'car', u, v: v2, r: e.along === 'u' ? Math.PI / 2 * (rng() < 0.5 ? 1 : -1) : (rng() < 0.5 ? 0 : Math.PI), c: Math.floor(rng() * 6) });
+        // Now and then a delivery lorry or a van rather than a motor car.
+        const big = rng() < (b.kind === 'works' || b.kind === 'port' ? 0.5 : 0.08);
+        if (big) s += 4;
+        props.push({ t: big ? 'lorry' : 'car', u, v: v2, r: e.along === 'u' ? Math.PI / 2 * (rng() < 0.5 ? 1 : -1) : (rng() < 0.5 ? 0 : Math.PI), c: Math.floor(rng() * 6) });
       }
     });
-    if (b.kind !== 'park' && b.kind !== 'port') {
+    // A bus stop on the main streets, and a hoarding on a gable end now and then.
+    if ((b.kind === 'centre' || b.kind === 'mid') && rng() < 0.35) {
+      const e = edges[Math.floor(rng() * 2)];
+      const u = (e.u0 + e.u1) / 2 + (rng() - 0.5) * 20;
+      const v2 = e.v + (e.v > b.cv ? 0.6 : -0.6);
+      if (onWalk(u, v2) && !inside(u, v2, 1.5)) props.push({ t: 'busstop', u, v: v2, r: e.r });
+    }
+    if ((b.kind === 'mid' || b.kind === 'works' || b.kind === 'res') && rng() < 0.25) {
+      const e = edges[2 + Math.floor(rng() * 2)];
+      const v2 = (e.v0 + e.v1) / 2;
+      const u = e.u + (e.u > b.cu ? -1.2 : 1.2);
+      if (onWalk(u, v2) && !inside(u, v2, 2.2)) props.push({ t: 'hoarding', u, v: v2, r: e.r, c: Math.floor(rng() * 4) });
+    }
+    if (b.kind !== 'park' && b.kind !== 'port' && b.kind !== 'pitch') {
       const corners = [[b.u0 + 1.6, b.v1 - 1.6], [b.u1 - 1.6, b.v0 + 1.6]];
       const [cu, cv] = corners[Math.floor(rng() * 2)];
       if (onWalk(cu, cv) && !inside(cu, cv)) props.push({ t: rng() < 0.5 ? 'phone' : 'pillar', u: cu, v: cv, r: 0 });
@@ -2165,13 +2414,27 @@ function finishPlan(c, { L, W, D, nu, nv, surf, blocks, buildings, props, across
     }
   }
   for (const k of grid.keys()) grid.set(k, [...new Set(grid.get(k))]);
+  // Only the ones filed near it are looked at: a city dragged out to its
+  // full size has thousands of buildings, and every one against every other
+  // is millions of tests for the same few neighbours.
+  let biggest = 0;
+  for (const q of buildings) biggest = Math.max(biggest, Math.hypot(q.w, q.d));
   for (const q of buildings) {
     q.near = [];
-    for (const o of buildings) {
-      if (o === q) continue;
-      const gap = Math.hypot(o.u - q.u, o.v - q.v) - (Math.hypot(o.w, o.d) + Math.hypot(q.w, q.d)) / 2 * 0.72;
-      if (gap < 6) q.near.push(o.id);
+    const R = (Math.hypot(q.w, q.d) + biggest) / 2 * 0.72 + 6;
+    const seen = new Set();
+    for (let a = Math.floor((q.u - R) / G); a <= Math.floor((q.u + R) / G); a++) {
+      for (let b = Math.floor((q.v - R) / G); b <= Math.floor((q.v + R) / G); b++) {
+        for (const id of grid.get(a * 4099 + b) || []) {
+          if (id === q.id || seen.has(id)) continue;
+          seen.add(id);
+          const o = byId.get(id);
+          const gap = Math.hypot(o.u - q.u, o.v - q.v) - (Math.hypot(o.w, o.d) + Math.hypot(q.w, q.d)) / 2 * 0.72;
+          if (gap < 6) q.near.push(o.id);
+        }
+      }
     }
+    q.near.sort((x, y) => x - y);
   }
 
   return {

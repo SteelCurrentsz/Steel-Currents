@@ -484,6 +484,16 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
    * recorded -- a till that has not yet filled -- leaks from the middle of
    * the tank on her right wing.
    */
+  // A forming squadron's stations: `[station, dx, dy, dz, heading, bank, ...]`.
+  const formReport = (b) => {
+    if (!b.fm || !b.fmPose) return undefined;
+    const out = [];
+    for (const k in b.fmPose) {
+      const f = b.fmPose[k];
+      out.push(Number(k), r1(f.x), r1(f.y), r1(f.z), r3(f.h), r3(f.bank));
+    }
+    return out;
+  };
   const leakReport = (p) => {
     const out = [];
     for (const a of p.machines || []) {
@@ -609,6 +619,10 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // her that anybody watching can actually see.
       d: b.phase === 'run' || b.doors ? 1 : 0,
       hp: Math.round(b.hp), mx: b.maxHp,
+      // Forming up over her airfield, each machine on her own: where each
+      // station is off her position, which way she is heading and how she is
+      // banked. See formPose.
+      fp: formReport(b),
       // Which of her are streaming fuel from a holed tank, and from where.
       lp: leakReport(b),
       // Which of her gun positions have been shot out, one bit each in the
