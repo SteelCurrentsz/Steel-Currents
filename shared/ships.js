@@ -438,11 +438,15 @@ export const AIR_MISSILES = {
   // low and a long way on a little turbofan and goes off over whatever it
   // was sent at: a ship, a gun ashore, a point on the map, or an aeroplane.
   // Its warhead is the game's one atomic burst (see nukeBlast in sim.js),
-  // dialled down to it. The real thing reaches 2,400 km; here it reaches
+  // dialled down to it: five kilotons against the B-29's fifteen, so every
+  // radius of it is the cube root of a third of hers -- about seven tenths --
+  // and it wrecks half the sea hers does. The real thing reaches 2,400 km; here it reaches
   // across the whole battle.
   agm86: {
     name: 'AGM-86B ALCM', short: 'ALCM', role: 'surface', nuclear: true,
     warhead: 'W80-1',
+    // Yield, kilotons (see nukeScale in nuke.js).
+    kt: 5,
     // The one missile here that goes for anything: a ship, a gun, the town,
     // an aeroplane or another missile. Every other kind goes only for what
     // it was built for (see missileHits in sim.js).

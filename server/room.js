@@ -866,7 +866,9 @@ export class Room {
       // back to her own navigator.
       case 'flyb': flyBomber(this.state, ship, msg); break;
       case 'dropb':
-        if (!dropStick(this.state, ship, msg.i)) player.send({ t: 'nodrop', i: msg.i });
+        if (!dropStick(this.state, ship, msg.i, msg.tg ? { tk: String(msg.tk || ''), tg: Number(msg.tg) } : null)) {
+          player.send({ t: 'nodrop', i: msg.i });
+        }
         break;
       // One of her turrets, laid and fired by the man in it.
       case 'gunb':

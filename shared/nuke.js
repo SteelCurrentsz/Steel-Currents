@@ -20,6 +20,12 @@
 export const NUKE = {
   /** The weapon, in pounds: what the yard reads out and nothing else uses. */
   pounds: 9700,
+  /**
+   * Its yield, kilotons. Every figure below is for this weapon; a smaller
+   * warhead (the B-52's AGM-86B, see nukeScale) has every radius cut down by
+   * the cube root of how much smaller it is, the way blast scales.
+   */
+  kt: 15,
   /** Radius of the fireball, metres: inside it nothing survives. */
   fireball: 380,
   /** Everything afloat within this is lost. */
@@ -65,6 +71,15 @@ export const NUKE = {
   waveFall: 3600,
 };
 
+/**
+ * How much smaller every radius of a burst of `kt` kilotons is than the
+ * B-29's: blast distances go as the cube root of the yield. 1 for the B-29's
+ * bomb (or when no yield is given), about 0.69 for a 5 kt warhead.
+ */
+export function nukeScale(kt) {
+  return kt > 0 ? Math.cbrt(kt / NUKE.kt) : 1;
+}
+
 /** The most bursts the sea carries at once: the ocean shader's array is this long. */
 export const MAX_BURSTS = 4;
 
@@ -78,9 +93,9 @@ export const MAX_BURSTS = 4;
  * Three kilometres in the first two seconds, and done in ten.
  * The water comes after it, a great deal slower: see nukeWave.
  */
-export function nukeFront(age, land = false) {
+export function nukeFront(age, land = false, k = 1) {
   if (!(age > 0)) return 0;
-  return NUKE.reach * (land ? NUKE.landReach : 1) * (1 - Math.exp(-age / NUKE.tau));
+  return NUKE.reach * k * (land ? NUKE.landReach : 1) * (1 - Math.exp(-age / NUKE.tau));
 }
 
 /**
@@ -98,14 +113,18 @@ export function nukeFront(age, land = false) {
  * nukeFront is the second; this is the third. It leaves at about sixty
  * metres a second and slows, and it is still there, low, at six kilometres.
  */
-export function nukeWave(age) {
+export function nukeWave(age, k = 1) {
   if (!(age > 0)) return 0;
-  return NUKE.waveReach * (1 - Math.exp(-age / NUKE.waveTau));
+  return NUKE.waveReach * k * (1 - Math.exp(-age / NUKE.waveTau));
 }
 
-/** How tall the wave stands when it has run out `r` metres, crest to trough. */
-export function waveHeight(r) {
-  return NUKE.waveHigh * Math.exp(-Math.max(0, r) / NUKE.waveFall) + 1.5;
+/**
+ * How tall the wave stands when it has run out `r` metres, crest to trough,
+ * off a burst of scale `k` (see nukeScale): a smaller one throws up a good
+ * deal less water, and it falls away sooner.
+ */
+export function waveHeight(r, k = 1) {
+  return NUKE.waveHigh * k * k * Math.exp(-Math.max(0, r) / (NUKE.waveFall * k)) + 1.5;
 }
 
 /**
@@ -113,7 +132,8 @@ export function waveHeight(r) {
  * past one, she is lost. Falls away from the fireball's edge to the reach,
  * steeply at first -- which is what overpressure does -- and to nothing.
  */
-export function nukeBite(d, land = false) {
+export function nukeBite(d, land = false, scale = 1) {
+  if (scale !== 1) d /= scale;
   if (land) return NUKE.landBite * nukeBite(d / NUKE.landReach);
   if (d <= NUKE.fireball) return 2.5;
   if (d <= NUKE.lethal) return 1.6;
@@ -143,17 +163,17 @@ export function nukeBite(d, land = false) {
  * than the troughs are deep, the way a breaking wave does, and two or three
  * smaller ones behind it, lengthening as the train runs out.
  */
-export function burstSwell(age, r, out) {
+export function burstSwell(age, r, out, scale = 1) {
   out.y = 0; out.dr = 0;
   if (!(age > 0)) return out;
-  const R = nukeWave(age);
+  const R = nukeWave(age, scale);
   const lam = 160 + 0.06 * R;
   const s = r - R;
   // Nothing more than four of its lengths behind the front or one ahead.
   if (s > lam * 1.2 || s < -lam * 4.2) return out;
   const grow = Math.min(1, age / 5);
   const fade = Math.min(1, Math.max(0, (NUKE.life - age) / 60));
-  const A = 0.5 * waveHeight(R) * grow * grow * (3 - 2 * grow) * fade;
+  const A = 0.5 * waveHeight(R, scale) * grow * grow * (3 - 2 * grow) * fade;
   if (!(A > 0)) return out;
   const k = (Math.PI * 2) / lam;
   const sig = s > 0 ? 0.3 * lam : 1.25 * lam;
@@ -167,7 +187,7 @@ export function burstSwell(age, r, out) {
 
 const SW = { y: 0, dr: 0 };
 /**
- * Every burst's wave at a point: `bursts` is [{ x, z, t0 }], `time` the
+ * Every burst's wave at a point: `bursts` is [{ x, z, t0, k }], `time` the
  * clock they were set off on. Adds into `out.y` and the slope `out.gx`,
  * `out.gz`.
  */
@@ -176,7 +196,7 @@ export function burstSea(bursts, x, z, time, out) {
     const b = bursts[i];
     const dx = x - b.x, dz = z - b.z;
     const r = Math.sqrt(dx * dx + dz * dz);
-    burstSwell(time - b.t0, r, SW);
+    burstSwell(time - b.t0, r, SW, b.k || 1);
     if (SW.y === 0 && SW.dr === 0) continue;
     out.y += SW.y;
     if (r > 1e-3) { out.gx += SW.dr * dx / r; out.gz += SW.dr * dz / r; }

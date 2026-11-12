@@ -162,7 +162,7 @@ export const BOMBERS = {
     armour: 0,
     engines: '4 × R-3350-41 Duplex-Cyclone, 2,200 hp',
     payload: 9700,
-    load: '1 × atomic bomb, 9,700 lb; escorts 20,000 lb of GP bombs each',
+    load: '1 × atomic bomb, 9,700 lb, 15 kt; escorts 20,000 lb of GP bombs each',
     // What each of the other two in the vic carries: a Superfortress's
     // ordinary load, forty 500 lb general-purpose bombs, laid in a stick
     // behind the weapon.
@@ -342,7 +342,7 @@ export function payloadSheet(b) {
     return [
       ['Payload', `${num(b.payload)} lb`],
       ['Missiles', `${b.alcm.n} × AGM-86B ALCM`],
-      ['Warhead', 'W80-1 thermonuclear, each'],
+      ['Warhead', 'W80-1 thermonuclear, 5 kt each'],
       ['Internal', `${b.alcm.internal} on the rotary launcher`],
       ['External', `${b.alcm.external} on two wing pylons`],
       ['Targets', 'Ships, ground, aircraft'],

@@ -406,8 +406,23 @@ const smooth = (e0, e1, x) => {
 };
 
 /** How many billows one burst can be made of, solid and as mist. */
-const BILLOWS = 760;
+const BILLOWS = 900;
 const MISTS = 420;
+
+/**
+ * Bursts kept made up and compiled for the next one: a burst takes its parts
+ * from here and gives them back, so nothing is allocated, uploaded or
+ * compiled in the frame a bomb goes off -- and twenty warheads off a B-52 are
+ * not twenty sets of buffers.
+ */
+const POOL = 6;
+
+/**
+ * The most bursts drawn at once. Past this the oldest is let go: a sky with
+ * seven mushrooms in it does not look any different from one with six, and
+ * costs a great deal more.
+ */
+const MAX_LIVE = 6;
 
 /**
  * How long the mushroom of a burst on the ground hangs over it, seconds: far
@@ -433,6 +448,9 @@ function billowBatch(max, soft = false) {
   geo.setAttribute('at', at);
   geo.setAttribute('tint', tint);
   geo.instanceCount = 0;
+  // Its size, its height above the water, how many of its billows are drawn
+  // and how much fatter each is for those left out: see putBillow.
+  const extra = { k: 1, oy: 0, keep: 1, fat: 1 };
   const mat = new THREE.ShaderMaterial({
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uNoise: { value: null },
@@ -455,14 +473,22 @@ function billowBatch(max, soft = false) {
   mat.uniforms.uNoise.value = noiseTexture();
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
-  return { mesh, at, tint, n: 0, max };
+  return { mesh, at, tint, n: 0, max, ...extra };
 }
 
+/**
+ * One billow, laid out as for the B-29's bomb and drawn at the burst's own
+ * size `b.k` about its foot `b.oy`. Only `b.keep` of them are drawn -- the
+ * same ones each frame, by their seed -- and each a little fatter for it, so
+ * a far or a small burst, or one of several, costs less and looks as full.
+ */
 function putBillow(b, x, y, z, r, white, heat, gone, seed) {
   if (b.n >= b.max || r <= 0 || gone >= 1) return;
+  if (b.keep < 1 && hash(seed + 517, 9) > b.keep) return;
+  const k = b.k;
   const i = (b.n++) * 4;
   const A = b.at.array, T = b.tint.array;
-  A[i] = x; A[i + 1] = y; A[i + 2] = z; A[i + 3] = r;
+  A[i] = x * k; A[i + 1] = b.oy + (y - b.oy) * k; A[i + 2] = z * k; A[i + 3] = r * k * b.fat;
   T[i] = white; T[i + 1] = heat; T[i + 2] = gone; T[i + 3] = seed;
 }
 
@@ -471,6 +497,8 @@ const LAND_DIRT = new THREE.Color(0.5, 0.4, 0.31);
 const FIRE = new THREE.Color(1.0, 0.3, 0.06);
 const TMPV = new THREE.Vector3();
 const TMPC = new THREE.Color();
+const TMPM = new THREE.Matrix4();
+const TMPS = new THREE.Sphere();
 
 // -------------------------------------------------------------------- bursts
 
@@ -495,6 +523,9 @@ export class Nukes {
     // copy of what the battle's looked like (see renderShock).
     this.shockScene = null;
     this.screen = null;
+    // Parts made up and waiting for a burst (see POOL).
+    this.pool = [];
+    this.frustum = new THREE.Frustum();
   }
 
   /**
@@ -507,7 +538,7 @@ export class Nukes {
     if (this.kept || !renderer) return;
     const parts = this.parts(false);
     const scene = new THREE.Scene();
-    for (const k of ['ball', 'glow', 'wilson']) scene.add(parts[k]);
+    for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson']) scene.add(parts[k]);
     scene.add(parts.billows.mesh);
     scene.add(parts.mist.mesh);
     // The shock is drawn in a pass of its own, with no lights and no fog,
@@ -522,6 +553,23 @@ export class Nukes {
         done?.catch?.(() => {});
       }
     } catch { /* compiled the first time one is drawn instead */ }
+    // And the first burst's parts are these: made, uploaded and compiled.
+    this.pool.push(parts);
+    // The copy of the frame the shock is drawn over, at the size it will be.
+    try { this.screenFor(renderer); } catch { /* made when it is first wanted */ }
+  }
+
+  /** The copy of the picture the shock bends, the size of the drawing buffer. */
+  screenFor(renderer) {
+    const size = renderer.getDrawingBufferSize(TMP2);
+    const w = Math.floor(size.x), h = Math.floor(size.y);
+    if (!(w > 0 && h > 0)) return null;
+    if (!this.screen || this.screen.image.width !== w || this.screen.image.height !== h) {
+      this.screen?.dispose();
+      this.screen = new THREE.FramebufferTexture(w, h);
+      this.screen.minFilter = this.screen.magFilter = THREE.LinearFilter;
+    }
+    return this.screen;
   }
 
   /** What one burst is drawn with, unlit and unplaced. */
@@ -543,6 +591,19 @@ export class Nukes {
       blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false,
     }));
     glow.renderOrder = 9;
+    // The streak the flash throws across the eye -- long and thin, the way a
+    // camera's glass sees a light that bright -- and the sky lit over the
+    // burst, a dome of orange glow that hangs while the fire burns.
+    const flare = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture(), color: 0xffe2b0, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false,
+    }));
+    flare.renderOrder = 10;
+    const sky = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture(), color: 0xff7a30, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+    }));
+    sky.renderOrder = 1;
     const wilson = new THREE.Mesh(S.wilson, new THREE.ShaderMaterial({
       uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
         uNoise: { value: null }, uLit: { value: new THREE.Color(1, 1, 1) },
@@ -577,7 +638,7 @@ export class Nukes {
     const mist = billowBatch(MISTS, true);
     mist.mesh.material.uniforms.uDirt.value.copy(land ? LAND_DIRT : SEA_DIRT);
     mist.mesh.renderOrder = 3;
-    return { ball, glow, wilson, shock, billows, mist };
+    return { ball, glow, flare, sky, wilson, shock, billows, mist };
   }
 
   /**
@@ -586,12 +647,21 @@ export class Nukes {
    * `t0` is when, on the clock `update` is handed -- the battle's, which is
    * the one the sea runs on -- so the burst and its wave keep time together.
    */
-  add(x, y, z, land = false, t0 = null) {
+  add(x, y, z, land = false, t0 = null, k = 1) {
+    // Too many in the sky at once: the oldest goes.
+    while (this.live.length >= MAX_LIVE) this.drop(this.live.shift());
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     this.scene.add(g);
-    const p = this.parts(land);
-    for (const k of ['ball', 'glow', 'wilson']) g.add(p[k]);
+    const p = this.pool.pop() || this.parts(land);
+    for (const b of [p.billows, p.mist]) {
+      b.mesh.material.uniforms.uDirt.value.copy(land ? LAND_DIRT : SEA_DIRT);
+      b.n = 0;
+      b.mesh.geometry.instanceCount = 0;
+      b.mesh.visible = true;
+    }
+    p.wilson.visible = false;
+    for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson']) g.add(p[k]);
     g.add(p.billows.mesh);
     g.add(p.mist.mesh);
     // The shock is not in the battle's scene but in its own pass.
@@ -607,8 +677,8 @@ export class Nukes {
       lamp.distance = 0;
       lamp.position.set(x, 300, z);
     }
-    this.live.push({ g, ...p, lamp, x, z, y: Math.max(0, y), t: 0, t0, land, front: 0 });
-    this.flash = 1;
+    this.live.push({ g, ...p, lamp, x, z, y: Math.max(0, y), t: 0, t0, land, front: 0, k: k > 0 ? k : 1 });
+    this.flash = Math.max(this.flash, Math.min(1, 0.45 + 0.55 * k));
   }
 
   /** Give the flash's light back to the scene. */
@@ -623,23 +693,28 @@ export class Nukes {
     this.scene.remove(n.g);
     this.shockScene?.remove(n.shock);
     this.dropLamp(n);
-    for (const o of [n.ball, n.glow, n.wilson, n.shock, n.billows.mesh, n.mist.mesh]) o.material?.dispose?.();
-    n.billows.mesh.geometry.dispose();
-    n.mist.mesh.geometry.dispose();
+    const p = { ball: n.ball, glow: n.glow, flare: n.flare, sky: n.sky, wilson: n.wilson, shock: n.shock,
+      billows: n.billows, mist: n.mist };
+    // Kept for the next burst, made up as it is (see POOL).
+    if (this.pool.length < POOL) { this.pool.push(p); return; }
+    this.disposeParts(p);
+  }
+
+  disposeParts(p) {
+    for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson', 'shock']) p[k].material?.dispose?.();
+    for (const b of [p.billows, p.mist]) {
+      b.mesh.material.dispose();
+      b.mesh.geometry.dispose();
+    }
   }
 
   /** The battle is over: give back the kept shaders and anything still burning. */
   dispose() {
     for (const n of this.live) this.drop(n);
     this.live.length = 0;
-    if (this.kept) {
-      for (const k of ['ball', 'glow', 'wilson', 'shock']) this.kept[k].material.dispose();
-      for (const b of [this.kept.billows, this.kept.mist]) {
-        b.mesh.material.dispose();
-        b.mesh.geometry.dispose();
-      }
-      this.kept = null;
-    }
+    for (const p of this.pool) this.disposeParts(p);
+    this.pool.length = 0;
+    this.kept = null;
     this.screen?.dispose();
     this.screen = null;
   }
@@ -682,8 +757,17 @@ export class Nukes {
     this.flash = Math.max(0, (this.flash || 0) - dt * 0.9);
     if (!this.live.length) return;
     const L = this.light();
+    // What the eye can see, to leave a cloud out of sight unbuilt.
+    if (camera) {
+      camera.updateMatrixWorld();
+      TMPM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      this.frustum.setFromProjectionMatrix(TMPM);
+    }
+    // Several in the sky at once share what one would be drawn with.
+    const crowd = 1 / Math.sqrt(Math.max(1, this.live.length));
     for (let i = this.live.length - 1; i >= 0; i--) {
       const n = this.live[i];
+      const K = n.k;
       // On the battle's clock when there is one, so the cloud, the shock and
       // the wave in the sea all keep the same time.
       n.t = n.t0 != null && Number.isFinite(clock) ? Math.max(0, clock - n.t0) : n.t + dt;
@@ -694,24 +778,40 @@ export class Nukes {
         continue;
       }
       const fire = this.fireball(n, t);
+      const FB = NUKE.fireball * K;
       // The flash and the glow.
       const f = Math.exp(-t / 0.35) + (n.land ? 0.45 * Math.exp(-t / 7) : 0.25 * Math.exp(-t / 4));
-      n.glow.scale.setScalar(NUKE.fireball * (n.land ? 1.35 : 1) * (4 + 10 * Math.exp(-t / 0.5)));
+      n.glow.scale.setScalar(FB * (n.land ? 1.35 : 1) * (4 + 10 * Math.exp(-t / 0.5)));
       n.glow.position.y = n.ball.position.y;
       n.glow.material.opacity = Math.min(1, f);
       n.glow.visible = n.glow.material.opacity > 0.004;
+      // The streak across the glass: very wide, very thin, in the first
+      // seconds, and a long ember of it after.
+      const fl = 0.95 * Math.exp(-t / 0.6) + 0.25 * Math.exp(-t / 5);
+      n.flare.scale.set(FB * (60 + 40 * Math.exp(-t / 1.2)), FB * (1.6 + 2.5 * Math.exp(-t / 0.4)), 1);
+      n.flare.position.y = n.ball.position.y;
+      n.flare.material.opacity = Math.min(1, fl);
+      n.flare.visible = fl > 0.004;
+      // The sky over it, lit orange from below by the fire and the cloud.
+      const skyLit = n.land ? Math.min(1, t * 2) * Math.exp(-t / 45) * 0.55 : Math.min(1, t * 3) * Math.exp(-t / 10) * 0.35;
+      n.sky.scale.set(FB * 22, FB * 14, 1);
+      n.sky.position.y = n.y + FB * (n.land ? 4 : 2.5);
+      n.sky.material.opacity = skyLit;
+      n.sky.visible = skyLit > 0.004;
       if (n.lamp) {
-        n.lamp.intensity = (n.land ? 4.5e7 : 3e7) * Math.exp(-t / 0.6) + (n.land ? 4e6 : 2e6) * Math.exp(-t / (n.land ? 9 : 5));
+        n.lamp.intensity = K * K * ((n.land ? 4.5e7 : 3e7) * Math.exp(-t / 0.6) + (n.land ? 4e6 : 2e6) * Math.exp(-t / (n.land ? 9 : 5)));
         n.lamp.position.set(n.x, n.ball.position.y, n.z);
         // Forty seconds on it is lighting nothing a ship would show, and the
         // scene's gun flashes want it back.
         if (t > 40) { n.lamp.intensity = 0; this.dropLamp(n); }
       }
       // The shock, and the moment it reaches the eye.
-      const front = nukeFront(t, n.land);
-      const reach = NUKE.reach * (n.land ? NUKE.landReach : 1);
+      const front = nukeFront(t, n.land, K);
+      const reach = NUKE.reach * K * (n.land ? NUKE.landReach : 1);
+      let far = 0;
       if (camera) {
         const d = Math.hypot(camera.position.x - n.x, camera.position.y - n.y, camera.position.z - n.z);
+        far = d;
         if (n.front < d && front >= d) {
           this.jolt = Math.max(this.jolt, Math.max(0.3, (n.land ? 1.3 : 1) * (1 - d / reach)));
         }
@@ -725,7 +825,15 @@ export class Nukes {
       n.shock.material.uniforms.uSkin.value = 1.2 * Math.exp(-t / 1.2);
       // The condensation cloud, the cap of Baker, and on land a brief skirt.
       this.wilson(n, t, front, L);
-      // The cloud.
+      // The cloud: not built at all when it is out of sight.
+      const seen = !camera || this.frustum.intersectsSphere(
+        TMPS.set(TMPV.set(n.x, n.y + 1600 * K, n.z), 4200 * K));
+      n.billows.mesh.visible = n.mist.mesh.visible = seen;
+      if (!seen) continue;
+      // How many of its billows are worth drawing: all of the B-29's close
+      // to, fewer for a smaller burst, a far one, or one of several.
+      const keep = Math.min(1, Math.max(0.3,
+        (0.55 + 0.3 * K) * crowd * (far > 0 ? Math.min(1, Math.max(0.55, 1.35 - far / (30000 * K))) : 1)));
       if (camera) TMPV.set(n.x, n.ball.position.y, n.z).applyMatrix4(camera.matrixWorldInverse);
       for (const b of [n.billows, n.mist]) {
         const u = b.mesh.material.uniforms;
@@ -736,8 +844,12 @@ export class Nukes {
         u.uGround.value.copy(L.ground);
         u.uFire.value.copy(FIRE);
         // The fireball's light on the cloud, in the eye's frame.
-        if (camera) u.uFireAt.value.set(TMPV.x, TMPV.y, TMPV.z, fire * 30);
+        if (camera) u.uFireAt.value.set(TMPV.x, TMPV.y, TMPV.z, fire * 30 * K);
         b.n = 0;
+        b.k = K;
+        b.oy = n.y;
+        b.keep = keep;
+        b.fat = Math.pow(keep, -0.35);
       }
       if (n.land) this.mushroom(n, t);
       else this.column(n, t);
@@ -751,10 +863,12 @@ export class Nukes {
 
   /** The fireball for this moment; returns how much light it is still giving. */
   fireball(n, t) {
+    const K = n.k;
     const grow = 1 - Math.exp(-t / 0.45);
     const rise = Math.max(0, t - 1.5);
     // On the ground nothing of it goes into boiling the sea: it is bigger,
-    // brighter, and it burns for longer.
+    // brighter, and it burns for longer. Worked out at the B-29's size, as the
+    // cloud is (see putBillow), and drawn at the burst's own.
     const R = NUKE.fireball * (n.land ? 1.4 : 1) * grow * (1 + Math.min(0.6, rise * 0.03));
     let y, opacity, cool;
     if (n.land) {
@@ -770,8 +884,8 @@ export class Nukes {
       cool = Math.min(1, t / 2.2);
       opacity = Math.max(0, 1 - Math.max(0, t - 0.9) / 1.6);
     }
-    n.ball.scale.setScalar(Math.max(1, R));
-    n.ball.position.y = y;
+    n.ball.scale.setScalar(Math.max(1, R * K));
+    n.ball.position.y = n.y + (y - n.y) * K;
     const u = n.ball.material.uniforms;
     u.uCool.value = cool;
     u.uTime.value = t;
@@ -783,6 +897,7 @@ export class Nukes {
 
   /** The smooth white condensation cloud, out behind the shock and gone. */
   wilson(n, t, front, L) {
+    const K = n.k;
     const w = n.wilson;
     const u = w.material.uniforms;
     u.uTime.value = t;
@@ -800,14 +915,14 @@ export class Nukes {
       // Over dry land there is less in the air to condense: thinner, and
       // gone in a few seconds, round a fireball that is still rising.
       op = t < 0.3 ? 0 : Math.min(0.55, (t - 0.3) * 1.4) * (1 - smooth(3, 8, t));
-      r = Math.min(front * 0.9, 2600);
+      r = Math.min(front * 0.9, 2600 * K);
       thin = 0.6 + 0.4 * smooth(1, 5, t);
     } else {
       // Over the sea it is Baker's: a wall of white over the whole fleet in
       // the first second, the column's head bursting up through its top,
       // and clearing from the top down in a quarter of a minute.
       op = t < 0.2 ? 0 : Math.min(0.96, (t - 0.2) * 2.2) * (1 - smooth(12, 34, t));
-      r = Math.min(front * 0.92, 2900) + Math.max(0, t - 4) * 22;
+      r = Math.min(front * 0.92, 2900 * K) + Math.max(0, t - 4) * 22 * K;
       thin = 0.15 + 0.85 * smooth(2.5, 12, t);
     }
     w.scale.set(r, r, r);
@@ -867,6 +982,26 @@ export class Nukes {
         const r = (150 - 90 * u) * (0.7 + 0.6 * hash(i, 14)) * Math.min(1, t * 1.5);
         const y = n.y + r * (0.35 + 0.6 * (1 - u)) * (1 + 0.8 * hash(i, 13));
         putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.95, 0, smooth(25, 90, t), k);
+      }
+    }
+    // The spray jets: the sea thrown out of the crater in the water in
+    // great curving plumes, out past the column's foot and falling back, in
+    // the first quarter of a minute -- the spokes every film of Baker shows.
+    if (t < 26) {
+      const out = 1 - Math.exp(-t / 1.6);
+      const fade = smooth(9, 26, t);
+      for (let j = 0; j < 36; j++) {
+        const a = hash(j + 900, 0) * Math.PI * 2;
+        const reachJ = (900 + 900 * hash(j + 900, 1)) * out;
+        const lift = (700 + 900 * hash(j + 900, 2)) * out;
+        for (let q = 0; q < 4; q++, k++) {
+          const u = 0.3 + 0.7 * (q / 3);
+          // A plume's arc: up steeply off the foot and over, curving down.
+          const rr = Rc * 0.7 + reachJ * u;
+          const y = n.y + lift * Math.sin(Math.PI * Math.min(1, u * 0.95 + 0.05)) * (1 - 0.6 * smooth(4, 20, t) * u);
+          const r = (70 + 60 * (1 - u) + 40 * hash(j + 900, 3)) * (0.6 + 0.6 * out);
+          putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.96, 0, Math.max(fade, 1 - Math.min(1, t * 3)), k);
+        }
       }
     }
     // The base surge: what falls out of the column, rolling out over the sea
@@ -958,6 +1093,39 @@ export class Nukes {
           blaze * (0.5 + 0.5 * hash(i + 800, 3)), Math.max(thin, 1 - blaze), k);
       }
     }
+    // The pileus: a smooth white ice-cap the climbing cloud pushes up into
+    // the cold air over it, sitting on its crown for a few seconds before
+    // the cap boils up through it.
+    if (age > 2 && age < 26) {
+      const py = capY + tube * 1.35 + 120;
+      const pr = Rt * 1.25;
+      const form = smooth(2, 5, age);
+      const go = smooth(14, 26, age);
+      for (let i = 0; i < 54; i++, k++) {
+        const a = hash(i + 1000, 0) * Math.PI * 2;
+        const u = Math.sqrt(hash(i + 1000, 1));
+        const rr = pr * u;
+        const y = py + (1 - u * u) * tube * 0.35 + age * 10;
+        putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, (90 + 70 * hash(i + 1000, 2)) * form * (1.2 - 0.4 * u),
+          1, 0, go, k);
+      }
+    }
+    // Wreckage and burning stuff flung out of the fireball on long arcs,
+    // trailing fire, and coming down far out over the ground.
+    if (age < 16) {
+      for (let i = 0; i < 44; i++, k++) {
+        const a = hash(i + 1100, 0) * Math.PI * 2;
+        const v = 120 + 160 * hash(i + 1100, 1);
+        const el = 0.5 + 0.7 * hash(i + 1100, 2);
+        const tt = Math.min(age, 15);
+        const rr = 150 + v * Math.cos(el) * tt;
+        const y = n.y + 80 + v * Math.sin(el) * tt - 0.5 * 18 * tt * tt;
+        if (y < n.y + 10) continue;
+        const burnE = Math.max(0, 1 - age / 14);
+        putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, 26 + 22 * hash(i + 1100, 3), 0.3,
+          burnE * (0.7 + 0.3 * hash(i + 1100, 4)), smooth(10, 16, age), k);
+      }
+    }
     // The collar: a ring of white condensation that forms round the stem as
     // the cap goes up through damp air, and is gone inside a minute.
     if (age > 3 && age < 60) {
@@ -1013,14 +1181,8 @@ export class Nukes {
   renderShock(renderer, camera) {
     if (!this.live.length || !this.shockScene) return;
     if (!this.live.some((n) => n.shock.visible)) return;
-    const size = renderer.getDrawingBufferSize(TMP2);
-    const w = Math.floor(size.x), h = Math.floor(size.y);
-    if (!(w > 0 && h > 0)) return;
-    if (!this.screen || this.screen.image.width !== w || this.screen.image.height !== h) {
-      this.screen?.dispose();
-      this.screen = new THREE.FramebufferTexture(w, h);
-      this.screen.minFilter = this.screen.magFilter = THREE.LinearFilter;
-    }
+    if (!this.screenFor(renderer)) return;
+    const w = this.screen.image.width, h = this.screen.image.height;
     const was = renderer.autoClear;
     try {
       renderer.copyFramebufferToTexture(this.screen);

@@ -28,6 +28,7 @@
 // badly; what that looks like is the client's (render/infantry.js).
 
 import { clamp, wrapAngle, angleDelta, headingTo, localToWorld, gauss, TAU } from './math.js';
+import { nukeScale } from './nuke.js';
 import { groundHeight, drawnGround, sightOf } from './world.js';
 import { worksImpact, buildingAt } from './works.js';
 import { BATTERIES } from './batteries.js';
@@ -1407,7 +1408,7 @@ export function stepInfantry(state, dt, hooks = {}) {
   for (const ev of state.events) {
     if (ev.e === 'nuke') {
       for (const s of state.soldiers) {
-        if (s.alive && Math.hypot(s.x - ev.x, s.z - ev.z) < 2600) {
+        if (s.alive && Math.hypot(s.x - ev.x, s.z - ev.z) < 2600 * nukeScale(ev.kt)) {
           woundSoldier(state, s, 999, { dx: 0, dy: 1, dz: 0, gib: true });
         }
       }

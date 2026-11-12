@@ -128,19 +128,19 @@ export const BURST_GLSL = /* glsl */`
 uniform vec4 uBurst[${MAX_BURSTS}];
 uniform float uBurstN;
 
-float nkWaveR(float age) { return ${F(NUKE.waveReach)} * (1.0 - exp(-age / ${F(NUKE.waveTau)})); }
-float nkShockR(float age) { return ${F(NUKE.reach)} * (1.0 - exp(-age / ${F(NUKE.tau)})); }
+float nkWaveR(float age, float k) { return ${F(NUKE.waveReach)} * k * (1.0 - exp(-age / ${F(NUKE.waveTau)})); }
+float nkShockR(float age, float k) { return ${F(NUKE.reach)} * k * (1.0 - exp(-age / ${F(NUKE.tau)})); }
 
 // x: height, y: d(height)/d(range), z: the wave's own amplitude there.
-vec3 nkSwell(float age, float r) {
+vec3 nkSwell(float age, float r, float kk) {
   if (age <= 0.0) return vec3(0.0);
-  float R = nkWaveR(age);
+  float R = nkWaveR(age, kk);
   float lam = 160.0 + 0.06 * R;
   float s = r - R;
   if (s > lam * 1.2 || s < -lam * 4.2) return vec3(0.0);
   float grow = min(1.0, age / 5.0);
   float fade = clamp((${F(NUKE.life)} - age) / 60.0, 0.0, 1.0);
-  float H = ${F(NUKE.waveHigh)} * exp(-max(0.0, R) / ${F(NUKE.waveFall)}) + 1.5;
+  float H = ${F(NUKE.waveHigh)} * kk * kk * exp(-max(0.0, R) / (${F(NUKE.waveFall)} * kk)) + 1.5;
   float A = 0.5 * H * grow * grow * (3.0 - 2.0 * grow) * fade;
   float k = 6.2831853 / lam;
   float sig = s > 0.0 ? 0.3 * lam : 1.25 * lam;
@@ -157,10 +157,10 @@ vec3 burstLift(vec2 p) {
   for (int i = 0; i < ${MAX_BURSTS}; i++) {
     if (float(i) >= uBurstN) break;
     vec4 b = uBurst[i];
-    if (b.w < 0.5) continue;
+    if (b.w <= 0.0) continue;
     vec2 d = p - b.xy;
     float r = length(d);
-    vec3 w = nkSwell(uTime - b.z, r);
+    vec3 w = nkSwell(uTime - b.z, r, b.w);
     o.x += w.x;
     if (r > 1e-3) o.yz += w.y * d / r;
   }
@@ -430,8 +430,8 @@ varying float vWake;
 varying float vHeld;
 uniform vec4 uBurst[${MAX_BURSTS}];
 uniform float uBurstN;
-float nkWaveR(float age) { return ${F(NUKE.waveReach)} * (1.0 - exp(-age / ${F(NUKE.waveTau)})); }
-float nkShockR(float age) { return ${F(NUKE.reach)} * (1.0 - exp(-age / ${F(NUKE.tau)})); }
+float nkWaveR(float age, float k) { return ${F(NUKE.waveReach)} * k * (1.0 - exp(-age / ${F(NUKE.waveTau)})); }
+float nkShockR(float age, float k) { return ${F(NUKE.reach)} * k * (1.0 - exp(-age / ${F(NUKE.tau)})); }
 float nkHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float nkNoise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
@@ -450,14 +450,14 @@ vec2 burstMarks(vec2 p) {
   for (int i = 0; i < ${MAX_BURSTS}; i++) {
     if (float(i) >= uBurstN) break;
     vec4 b = uBurst[i];
-    if (b.w < 0.5) continue;
+    if (b.w <= 0.0) continue;
     float age = uTime - b.z;
     if (age <= 0.0) continue;
     float r = length(p - b.xy);
     float lace = nkNoise(p * 0.045 + age * 0.08) * 0.6 + nkNoise(p * 0.17 - age * 0.11) * 0.4;
     // The shock, in the first twenty seconds.
     if (age < 22.0) {
-      float Rs = nkShockR(age);
+      float Rs = nkShockR(age, b.w);
       float w = 60.0 + 0.05 * Rs;
       float s = r - Rs;
       float band = exp(-(s + w * 0.6) * (s + w * 0.6) / (w * w)) * step(s, w);
@@ -466,13 +466,13 @@ vec2 burstMarks(vec2 p) {
       o.x = max(o.x, edge * smoothstep(0.3, 0.7, lace) * (1.0 - smoothstep(2.0, 9.0, age)));
     }
     // The wave: white along its crest, torn into streaks down its back.
-    float R = nkWaveR(age);
+    float R = nkWaveR(age, b.w);
     float lam = 160.0 + 0.06 * R;
     float s = r - R;
     float fade = clamp((${F(NUKE.life)} - age) / 60.0, 0.0, 1.0) * min(1.0, age / 4.0);
     float crest = exp(-(s + lam * 0.05) * (s + lam * 0.05) / (lam * lam * 0.018));
     float back = exp(-(s + lam * 0.55) * (s + lam * 0.55) / (lam * lam * 0.25)) * 0.55;
-    float h = clamp((${F(NUKE.waveHigh)} * exp(-R / ${F(NUKE.waveFall)}) + 1.5) / 14.0, 0.15, 1.0);
+    float h = clamp((${F(NUKE.waveHigh)} * b.w * b.w * exp(-R / (${F(NUKE.waveFall)} * b.w)) + 1.5) / 14.0, 0.15, 1.0);
     o.x = max(o.x, (crest + back * smoothstep(0.45, 0.8, lace)) * smoothstep(0.25, 0.65, lace + crest * 0.4) * fade * h);
     // And over the burst itself, the sea boiling white for a minute and more.
     float pool = smoothstep(R * 0.9, R * 0.45, r) * max(0.0, 1.0 - age / 110.0);
@@ -1197,9 +1197,9 @@ export class Ocean {
    * clock: its wave is the water from here on, for the shader and for every
    * hull floated on it (see burstSwell). Gone again when it has run out.
    */
-  addBurst(x, z, t0) {
+  addBurst(x, z, t0, k = 1) {
     const list = this.bursts || (this.bursts = []);
-    list.push({ x, z, t0 });
+    list.push({ x, z, t0, k });
     if (list.length > MAX_BURSTS) list.shift();
     this.syncBursts();
   }
@@ -1211,7 +1211,7 @@ export class Ocean {
     for (let i = list.length - 1; i >= 0; i--) {
       if (now - list[i].t0 > NUKE.life + 5) list.splice(i, 1);
     }
-    list.forEach((b, i) => u.uBurst.value[i].set(b.x, b.z, b.t0, 1));
+    list.forEach((b, i) => u.uBurst.value[i].set(b.x, b.z, b.t0, b.k || 1));
     u.uBurstN.value = list.length;
     if (this.terms) this.terms.bursts = list;
   }

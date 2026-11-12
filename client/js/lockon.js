@@ -26,6 +26,7 @@ export function pickLockKind(rack, tk, d) {
   // built to go for that kind of target (AIR_MISSILE_HITS says which).
   const best = tk === 'a' ? (d < AIR_MISSILES.aim9.range * 0.85 ? ['aim9', 'aim120'] : ['aim120', 'aim9'])
     : tk === 's' ? ['agm84', 'penguin', 'agm65'] : ['agm65'];
+  // (A B-52's AGM-86B goes at any of them: it is found among her rails below.)
   const order = [...best, ...Object.keys(rack || {}).filter((k) => !best.includes(k))];
   for (const k of order) {
     const K = AIR_MISSILES[k];
@@ -60,14 +61,17 @@ export function lockCandidates(game, f, p) {
   const rack = f.rack;
   const reach = { a: reachFor(rack, 'a'), s: reachFor(rack, 's'), b: reachFor(rack, 'b') };
   if (!reach.a && !reach.s && !reach.b) return out;
-  const pt = p.pitch || 0;
+  // A B-52 is high over everything she wants: her seeker takes the bearing
+  // she is flying, whatever is below it (see alcmLocked in sim.js).
+  const flat = !!f.flat;
+  const pt = flat ? 0 : p.pitch || 0;
   const fx = Math.sin(p.heading) * Math.cos(pt), fy = Math.sin(pt), fz = Math.cos(p.heading) * Math.cos(pt);
   const cos = Math.cos(LOCK_CONE);
   const consider = (tk, id, x, y, z, name) => {
     if (!reach[tk]) return;
-    const dx = x - p.x, dy = y - p.y, dz = z - p.z;
+    const dx = x - p.x, dy = flat ? 0 : y - p.y, dz = z - p.z;
     const d = Math.hypot(dx, dy, dz);
-    if (d < 150 || d > reach[tk]) return;
+    if (d < (flat ? 400 : 150) || d > reach[tk]) return;
     const c = (dx * fx + dy * fy + dz * fz) / d;
     if (c < cos) return;
     out.push({ tk, id, x, y, z, d, off: Math.acos(Math.min(1, c)), name });

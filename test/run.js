@@ -29660,7 +29660,8 @@ check('a battery laid on a point puts its rounds down on the point, on the sea o
 // The B-29 Silverplate and her one weapon
 // ---------------------------------------------------------------------------
 const { nukeBlast } = await import('../shared/sim.js');
-const { NUKE, nukeFront, waveHeight } = await import('../shared/nuke.js');
+const NUKE_MOD = await import('../shared/nuke.js');
+const { NUKE, nukeFront, waveHeight } = NUKE_MOD;
 const { getClass } = await import('../shared/ships.js');
 const { b29Ready } = await import('../client/js/render/b29Model.js');
 
@@ -30425,6 +30426,27 @@ check('a B-52 goes alone, stands off and puts a nuclear cruise missile on each s
   assert.ok(bm.loads <= 20 - away, 'what left her was not taken off her');
 }));
 
+check("a B-52's pilot locks a target and her cruise missile goes at that one; a lock off her nose is refused", () => pinned(() => {
+  const { st, b, bm } = b52Run(5254);
+  // The ship she was flown off, on her side, well out of it.
+  const own = addShip(st, { name: 'Own', classId: 'iowa', team: 1, index: 0 });
+  own.x = -20000; own.z = 20000; own.speed = 0;
+  for (const s of st.ships) s.spottedBy = [true, true];
+  // The Fletcher, off to one side of the Iowa she would take by herself.
+  assert.ok(dropStick(st, own, bm.id, { tk: 's', tg: b.id }), 'a locked release was refused');
+  const m = st.missiles.find((q) => q.bomber === bm.id);
+  assert.ok(m, 'no missile left her');
+  assert.equal(m.target, b.id, 'the missile did not go at what was locked');
+  // Something behind her cannot have been in her seeker.
+  bm.mslCool = 0;
+  const behind = addShip(st, { name: 'Astern', classId: 'fletcher', team: 0, index: 2 });
+  behind.x = 0; behind.z = 14000; behind.speed = 0;
+  behind.spottedBy = [true, true];
+  const n = st.missiles.length;
+  assert.ok(!dropStick(st, own, bm.id, { tk: 's', tg: behind.id }), 'a lock astern of her was taken');
+  assert.equal(st.missiles.length, n);
+}));
+
 check('a B-52 ordered onto an aeroplane fires a nuclear cruise missile at it, and it goes off in the air', () => pinned(() => {
   const { st, bm } = b52Run(5253);
   for (const s of st.ships) { s.x = 0; s.z = -6800; }
@@ -30441,6 +30463,36 @@ check('a B-52 ordered onto an aeroplane fires a nuclear cruise missile at it, an
   assert.ok(!foe.alive, 'the aeroplane it was sent at is still flying');
   assert.ok(bm.alive, 'she was caught in it herself');
 }));
+
+check("a B-52's AGM-86B is a 5 kt warhead, a third of the B-29's 15 kt bomb, and wrecks far less sea", () => {
+  const { nukeScale, nukeBite: bite, nukeFront: front } = NUKE_MOD;
+  assert.equal(AIR_MSL.agm86.kt, 5, 'the AGM-86B is not a 5 kt warhead');
+  assert.equal(NUKE.kt, 15, "the B-29's bomb is not 15 kt");
+  const k = nukeScale(5);
+  assert.ok(Math.abs(k - Math.cbrt(1 / 3)) < 1e-9, `scale ${k}`);
+  assert.equal(nukeScale(15), 1);
+  // Everything within the B-29's lethal ring is lost to hers; a good deal of
+  // it lives through the B-52's.
+  assert.ok(bite(NUKE.lethal * 0.9) >= 1 && bite(NUKE.lethal * 0.9, false, k) < 1);
+  assert.ok(bite(NUKE.reach * 0.7, false, k) === 0, 'the small one reaches as far as the big one');
+  assert.ok(front(10, false, k) < front(10) * 0.75);
+  // In the battle: a cruiser 1,200 m from each.
+  const run = (kt) => {
+    const world = generateWorld(91, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'C', classId: 'baltimore', team: 0, index: 0 });
+    s.x = 1200; s.z = 0; s.speed = 0; s.heading = 0;
+    nukeBlast(st, 0, 0, 0, null, kt);
+    const ev = st.events.find((e) => e.e === 'nuke');
+    assert.equal(ev.kt, kt, 'the wire does not carry its yield');
+    for (let i = 0; i < 30 * 12; i++) step(st, DT);
+    return s;
+  };
+  assert.ok(!run(15).alive, 'a cruiser 1,200 m from the B-29 bomb survived');
+  const small = run(5);
+  assert.ok(small.alive, 'a cruiser 1,200 m from a 5 kt warhead was sunk');
+});
 
 check('each missile goes only for what it was built for, and the nuclear AGM-86B for anything', () => pinned(() => {
   const mk = (kind, foeOf) => {

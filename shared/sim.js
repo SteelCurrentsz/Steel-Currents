@@ -11,7 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt } from './formation.js';
-import { NUKE, MAX_BURSTS, nukeFront, nukeBite, nukeWave, waveHeight } from './nuke.js';
+import { NUKE, MAX_BURSTS, nukeFront, nukeBite, nukeWave, waveHeight, nukeScale } from './nuke.js';
 import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO, AERO,
@@ -7385,25 +7385,27 @@ function atomicArrives(state, sh, px, py, pz) {
  *
  * It is no respecter of sides. Whatever is near it when it goes is near it.
  */
-export function nukeBlast(state, x, y, z, sh = null) {
+export function nukeBlast(state, x, y, z, sh = null, kt = NUKE.kt) {
   const id = eid();
   const team = sh ? sh.team : -1;
   const sea = groundHeight(state.world, x, z) <= 0.5;
-  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0, sea, land: !sea };
+  // How big it is: every radius of it, against the B-29's bomb (see nukeScale).
+  const k = nukeScale(kt);
+  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0, sea, land: !sea, k, kt };
   (state.nukes || (state.nukes = [])).push(n);
   const ashore = groundHeight(state.world, x, z) > 0.5;
   // With the moment on the battle's clock, which is the clock the sea runs on:
   // the wave it throws is the water from then on (see burstSwell), on every
   // screen and here.
   state.events.push({ e: 'nuke', i: id, x: r(x), y: r(y), z: r(z), tm: team, land: ashore ? 1 : 0, tk: state.tick,
-    t: Math.round(state.t * 100) / 100 });
+    t: Math.round(state.t * 100) / 100, kt });
   // The hole it leaves in the ground, if it went off on the ground: what it
   // does to anything built there, and then the crater itself.
   if (ashore) {
     landStrike(state, x, z, 1.52, 'bomb', 1);
     const soft = soilAt(state.world, x, z);
-    const k = 0.85 + soft * 0.3;
-    const c = addNukeCrater(state.world, x, z, NUKE.craterR * k, NUKE.craterDepth * k, NUKE.craterLip * k);
+    const ks = (0.85 + soft * 0.3) * k;
+    const c = addNukeCrater(state.world, x, z, NUKE.craterR * ks, NUKE.craterDepth * ks, NUKE.craterLip * ks);
     if (c) {
       state.events.push({ e: 'crater', c: craterWire(c), soft: Math.round(soft * 100) / 100 });
       // Every gun on the ground it moved goes down into it or up onto its rim.
@@ -7448,13 +7450,14 @@ function stepNukes(state, dt) {
     }
     const B = state.nukeSea.bursts;
     B.length = 0;
-    for (const n of list) if (n.sea && B.length < MAX_BURSTS) B.push({ x: n.x, z: n.z, t0: n.t0 });
+    for (const n of list) if (n.sea && B.length < MAX_BURSTS) B.push({ x: n.x, z: n.z, t0: n.t0, k: n.k || 1 });
   }
   for (let i = list.length - 1; i >= 0; i--) {
     const n = list[i];
     const age = state.t - n.t0;
     const r0 = n.r;
-    const r1 = nukeFront(age, n.land);
+    const k = n.k || 1;
+    const r1 = nukeFront(age, n.land, k);
     const crossed = (d) => d <= r1 && (d > r0 || (r0 === 0 && d >= 0));
     for (const s of state.ships) {
       if (!s.alive) continue;
@@ -7464,7 +7467,7 @@ function stepNukes(state, dt) {
       // A boat deep under is spared a little of it by the water over her;
       // not much, because a shock in water is worse than one in air.
       const deep = (s.depth || 0) > 8 ? 0.7 : 1;
-      const bite = nukeBite(d, n.land) * deep;
+      const bite = nukeBite(d, n.land, k) * deep;
       if (bite <= 0) continue;
       damageShip(state, s, null, cls.hp * bite, 'nuke');
       if (s.alive) blastMounts(state, s, cls, n, bite);
@@ -7477,12 +7480,12 @@ function stepNukes(state, dt) {
       }
       // The shock is a blow, not a wave: it jolts her and that is all. The
       // water comes later (see the wave, below).
-      nukeShove(s, cls, n, 0.45 * Math.max(0, 1 - d / (NUKE.reach * (n.land ? NUKE.landReach : 1))));
+      nukeShove(s, cls, n, 0.45 * Math.max(0, 1 - d / (NUKE.reach * k * (n.land ? NUKE.landReach : 1))));
       state.events.push({ e: 'nukeHit', ship: s.id, i: n.id, b: Math.round(bite * 100) / 100 });
     }
     // In the air.
     const air = (q) => Math.hypot(q.x - n.x, (q.y ?? 220) - n.y, q.z - n.z);
-    const reachAir = NUKE.air * (n.land ? NUKE.landReach : 1);
+    const reachAir = NUKE.air * k * (n.land ? NUKE.landReach : 1);
     for (const q of state.planes) {
       if (q.dead) continue;
       const d = air(q);
@@ -7504,19 +7507,19 @@ function stepNukes(state, dt) {
       if (!bat.alive) continue;
       const d = Math.hypot(bat.x - n.x, bat.z - n.z);
       if (!crossed(d)) continue;
-      const bite = nukeBite(d, n.land);
+      const bite = nukeBite(d, n.land, k);
       if (bite > 0) hurtBattery(state, bat, batteryHp(BATTERIES[bat.batteryId]) * bite * 1.2);
     }
     // What is in the water near it does not survive the shock in the water.
     for (const tp of state.torps) {
-      if (!tp.dead && Math.hypot(tp.x - n.x, tp.z - n.z) < Math.min(r1, NUKE.heavy)) tp.dead = true;
+      if (!tp.dead && Math.hypot(tp.x - n.x, tp.z - n.z) < Math.min(r1, NUKE.heavy * k)) tp.dead = true;
     }
     // A missile the shock goes past is knocked out of the sky -- as the
     // front goes by, not for as long as the burst is remembered: one flown
     // through where a burst was a minute ago finds the air there empty.
     for (const m of state.missiles || []) {
       const d = air(m);
-      if (m.hp > 0 && d < NUKE.heavy && crossed(d)) m.hp = 0;
+      if (m.hp > 0 && d < NUKE.heavy * k && crossed(d)) m.hp = 0;
     }
     // The town: every building the front has crossed.
     if (state.world?.works) {
@@ -7524,7 +7527,7 @@ function stepNukes(state, dt) {
         for (const b of plan.byId.values()) {
           const d = Math.hypot(b.x - n.x, b.z - n.z);
           if (!crossed(d)) continue;
-          const bite = nukeBite(d, n.land);
+          const bite = nukeBite(d, n.land, k);
           // How hard the shock is shoving it, for what it does to the
           // building and how far the pieces of it are thrown: full inside the
           // ring where everything is lost, and falling away to the reach.
@@ -7537,14 +7540,14 @@ function stepNukes(state, dt) {
     // as a ring of heavy water, slower than the shock by a long way. It does
     // not wreck a ship the way the shock does -- it rolls her, carries her
     // bodily away from the burst, and puts green water over a low deck.
-    const w0 = n.w, w1 = n.sea ? nukeWave(age) : 0;
+    const w0 = n.w, w1 = n.sea ? nukeWave(age, k) : 0;
     if (w1 > w0) {
       for (const s of state.ships) {
         if (!s.alive || (s.depth || 0) > 8) continue;
         const cls = getClass(s.classId);
         const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
         if (d <= w0 || d > w1) continue;
-        const h = waveHeight(d);
+        const h = waveHeight(d, k);
         nukeShove(s, cls, n, h / NUKE.waveHigh);
         // Over her deck edge: a sea aboard, and what it does to what is there.
         const over = h - freeboardOf(cls);
@@ -9130,7 +9133,9 @@ function airKindOf(K) {
 function missileNuke(state, m, x, y, z) {
   state.events.push({ e: 'mslDown', x: r(x), y: r(y), z: r(z), k: m.kind, i: m.id, why: 'nuke', owner: m.owner });
   const g = Math.max(0, groundHeight(state.world, x, z));
-  nukeBlast(state, x, Math.max(g, y), z, { team: m.team, bomber: m.bomber || 0 });
+  // Its own warhead's yield, which is a good deal less than the B-29's bomb.
+  const K = AIR_MISSILES[m.kind] || MISSILE_KINDS[m.kind];
+  nukeBlast(state, x, Math.max(g, y), z, { team: m.team, bomber: m.bomber || 0 }, K?.kt || NUKE.kt);
   return true;
 }
 
@@ -16267,16 +16272,18 @@ export function flyBomber(state, ship, msg) {
  * because he can see what he is doing, not because the bombsight got better.
  * Returns false, with a reason, when there was nothing to drop.
  */
-export function dropStick(state, ship, id) {
+export function dropStick(state, ship, id, lock = null) {
   const bm = (state.bombers || []).find((q) => q.id === id && q.alive);
   if (!bm || !ship || bm.team !== ship.team) return false;
   if (bm.loads <= 0) return false;
-  // A B-52's release is one cruise missile, at whatever is ahead of her.
+  // A B-52's release is one cruise missile: at what her seeker has locked
+  // when the pilot has locked something (see alcmLocked), or else at
+  // whatever is ahead of her.
   const B = BOMBERS[bm.bomberId] || BOMBERS.lancaster;
   if (B.alcm) {
     if ((bm.mslCool || 0) > 0) return false;
     const K = AIR_MISSILES[B.alcm.kind];
-    const foe = alcmAhead(state, bm, K);
+    const foe = lock && lock.tg ? alcmLocked(state, bm, K, lock) : alcmAhead(state, bm, K);
     if (!foe) return false;
     fireAlcm(state, bm, B, K, foe);
     bm.mslCool = ALCM_HAND;
@@ -16631,6 +16638,22 @@ function alcmAhead(state, bm, K) {
   for (const b of state.batteries || []) if (b.alive && b.team !== bm.team) look(b.id, b.x, b.z);
   for (const { q } of airborne(state)) if (q.team !== bm.team) look(q.id, q.x, q.z);
   return best ? missileFoe(state, bm.team, best) : null;
+}
+
+/**
+ * What a B-52's seeker says it has locked, checked against what she could
+ * have had: the same thing, still there and the enemy's, inside the
+ * missile's reach, and off her nose -- on the bearing she is flying, since
+ * from her height everything she wants is a long way below it.
+ */
+function alcmLocked(state, bm, K, lock) {
+  const foe = missileFoe(state, bm.team, lock.tg);
+  if (!foe || (lock.tk && foe.tk !== lock.tk && !(lock.tk === 'b' && foe.tk === 'g'))) return null;
+  if (!(K.hits || ['s', 'b', 'g', 'a']).includes(foe.tk)) return null;
+  const d = dist(bm.x, bm.z, foe.x, foe.z);
+  if (d > K.range || d < 300) return null;
+  if (Math.abs(angleDelta(bm.heading, headingTo(bm.x, bm.z, foe.x, foe.z))) > LOCK_CONE + LOCK_SLACK) return null;
+  return foe;
 }
 
 /** One AGM-86B away from her at `foe`: off a wing pylon while she has any there, then off the drum. */

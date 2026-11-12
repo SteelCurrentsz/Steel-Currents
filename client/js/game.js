@@ -6,6 +6,7 @@ import { fireSeats } from './render/fireseats.js';
 import { BattleScene } from './render/scene.js';
 import { loadShips, shipReady } from './render/ships.js';
 import { BATTERIES, batteryGun } from '../../shared/batteries.js';
+import { nukeScale } from '../../shared/nuke.js';
 import { Hud, readTarget, THROTTLE_MAX, MISSILE_KEYS } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { TargetingView } from './render/targetview.js';
@@ -1108,7 +1109,7 @@ export class Battle {
         const f = this.flight;
         if (!f || f.id !== m.i) return;
         f.asked = 0;
-        this.hud.alert(f.load?.alcm ? 'Nothing ahead in reach for a cruise missile' : 'She could not drop — press home');
+        this.hud.alert(f.load?.alcm ? 'Lock lost — no missile away' : 'She could not drop — press home');
       }),
       // A missile off her rail that did not go: the simulation says why, and
       // the count goes back to what the wire says.
@@ -3102,15 +3103,18 @@ export class Battle {
           // shock and the wave in the water all keep that time.
           const t0 = Number.isFinite(ev.t) ? ev.t
             : (Number.isFinite(this.scene.ocean.clock) ? this.scene.ocean.clock : null);
-          this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land, t0);
+          // How big: the B-29's bomb is 1, the B-52's warheads a good deal less.
+          const k = nukeScale(ev.kt);
+          this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land, t0, k);
           // Its wave is the sea from here on (see burstSwell).
-          if (!ev.land && t0 != null) this.scene.ocean.addBurst(ev.x, ev.z, t0);
+          if (!ev.land && t0 != null) this.scene.ocean.addBurst(ev.x, ev.z, t0, k);
           (this.nukeAt || (this.nukeAt = new Map())).set(ev.i, { x: ev.x, z: ev.z });
-          this.whiteOut();
           const eye = this.scene.camera.position;
           const far = Math.hypot(eye.x - ev.x, eye.z - ev.z);
-          this.shake = Math.max(this.shake, (ev.land ? 3 : 2.2) * Math.max(0.35, 1 - far / 12000));
-          if (!ev.land) fx.splash(ev.x, ev.z, 4000, { kind: 'bomb' });
+          // The flash, as bright as the burst is big and near.
+          this.whiteOut(Math.min(1, (0.55 + 0.45 * k) * Math.max(0.45, 1 - far / (26000 * k))), !!ev.land);
+          this.shake = Math.max(this.shake, (ev.land ? 3 : 2.2) * Math.max(0.35, 1 - far / 12000) * (0.6 + 0.4 * k));
+          if (!ev.land) fx.splash(ev.x, ev.z, 4000 * k, { kind: 'bomb' });
           audio.nuke({ x: ev.x, y: Math.max(10, ev.y), z: ev.z });
           this.hud.alert('Atomic detonation');
           break;
@@ -4132,8 +4136,10 @@ export class Battle {
     // Her dive brakes, out and in.
     if (this.flight && !this.flight.heavy && code === 'KeyX') { this.toggleBrakes(); return; }
     // Her missiles: step the seeker on, and fire at what it has locked.
-    if (this.flight && !this.flight.heavy && !this.turret && code === 'KeyR') { this.cycleLock(); return; }
-    if (this.flight && !this.flight.heavy && !this.turret && code === 'KeyF') { this.fireLockedMissile(); return; }
+    // A B-52's seeker too: her cruise missiles go at what it has locked.
+    const seeks = this.flight && (!this.flight.heavy || this.flight.load?.alcm) && !this.turret;
+    if (seeks && code === 'KeyR') { this.cycleLock(); return; }
+    if (seeks && code === 'KeyF') { this.fireLockedMissile(); return; }
     // Flares and chaff, on a modern aeroplane.
     if (this.flight && !this.flight.heavy && !this.turret && code === 'KeyV') { this.dropChaff(); return; }
     // A heavy's bombs off the keyboard as well as the DROP key, and out of the
@@ -5765,10 +5771,16 @@ export class Battle {
     // on the point the stick would fall on if it went now. The second press
     // lets it go.
     if (f.heavy && f.load.alcm) {
-      // No bomb sight: the missile finds its own way. One at a time.
+      // No bomb sight: a seeker. The pilot puts her nose on something -- a
+      // ship, a gun ashore, an aeroplane -- holds it until it says LOCK, and
+      // the missile goes at that one thing (see alcmLocked in sim.js).
       if (f.asked > 0) return;
+      const L = f.lock;
+      if (!L || !L.at) { this.hud.alert('No target — put her nose on one'); return; }
+      if (!L.locked) { this.hud.alert('Not locked yet — hold her on it'); return; }
+      if (!L.kind) { this.hud.alert('Out of reach — fly closer'); return; }
       f.asked = 1.5;
-      this.net.send({ t: 'dropb', i: f.id });
+      this.net.send({ t: 'dropb', i: f.id, tk: L.tk, tg: L.id });
       audio.click();
       return;
     }
@@ -6154,6 +6166,12 @@ export class Battle {
       if (f.chaffHeld > 0) f.chaffHeld -= dt;
       else if (pl) f.chaff = Number.isFinite(pl.cf) ? pl.cf : null;
       this.hud.setChaff(f.chaff);
+    } else if (f.load?.alcm && !this.turret) {
+      // A B-52's seeker: her cruise missiles are her rack.
+      f.rack = { agm86: Math.max(0, (pl && pl.ld) || 0) };
+      f.flat = true;
+      stepLock(this, f, p, dt);
+      this.hud.setFlyMissiles(true, rackLabel(f.rack));
     }
 
     f.sent -= dt;
@@ -6504,7 +6522,7 @@ export class Battle {
   /** The lock key: the seeker stepped on to the next thing in its cone. */
   cycleLock() {
     const f = this.flight;
-    if (!f || f.heavy) return;
+    if (!f || (f.heavy && !f.load?.alcm)) return;
     if (!hasRack(f.rack)) { this.hud.alert('No missiles aboard'); return; }
     if (!nextLock(this, f, f.pilot)) this.hud.alert('Nothing in the seeker — put her nose on a target');
     audio.click();
@@ -6538,6 +6556,7 @@ export class Battle {
    */
   fireLockedMissile() {
     const f = this.flight;
+    if (f && f.heavy && f.load?.alcm) { this.letGo(); return; }
     if (!f || f.heavy) return;
     if (!hasRack(f.rack)) { this.hud.alert('No missiles left'); return; }
     const L = f.lock;
@@ -6688,7 +6707,7 @@ export class Battle {
    * comes on at once and goes in a couple of seconds, wherever the camera is
    * pointing, because the sky itself is lit.
    */
-  whiteOut() {
+  whiteOut(strength = 1, land = false) {
     if (typeof document === 'undefined') return;
     let d = this.flashDiv;
     if (!d) {
@@ -6697,13 +6716,32 @@ export class Battle {
         + 'background:radial-gradient(circle at 50% 45%, #fffef6 0%, #fff6dc 55%, #ffe6b8 100%);opacity:0;';
       document.body.appendChild(d);
       this.flashDiv = d;
+      // And under the flash, the afterglow: the picture burnt warm and dark
+      // at its edges for a few seconds after, as film is by a light too
+      // bright for it.
+      const g = document.createElement('div');
+      g.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:49;mix-blend-mode:multiply;opacity:0;'
+        + 'background:radial-gradient(ellipse at 50% 42%, #ffd9a0 0%, #ff9a50 55%, #3a1408 100%);';
+      document.body.appendChild(g);
+      this.glowDiv = g;
     }
+    const g = this.glowDiv;
+    const s = Math.max(0, Math.min(1, strength));
     d.style.transition = 'none';
-    d.style.opacity = '0.96';
+    d.style.opacity = String(0.96 * s);
+    g.style.transition = 'none';
+    g.style.opacity = '0';
     // The next frame, so the browser has drawn it lit before it fades.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       d.style.transition = 'opacity 2.6s cubic-bezier(0.2, 0.7, 0.3, 1)';
       d.style.opacity = '0';
+      g.style.transition = 'opacity 0.5s ease-out';
+      g.style.opacity = String((land ? 0.55 : 0.4) * s);
+      clearTimeout(this.glowFade);
+      this.glowFade = setTimeout(() => {
+        g.style.transition = `opacity ${land ? 9 : 6}s ease-in-out`;
+        g.style.opacity = '0';
+      }, 600);
     }));
   }
 
