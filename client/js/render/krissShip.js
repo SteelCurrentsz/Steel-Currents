@@ -306,7 +306,9 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     for (const up of [true, false]) inside(sheet(g, M.armour, z0, z1, (z) => at(z, top, AR.inset), () => top + (up ? 0.05 : -0.05), 20, up));
     if (AR.barbette) {
       for (const s of D.MOUNTS[main] || []) {
-        const t = s.y - 0.3;
+        // Up to her deck and no higher: above it the barbette is the model's
+        // own, and a cylinder of armour stood round it shows.
+        const t = Math.min(s.y - 0.3, deckOver((2 * s.z) / LOA) - 0.15);
         if (t <= top) continue;
         inside(cyl(g, M.armour, AR.barbette, AR.barbette, t - top, s.x, (t + top) / 2, s.z, 20));
       }
@@ -335,7 +337,8 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     if (extra) extra(g, ctx);
     // Her insides kept under her decks as the model draws them: nothing of
     // them showing through where a deck steps down.
-    buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + 0.12, sheer: deckOver, zAt, roofAt: surface.surfaceY });
+    buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + 0.12, sheer: deckOver, zAt, roofAt: surface.surfaceY,
+      openTop: (z) => deckOver((2 * z) / LOA) - 0.2 });
     mergeStatic(g, bySection(LOA));
     const turrets = mainBattery(g);
     mountings(g);

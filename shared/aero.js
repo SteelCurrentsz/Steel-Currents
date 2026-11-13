@@ -72,6 +72,24 @@ export const AERO = {
     thrust: 22500, vMax: 167, name: 'F6F-3',
     helix: 0.080, gLimit: 7.0,
   },
+  // The Implacable's fighter, the Seafire L.III: a Spitfire hooked and
+  // given folding wings for the deck, a low-altitude Merlin 55M, and the best
+  // climb and turn of anything the Fleet Air Arm flew -- and an undercarriage
+  // too narrow and too frail for a pitching deck.
+  seafire: {
+    mass: 3200, wing: 22.5, span: 11.23, clMax: 1.45, cd0: 0.0215,
+    thrust: 17500, vMax: 160, name: 'Seafire L.III',
+    helix: 0.090, gLimit: 7.5,
+  },
+  // And her strike fighter, the Fairey Firefly F.I: a two-seat Griffon
+  // fighter with four 20 mm and Youngman flaps that let her turn inside
+  // fighters half her weight, and the rails and racks under her wings for
+  // bombs or rockets.
+  firefly: {
+    mass: 6360, wing: 30.5, span: 13.56, clMax: 1.75, cd0: 0.0260,
+    thrust: 21000, vMax: 141, name: 'Firefly F.I',
+    helix: 0.072, gLimit: 6.0,
+  },
   dauntless: {
     mass: 4320, wing: 30.2, span: 12.66, clMax: 1.50, cd0: 0.0300,
     thrust: 15200, vMax: 125, name: 'SBD-3',

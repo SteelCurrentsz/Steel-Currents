@@ -30,7 +30,7 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { DECK_RUN, lightMounts } from '../../../shared/sim.js';
 import { box, cyl, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { hellcat, sbd, tbd, tbf, wildcat } from './planekit.js';
+import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly } from './planekit.js';
 import { HELLCAT } from './hellcatModel.js';
 import { DAUNTLESS } from './dauntlessModel.js';
 import { DEVASTATOR } from './devastatorModel.js';
@@ -52,6 +52,14 @@ const TYPES = {
   dauntless: { spread: 6.33, folded: 6.33, build: (g, x, y, z, ry, f, o) => sbd(g, x, y, z, ry, false, o), exhaust: () => DAUNTLESS && DAUNTLESS.exhaust },
   devastator: { spread: 7.62, folded: 4.1, build: (g, x, y, z, ry, f, o) => tbd(g, x, y, z, ry, f, false, o), exhaust: () => DEVASTATOR && DEVASTATOR.exhaust },
   avenger: { spread: 8.3, folded: 2.9, build: (g, x, y, z, ry, f, o) => tbf(g, x, y, z, ry, f, false, o), exhaust: () => AVENGER && AVENGER.exhaust },
+  // The Implacable's own, off the owner's models: spotted wings spread, as
+  // the models draw them. A Firefly on the deck carries the bombs her load
+  // gives her unless she is told otherwise. Their exhausts are the stubs
+  // either side of the Merlin's and the Griffon's cowlings.
+  seafire: { spread: 5.9, folded: 5.9, build: (g, x, y, z, ry, f, o) => seafire(g, x, y, z, ry, false, o),
+    exhaust: () => [[0.42, 2.18, 3.25], [-0.42, 2.18, 3.25]] },
+  firefly: { spread: 6.9, folded: 6.9, build: (g, x, y, z, ry, f, o) => firefly(g, x, y, z, ry, false, { load: 'bombs', ...o }),
+    exhaust: () => [[0.46, 2.72, 3.95], [-0.46, 2.72, 3.95]] },
 };
 
 /**
@@ -82,7 +90,9 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
       plating: new THREE.MeshPhongMaterial({ vertexColors: true, map: plate, specularMap: plate, specular: 0x3a4148, shininess: 30, side: THREE.DoubleSide }),
       planked: new THREE.MeshPhongMaterial({ vertexColors: true, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5, side: THREE.DoubleSide }),
       sheet: new THREE.MeshPhongMaterial({ vertexColors: true, map: plate, specularMap: plate, specular: 0x3a4148, shininess: 30, side: THREE.DoubleSide }),
-      deck: new THREE.MeshPhongMaterial({ color: 0x3e4856, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5 }),
+      // Her flight deck: deck blue on an American carrier, or whatever her
+      // own navy painted it (`paints.flightDeck`).
+      deck: new THREE.MeshPhongMaterial({ color: P.flightDeck ?? 0x3e4856, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5 }),
     };
     finish(mats.plating); finish(mats.sheet); finish(mats.planked, 'wood'); finish(mats.deck, 'wood');
     return mats;

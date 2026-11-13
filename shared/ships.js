@@ -7443,6 +7443,639 @@ export const SHIP_CLASSES = {
     },
   },
 
+  texas: {
+    // USS Texas (BB-35), the last of the dreadnoughts: the second of the New
+    // York class, commissioned in March 1914 with ten 14-inch/45 in five twin
+    // turrets -- two forward, one amidships abaft her funnel and two aft --
+    // the first American battleship to carry fourteen-inch guns. Rebuilt in
+    // 1925 with tripod masts, a single funnel and torpedo bulges, and given
+    // radar, Bofors and Oerlikons through the war, she fired on the beaches
+    // of North Africa, on Omaha Beach and Pointe du Hoc on D-Day, duelled the
+    // batteries at Cherbourg, and supported the landings at Iwo Jima and
+    // Okinawa. She survives, the only dreadnought that does.
+    //
+    // She is drawn from the owner's model of her (see texas.js and
+    // build/prepare-texas-hull.mjs) -- "USS Texas" by kriss50, under Creative
+    // Commons Attribution 4.0, credited on the Credits screen -- at her 174.65 m
+    // over all and floated at 8.7 m, armed as she was in 1945 and as the model
+    // arms her: her ten 14-inch, six 5-inch/51 in casemates, ten 3-inch/50,
+    // ten quadruple Bofors and forty-four Oerlikons -- the twelve on her
+    // turret roofs among them, which train with the turret they stand on.
+    id: 'texas',
+    name: 'Texas',
+    fullName: 'USS Texas BB-35',
+    className: 'New York',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'usa',
+    blurb: 'Ten fourteen-inch guns on the last of the dreadnoughts: from Omaha Beach and Cherbourg to Iwo Jima and Okinawa.',
+    hull: {
+      funnels: [[0, 5.2, 22.4]], length: 174.65, beam: 32.4, draft: 8.7, superstructure: 1.4 },
+    hp: 52000,
+    // Twenty-one knots on triple-expansion engines and two shafts: the last
+    // American battleship to have them.
+    maxSpeed: 21 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.32,
+    turnRate: 0.05,
+    rudderShift: 14,
+    speedLossInTurn: 0.17,
+    concealment: 14600,
+    fireDetectPenalty: 6200,
+    // SK air search on her foremast and SG for the surface by 1945.
+    radarRange: 13000,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Twelve inches of belt over her machinery and magazines, tapering to ten
+    // at its lower edge; a two-inch armour deck, thickened over her
+    // machinery in 1925; fourteen inches on her turret faces.
+    armor: { belt: 305, deck: 76, citadel: 305, bow: 25, superstructure: 25 },
+    turrets: [
+      // No.1 and No.2 forward, No.2 superfiring; No.3 amidships abaft her
+      // funnel facing astern, with her catapult on its roof; No.4 and No.5
+      // aft, No.4 superfiring. Each where the model stands it.
+      { id: 0, name: 'No.1', x: 0, z: 49.42, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 9.96 },
+      { id: 1, name: 'No.2', x: 0, z: 36.89, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 12.81 },
+      { id: 2, name: 'No.3', x: 0, z: -19.17, angle: Math.PI, arc: 2.2, rest: Math.PI, guns: 2, my: 8.81 },
+      { id: 3, name: 'No.4', x: 0, z: -44.95, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 2, my: 11.14 },
+      { id: 4, name: 'No.5', x: 0, z: -57.69, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 2, my: 8.13 },
+    ],
+    gun: {
+      name: '14"/45 Mk 1', role: 'surface',
+      // Fifteen degrees up since her 1925 rebuild, and five below.
+      elev: { min: -0.087, max: 0.26 },
+      reach: 15.0,
+      // The 1,500 lb armour-piercing shell, 792 m/s.
+      caliber: 356, reload: 32, traverse: 0.06, range: 19200, sigma: 1.5,
+      shells: shells(356, 10600, 4800, 470, 792, 0.22),
+    },
+    torpedoes: null,
+    // Her six 5-inch/51 in casemates in her sides, three a side abreast her
+    // bridge and funnel: the twelve she was left with in 1942 cut to six.
+    secondary: {
+      name: '5"/51 Mk 15', role: 'surface', piece: 'sec',
+      elev: { min: -0.17, max: 0.35 },
+      reach: 4.82,
+      caliber: 127, reload: 7.0, traverse: 0.25, range: 14500, sigma: 1.9,
+      shells: shells(127, 1800, 1500, 72, 960, 0.06),
+      mounts: [
+        { x: -11.327, z: 25.358, angle: -1.57, arc: 1.1, rest: -1.2382, guns: 1, my: 7.99 },
+        { x: 11.444, z: 25.358, angle: 1.57, arc: 1.1, rest: 1.2305, guns: 1, my: 7.99 },
+        { x: 13.362, z: 16.532, angle: 1.57, arc: 1.1, rest: 1.0551, guns: 1, my: 7.93 },
+        { x: -13.271, z: 16.531, angle: -1.57, arc: 1.1, rest: -1.0648, guns: 1, my: 7.92 },
+        { x: 13.074, z: 8.596, angle: 1.57, arc: 1.1, rest: 1.9904, guns: 1, my: 7.87 },
+        { x: -13.182, z: 8.596, angle: -1.57, arc: 1.1, rest: -1.9999, guns: 1, my: 7.87 },
+      ],
+    },
+    aa: {
+      range: 5000, dps: 120,
+      guns: [
+        // Her ten 3-inch/50 on her upper decks, six forward about her bridge
+        // and four aft about her mainmast.
+        { name: '3"/50 Mk 22', caliber: 76, role: 'dp', reload: 1.3, range: 6000, piece: 'aa3',
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: -9.87, z: 26.471, angle: -1.57, arc: 1.92, rest: -0.8392, guns: 1, my: 12.78 },
+            { x: 10.083, z: 26.257, angle: 1.57, arc: 1.92, rest: 0.7332, guns: 1, my: 12.78 },
+            { x: -11.076, z: 20.333, angle: -1.57, arc: 1.92, rest: -1.6268, guns: 1, my: 12.72 },
+            { x: 11.075, z: 20.023, angle: 1.57, arc: 1.92, rest: 1.5144, guns: 1, my: 12.72 },
+            { x: -14, z: 12.983, angle: -1.57, arc: 1.92, rest: -1.6283, guns: 1, my: 12.66 },
+            { x: 14, z: 12.672, angle: 1.57, arc: 1.92, rest: 1.5148, guns: 1, my: 12.66 },
+            { x: -9.065, z: -36.816, angle: -1.57, arc: 1.92, rest: -1.6279, guns: 1, my: 9.2 },
+            { x: 9.066, z: -37.126, angle: 1.57, arc: 1.92, rest: 1.5135, guns: 1, my: 9.2 },
+            { x: -9.884, z: -45.983, angle: -1.57, arc: 1.92, rest: -1.6272, guns: 1, my: 9.15 },
+            { x: 9.885, z: -46.293, angle: 1.57, arc: 1.92, rest: 1.514, guns: 1, my: 9.15 },
+          ] },
+        // Her ten quadruple Bofors, in their tubs on her superstructure, at
+        // her sides and on her quarterdeck.
+        { name: '40mm Bofors quad', caliber: 40, role: 'aa', reload: 0.24, range: 3600, piece: 'aa4',
+          mounts: [
+            { x: 7.428, z: 32.098, angle: 1.57, arc: 1.92, rest: 0.7808, guns: 4, my: 12.47 },
+            { x: -7.429, z: 32.097, angle: -1.57, arc: 1.92, rest: -0.7934, guns: 4, my: 12.47 },
+            { x: -7.265, z: 21.849, angle: -1.57, arc: 1.92, rest: -1.5661, guns: 4, my: 14.82 },
+            { x: 7.265, z: 21.849, angle: 1.57, arc: 1.92, rest: 1.5764, guns: 4, my: 14.82 },
+            { x: -13.27, z: 7.628, angle: -1.57, arc: 1.92, rest: -1.5741, guns: 4, my: 12.74 },
+            { x: 13.27, z: 7.628, angle: 1.57, arc: 1.92, rest: 1.5757, guns: 4, my: 12.74 },
+            { x: -9.606, z: -8.224, angle: -1.57, arc: 1.92, rest: -1.5732, guns: 4, my: 9.23 },
+            { x: 9.606, z: -8.224, angle: 1.57, arc: 1.92, rest: 1.5704, guns: 4, my: 9.23 },
+            { x: -2.652, z: -78.029, angle: -1.57, arc: 1.92, rest: -2.3628, guns: 4, my: 8.57 },
+            { x: 2.652, z: -78.029, angle: 1.57, arc: 1.92, rest: 2.3515, guns: 4, my: 8.57 },
+          ] },
+        // And her Oerlikons along her decks and on her masts.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa1',
+          mounts: [
+            { x: -7.083, z: 42.145, angle: -1.57, arc: 1.92, rest: 2.1517, guns: 1, my: 8.59 },
+            { x: 7.083, z: 42.145, angle: 1.57, arc: 1.92, rest: -2.5668, guns: 1, my: 8.59 },
+            { x: -8.644, z: 38.807, angle: -1.57, arc: 1.92, rest: 2.1381, guns: 1, my: 8.49 },
+            { x: 8.643, z: 38.806, angle: 1.57, arc: 1.92, rest: -2.5814, guns: 1, my: 8.5 },
+            { x: -10.823, z: -17.517, angle: -1.57, arc: 1.92, rest: -1.4614, guns: 1, my: 8.12 },
+            { x: 10.823, z: -17.517, angle: 1.57, arc: 1.92, rest: 1.6888, guns: 1, my: 8.12 },
+            { x: -10.808, z: -21.211, angle: -1.57, arc: 1.92, rest: -1.4807, guns: 1, my: 8.03 },
+            { x: 10.808, z: -21.211, angle: 1.57, arc: 1.92, rest: 1.6669, guns: 1, my: 8.03 },
+            { x: -9.989, z: -24.825, angle: -1.57, arc: 1.92, rest: -1.4892, guns: 1, my: 7.96 },
+            { x: 9.989, z: -24.825, angle: 1.57, arc: 1.92, rest: 1.6505, guns: 1, my: 7.96 },
+            { x: -10.458, z: -28.49, angle: -1.57, arc: 1.92, rest: -1.4893, guns: 1, my: 7.9 },
+            { x: 10.458, z: -28.49, angle: 1.57, arc: 1.92, rest: 1.6626, guns: 1, my: 7.9 },
+            { x: -10.957, z: -32.156, angle: -1.57, arc: 1.92, rest: -1.4821, guns: 1, my: 7.85 },
+            { x: 10.957, z: -32.156, angle: 1.57, arc: 1.92, rest: 1.6516, guns: 1, my: 7.85 },
+            { x: 3.71, z: -35.505, angle: 1.57, arc: 1.92, rest: 1.6762, guns: 1, my: 19.49 },
+            { x: -3.71, z: -35.504, angle: -1.57, arc: 1.92, rest: -1.4792, guns: 1, my: 19.49 },
+            { x: 5.447, z: -37.483, angle: 1.57, arc: 1.92, rest: 1.6719, guns: 1, my: 10.43 },
+            { x: -5.446, z: -37.485, angle: -1.57, arc: 1.92, rest: -1.4692, guns: 1, my: 10.43 },
+            { x: -5.447, z: -39.756, angle: -1.57, arc: 1.92, rest: -1.4519, guns: 1, my: 10.43 },
+            { x: 5.446, z: -39.757, angle: 1.57, arc: 1.92, rest: 1.674, guns: 1, my: 10.43 },
+            { x: -1.974, z: -40.478, angle: -1.57, arc: 1.92, rest: 0.5751, guns: 1, my: 19.02 },
+            { x: 1.976, z: -40.476, angle: 1.57, arc: 1.92, rest: -1.011, guns: 1, my: 19.02 },
+            { x: -8.951, z: -58.912, angle: -1.57, arc: 1.92, rest: 0.5672, guns: 1, my: 7.2 },
+            { x: 8.951, z: -58.912, angle: 1.57, arc: 1.92, rest: -1.0096, guns: 1, my: 7.2 },
+            { x: -8.07, z: -62.039, angle: -1.57, arc: 1.92, rest: 0.5852, guns: 1, my: 7.19 },
+            { x: 8.071, z: -62.037, angle: 1.57, arc: 1.92, rest: -0.9957, guns: 1, my: 7.18 },
+            { x: -5.785, z: -64.318, angle: -1.57, arc: 1.92, rest: 0.5495, guns: 1, my: 7.18 },
+            { x: 5.787, z: -64.318, angle: 1.57, arc: 1.92, rest: -0.9942, guns: 1, my: 7.18 },
+            { x: -5.444, z: -69.075, angle: -1.57, arc: 1.92, rest: 0.591, guns: 1, my: 7.19 },
+            { x: 5.443, z: -69.075, angle: 1.57, arc: 1.92, rest: -0.9848, guns: 1, my: 7.19 },
+            { x: -3.591, z: -72.278, angle: -1.57, arc: 1.92, rest: 0.5872, guns: 1, my: 7.16 },
+            { x: 3.592, z: -72.28, angle: 1.57, arc: 1.92, rest: -0.978, guns: 1, my: 7.16 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 34000,
+      aircraft: 0,
+      mainRounds: 1000,
+      secondary: { caliber: 127, label: '5"/51', barrels: 6, rounds: 1380 },
+      tertiary: [
+        { caliber: 76, label: '3"/50', barrels: 10, rounds: 3000 },
+        { caliber: 40, label: '40mm', barrels: 40, rounds: 48000 },
+        { caliber: 20, label: '20mm', barrels: 32, rounds: 76800 },
+      ],
+    },
+  },
+
+  newmexico: {
+    // USS New Mexico (BB-40), the name ship of her class and the first
+    // battleship in the world driven by turbo-electric machinery: twelve
+    // 14-inch/50 in four triple turrets, two forward and two aft, on a hull
+    // with the clipper bow the Standards were known by. Rebuilt at
+    // Philadelphia between 1931 and 1933 with the tower bridge and the single
+    // funnel she fought the war with, she bombarded Attu and Kiska, the
+    // Gilberts, the Marshalls, Saipan and Guam, covered the landings at Leyte,
+    // took a kamikaze on her bridge at Lingayen Gulf and another off Okinawa,
+    // and was in Tokyo Bay for the surrender.
+    //
+    // She is drawn from the owner's model of her (see newmexico.js and
+    // build/prepare-newmexico-hull.mjs) -- "USS New Mexico" by kriss50, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen -- at
+    // her 190.2 m over all and floated at 9.1 m, armed as the model arms her:
+    // her twelve 14-inch, twelve 5-inch/51 behind shields on her upper decks,
+    // eight 5-inch/25 high-angle guns abreast her funnel, twelve Oerlikons and
+    // four .50-calibre Brownings in her foretop.
+    id: 'newmexico',
+    name: 'New Mexico',
+    fullName: 'USS New Mexico BB-40',
+    className: 'New Mexico',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'usa',
+    blurb: 'Twelve fourteen-inch/50 in four triple turrets, turbo-electric drive and a clipper bow: a Standard from the Aleutians to Tokyo Bay.',
+    hull: {
+      funnels: [[0, -0.5, 25.0]], length: 190.2, beam: 32.4, draft: 9.1, superstructure: 1.4 },
+    hp: 58000,
+    // Twenty-one knots off turbo-electric drive on four shafts.
+    maxSpeed: 21.5 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.33,
+    turnRate: 0.049,
+    rudderShift: 14,
+    speedLossInTurn: 0.17,
+    concealment: 15000,
+    fireDetectPenalty: 6400,
+    // An SC air search set and FC for her main battery.
+    radarRange: 11000,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // The Standards' all-or-nothing scheme: thirteen and a half inches of
+    // belt over her machinery and magazines and nothing outside it, an
+    // armour deck thickened in her rebuild, eighteen inches on her turret
+    // faces.
+    armor: { belt: 343, deck: 127, citadel: 343, bow: 13, superstructure: 25 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 44.51, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 9.7 },
+      { id: 1, name: 'No.2', x: 0, z: 30.58, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 13.31 },
+      { id: 2, name: 'No.3', x: 0, z: -39.64, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 10.75 },
+      { id: 3, name: 'No.4', x: 0, z: -53.69, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 7.35 },
+    ],
+    gun: {
+      name: '14"/50 Mk 4', role: 'surface',
+      // Thirty degrees up since her rebuild.
+      elev: { min: -0.087, max: 0.52 },
+      reach: 17.66,
+      // The 1,400 lb armour-piercing shell at 823 m/s.
+      caliber: 356, reload: 30, traverse: 0.06, range: 20800, sigma: 1.45,
+      shells: shells(356, 10800, 4900, 500, 823, 0.22),
+    },
+    torpedoes: null,
+    // Her twelve 5-inch/51, six a side behind shields on her upper deck and
+    // her 01 level, where her rebuild moved them up out of her casemates.
+    secondary: {
+      name: '5"/51 Mk 15', role: 'surface', piece: 'sec',
+      elev: { min: -0.17, max: 0.35 },
+      reach: 4.82,
+      caliber: 127, reload: 7.0, traverse: 0.25, range: 14500, sigma: 1.9,
+      shells: shells(127, 1800, 1500, 72, 960, 0.06),
+      mounts: [
+        { x: 6.215, z: 25.328, angle: 1.57, arc: 1.6, rest: -0.0001, guns: 1, my: 8.86 },
+        { x: -5.965, z: 24.916, angle: -1.57, arc: 1.6, rest: 0, guns: 1, my: 8.86 },
+        { x: 5.927, z: 24.881, angle: 1.57, arc: 1.6, rest: 0.0001, guns: 1, my: 12.02 },
+        { x: -5.929, z: 24.879, angle: -1.57, arc: 1.6, rest: -0.0001, guns: 1, my: 12.03 },
+        { x: -8.72, z: 13.657, angle: -1.57, arc: 1.6, rest: 0, guns: 1, my: 8.87 },
+        { x: 8.721, z: 13.657, angle: 1.57, arc: 1.6, rest: -0.0003, guns: 1, my: 8.86 },
+        { x: -11.267, z: 2.845, angle: -1.57, arc: 1.6, rest: 0.0003, guns: 1, my: 8.87 },
+        { x: 11.267, z: 2.845, angle: 1.57, arc: 1.6, rest: 0.0001, guns: 1, my: 8.87 },
+        { x: 11.433, z: -4.934, angle: 1.57, arc: 1.6, rest: 3.1415, guns: 1, my: 8.86 },
+        { x: -11.434, z: -4.934, angle: -1.57, arc: 1.6, rest: -3.1412, guns: 1, my: 8.87 },
+        { x: 8.897, z: -14.977, angle: 1.57, arc: 1.6, rest: 3.1412, guns: 1, my: 8.87 },
+        { x: -8.898, z: -14.978, angle: -1.57, arc: 1.6, rest: 3.1413, guns: 1, my: 8.86 },
+      ],
+    },
+    aa: {
+      range: 4500, dps: 70,
+      guns: [
+        // Her eight 5-inch/25 high-angle guns, four a side abreast her funnel.
+        { name: '5"/25 Mk 10', caliber: 127, role: 'dp', reload: 4.0, range: 7500, piece: 'aa5',
+          elev: { min: -0.26, max: 1.48 },
+          mounts: [
+            { x: 9.893, z: 10.374, angle: 1.57, arc: 1.92, rest: -0.0166, guns: 1, my: 12.39 },
+            { x: -9.778, z: 10.374, angle: -1.57, arc: 1.92, rest: -0.0166, guns: 1, my: 12.39 },
+            { x: 11.117, z: 2.344, angle: 1.57, arc: 1.92, rest: -0.0165, guns: 1, my: 12.39 },
+            { x: -11.003, z: 2.343, angle: -1.57, arc: 1.92, rest: -0.0165, guns: 1, my: 12.39 },
+            { x: -11.144, z: -4.656, angle: -1.57, arc: 1.92, rest: 3.1251, guns: 1, my: 12.39 },
+            { x: 11.03, z: -4.656, angle: 1.57, arc: 1.92, rest: 3.1249, guns: 1, my: 12.39 },
+            { x: -8.886, z: -10.884, angle: -1.57, arc: 1.92, rest: 3.1252, guns: 1, my: 12.39 },
+            { x: 8.772, z: -10.884, angle: 1.57, arc: 1.92, rest: 3.125, guns: 1, my: 12.39 },
+          ] },
+        // Her Oerlikons, about her bridge and her mainmast.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa1',
+          mounts: [
+            { x: -1.39, z: 19.349, angle: -1.57, arc: 1.92, rest: -0.0004, guns: 1, my: 18.69 },
+            { x: 1.337, z: 19.334, angle: 1.57, arc: 1.92, rest: 0.0001, guns: 1, my: 18.69 },
+            { x: 4.487, z: 17.379, angle: 1.57, arc: 1.92, rest: 1.0481, guns: 1, my: 16.21 },
+            { x: -4.487, z: 17.379, angle: -1.57, arc: 1.92, rest: -1.0481, guns: 1, my: 16.21 },
+            { x: -2.482, z: -16.246, angle: -1.57, arc: 1.92, rest: 0.0001, guns: 1, my: 19.3 },
+            { x: 2.482, z: -16.246, angle: 1.57, arc: 1.92, rest: 0.0015, guns: 1, my: 19.3 },
+            { x: -1.229, z: -17.355, angle: -1.57, arc: 1.92, rest: 0.001, guns: 1, my: 22.04 },
+            { x: 1.227, z: -17.355, angle: 1.57, arc: 1.92, rest: 0.0005, guns: 1, my: 22.04 },
+            { x: -8.527, z: -19.073, angle: -1.57, arc: 1.92, rest: -1.5693, guns: 1, my: 14.97 },
+            { x: 8.527, z: -19.073, angle: 1.57, arc: 1.92, rest: 1.5717, guns: 1, my: 14.97 },
+            { x: -3.182, z: -23.456, angle: -1.57, arc: 1.92, rest: -2.3551, guns: 1, my: 17.48 },
+            { x: 3.167, z: -23.469, angle: 1.57, arc: 1.92, rest: 2.3578, guns: 1, my: 17.48 },
+          ] },
+        // And four .50-calibre Brownings in her foretop.
+        { name: '.50 cal Browning M2', caliber: 13, role: 'aa', reload: 0.08, range: 1300, piece: 'mg',
+          mounts: [
+            { x: 4.825, z: 0.081, angle: 1.57, arc: 1.92, rest: -0.925, guns: 1, my: 23.52 },
+            { x: -4.828, z: 0.08, angle: -1.57, arc: 1.92, rest: -2.254, guns: 1, my: 23.52 },
+            { x: 4.825, z: -2.688, angle: 1.57, arc: 1.92, rest: 0.8258, guns: 1, my: 23.52 },
+            { x: -4.825, z: -2.689, angle: -1.57, arc: 1.92, rest: 2.0853, guns: 1, my: 23.52 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 36200,
+      aircraft: 0,
+      mainRounds: 1200,
+      // Two five-inch guns of one bore, each its own row.
+      secondary: null,
+      tertiary: [
+        { caliber: 127, label: '5"/51', barrels: 12, rounds: 2760 },
+        { caliber: 127, label: '5"/25', barrels: 8, rounds: 3200 },
+        { caliber: 20, label: '20mm', barrels: 12, rounds: 28800 },
+        { caliber: 13, label: '.50 cal', barrels: 4, rounds: 12000 },
+      ],
+    },
+  },
+
+  maryland: {
+    // USS Maryland (BB-46), the second of the Colorados and the first
+    // American battleship with sixteen-inch guns: eight 16-inch/45 in four
+    // twin turrets, two forward and two aft, on the Standards' hull and their
+    // all-or-nothing armour. Moored inboard of the Oklahoma at Pearl Harbor,
+    // she was hit by two bombs and back at sea within weeks; she bombarded
+    // Tarawa, Kwajalein, Saipan -- where a torpedo took her bow -- and
+    // Peleliu, fired her sixteen-inch into the Yamashiro in the dark of the
+    // Surigao Strait, and took kamikazes off Leyte and Okinawa.
+    //
+    // She is drawn from the owner's model of her (see maryland.js and
+    // build/prepare-maryland-hull.mjs) -- "USS Maryland" by kriss50, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen -- at
+    // her 190.2 m over all and floated at 9.3 m, armed as the model arms her:
+    // her eight 16-inch, eight 5-inch/51 and eight 5-inch/25, eight Bofors
+    // quadruples and thirty-eight Oerlikons, the four on No.3's roof among
+    // them.
+    id: 'maryland',
+    name: 'Maryland',
+    fullName: 'USS Maryland BB-46',
+    className: 'Colorado',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'usa',
+    blurb: 'Eight sixteen-inch guns, the first in any American battleship: from Pearl Harbor to Tarawa, Saipan and the Surigao Strait.',
+    hull: {
+      funnels: [[0, -2.5, 22.2], [0, -16.6, 21.2]], length: 190.2, beam: 32.9, draft: 9.3, superstructure: 1.4 },
+    hp: 60000,
+    // Twenty-one knots off turbo-electric drive on four shafts.
+    maxSpeed: 21 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.32,
+    turnRate: 0.048,
+    rudderShift: 14,
+    speedLossInTurn: 0.17,
+    concealment: 15200,
+    fireDetectPenalty: 6600,
+    // SK air search on her foremast and SG for the surface.
+    radarRange: 13000,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Thirteen and a half inches of belt over her vitals and nothing outside
+    // them, three and a half inches of armour deck, eighteen on her turret
+    // faces.
+    armor: { belt: 343, deck: 114, citadel: 343, bow: 13, superstructure: 25 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 44.35, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 9.37 },
+      { id: 1, name: 'No.2', x: 0, z: 30.04, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 12.84 },
+      { id: 2, name: 'No.3', x: 0, z: -39.68, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 2, my: 10.49 },
+      { id: 3, name: 'No.4', x: 0, z: -53.85, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 2, my: 7.02 },
+    ],
+    gun: {
+      name: '16"/45 Mk 5', role: 'surface',
+      // Thirty degrees up since her refits.
+      elev: { min: -0.087, max: 0.52 },
+      reach: 17.75,
+      // The 2,110 lb armour-piercing shell at 768 m/s.
+      caliber: 406, reload: 32, traverse: 0.06, range: 20800, sigma: 1.45,
+      shells: shells(406, 12800, 5900, 560, 768, 0.26),
+    },
+    torpedoes: null,
+    // Her eight 5-inch/51 in casemates, four a side along her upper deck.
+    secondary: {
+      name: '5"/51 Mk 15', role: 'surface', piece: 'sec',
+      elev: { min: -0.17, max: 0.35 },
+      reach: 4.82,
+      caliber: 127, reload: 7.0, traverse: 0.25, range: 14500, sigma: 1.9,
+      shells: shells(127, 1800, 1500, 72, 960, 0.06),
+      mounts: [
+        { x: -9.167, z: 13.589, angle: -1.57, arc: 1.1, rest: -0.0833, guns: 1, my: 8.54 },
+        { x: 9.167, z: 13.56, angle: 1.57, arc: 1.1, rest: 0.0838, guns: 1, my: 8.54 },
+        { x: -11.373, z: 2.405, angle: -1.57, arc: 1.1, rest: -0.0832, guns: 1, my: 8.54 },
+        { x: 11.373, z: 2.378, angle: 1.57, arc: 1.1, rest: 0.0838, guns: 1, my: 8.54 },
+        { x: -11.367, z: -5.47, angle: -1.57, arc: 1.1, rest: -3.0121, guns: 1, my: 8.54 },
+        { x: 11.367, z: -5.515, angle: 1.57, arc: 1.1, rest: 3.0111, guns: 1, my: 8.54 },
+        { x: 8.624, z: -15.228, angle: 1.57, arc: 1.1, rest: -3.1311, guns: 1, my: 8.54 },
+        { x: -8.624, z: -15.232, angle: -1.57, arc: 1.1, rest: 3.1311, guns: 1, my: 8.54 },
+      ],
+    },
+    aa: {
+      range: 5000, dps: 110,
+      guns: [
+        // Her eight 5-inch/25 high-angle guns, four a side about her funnels.
+        { name: '5"/25 Mk 10', caliber: 127, role: 'dp', reload: 4.0, range: 7500, piece: 'aa5',
+          elev: { min: -0.26, max: 1.48 },
+          mounts: [
+            { x: -6.106, z: 16.232, angle: -1.57, arc: 1.92, rest: -0.0164, guns: 1, my: 11.78 },
+            { x: 6.22, z: 16.232, angle: 1.57, arc: 1.92, rest: -0.0166, guns: 1, my: 11.78 },
+            { x: 9.806, z: 8.684, angle: 1.57, arc: 1.92, rest: -0.0166, guns: 1, my: 11.78 },
+            { x: -9.692, z: 8.683, angle: -1.57, arc: 1.92, rest: -0.0167, guns: 1, my: 11.78 },
+            { x: 10.559, z: 1.631, angle: 1.57, arc: 1.92, rest: -0.0165, guns: 1, my: 11.78 },
+            { x: -10.446, z: 1.631, angle: -1.57, arc: 1.92, rest: -0.0166, guns: 1, my: 11.78 },
+            { x: -10.446, z: -4.908, angle: -1.57, arc: 1.92, rest: -0.0166, guns: 1, my: 11.69 },
+            { x: 10.559, z: -4.908, angle: 1.57, arc: 1.92, rest: -0.0166, guns: 1, my: 11.69 },
+          ] },
+        // Her quadruple Bofors in their tubs about her superstructure.
+        { name: '40mm Bofors quad', caliber: 40, role: 'aa', reload: 0.24, range: 3600, piece: 'aa4',
+          mounts: [
+            { x: 7.099, z: 25.356, angle: 1.57, arc: 1.92, rest: 2.6693, guns: 4, my: 9.71 },
+            { x: -7.121, z: 25.301, angle: -1.57, arc: 1.92, rest: -2.6827, guns: 4, my: 9.71 },
+            { x: 8.494, z: -15.278, angle: 1.57, arc: 1.92, rest: 1.6212, guns: 4, my: 12.48 },
+            { x: -8.495, z: -15.339, angle: -1.57, arc: 1.92, rest: -1.5059, guns: 4, my: 12.48 },
+            { x: 6.359, z: -22.763, angle: 1.57, arc: 1.92, rest: 1.5781, guns: 4, my: 10.64 },
+            { x: -6.359, z: -22.822, angle: -1.57, arc: 1.92, rest: -1.6206, guns: 4, my: 10.64 },
+            { x: 9.211, z: -28.018, angle: 1.57, arc: 1.92, rest: 1.592, guns: 4, my: 8.28 },
+            { x: -9.211, z: -28.078, angle: -1.57, arc: 1.92, rest: -1.5289, guns: 4, my: 8.28 },
+          ] },
+        // And her Oerlikons along her decks, on her bridge and her mainmast.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa1',
+          mounts: [
+            { x: 0, z: 68.51, angle: 0, arc: 2.6, rest: 0.0936, guns: 1, my: 9.23 },
+            { x: 0, z: 65.874, angle: 0, arc: 2.6, rest: 0.086, guns: 1, my: 9.23 },
+            { x: -6.855, z: 33.123, angle: -1.57, arc: 1.92, rest: -1.4848, guns: 1, my: 9.23 },
+            { x: 6.855, z: 33.123, angle: 1.57, arc: 1.92, rest: 1.6568, guns: 1, my: 9.23 },
+            { x: -6.855, z: 30.594, angle: -1.57, arc: 1.92, rest: -1.4727, guns: 1, my: 9.23 },
+            { x: 6.856, z: 30.596, angle: 1.57, arc: 1.92, rest: 1.6604, guns: 1, my: 9.23 },
+            { x: 0, z: 25.347, angle: 0, arc: 2.6, rest: 0.0706, guns: 1, my: 19.03 },
+            { x: -2.081, z: 18.21, angle: -1.57, arc: 1.92, rest: 2.1192, guns: 1, my: 23.04 },
+            { x: 2.082, z: 18.21, angle: 1.57, arc: 1.92, rest: -2.5599, guns: 1, my: 23.04 },
+            { x: -5.127, z: 17.302, angle: -1.57, arc: 1.92, rest: 1.8812, guns: 1, my: 16.58 },
+            { x: 5.125, z: 17.302, angle: 1.57, arc: 1.92, rest: 2.3044, guns: 1, my: 17.06 },
+            { x: -6.322, z: 12.447, angle: -1.57, arc: 1.92, rest: 2.0783, guns: 1, my: 23.04 },
+            { x: 6.323, z: 12.447, angle: 1.57, arc: 1.92, rest: -2.5592, guns: 1, my: 23.04 },
+            { x: -8.102, z: 9.752, angle: -1.57, arc: 1.92, rest: 2.1548, guns: 1, my: 23.04 },
+            { x: 8.099, z: 9.752, angle: 1.57, arc: 1.92, rest: -2.5623, guns: 1, my: 23.04 },
+            { x: -5.599, z: 0.335, angle: -1.57, arc: 1.92, rest: -1.4586, guns: 1, my: 15.82 },
+            { x: 5.599, z: 0.335, angle: 1.57, arc: 1.92, rest: 1.686, guns: 1, my: 15.82 },
+            { x: -5.599, z: -2.13, angle: -1.57, arc: 1.92, rest: -1.4623, guns: 1, my: 15.81 },
+            { x: 5.599, z: -2.13, angle: 1.57, arc: 1.92, rest: 1.6895, guns: 1, my: 15.81 },
+            { x: -5.601, z: -4.628, angle: -1.57, arc: 1.92, rest: -1.4969, guns: 1, my: 15.82 },
+            { x: 5.599, z: -4.629, angle: 1.57, arc: 1.92, rest: 1.6719, guns: 1, my: 15.81 },
+            { x: -5.599, z: -7.066, angle: -1.57, arc: 1.92, rest: -1.4757, guns: 1, my: 15.81 },
+            { x: 5.599, z: -7.066, angle: 1.57, arc: 1.92, rest: 1.68, guns: 1, my: 15.81 },
+            { x: -9.714, z: -9.107, angle: -1.57, arc: 1.92, rest: -1.4159, guns: 1, my: 12.02 },
+            { x: 9.714, z: -9.107, angle: 1.57, arc: 1.92, rest: 1.7055, guns: 1, my: 12.02 },
+            { x: -5.601, z: -9.611, angle: -1.57, arc: 1.92, rest: -1.499, guns: 1, my: 15.82 },
+            { x: 5.602, z: -9.611, angle: 1.57, arc: 1.92, rest: 1.6404, guns: 1, my: 15.82 },
+            { x: -9.242, z: -10.89, angle: -1.57, arc: 1.92, rest: -1.499, guns: 1, my: 12.02 },
+            { x: 9.243, z: -10.89, angle: 1.57, arc: 1.92, rest: 1.6404, guns: 1, my: 12.02 },
+            { x: 0, z: -32.5, angle: Math.PI, arc: 2.6, rest: -0.0572, guns: 1, my: 17.3 },
+            { x: -10.513, z: -35.53, angle: -1.57, arc: 1.92, rest: -1.4604, guns: 1, my: 6.86 },
+            { x: 10.513, z: -35.531, angle: 1.57, arc: 1.92, rest: 1.6551, guns: 1, my: 6.86 },
+            { x: 8.556, z: -39.861, angle: 1.57, arc: 1.92, rest: 1.6712, guns: 1, my: 6.86 },
+            { x: -8.557, z: -39.863, angle: -1.57, arc: 1.92, rest: -1.4605, guns: 1, my: 6.86 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 33590,
+      aircraft: 0,
+      mainRounds: 800,
+      // Two five-inch guns of one bore, each its own row.
+      secondary: null,
+      tertiary: [
+        { caliber: 127, label: '5"/51', barrels: 8, rounds: 1840 },
+        { caliber: 127, label: '5"/25', barrels: 8, rounds: 3200 },
+        { caliber: 40, label: '40mm', barrels: 32, rounds: 38400 },
+        { caliber: 20, label: '20mm', barrels: 34, rounds: 81600 },
+      ],
+    },
+  },
+
+  pennsylvania: {
+    // USS Pennsylvania (BB-38), the name ship of her class and for twenty
+    // years the flagship of the fleet: twelve 14-inch/45 in four triple
+    // turrets, two forward and two aft, on the first American hull with
+    // all-or-nothing armour and four shafts. She was in dry dock at Pearl
+    // Harbor on 7 December 1941 and took one bomb; she went on to bombard
+    // Attu, Makin, Kwajalein, Saipan, Guam and Peleliu, fired on the
+    // Yamashiro in the Surigao Strait, covered the landings at Lingayen, and
+    // took the last torpedo of the war off Okinawa in August 1945.
+    //
+    // She is drawn from the owner's model of her (see pennsylvania.js and
+    // build/prepare-pennsylvania-hull.mjs) -- "USS Pennsylvania" by kriss50,
+    // under Creative Commons Attribution 4.0, credited on the Credits screen --
+    // at her 185.4 m over all and floated at 8.8 m, as she was in 1942 with
+    // her tripod masts and armed as the model arms her: her twelve 14-inch,
+    // ten 5-inch/51 in casemates, eight 5-inch/25, four Bofors quadruples,
+    // four twin and eight single Oerlikons, and four .50-calibre Brownings in
+    // her tops.
+    id: 'pennsylvania',
+    name: 'Pennsylvania',
+    fullName: 'USS Pennsylvania BB-38',
+    className: 'Pennsylvania',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'usa',
+    blurb: 'Twelve fourteen-inch guns in four triple turrets: the flagship of the fleet, from the dry dock at Pearl Harbor to the Surigao Strait.',
+    hull: {
+      funnels: [[0, 2.8, 23.4]], length: 185.4, beam: 32.4, draft: 8.8, superstructure: 1.4 },
+    hp: 56000,
+    // Twenty-one knots on four shafts.
+    maxSpeed: 21 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.32,
+    turnRate: 0.049,
+    rudderShift: 14,
+    speedLossInTurn: 0.17,
+    concealment: 15000,
+    fireDetectPenalty: 6400,
+    // CXAM air search on her foretop.
+    radarRange: 10000,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Thirteen and a half inches of belt over her vitals and nothing outside
+    // them, three inches of armour deck, eighteen on her turret faces.
+    armor: { belt: 343, deck: 102, citadel: 343, bow: 13, superstructure: 25 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 46.99, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 9.65 },
+      { id: 1, name: 'No.2', x: 0, z: 32.93, angle: 0, arc: 2.6, rest: 0, guns: 3, my: 13.37 },
+      { id: 2, name: 'No.3', x: 0, z: -37.4, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 11.18 },
+      { id: 3, name: 'No.4', x: 0, z: -51.39, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 3, my: 7.9 },
+    ],
+    gun: {
+      name: '14"/45 Mk 8', role: 'surface',
+      // Thirty degrees up since her rebuild.
+      elev: { min: -0.087, max: 0.52 },
+      reach: 15.76,
+      // The 1,400 lb armour-piercing shell at 792 m/s.
+      caliber: 356, reload: 30, traverse: 0.06, range: 20400, sigma: 1.45,
+      shells: shells(356, 10600, 4800, 480, 792, 0.22),
+    },
+    torpedoes: null,
+    // Her ten 5-inch/51 in casemates, five a side along her upper deck.
+    secondary: {
+      name: '5"/51 Mk 15', role: 'surface', piece: 'sec',
+      elev: { min: -0.17, max: 0.35 },
+      reach: 4.82,
+      caliber: 127, reload: 7.0, traverse: 0.25, range: 14500, sigma: 1.9,
+      shells: shells(127, 1800, 1500, 72, 960, 0.06),
+      mounts: [
+        { x: -5.827, z: 28.149, angle: -1.57, arc: 1.1, rest: 0.0003, guns: 1, my: 8.68 },
+        { x: 5.827, z: 28.149, angle: 1.57, arc: 1.1, rest: 0.0006, guns: 1, my: 8.68 },
+        { x: -10.715, z: 18.897, angle: -1.57, arc: 1.1, rest: 0.0005, guns: 1, my: 8.68 },
+        { x: 10.717, z: 18.897, angle: 1.57, arc: 1.1, rest: -0.0005, guns: 1, my: 8.68 },
+        { x: 12.547, z: 9.44, angle: 1.57, arc: 1.1, rest: 0, guns: 1, my: 8.68 },
+        { x: -12.544, z: 9.44, angle: -1.57, arc: 1.1, rest: -0.0003, guns: 1, my: 8.68 },
+        { x: -12.545, z: -0.617, angle: -1.57, arc: 1.1, rest: 3.1414, guns: 1, my: 8.68 },
+        { x: 12.547, z: -0.617, angle: 1.57, arc: 1.1, rest: -3.1413, guns: 1, my: 8.68 },
+        { x: 10.716, z: -10.053, angle: 1.57, arc: 1.1, rest: 3.1414, guns: 1, my: 8.68 },
+        { x: -10.713, z: -10.052, angle: -1.57, arc: 1.1, rest: -3.1413, guns: 1, my: 8.68 },
+      ],
+    },
+    aa: {
+      range: 4500, dps: 70,
+      guns: [
+        // Her eight 5-inch/25 high-angle guns, four a side about her funnel.
+        { name: '5"/25 Mk 10', caliber: 127, role: 'dp', reload: 4.0, range: 7500, piece: 'aa5',
+          elev: { min: -0.26, max: 1.48 },
+          mounts: [
+            { x: -6.757, z: 21.533, angle: -1.57, arc: 1.92, rest: -1.5873, guns: 1, my: 11.84 },
+            { x: 6.759, z: 21.42, angle: 1.57, arc: 1.92, rest: 1.5542, guns: 1, my: 11.84 },
+            { x: -8.692, z: 12.946, angle: -1.57, arc: 1.92, rest: -1.5875, guns: 1, my: 11.84 },
+            { x: 8.694, z: 12.832, angle: 1.57, arc: 1.92, rest: 1.5543, guns: 1, my: 11.84 },
+            { x: -10.788, z: 3.292, angle: -1.57, arc: 1.92, rest: -1.5874, guns: 1, my: 11.84 },
+            { x: 10.789, z: 3.179, angle: 1.57, arc: 1.92, rest: 1.5543, guns: 1, my: 11.84 },
+            { x: -9.159, z: -6.057, angle: -1.57, arc: 1.92, rest: -1.5873, guns: 1, my: 11.84 },
+            { x: 9.161, z: -6.171, angle: 1.57, arc: 1.92, rest: 1.5542, guns: 1, my: 11.84 },
+          ] },
+        // Her quadruple Bofors, abreast her bridge and by her mainmast.
+        { name: '40mm Bofors quad', caliber: 40, role: 'aa', reload: 0.24, range: 3600, piece: 'aa4',
+          mounts: [
+            { x: 5.934, z: 26.887, angle: 1.57, arc: 1.92, rest: 1.5687, guns: 4, my: 12.51 },
+            { x: -5.932, z: 26.827, angle: -1.57, arc: 1.92, rest: -1.5765, guns: 4, my: 12.51 },
+            { x: 11.518, z: -22.66, angle: 1.57, arc: 1.92, rest: 1.6454, guns: 4, my: 8.88 },
+            { x: -11.517, z: -22.72, angle: -1.57, arc: 1.92, rest: -1.5024, guns: 4, my: 8.88 },
+          ] },
+        // Her twin Oerlikons, on her bridge and abaft her mainmast.
+        { name: '20mm Oerlikon twin', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa2',
+          mounts: [
+            { x: -3.225, z: 20.906, angle: -1.57, arc: 1.92, rest: -1.6372, guns: 2, my: 20.12 },
+            { x: 3.226, z: 20.906, angle: 1.57, arc: 1.92, rest: 1.5784, guns: 2, my: 20.12 },
+            { x: -9.292, z: -20.177, angle: -1.57, arc: 1.92, rest: -1.5292, guns: 2, my: 8.05 },
+            { x: 9.294, z: -20.177, angle: 1.57, arc: 1.92, rest: 1.5212, guns: 2, my: 8.05 },
+          ] },
+        // Her single Oerlikons, about her bridge and in her tops.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa1',
+          mounts: [
+            { x: -2.005, z: 16.428, angle: -1.57, arc: 1.92, rest: 0.002, guns: 1, my: 30.62 },
+            { x: 2.006, z: 16.428, angle: 1.57, arc: 1.92, rest: -0.0004, guns: 1, my: 30.62 },
+            { x: -3.67, z: 2.298, angle: -1.57, arc: 1.92, rest: -1.5708, guns: 1, my: 21.34 },
+            { x: 3.671, z: 2.298, angle: 1.57, arc: 1.92, rest: 1.5708, guns: 1, my: 21.34 },
+            { x: 0.001, z: -20.827, angle: Math.PI, arc: 2.6, rest: 0.0008, guns: 1, my: 40.73 },
+            { x: -1.353, z: -22.491, angle: -1.57, arc: 1.92, rest: -1.5707, guns: 1, my: 40.73 },
+            { x: 1.354, z: -22.491, angle: 1.57, arc: 1.92, rest: 1.5713, guns: 1, my: 40.73 },
+            { x: 0.001, z: -23.839, angle: Math.PI, arc: 2.6, rest: -3.1408, guns: 1, my: 40.73 },
+          ] },
+        // And four .50-calibre Brownings on her tops.
+        { name: '.50 cal Browning M2', caliber: 13, role: 'aa', reload: 0.08, range: 1300, piece: 'mg',
+          mounts: [
+            { x: 2.511, z: 14.224, angle: 1.57, arc: 1.92, rest: -1.6561, guns: 1, my: 32.74 },
+            { x: -2.51, z: 14.245, angle: -1.57, arc: 1.92, rest: 1.6309, guns: 1, my: 32.74 },
+            { x: 2.511, z: -23.733, angle: 1.57, arc: 1.92, rest: -1.5107, guns: 1, my: 32.74 },
+            { x: -2.51, z: -23.713, angle: -1.57, arc: 1.92, rest: 1.4855, guns: 1, my: 32.74 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 33100,
+      aircraft: 0,
+      mainRounds: 1200,
+      // Two five-inch guns of one bore, each its own row.
+      secondary: null,
+      tertiary: [
+        { caliber: 127, label: '5"/51', barrels: 10, rounds: 2300 },
+        { caliber: 127, label: '5"/25', barrels: 8, rounds: 3200 },
+        { caliber: 40, label: '40mm', barrels: 16, rounds: 19200 },
+        { caliber: 20, label: '20mm', barrels: 16, rounds: 38400 },
+        { caliber: 13, label: '.50 cal', barrels: 4, rounds: 12000 },
+      ],
+    },
+  },
+
   northcarolina: {
     // USS North Carolina, the first of the American fast battleships and the
     // first new battleship the Navy had commissioned in eighteen years: nine
@@ -9492,6 +10125,115 @@ export const SHIP_CLASSES = {
       tertiary: [
         { caliber: 127, label: '12.7cm', barrels: 8, rounds: 4000 },
         { caliber: 25, label: '25mm', barrels: 36, rounds: 108000 },
+      ],
+    },
+  },
+
+  ise: {
+    // IJN Ise, the name ship of her class: the Fusos made right, with their
+    // six twin 35.6 cm/45 turrets rearranged -- two forward, two together
+    // amidships between her funnel and her mainmast, both facing aft, and
+    // two aft -- so that the middle pair no longer straddled her boiler
+    // rooms. Rebuilt in 1937 with the pagoda of a bridge, a single funnel,
+    // bulges and new machinery for twenty-five knots, she sortied with the
+    // Main Body at Midway; after it she and her sister Hyuga had their after
+    // turrets taken off for a flight deck. As a hybrid she fought at Cape
+    // Engano and came home; she was sunk at her moorings at Kure by American
+    // carrier aircraft in July 1945.
+    //
+    // She is drawn from the owner's model of her sister, identical to her as
+    // the two were in 1941 -- "Japanese Battleship Hyuga" by kriss50, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen (see
+    // ise.js and build/prepare-ise-hull.mjs) -- at her 215.8 m over all and
+    // floated at 9.2 m, armed as she was before her conversion and as the
+    // model arms her: her twelve 35.6 cm, four twin 12.7 cm high-angle guns
+    // and ten twin 25 mm. Her 14 cm casemate guns are not drawn on the model,
+    // and she does not carry them here.
+    id: 'ise',
+    name: 'Ise',
+    fullName: 'IJN Ise',
+    className: 'Ise',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'jpn',
+    blurb: 'Six twin 35.6 cm turrets, two of them back to back amidships, and a pagoda of a bridge: the Fusos as they should have been built.',
+    hull: {
+      funnels: [[0, 3.4, 25.2]], length: 215.8, beam: 33.8, draft: 9.2, superstructure: 1.45 },
+    hp: 70000,
+    // Twenty-five knots after her 1937 rebuild, on four shafts.
+    maxSpeed: 25.3 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.35,
+    turnRate: 0.047,
+    rudderShift: 14,
+    speedLossInTurn: 0.17,
+    concealment: 15600,
+    fireDetectPenalty: 6700,
+    // No radar until her conversion: rangefinders and lookouts in her pagoda.
+    radarRange: 0,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Three hundred millimetres of belt over her vitals, an armour deck
+    // thickened in her rebuild, and 305 mm on her turret faces.
+    armor: { belt: 299, deck: 100, citadel: 299, bow: 25, superstructure: 25 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 59.42, angle: 0, arc: 2.7, rest: 0, guns: 2, my: 9.38 },
+      { id: 1, name: 'No.2', x: 0, z: 46.6, angle: 0, arc: 2.55, rest: 0, guns: 2, my: 12.45 },
+      { id: 2, name: 'No.3', x: 0, z: -9.04, angle: Math.PI, arc: 2.3, rest: Math.PI, guns: 2, my: 10.43 },
+      { id: 3, name: 'No.4', x: 0, z: -21.5, angle: Math.PI, arc: 2.2, rest: Math.PI, guns: 2, my: 7.37 },
+      { id: 4, name: 'No.5', x: 0, z: -52.3, angle: Math.PI, arc: 2.55, rest: Math.PI, guns: 2, my: 10.2 },
+      { id: 5, name: 'No.6', x: 0, z: -64.8, angle: Math.PI, arc: 2.7, rest: Math.PI, guns: 2, my: 7.38 },
+    ],
+    gun: {
+      name: '35.6 cm/45 41st Year Type', role: 'surface',
+      // Five below the horizontal to forty-three up, as she was rebuilt.
+      elev: { min: -0.087, max: 0.75 },
+      reach: 15.29,
+      caliber: 356, reload: 24, traverse: 0.07, range: 20600, sigma: 1.4,
+      shells: shells(356, 10200, 4800, 480, 770, 0.24),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 6200, dps: 60,
+      guns: [
+        // Her four twin 12.7 cm Type 89, two a side on the sponsons abreast her
+        // pagoda.
+        { name: '12.7 cm Type 89', caliber: 127, role: 'dp', reload: 4.0, range: 6200, piece: 'ha',
+          elev: { min: -0.14, max: 1.57 },
+          mounts: [
+            { x: -3.758, z: 31.578, angle: -1.57, arc: 1.92, rest: -1.5362, guns: 2, my: 14.8 },
+            { x: 3.758, z: 31.824, angle: 1.57, arc: 1.92, rest: 1.6054, guns: 2, my: 14.8 },
+            { x: -10.95, z: 22.556, angle: -1.57, arc: 1.92, rest: -1.5362, guns: 2, my: 9.71 },
+            { x: 10.95, z: 22.802, angle: 1.57, arc: 1.92, rest: 1.6054, guns: 2, my: 9.71 },
+          ] },
+        // Her ten twin 25 mm Type 96, about her pagoda and her funnel and on
+        // her mainmast.
+        { name: '25 mm Type 96 twin', caliber: 25, role: 'aa', reload: 0.16, range: 3000, piece: 'aa2',
+          mounts: [
+            { x: -2.263, z: 33.214, angle: -1.57, arc: 1.92, rest: -0.8872, guns: 2, my: 23.11 },
+            { x: 2.288, z: 33.189, angle: 1.57, arc: 1.92, rest: 0.8601, guns: 2, my: 23.11 },
+            { x: -2.918, z: 24.609, angle: -1.57, arc: 1.92, rest: -1.5887, guns: 2, my: 28.59 },
+            { x: 2.918, z: 24.58, angle: 1.57, arc: 1.92, rest: 1.5529, guns: 2, my: 28.59 },
+            { x: -3.987, z: 6.682, angle: -1.57, arc: 1.45, rest: -1.5887, guns: 2, my: 19.45 },
+            { x: 3.987, z: 6.653, angle: 1.57, arc: 1.45, rest: 1.5529, guns: 2, my: 19.45 },
+            { x: -4.849, z: -2.66, angle: -1.57, arc: 1.45, rest: -1.5887, guns: 2, my: 19.71 },
+            { x: 4.849, z: -2.689, angle: 1.57, arc: 1.45, rest: 1.5529, guns: 2, my: 19.71 },
+            { x: -3.147, z: -39.152, angle: -1.57, arc: 1.45, rest: -1.5887, guns: 2, my: 18.74 },
+            { x: 3.147, z: -39.181, angle: 1.57, arc: 1.45, rest: 1.5529, guns: 2, my: 18.74 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 40169,
+      aircraft: 0,
+      mainRounds: 1200,
+      secondary: null,
+      tertiary: [
+        { caliber: 127, label: '12.7cm', barrels: 8, rounds: 4000 },
+        { caliber: 25, label: '25mm', barrels: 20, rounds: 60000 },
       ],
     },
   },
@@ -13045,6 +13787,234 @@ export const SHIP_CLASSES = {
     },
   },
 
+  implacable: {
+    // HMS Implacable, the name ship of the last two of the armoured
+    // carriers: the Illustrious design with a second hangar under the first
+    // and four shafts for thirty-two knots, so that she flew eighty-one
+    // aircraft off an armoured flight deck that a kamikaze could not go
+    // through. Her squadrons struck at German shipping off Norway in the
+    // autumn of 1944; in 1945 she joined the British Pacific Fleet, raided
+    // Truk in June, and flew strikes on the Japanese home islands until the
+    // surrender -- Seafires over the fleet, Fireflies with bombs and rockets,
+    // and Avengers.
+    //
+    // She is drawn from the owner's model of her (see implacable.js and
+    // build/prepare-implacable-hull.mjs) -- "HMS Implacable" by kriss50, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen -- at
+    // her 233.5 m over all and floated at 8.94 m, armed as the model arms her:
+    // eight twin 4.5-inch in their turrets at the edges of her flight deck,
+    // five eight-barrelled pom-poms, eighteen single Bofors and the twin and
+    // single Oerlikons along her galleries. Her runway is laid afresh over her
+    // flight deck with her two lifts in it, the forward and the after, both on
+    // her centreline.
+    id: 'implacable',
+    name: 'Implacable',
+    fullName: 'HMS Implacable',
+    className: 'Implacable',
+    type: 'CV',
+    typeName: 'Armoured Carrier',
+    nation: 'gbr',
+    blurb: 'Eighty-one aircraft off an armoured flight deck: Seafires, Fireflies with bombs or rockets, and Avengers, from Norway to Truk and Japan.',
+    hull: { length: 233.5, beam: 29.2, draft: 8.94, superstructure: 0.55, flightDeck: true },
+    hp: 50000,
+    // A hundred and forty-eight thousand horsepower on four shafts.
+    maxSpeed: 32 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.5,
+    turnRate: 0.058,
+    rudderShift: 11.0,
+    speedLossInTurn: 0.18,
+    concealment: 14500,
+    fireDetectPenalty: 5200,
+    // Type 277 for the surface and Type 281B for the air.
+    radarRange: 15000,
+    repairCooldown: 90,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // Four and a half inches of belt, and three of armour over her upper
+    // hangar for a flight deck: the armour that brought her and her sisters
+    // through the kamikazes off Okinawa.
+    armor: { belt: 114, deck: 76, citadel: 114, bow: 19, superstructure: 16 },
+    // Her eight twin 4.5-inch in their BD turrets, in pairs fore and aft on
+    // either beam at the edges of her flight deck, each where the model
+    // stands it. Each fires out over her own side and fore or aft.
+    turrets: [
+      { id: 0, name: 'S1', x: -13.285, z: 60.682, angle: -1.57, arc: 2.6, rest: -1.5203, guns: 2, my: 16.04, piece: 'dp' },
+      { id: 1, name: 'S2', x: -13.285, z: 47.361, angle: -1.57, arc: 2.6, rest: -1.5182, guns: 2, my: 16.76, piece: 'dp' },
+      { id: 2, name: 'P1', x: 17.158, z: 40.345, angle: 1.57, arc: 2.6, rest: 1.6233, guns: 2, my: 12.65, piece: 'dp' },
+      { id: 3, name: 'P2', x: 17.157, z: 26.214, angle: 1.57, arc: 2.6, rest: 1.6239, guns: 2, my: 12.66, piece: 'dp' },
+      { id: 4, name: 'P3', x: 16.811, z: -5.199, angle: 1.57, arc: 2.6, rest: 2.9775, guns: 2, my: 12.97, piece: 'dp' },
+      { id: 5, name: 'S3', x: -13.701, z: -11.236, angle: -1.57, arc: 2.6, rest: -1.5183, guns: 2, my: 18.35, piece: 'dp' },
+      { id: 6, name: 'P4', x: 15.124, z: -13.704, angle: 1.57, arc: 2.6, rest: 2.9617, guns: 2, my: 10.71, piece: 'dp' },
+      { id: 7, name: 'S4', x: -15.208, z: -18.016, angle: -1.57, arc: 2.6, rest: -0.165, guns: 2, my: 16.66, piece: 'dp' },
+    ],
+    gun: {
+      name: 'QF 4.5" Mk IV', role: 'dp',
+      elev: { min: -0.087, max: 1.40 },
+      reach: 3.05,
+      caliber: 113, reload: 4.2, traverse: 0.4, range: 11000, sigma: 2.1,
+      shells: shells(113, 1700, 1500, 70, 746, 0.08),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 5000, dps: 170,
+      guns: [
+        // Her eight-barrelled pom-poms, in their tubs at her deck edges and on
+        // her island.
+        { name: 'QF 2-pdr Mk VIII octuple', caliber: 40, role: 'aa', reload: 0.3, range: 3200, piece: 'pp8',
+          mounts: [
+            { x: 15.385, z: 51.899, angle: 1.57, arc: 1.92, rest: -1.4214, guns: 8, my: 13.63 },
+            { x: -16.626, z: 38.554, angle: -1.57, arc: 1.92, rest: 1.6752, guns: 8, my: 17.27 },
+            { x: 15.403, z: -21.137, angle: 1.57, arc: 1.92, rest: 1.2436, guns: 8, my: 12.5 },
+            { x: -15.584, z: -25.13, angle: -1.57, arc: 1.92, rest: 1.7235, guns: 8, my: 14.33 },
+            { x: -15.988, z: -44.905, angle: -1.57, arc: 1.92, rest: 1.2566, guns: 8, my: 12.5 },
+          ] },
+        // Her single Bofors, about her island and along her galleries.
+        { name: '40mm Bofors Mk III', caliber: 40, role: 'aa', reload: 0.5, range: 3600, piece: 'aa40',
+          mounts: [
+            { x: 16.891, z: 59.886, angle: 1.57, arc: 1.92, rest: 1.5322, guns: 1, my: 12.76 },
+            { x: -17.775, z: 58.573, angle: -1.57, arc: 1.92, rest: -1.6088, guns: 1, my: 12.89 },
+            { x: 16.653, z: 34.43, angle: 1.57, arc: 1.92, rest: 1.533, guns: 1, my: 12.17 },
+            { x: 16.65, z: 31.774, angle: 1.57, arc: 1.92, rest: 1.534, guns: 1, my: 12.15 },
+            { x: -17.733, z: 26.116, angle: -1.57, arc: 1.92, rest: -1.6076, guns: 1, my: 17.81 },
+            { x: 17.851, z: 20.198, angle: 1.57, arc: 1.92, rest: 1.5334, guns: 1, my: 11.45 },
+            { x: -18.493, z: 17.575, angle: -1.57, arc: 1.92, rest: 1.0832, guns: 1, my: 21.54 },
+            { x: -18.342, z: 13.834, angle: -1.57, arc: 1.92, rest: -1.6087, guns: 1, my: 22.48 },
+            { x: -18.342, z: 10.543, angle: -1.57, arc: 1.92, rest: -1.6077, guns: 1, my: 22.48 },
+            { x: -17.734, z: 7.159, angle: -1.57, arc: 1.92, rest: -1.6078, guns: 1, my: 20.13 },
+            { x: -10.712, z: 6.233, angle: -1.57, arc: 1.92, rest: 1.5336, guns: 1, my: 22.46 },
+            { x: 17.852, z: 5.603, angle: 1.57, arc: 1.92, rest: 1.5339, guns: 1, my: 11.45 },
+            { x: -17.732, z: 3.22, angle: -1.57, arc: 1.92, rest: -1.6076, guns: 1, my: 22.46 },
+            { x: -10.833, z: 2.92, angle: -1.57, arc: 1.92, rest: 1.5338, guns: 1, my: 22.46 },
+            { x: -17.368, z: -0.169, angle: -1.57, arc: 1.92, rest: -1.6091, guns: 1, my: 17.81 },
+            { x: 17.477, z: -44.141, angle: 1.57, arc: 1.92, rest: 1.5337, guns: 1, my: 11.21 },
+            { x: 17.476, z: -50.839, angle: 1.57, arc: 1.92, rest: 1.5336, guns: 1, my: 11.2 },
+            { x: 17.001, z: -59.844, angle: 1.57, arc: 1.92, rest: 1.5336, guns: 1, my: 13.03 },
+          ] },
+        // Her twin Oerlikons in their powered mountings.
+        { name: '20mm Oerlikon twin', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa2',
+          mounts: [
+            { x: -13.508, z: 56.128, angle: -1.57, arc: 1.92, rest: -1.3581, guns: 2, my: 17.19 },
+            { x: -11.36, z: 43.374, angle: -1.57, arc: 1.92, rest: -1.3148, guns: 2, my: 18.83 },
+            { x: 15.19, z: 36.585, angle: 1.57, arc: 1.92, rest: 1.842, guns: 2, my: 13.77 },
+            { x: 15.19, z: 29.856, angle: 1.57, arc: 1.92, rest: 1.7841, guns: 2, my: 13.77 },
+            { x: -13.496, z: -6.682, angle: -1.57, arc: 1.92, rest: -1.3328, guns: 2, my: 22.77 },
+          ] },
+        // And her single Oerlikons, along her galleries fore and aft.
+        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.1, range: 1800, piece: 'aa1',
+          mounts: [
+            { x: -12.049, z: 108.375, angle: -1.57, arc: 1.92, rest: -1.4903, guns: 1, my: 12.31 },
+            { x: 10.548, z: 108.375, angle: 1.57, arc: 1.92, rest: 1.6131, guns: 1, my: 12.31 },
+            { x: -12.049, z: 105.88, angle: -1.57, arc: 1.92, rest: -1.4903, guns: 1, my: 12.31 },
+            { x: 10.548, z: 105.824, angle: 1.57, arc: 1.92, rest: 1.6197, guns: 1, my: 12.31 },
+            { x: 15.119, z: 37.523, angle: 1.57, arc: 1.92, rest: 1.5721, guns: 1, my: 8.39 },
+            { x: 15.119, z: 35.79, angle: 1.57, arc: 1.92, rest: 1.5746, guns: 1, my: 8.39 },
+            { x: 15.119, z: 34.057, angle: 1.57, arc: 1.92, rest: 1.5766, guns: 1, my: 8.39 },
+            { x: 15.119, z: 32.328, angle: 1.57, arc: 1.92, rest: 1.5751, guns: 1, my: 8.39 },
+            { x: 15.119, z: 30.6, angle: 1.57, arc: 1.92, rest: 1.5755, guns: 1, my: 8.39 },
+            { x: 15.119, z: 28.867, angle: 1.57, arc: 1.92, rest: 1.5724, guns: 1, my: 8.39 },
+            { x: -17.542, z: 26.091, angle: -1.57, arc: 1.92, rest: 1.6535, guns: 1, my: 11.18 },
+            { x: -17.542, z: 24.302, angle: -1.57, arc: 1.92, rest: 1.9412, guns: 1, my: 11.18 },
+            { x: -17.542, z: 22.518, angle: -1.57, arc: 1.92, rest: 0.5686, guns: 1, my: 11.18 },
+            { x: -17.658, z: 21.628, angle: -1.57, arc: 1.92, rest: -1.572, guns: 1, my: 14.36 },
+            { x: -17.542, z: 20.738, angle: -1.57, arc: 1.92, rest: 1.7067, guns: 1, my: 11.18 },
+            { x: -17.658, z: 19.843, angle: -1.57, arc: 1.92, rest: -1.5638, guns: 1, my: 14.36 },
+            { x: -17.542, z: 18.949, angle: -1.57, arc: 1.92, rest: 0.2923, guns: 1, my: 11.18 },
+            { x: -17.727, z: 18.053, angle: -1.57, arc: 1.92, rest: -1.5674, guns: 1, my: 14.11 },
+            { x: -17.542, z: 17.163, angle: -1.57, arc: 1.92, rest: 0.537, guns: 1, my: 11.18 },
+            { x: -18.364, z: 16.93, angle: -1.57, arc: 1.92, rest: -1.5219, guns: 1, my: 16.84 },
+            { x: -17.727, z: 16.269, angle: -1.57, arc: 1.92, rest: -1.5714, guns: 1, my: 14.11 },
+            { x: -17.537, z: 15.376, angle: -1.57, arc: 1.92, rest: -2.6779, guns: 1, my: 11.18 },
+            { x: 16.289, z: 15.312, angle: 1.57, arc: 1.92, rest: -2.9528, guns: 1, my: 10.17 },
+            { x: -17.659, z: 14.483, angle: -1.57, arc: 1.92, rest: -1.5547, guns: 1, my: 14.35 },
+            { x: -17.537, z: 13.595, angle: -1.57, arc: 1.92, rest: 0.0531, guns: 1, my: 11.18 },
+            { x: 16.289, z: 13.573, angle: 1.57, arc: 1.92, rest: -1.8043, guns: 1, my: 10.17 },
+            { x: -17.659, z: 12.702, angle: -1.57, arc: 1.92, rest: -1.562, guns: 1, my: 14.35 },
+            { x: 16.289, z: 11.844, angle: 1.57, arc: 1.92, rest: -1.1355, guns: 1, my: 10.17 },
+            { x: -17.537, z: 11.814, angle: -1.57, arc: 1.92, rest: 0.0374, guns: 1, my: 11.13 },
+            { x: -17.659, z: 10.917, angle: -1.57, arc: 1.92, rest: -1.5655, guns: 1, my: 14.35 },
+            { x: 16.289, z: 10.114, angle: 1.57, arc: 1.92, rest: -2.1294, guns: 1, my: 10.17 },
+            { x: -17.537, z: 10.024, angle: -1.57, arc: 1.92, rest: -2.465, guns: 1, my: 11.18 },
+            { x: -17.729, z: 9.127, angle: -1.57, arc: 1.92, rest: -1.5649, guns: 1, my: 14.12 },
+            { x: -18.364, z: 8.782, angle: -1.57, arc: 1.92, rest: -1.526, guns: 1, my: 16.84 },
+            { x: -17.537, z: 8.238, angle: -1.57, arc: 1.92, rest: 3.1307, guns: 1, my: 11.13 },
+            { x: -17.729, z: 7.346, angle: -1.57, arc: 1.92, rest: -1.5686, guns: 1, my: 14.12 },
+            { x: -17.537, z: 6.457, angle: -1.57, arc: 1.92, rest: 0.0412, guns: 1, my: 11.13 },
+            { x: -17.729, z: 5.566, angle: -1.57, arc: 1.92, rest: -1.572, guns: 1, my: 14.12 },
+            { x: -18.364, z: 5.087, angle: -1.57, arc: 1.92, rest: -1.5285, guns: 1, my: 16.84 },
+            { x: -17.537, z: 4.668, angle: -1.57, arc: 1.92, rest: 2.9205, guns: 1, my: 11.18 },
+            { x: -17.659, z: 3.784, angle: -1.57, arc: 1.92, rest: -1.5706, guns: 1, my: 14.35 },
+            { x: -17.537, z: 2.886, angle: -1.57, arc: 1.92, rest: 0.7343, guns: 1, my: 11.18 },
+            { x: -17.537, z: 1.101, angle: -1.57, arc: 1.92, rest: 2.8409, guns: 1, my: 11.18 },
+            { x: 16.184, z: 0.925, angle: 1.57, arc: 1.92, rest: 2.7936, guns: 1, my: 10.6 },
+            { x: -17.537, z: -0.683, angle: -1.57, arc: 1.92, rest: 2.9612, guns: 1, my: 11.18 },
+            { x: 9.982, z: -100.332, angle: 1.57, arc: 1.92, rest: -1.0429, guns: 1, my: 11.84 },
+            { x: -11.112, z: -101.055, angle: -1.57, arc: 1.92, rest: 0.6038, guns: 1, my: 11.2 },
+            { x: 9.982, z: -104.178, angle: 1.57, arc: 1.92, rest: -1.0612, guns: 1, my: 11.84 },
+            { x: -4.363, z: -115.552, angle: -1.57, arc: 1.92, rest: -3.0531, guns: 1, my: 11.75 },
+            { x: -1.978, z: -115.552, angle: -1.57, arc: 1.92, rest: -3.0611, guns: 1, my: 11.75 },
+            { x: 0.476, z: -115.552, angle: Math.PI, arc: 2.6, rest: -3.0611, guns: 1, my: 11.75 },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 3, perSquadron: 27, cruiseSpeed: 76, strikeRange: 14000,
+      // Where her aircraft put their wheels down coming home: just up the
+      // deck from her round-down.
+      touchdown: { z: -97, y: 13.4 },
+      // Her air group of 1945: Seafires over the fleet, Fireflies for the
+      // strike and the flak, and Avengers with torpedoes or bombs.
+      types: { fighter: 'seafire', dive: 'firefly', torpedo: 'avenger' },
+      // Where and how high her deck run leaves each of her three types,
+      // off the integrated launch from her own deck (see carrier.js).
+      runOut: { fighter: 289.7, dive: 258.2, torpedo: 249.4 },
+      runHeight: { fighter: 19.0, dive: 15.5, torpedo: 14.9 },
+      rearm: 42, torpDamage: 8600, torpSpeed: 33 * KNOTS, torpRange: 4200,
+      floodChance: 0.27, hp: 1500, dropSpread: 0.05,
+      // A Firefly's two thousand-pound bombs, or her rockets: an RP-3's
+      // sixty-pound head, which went through the plating of a merchantman
+      // and the upperworks of anything.
+      bombDamage: 4400, bombHit: 0.42, bombFire: 0.34, bombPen: 90, bombBore: 0.36,
+      rocketDamage: 900, rocketPen: 70, rocketFire: 0.14,
+      // The air group she sails with: eighty-one aircraft in her two hangars
+      // and on her deck, in any mix a captain likes.
+      group: {
+        total: 81,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 81, dive: 81, torpedo: 81 },
+        minStrike: 0,
+        default: { fighters: 48, dive: 12, torpedo: 21 },
+      },
+      // What each of her three types is, and what the Firefly can be loaded
+      // with: her two bombs, or her sixteen rockets.
+      slots: {
+        fighters: { type: 'seafire', label: 'Supermarine Seafire', role: 'fighter',
+          note: 'Seafire L.III: two cannon and four machine guns, over the fleet and over the strike' },
+        dive: {
+          type: 'firefly', label: 'Fairey Firefly', default: 'bombs',
+          loadouts: {
+            bombs: { name: 'Bomb Load Out', note: 'two 1,000 lb bombs under her wings, dropped from her dive', role: 'dive', bomb: 2 },
+            rockets: { name: 'Rocket Load Out', note: 'sixteen RP-3 unguided rockets, eight under each wing, fired down her dive', role: 'dive', rockets: 16 },
+          },
+        },
+        torpedo: { type: 'avenger', label: 'TBF Avenger', role: 'torpedo',
+          note: 'Avenger: an aerial torpedo, run in low' },
+      },
+    },
+    datasheet: {
+      displacement: 32110,
+      aircraft: 0,
+      mainRounds: 6400,
+      secondary: null,
+      tertiary: [
+        { caliber: 40, label: '2-pdr', barrels: 40, rounds: 72000 },
+        { caliber: 40, label: '40mm', barrels: 18, rounds: 21600 },
+        { caliber: 20, label: '20mm', barrels: 61, rounds: 146400 },
+      ],
+    },
+  },
+
   lexington: {
     // USS Lexington (CV-2), "Lady Lex": laid down in 1921 as a battlecruiser,
     // converted under the Washington Treaty into one of the two largest
@@ -14319,8 +15289,8 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'northcarolina', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'mutsu', 'yamato', 'musashi',
-  'grafzeppelin', 'lexington', 'hornet', 'enterprise', 'essex', 'shokaku', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
+  'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'shokaku', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the

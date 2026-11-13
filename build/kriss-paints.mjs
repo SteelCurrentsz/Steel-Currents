@@ -65,3 +65,36 @@ export function mnPaint(f) {
   if (f.up && f.cy > 2) return 'steel';
   return 'grey';
 }
+
+// The Imperial Navy's battleships: Kure grey over hull, turrets and
+// upperworks, their weather decks bare planking -- the hull's own, and none
+// of the roofs and platforms over it -- red under the waterline with a black
+// band at it.
+export const IJN_BB_PAINTS = { ...IJN_PAINTS, wood: 0x7e705c };
+export function ijnBBPaint(f) {
+  if (f.kind === 'screw') return 'dark';
+  if (f.cy < -0.02) return 'bottom';
+  if (f.shell && f.cy < BOOT) return 'boot';
+  if (f.kind) return 'grey';
+  if (f.up && f.cy > 2 && f.hull) return 'wood';
+  return 'grey';
+}
+
+// The Royal Navy's carriers in the Pacific in 1945: Admiralty grey over hull
+// and island, her steel flight deck and galleries a darker grey, a black boot
+// topping and red under water.
+export const RN_PAINTS = {
+  grey: 0x737b81,
+  dark: 0x4b5157,
+  deck: 0x565c61,
+  boot: 0x16181b,
+  bottom: 0x7a3228,
+};
+export function rnPaint(f) {
+  if (f.kind === 'screw') return 'dark';
+  if (f.cy < -0.02) return 'bottom';
+  if (f.shell && f.cy < BOOT) return 'boot';
+  if (f.kind) return 'grey';
+  if (f.up && f.cy > 2) return 'deck';
+  return 'grey';
+}

@@ -4040,6 +4040,67 @@ function freeBombs(state, p, P) {
   }
 }
 
+/**
+ * Her rockets, a whole load in one ripple: a Firefly's sixteen RP-3s off the
+ * rails under her wings, eight a side, fired down her dive at the ship she is
+ * diving on. Unguided -- each one goes where it was pointed, with the scatter
+ * of a rocket off a rail and more from an aeroplane shot about -- and flown by
+ * the shell pipeline from there, so what each one hits is what it hits: her
+ * side, her deck, or the sea short of her or over her.
+ *
+ * Aimed by the autopilot at where the ship will be when they get there; fired
+ * by hand (`t` null) down her flight path, wherever the pilot has her nose.
+ */
+export const ROCKET_SPEED = 360;
+export const ROCKET_AT = 950;
+function fireRockets(state, p, P, t = null) {
+  const n = p.rockets || 0;
+  if (n <= 0) return 0;
+  const v = Math.max(40, p.speed || 90);
+  const y0 = Math.max(4, (p.y ?? 200) - 1.2);
+  // Down the line to her mark, or down her own flight path.
+  let hx, hy, hz;
+  if (t) {
+    const vel = velocityOf(t);
+    const d0 = Math.hypot(t.x - p.x, t.z - p.z, y0 - 2);
+    const tof = d0 / (ROCKET_SPEED + v);
+    const ax = t.x + vel.x * tof, az = t.z + vel.z * tof;
+    const ay = 2 + 0.5 * 9.81 * tof * tof;
+    const L = Math.hypot(ax - p.x, ay - y0, az - p.z) || 1;
+    hx = (ax - p.x) / L; hy = (ay - y0) / L; hz = (az - p.z) / L;
+  } else {
+    const h = p.heading || 0;
+    const pitch = p.flown || !Number.isFinite(p.vy) ? (p.pitch || 0) : Math.asin(clamp(p.vy / v, -1, 1));
+    hx = Math.sin(h) * Math.cos(pitch); hy = Math.sin(pitch); hz = Math.cos(h) * Math.cos(pitch);
+  }
+  const aim = ((p.wear && p.wear.aim !== undefined) ? p.wear.aim : 1) * diveSteady(p);
+  const sp = v + ROCKET_SPEED;
+  for (let i = 0; i < n; i++) {
+    // Off her rails a few metres out from her fuselage, port and starboard
+    // in turn, and a little scatter each.
+    const side = i % 2 ? 1 : -1;
+    const out = 1.6 + (i >> 1) % 4 * 0.42;
+    const h = p.heading || 0;
+    const ox = Math.cos(h) * side * out, oz = -Math.sin(h) * side * out;
+    const sc = 0.011 / Math.max(0.3, aim);
+    const dx = hx + gauss(state.rng) * sc, dy = hy + gauss(state.rng) * sc, dz = hz + gauss(state.rng) * sc;
+    const l = Math.hypot(dx, dy, dz) || 1;
+    fireShell(state, {
+      id: eid(), owner: p.owner, plane: p.id, team: p.team,
+      x: p.x + ox, y: y0 - 0.3, z: p.z + oz,
+      vx: (dx / l) * sp, vy: (dy / l) * sp, vz: (dz / l) * sp,
+      g: 9.81,
+      caliber: 76, rocket: true,
+      bomb: { bombDamage: P.rocketDamage ?? 900, bombPen: P.rocketPen ?? 70,
+        bombBore: 0.076, bombFire: P.rocketFire ?? 0.12 },
+      life: 0, type: 'he',
+    });
+  }
+  state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role, i: p.id, rp: n });
+  p.rockets = 0;
+  return n;
+}
+
 export function dropOrdnance(state, ship, id) {
   const p = state.planes.find((q) => q.id === id);
   if (!p || p.dead || !ship) return false;
@@ -4057,6 +4118,13 @@ export function dropOrdnance(state, ship, id) {
   // turn her for home without anything whatever leaving the aeroplane.
   const torp = p.torp ?? 0;
   const bomb = p.bomb ?? 0;
+  // Rockets by hand go down her flight path, wherever her nose is.
+  if ((p.rockets ?? 0) > 0 && torp <= 0 && bomb <= 0) {
+    p.dropped = true;
+    fireRockets(state, p, P);
+    p.phase = 'return';
+    return true;
+  }
   if (torp <= 0 && bomb <= 0) return false;
   // Bombs by hand are aimed by hand. They leave the rack as bodies, at her
   // speed and down her flight path, and come down wherever that puts them --
@@ -12030,7 +12098,7 @@ export function slotOrder(cls, group, fighters, bomb, torp) {
         role: spec.role, count: 1, type: SL[k].type, load: key,
         torp: 0, bomb: spec.bomb || 0, bombEach: spec.bomb || 1,
         standoff: spec.standoff || null, asw: spec.asw || 0,
-        rack: spec.rack || null,
+        rack: spec.rack || null, rockets: spec.rockets || 0,
       });
     }
   }
@@ -12248,6 +12316,8 @@ function stepLaunch(state, ship, dt) {
       // fireLocked); her own fighter direction fires them too.
       ...(f.rack ? { rack: { ...f.rack } } : {}),
       ...(f.asw ? { asw: f.asw } : {}),
+      // And unguided rockets on rails under her wings (see fireRockets).
+      ...(f.rockets ? { rockets: f.rockets } : {}),
       ...(f.load ? { load: f.load } : {}),
       count: f.count,
       // What she went out as, so that a carrier that turns her round can send
@@ -15880,7 +15950,18 @@ function stepPlanes(state, dt) {
       // In the dive she holds on to it until she is down to her release
       // height, and lets go then -- or over the top of her, whichever is first.
       const go = p.role === 'dive' && p.dv === 'dive' ? (low || bestD < 70) : (bestD < RELEASE || low);
-      if (best && ((!holding && go) || passed)) {
+      // A load of rockets goes down her dive at the ship she is diving on,
+      // from just inside their reach: in her dive, or -- one that never got
+      // the height for one -- on her run in.
+      const rocketing = (p.rockets ?? 0) > 0 && !p.dropped;
+      if (rocketing && best && bestD < ROCKET_AT && (p.dv === 'dive' || p.dv === undefined || bestD < ROCKET_AT * 0.6)
+        && Math.abs(wrapAngle(headingTo(p.x, p.z, best.x, best.z) - (p.heading || 0))) < 0.35) {
+        fireRockets(state, p, P, best);
+        p.dropped = true;
+        if (p.role === 'dive') { p.dv = 'pull'; p.show = undefined; }
+        p.runOn = 0;
+        p.phase = 'return';
+      } else if (best && !rocketing && ((!holding && go) || passed)) {
         const fish = p.torp ?? 0;
         // One of a deckload drops her own bombs, not her carrier's.
         deliverOrdnance(state, p, best, p.deckload && P.deckload ? { ...P, ...P.deckload } : P);

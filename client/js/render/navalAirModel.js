@@ -17,6 +17,9 @@ const SOURCES = {
   sh60: () => import('./sh60Model.data.js').then((m) => [m.SH60_PIECES, m.SH60_META]),
   // And the Ka-27 the Sovremenny and the Slava carry.
   ka27: () => import('./ka27Model.data.js').then((m) => [m.KA27_PIECES, m.KA27_META]),
+  // And the Implacable's Seafires and Fireflies.
+  seafire: () => import('./seafireModel.data.js').then((m) => [m.SEAFIRE_PIECES, m.SEAFIRE_META]),
+  firefly: () => import('./fireflyModel.data.js').then((m) => [m.FIREFLY_PIECES, m.FIREFLY_META]),
 };
 const PIECES = {};
 /** Each kind's measurements -- span, length, hubs -- once loadNavalAir() is in. */
@@ -32,7 +35,7 @@ export function loadNavalAir() {
 }
 
 /** Whether they can be built now, without waiting for anything. */
-export function navalAirReady() { return !!(PIECES.f18 && PIECES.e2d && PIECES.sh60 && PIECES.ka27); }
+export function navalAirReady() { return Object.keys(SOURCES).every((k) => !!PIECES[k]); }
 
 const GEOS = {};
 function geometries(kind) {
@@ -66,10 +69,10 @@ function materials() {
  * blade's tip goes nearly as fast as a propeller's. A Ka-27's lower rotor
  * turns the other way from her upper one, which is why she needs no tail rotor.
  */
-const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22 };
+const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22, prop: 1 };
 
 /** How far each kind's legs rise into her as they come up. */
-const GEAR_UP = { f18: 1.2, e2d: 1.4 };
+const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45 };
 
 /**
  * One of the three, nose +z, wheels on y = 0, her length centred on her
