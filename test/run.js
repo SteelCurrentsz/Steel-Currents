@@ -29042,7 +29042,18 @@ check('a staged battle does what its script says, when it says it', () => {
   run(2);
   assert.ok(Object.keys(ship('s:0:1').off || {}).length, 'the destroyer did not cease fire');
   run(2);
-  assert.ok(ship('s:1:1').blown, 'the magazine cue did not go off');
+  // A big-gun magazine goes up; a ship with nothing bigger than six-inch guns
+  // has none that does, and hers burns instead -- the worst fire it can be,
+  // with her still in one piece.
+  {
+    const q = ship('s:1:1');
+    const qc = SHIP_CLASSES[q.classId];
+    if ((qc.gun?.caliber || 0) > 152.9) assert.ok(q.blown, 'the magazine cue did not go off');
+    else {
+      assert.ok(q.smallMag && !q.blown && q.broke == null, `the ${q.classId}'s small-gun magazine did not burn, or broke her`);
+      assert.ok(q.hp < qc.hp * 0.85, `the magazine cue did not hurt her: ${Math.round(q.hp)} of ${qc.hp}`);
+    }
+  }
   run(2);
   assert.ok(ship('s:1:0').sinking, 'the Yamato was told to sink and did not');
   ln.send({ t: 'leave' });
