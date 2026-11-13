@@ -3682,7 +3682,28 @@ export class Battle {
           break;
         }
         case 'magFire': {
-          // A small-gun magazine alight: a huge fire, not the end of her.
+          // A small-gun magazine alight: a huge fire, not the end of her --
+          // and the heavier the round that set it off, the bigger it goes up.
+          {
+            const k = ev.k || 1;
+            const view = this.scene.shipViews.get(ev.ship);
+            let wx = ev.x, wy = 8, wz = ev.z;
+            if (view) {
+              const cls = view.cls;
+              const sec = SECTIONS.find((q) => q.k === ev.at);
+              const half = cls.hull.length / 2;
+              const lz = sec && sec.from !== null
+                ? ((Math.max(-1, sec.from) + Math.min(1, sec.to)) / 2) * half : 0;
+              view.group.updateMatrixWorld(true);
+              const q = new THREE.Vector3(0, 6, lz);
+              view.group.localToWorld(q);
+              wx = q.x; wy = q.y; wz = q.z;
+            }
+            fx.explosion(wx, wy + 2, wz, 2.4 * k);
+            this.scene.debris.burst(wx, wy + 3, wz, 4 + 4 * k, 0.7 + 0.3 * k);
+            audio.explosion(Math.min(2.4, 1.2 + 0.5 * k), { x: wx, y: wy + 2, z: wz });
+            this.shake = Math.max(this.shake, ev.ship === this.shipId ? 0.8 + 0.3 * k : 0.3);
+          }
           if (ev.ship === this.shipId) this.hud.alert('Magazine fire! Send damage control to it');
           else if (this.watching && this.watching.kind === 'ship' && this.watching.id === ev.ship) {
             this.hud.alert('Magazine fire aboard her');

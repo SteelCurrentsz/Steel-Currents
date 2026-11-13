@@ -14,7 +14,7 @@
 
 import {
   ASSIGN_KINDS, assignMount, setMountOff, fireTorpedoes, launchStrike, useSmoke, layMine,
-  startFire, startSinking, breakHer, detonate, openHull, applyInput,
+  startFire, startSinking, breakHer, detonate, magazineBlows, openHull, applyInput,
 } from '../shared/sim.js';
 import { getClass } from '../shared/ships.js';
 import { cleanScript } from '../shared/stage.js';
@@ -148,11 +148,19 @@ function act(room, stage, cue) {
       startFire(state, ship, 'mid', 0.9);
       break;
     case 'blow': {
-      // Whichever magazine she has the more of. A ship with none worth the
-      // name still has the forward one.
-      const where = ship.sections.aft && ship.sections.fwd
-        && ship.sections.aft.hp > ship.sections.fwd.hp ? 'aft' : 'fwd';
-      detonate(state, ship, where, null, { force: true });
+      // Whichever big-gun magazine she has the more of. A ship whose guns are
+      // six inches or smaller has no magazine that blows a ship apart: hers
+      // goes up as the worst fire it can be, and she stays in one piece.
+      const cls = getClass(ship.classId);
+      const big = ['fwd', 'aft', 'mid'].filter((w) => ship.sections[w] && magazineBlows(cls, w));
+      if (big.length) {
+        const where = big.reduce((a, b) => (ship.sections[b].hp > ship.sections[a].hp ? b : a));
+        detonate(state, ship, where, null, { force: true });
+      } else {
+        const where = ship.sections.aft && ship.sections.fwd
+          && ship.sections.aft.hp > ship.sections.fwd.hp ? 'aft' : 'fwd';
+        detonate(state, ship, where, null, { bore: 460 });
+      }
       break;
     }
     default: break;

@@ -8035,22 +8035,15 @@ export function magazineTons(state, ship, cls, where) {
 export const MAGAZINE_FIRE_BORE = 152.4;
 
 /**
- * The largest gun round that cannot break a ship's back, millimetres: six
- * inches. A round that size or smaller -- a destroyer's main battery as much
- * as a battleship's secondaries, since what matters is the bore and not which
- * battery it came from -- holes her, burns her, floods her and can sink her,
- * but it does not set off her magazine and it does not leave her to go down
- * broken in two. Only heavier blows do: a bigger shell, a bomb, a torpedo, a
- * mine, a missile, a ram.
- */
-export const LIGHT_ROUND_BORE = 152.4;
-
-/** Whether a gun round of this calibre is one that cannot break her. */
-export function lightRound(cal) {
-  return (cal || 0) <= LIGHT_ROUND_BORE + 0.5;
-}
-
-/** The damage kinds that are a heavy blow in themselves, whatever caused them. */
+ * A magazine of six-inch rounds or smaller -- a destroyer's main battery as
+ * much as a battleship's secondaries, since what matters is the bore of the
+ * guns it feeds and not which battery they are -- burns rather than blows
+ * (see magazineBlows), and a ship that has had one burn does not then go down
+ * broken in two: she settles and goes down whole, however hard the round that
+ * set it off was. Only a heavier blow on top of it breaks her back -- a
+ * torpedo, a bomb, a mine, a missile, a ram.
+ *
+ * The damage kinds that are a heavy blow in themselves, whatever caused them. */
 const HEAVY_KINDS = new Set(['bomb', 'depthCharge', 'magazine', 'mine', 'nuke', 'ram', 'torpedo', 'wave', 'grounding']);
 
 /**
@@ -8066,47 +8059,71 @@ export function magazineBlows(cls, where) {
 }
 
 /**
+ * How much worse a magazine fire is for the round that set it off, by its
+ * bore in millimetres: one for a six-inch shell, less for a smaller one, and
+ * up to three for the heaviest -- a battleship's shell bursting among a
+ * destroyer's cordite sets far more of it going at once.
+ */
+export function magazineFireScale(bore) {
+  if (!(bore > 0)) return 1;
+  return clamp((bore / 152) ** 0.8, 0.75, 3);
+}
+
+/**
  * A magazine of small rounds alight: the fire of her life in the compartment
  * and the ones either side of it, the mountings it fed knocked out, and holes
- * blown in her above the waterline -- but she is still afloat and still a ship.
+ * blown in her above the waterline -- but she is still afloat and still a
+ * ship, and she does not break in two (see breakHer). `bore` is the round
+ * that set it off: the heavier it was, the bigger the fire, the more of her
+ * it reaches and the more it wrecks.
  */
-export function magazineFire(state, ship, where, owner) {
+export function magazineFire(state, ship, where, owner, bore = 0) {
   const cls = shipClass(ship);
   const c = ship.sections[where];
   if (!c || !ship.alive) return;
+  const k = magazineFireScale(bore);
+  ship.smallMag = true;
   startFire(state, ship, where, 1);
   c.burnt = 0;
   const at = SECTIONS.findIndex((q) => q.k === where);
   for (const j of [at - 1, at + 1]) {
     const n = SECTIONS[j];
-    if (n && n.from !== null) startFire(state, ship, n.k, 0.55);
+    if (n && n.from !== null) startFire(state, ship, n.k, Math.min(1, 0.55 * k));
   }
-  startFire(state, ship, 'works', 0.45);
-  damageShip(state, ship, owner, cls.hp * 0.07, 'cook', where);
+  // A heavy round sets it going through the compartments beyond those too.
+  if (k > 1.4) {
+    for (const j of [at - 2, at + 2]) {
+      const n = SECTIONS[j];
+      if (n && n.from !== null) startFire(state, ship, n.k, Math.min(1, 0.3 * (k - 1)));
+    }
+  }
+  startFire(state, ship, 'works', Math.min(1, 0.45 * k));
+  damageShip(state, ship, owner, cls.hp * Math.min(0.2, 0.07 * k), 'cook', where);
   if (!ship.alive) return;
-  openHull(state, ship, where, 4 + state.rng() * 6, state.rng() < 0.5 ? 1 : -1, -cls.hull.draft * 0.2);
+  openHull(state, ship, where, (4 + state.rng() * 6) * k, state.rng() < 0.5 ? 1 : -1, -cls.hull.draft * 0.2);
   // Every mounting it fed is out while the handling rooms under it burn.
   for (const t of ship.turrets) {
     if (magazineOf(cls, cls.turrets[t.id] || {}) !== where) continue;
-    t.disabled = Math.max(t.disabled || 0, 40);
-    hurtMount(state, t, 1.6);
+    t.disabled = Math.max(t.disabled || 0, 40 * k);
+    hurtMount(state, t, 1.6 * k);
   }
   if (cls.secondary) {
     for (const m of ship.secMounts) {
       if (magazineOf(cls, cls.secondary.mounts[m.id] || {}) !== where) continue;
-      m.disabled = Math.max(m.disabled || 0, 40);
-      hurtMount(state, m, 1.6);
+      m.disabled = Math.max(m.disabled || 0, 40 * k);
+      hurtMount(state, m, 1.6 * k);
     }
   }
-  state.events.push({ e: 'magFire', ship: ship.id, at: where, x: r(ship.x), z: r(ship.z) });
+  state.events.push({ e: 'magFire', ship: ship.id, at: where, x: r(ship.x), z: r(ship.z), k: Math.round(k * 100) / 100 });
 }
 
-export function detonate(state, ship, where, owner, { force = false } = {}) {
+export function detonate(state, ship, where, owner, { force = false, bore = 0 } = {}) {
   const cls = shipClass(ship);
   const c = ship.sections[where];
   if (!c) return;
-  // Only a big-gun magazine ends her; anything smaller is a huge fire.
-  if (!force && !magazineBlows(cls, where)) { magazineFire(state, ship, where, owner); return; }
+  // Only a big-gun magazine ends her; anything smaller is a huge fire -- the
+  // bigger the round that set it off, the worse.
+  if (!force && !magazineBlows(cls, where)) { magazineFire(state, ship, where, owner, bore); return; }
   // What was in it, which is how hard it goes. The client sizes everything
   // it draws off this: the fireball, the column, and how far her hull and her
   // turrets are thrown.
@@ -8361,7 +8378,9 @@ function bombOnMount(state, ship, owner, P, at) {
     // magazine, and a flash down the trunk is how a turret hit loses a ship.
     if (g.k === 'main' && ship.alive) {
       const where = sectionAt(g.s.z / (cls.hull.length / 2), 'deck');
-      if ((where === 'fwd' || where === 'aft') && state.rng() < 0.06) detonate(state, ship, where, owner);
+      if ((where === 'fwd' || where === 'aft') && state.rng() < 0.06) {
+        detonate(state, ship, where, owner, { bore: (P.bombBore ?? 0.25) * 1000 });
+      }
     }
     return true;
   }
@@ -8389,7 +8408,7 @@ function bombOnMount(state, ship, owner, P, at) {
  * down on them -- and when they do it is an explosion of its own, which makes
  * a hole of its own, under whatever is standing next to it.
  */
-export function undercut(state, ship, at, r, owner, depth = 0, light = false) {
+export function undercut(state, ship, at, r, owner, depth = 0, bore = 0) {
   if (!ship.alive || !at || !(r > 0)) return;
   const cls = shipClass(ship);
   const deckY = freeboardOf(cls);
@@ -8418,12 +8437,12 @@ export function undercut(state, ship, at, r, owner, depth = 0, light = false) {
     }
     if (book[key] >= area * FOOTING) fell.push(g);
   }
-  for (const g of fell) dropMount(state, ship, cls, g, owner, blew, depth, light);
+  for (const g of fell) dropMount(state, ship, cls, g, owner, blew, depth, bore);
   for (const g of blew) readyUse(state, ship, cls, g, owner, depth);
 }
 
 /** A mounting going down through the deck under it. */
-function dropMount(state, ship, cls, g, owner, blew, depth, light = false) {
+function dropMount(state, ship, cls, g, owner, blew, depth, bore = 0) {
   const key = `${g.k}:${g.i}`;
   (ship.fell || (ship.fell = {}))[key] = 1;
   if (g.m) {
@@ -8445,10 +8464,10 @@ function dropMount(state, ship, cls, g, owner, blew, depth, light = false) {
   }
   // And a main turret is stood on its magazine. Coming down through the deck
   // on top of it, it can take the magazine with it -- not often.
-  if (g.k === 'main' && depth === 0 && !light) {
+  if (g.k === 'main' && depth === 0) {
     const where = sectionAt(g.s.z / half, 'deck');
     if ((where === 'fwd' || where === 'aft') && state.rng() < 0.08) {
-      detonate(state, ship, where, owner);
+      detonate(state, ship, where, owner, { bore });
     }
   }
 }
@@ -8620,9 +8639,6 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // same way without the damage code having to know which it is holding.
   const owner = shellOwner(state, sh);
   const where = sectionAt(l.z / (cls.hull.length * 0.5), sec.part);
-  // Six inches or less, from whichever battery: it cannot break her back.
-  const light = lightRound(sh.caliber);
-  if (!light && kind !== 'ricochet') target.heavyBlow = true;
   if (dmg > 0) damageShip(state, target, owner, dmg, kind, where);
   // A penetration is a hole in her, and holes are what she is now counted in.
   // A shell that bounced or shattered on the plate has not opened anything.
@@ -8644,12 +8660,12 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // through, and the box it got into was a magazine and not her machinery.
   // Then it is the size of the burst against the size of the handling room,
   // the same arithmetic as everything else that happens inside her.
-  if (kind === 'citadel' && (where === 'fwd' || where === 'aft') && !light
+  if (kind === 'citadel' && (where === 'fwd' || where === 'aft')
     && pen > effArmor * 1.5 && target.alive) {
     const room = sectionVolume(cls, where) || 1;
     const bore = sh.caliber / 1000;
     if (state.rng() < clamp(bore * bore * bore * 27000 / room, 0, 0.3)) {
-      detonate(state, target, where, owner);
+      detonate(state, target, where, owner, { bore: sh.caliber });
     }
   }
   // And it is a hole in her plating, not only an entry in a book.
@@ -8687,7 +8703,7 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // A hole in her deck or her upperworks is under something, as often as
   // not, and that does not stay where it was. See undercut.
   if (HOLING.has(kind) && (sec.part === 'deck' || sec.part === 'superstructure') && target.alive) {
-    undercut(state, target, { x: l.x, y: cy, z: l.z }, deckHole(kind, sh.caliber / 1000), owner, 0, light);
+    undercut(state, target, { x: l.x, y: cy, z: l.z }, deckHole(kind, sh.caliber / 1000), owner, 0, sh.caliber);
   }
   // A battery keeps no ribbon book: there is nobody aboard it to give one to.
   if (owner && owner.ribbons) {
@@ -17962,9 +17978,9 @@ export function breakHer(state, ship, at, why) {
   // A ship that has already had a piece cut off her has parted once, at the
   // cut: what is left of her goes down as one piece.
   if (ship.broke != null || ship.cut) return;
-  // Going down by an end only breaks a ship something heavy has hit. One sunk
-  // by nothing bigger than six-inch fire settles and goes down whole.
-  if (why === 'trim' && !ship.heavyBlow) return;
+  // A ship whose small-gun magazine has burned goes down whole: see
+  // HEAVY_KINDS. Only something heavy on top of it breaks her back.
+  if (why === 'trim' && ship.smallMag && !ship.heavyBlow) return;
   ship.broke = at;
   state.events.push({ e: 'break', ship: ship.id, at: r(at), x: r(ship.x), z: r(ship.z), why });
   if (!ship.sinking) startSinking(state, ship, why === 'magazine' ? 'magazine' : 'shattered');
