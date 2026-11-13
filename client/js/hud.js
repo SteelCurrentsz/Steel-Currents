@@ -355,8 +355,11 @@ class HudBase {
     this.world = world;
     this.el = {
       ownName: $('own-name'), condRow: $('cond-row'),
-      integrity: $('integrity'), integrityPct: $('integrity-pct'),
-      integrityFill: $('integrity-fill'), integrityLost: $('integrity-lost'),
+      integrity: $('integrity'), integrityLost: $('integrity-lost'),
+      igRows: ['ig-structural', 'ig-flooding', 'ig-internal'].map((id) => {
+        const row = $(id);
+        return row ? { row, pct: row.querySelector('b'), fill: row.querySelector('.integrity-fill') } : null;
+      }),
       status: $('status-row'),
       targetPlate: $('target-plate'), targetName: $('target-name'),
       shellCam: $('shell-cam'),
@@ -1124,14 +1127,28 @@ class HudBase {
    */
   paintIntegrity(own) {
     const el = this.el;
-    if (!el.integrity) return;
-    const ig = Math.max(0, Math.min(1000, own.ig ?? 1000)) / 10;
+    if (!el.integrity || !el.igRows) return;
+    const pc = (v) => `${v < 10 ? v.toFixed(1) : Math.round(v)}%`;
+    // Off an older server, the one figure stands in for her structure.
+    const ic = own.ic || [own.ig ?? 1000, 0, 1000];
+    const [st, fl, inn] = ic.map((v) => Math.max(0, Math.min(1000, v)) / 10);
     const cap = Math.max(0, Math.min(1000, own.igc ?? 1000)) / 10;
-    el.integrityPct.textContent = `${ig < 10 ? ig.toFixed(1) : Math.round(ig)}%`;
-    el.integrityFill.style.width = `${ig}%`;
-    el.integrityLost.style.width = `${100 - cap}%`;
-    el.integrity.classList.toggle('warn', ig < 55 && ig >= 25);
-    el.integrity.classList.toggle('bad', ig < 25);
+    const [rs, rf, ri] = el.igRows;
+    const paint = (r, v, shown, warn, bad) => {
+      if (!r) return;
+      r.pct.textContent = shown;
+      r.fill.style.width = `${v}%`;
+      r.row.classList.toggle('warn', warn && !bad);
+      r.row.classList.toggle('bad', bad);
+    };
+    paint(rs, st, pc(st), st < 55, st < 25);
+    // The part of her structure she can never be mended back to.
+    if (el.integrityLost) el.integrityLost.style.width = `${100 - cap}%`;
+    // Flooding fills as she fills: an arrow says whether it is still coming in.
+    const trend = own.icr > 0 ? ' \u25B2' : own.icr < 0 ? ' \u25BC' : '';
+    paint(rf, fl, pc(fl) + trend, fl > 35, fl > 70);
+    if (rf) rf.row.classList.toggle('rising', own.icr > 0);
+    paint(ri, inn, pc(inn), inn < 55, inn < 25);
     el.integrity.classList.toggle('sinking', own.sn != null);
   }
 

@@ -333,9 +333,16 @@ input[type="range"] { accent-color: var(--red); }
   position: absolute; right: 0; top: 0; bottom: 0; width: 0;
   background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0 3px, transparent 3px 6px);
 }
-.integrity.warn .integrity-fill { background: linear-gradient(90deg, #c9a13a, #e8c96a); }
-.integrity.bad .integrity-fill { background: linear-gradient(90deg, #b8332c, #e2574c); }
-.integrity.bad .integrity-head b { color: #ff8a7a; }
+.ig-row + .ig-row { margin-top: 0.3rem; }
+.ig-row.warn .integrity-fill { background: linear-gradient(90deg, #c9a13a, #e8c96a); }
+.ig-row.bad .integrity-fill { background: linear-gradient(90deg, #b8332c, #e2574c); }
+.ig-row.bad .integrity-head b { color: #ff8a7a; }
+/* Flooding fills from empty, in sea blue, and goes amber then red as she fills. */
+.ig-row.flood .integrity-fill { width: 0; background: linear-gradient(90deg, #2f6fb3, #5fa8e8); }
+.ig-row.flood.warn .integrity-fill { background: linear-gradient(90deg, #c9a13a, #e8c96a); }
+.ig-row.flood.bad .integrity-fill { background: linear-gradient(90deg, #b8332c, #e2574c); }
+.ig-row.flood.rising .integrity-head b { color: #8cc4ff; }
+.ig-row.flood.bad.rising .integrity-head b { color: #ff8a7a; }
 .integrity.sinking .integrity-track { animation: integrity-pulse 1s ease-in-out infinite; }
 @keyframes integrity-pulse { 50% { border-color: #ff5a4c; box-shadow: 0 0 6px #ff5a4c; } }
 .cond-row { display: flex; align-items: center; margin-top: 0.4rem; }
@@ -3059,6 +3066,7 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   margin-top: 0.8rem; flex-wrap: wrap;
 }
+.premium-ship .ps-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .premium-ship .ps-badge {
   font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: #d9b45a;
 }

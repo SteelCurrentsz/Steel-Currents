@@ -18734,10 +18734,14 @@ check('a fighter has no bombs, and what is on the rack is what goes', () => {
   dive.x = foe.x + 200;
   dive.z = foe.z + 200;
   st.events.length = 0;
+  const before = st.shells.length;
   assert.equal(dropOrdnance(st, cv, dive.id), true, 'a dive bomber over the ship could not drop');
-  const bombs = st.events.filter((e) => e.e === 'bomb');
+  // By hand they are aimed by hand: bodies off the rack, flown down to
+  // wherever the pipper put them, never settled on her by a die roll.
+  const bombs = st.shells.slice(before).filter((sh) => sh.bomb && sh.plane === dive.id);
   assert.equal(bombs.length, dive.bomb,
     `she is carrying ${dive.bomb} bombs and ${bombs.length} left the aeroplane`);
+  assert.ok(!st.events.some((e) => e.e === 'bomb'), 'a pilot\'s bombs were settled on her by a die roll');
   assert.ok(!st.events.some((e) => e.e === 'airDrop'),
     'her bombs went into the water as a row of torpedo splashes');
 });
@@ -20113,13 +20117,17 @@ check('a shell among her charges blows the magazine, and nothing else does', () 
 
   // Sixteen inch into a light cruiser's forward handling room: her belt is
   // five inches and the shell has eight times what it needs.
-  const soft = bang('iowa', 'cleveland', 0.4).rate;
+  // (A heavy cruiser's: a magazine of six-inch rounds and under burns rather
+  // than blowing -- see magazineBlows -- so the light cruiser's never goes.)
+  const soft = bang('iowa', 'indianapolis', 0.4).rate;
   assert.ok(soft > 0.02,
-    "an Iowa's broadside never once found the Cleveland's magazine in 1500 hits");
+    "an Iowa's broadside never once found the Indianapolis's magazine in 1500 hits");
+  assert.equal(bang('iowa', 'cleveland', 0.4, { n: 400 }).rate, 0,
+    "a Cleveland's six-inch magazine blew up instead of burning");
 
   // The same shell, the same ship, amidships. Her machinery spaces have no
   // charges in them and never blow up, however many times they are hit.
-  assert.equal(bang('iowa', 'cleveland', 0).rate, 0,
+  assert.equal(bang('iowa', 'indianapolis', 0).rate, 0,
     'her boiler rooms went up like a magazine');
 
   // A shell that cannot get into the citadel at all. Six-inch AP on the
@@ -20192,10 +20200,10 @@ check('a shell among her charges blows the magazine, and nothing else does', () 
   assert.ok(!ship.alive && ship.sinking, 'she fought on with her magazine blown out of her');
   assert.ok(c.wP + c.wS >= held, 'the sea went out of her');
 
-  // A light cruiser does not live through it at all.
-  const cruiser = bang('iowa', 'cleveland', 0.4, { keep: true }).blown.ship;
+  // A heavy cruiser does not live through it at all.
+  const cruiser = bang('iowa', 'indianapolis', 0.4, { keep: true }).blown.ship;
   assert.ok(cruiser.hp < cruiser.maxHp * 0.35,
-    `the Cleveland kept ${((cruiser.hp / cruiser.maxHp) * 100).toFixed(0)}% of herself`);
+    `the Indianapolis kept ${((cruiser.hp / cruiser.maxHp) * 100).toFixed(0)}% of herself`);
 });
 
 check('a magazine going up is heard by the whole battle', () => {
@@ -23020,8 +23028,10 @@ check("a B-25 flown by hand lets her bombs go when her pilot says so", () => {
   assert.ok(flyPlane(state, ship, { i: p.id, x: p.x, z: p.z, h: 0, y: p.y }), 'her captain could not take her');
   p.x = foe.x; p.z = foe.z - 300;
   state.events.length = 0;
+  const falling = state.shells.length;
   assert.ok(dropOrdnance(state, ship, p.id), 'the simulation would not let her drop');
-  const bombs = state.events.filter((e) => e.e === 'bomb' && e.i === p.id);
+  // Bodies off the rack, flown down to wherever her pipper put them.
+  const bombs = state.shells.slice(falling).filter((sh) => sh.bomb && sh.plane === p.id);
   assert.equal(bombs.length, cls.planes.deckload.bombs, `${bombs.length} bombs left her`);
   // And the cockpit has a drop key for her: her role is on the rack table.
   const src = readFileSync(new URL('../client/js/game.js', import.meta.url), 'utf8');
@@ -25486,10 +25496,18 @@ check('a pilot\'s own bombs on a battery do what the strike\'s would have', () =
     launchStrike(st, cv);
     for (let i = 0; i < 1600 && !st.planes.length; i++) step(st, DT);
     const p = st.planes[0];
-    p.x = bat.x + 200; p.z = bat.z; p.y = bat.y + 400;
-    flyPlane(st, cv, { i: p.id, x: p.x, z: p.z, h: 0, y: p.y, p: -1 });
+    // In a dive at it, let go with the pipper on it: a pilot's bombs are
+    // bodies off the rack and go where they are aimed (see freeBombs), so
+    // she is put where the throw down her dive lands them on the pit.
+    const v = 100, pitch = -1, up = 400;
+    const vy = Math.sin(pitch) * v, flat = Math.cos(pitch) * v;
+    const t = (vy + Math.sqrt(vy * vy + 2 * 9.81 * (up - 1.5))) / 9.81;
+    p.x = bat.x; p.z = bat.z - flat * t; p.y = bat.y + up;
+    p.flownAt = st.t;
+    flyPlane(st, cv, { i: p.id, x: p.x, z: p.z, h: 0, y: p.y, p: pitch, v });
     assert.ok(dropOrdnance(st, cv, p.id), 'the bombs would not come off over a battery');
     assert.ok(p.dropped, 'she dropped and still has them');
+    for (let i = 0; i < 8 / DT; i++) step(st, DT);
     if (bat.hp < bat.maxHp) hurt++;
   }
   assert.ok(hurt >= 2, `six sticks on a battery hurt it ${hurt} times`);
@@ -28048,7 +28066,11 @@ check('a float plane is not coming back: she goes into an enemy ship when her wo
   assert.ok(ram > 0 || goingIn > 0);
 });
 
-check('a fighter with nothing in the air to fight shields the strike and goes into the ship', () => {
+check('a fighter with nothing in the air to fight shields the strike and strafes the ship', () => {
+  // She used to go into the ship once the flight she was covering was in.
+  // She has guns: she goes in with them firing, pulls off over her, and
+  // comes round for another pass -- and is still in front of the flight
+  // she is covering, soaking up the flak, on the way in.
   const world = generateWorld(6102, 'open_ocean');
   world.islands = [];
   const st = createState(world, { mode: 'deathmatch' });
@@ -28059,14 +28081,14 @@ check('a fighter with nothing in the air to fight shields the strike and goes in
   launchStrike(st, cv);
   let shielding = false;
   let ahead = false;
-  let fighterIn = false;
-  for (let i = 0; i < 400 / DT && !fighterIn; i++) {
+  let strafed = 0;
+  let rammed = 0;
+  for (let i = 0; i < 400 / DT && strafed < 20; i++) {
     cv.spottedBy = [true, true]; foe.spottedBy = [true, true];
     for (const e of step(st, DT)) {
-      if (e.e === 'goingIn' || e.e === 'ram') {
-        const p = st.planes.find((q) => q.id === e.i);
-        if (e.e === 'ram' && (!p || p.role === 'fighter')) fighterIn = true;
-      }
+      const p = st.planes.find((q) => q.id === e.i);
+      if (e.e === 'airGuns' && p && p.role === 'fighter' && p.strafe) strafed++;
+      if (e.e === 'ram' && p && p.role === 'fighter' && p.strafe) rammed++;
     }
     for (const p of st.planes) {
       if (p.role !== 'fighter' || !p.shieldFor) continue;
@@ -28077,9 +28099,8 @@ check('a fighter with nothing in the air to fight shields the strike and goes in
   }
   assert.ok(shielding, 'the fighters never took up a shield');
   assert.ok(ahead, 'the shield never got in front of the flight it was covering');
-  assert.ok(fighterIn, 'the fighter never went into the ship');
-  assert.ok(!st.planes.some((p) => p.role === 'fighter' && p.phase === 'return'),
-    'a fighter turned for home with a ship left to go into');
+  assert.ok(strafed >= 20, `the fighters fired ${strafed} bursts into the ship`);
+  assert.equal(rammed, 0, 'a strafing fighter flew into the ship');
 });
 
 check('a fighter going in ahead takes the flak meant for the bombers behind her', () => {
@@ -29033,7 +29054,18 @@ check('a staged battle does what its script says, when it says it', () => {
   run(2);
   assert.ok(Object.keys(ship('s:0:1').off || {}).length, 'the destroyer did not cease fire');
   run(2);
-  assert.ok(ship('s:1:1').blown, 'the magazine cue did not go off');
+  // A big-gun magazine goes up; a ship with nothing bigger than six-inch guns
+  // has none that does, and hers burns instead -- the worst fire it can be,
+  // with her still in one piece.
+  {
+    const q = ship('s:1:1');
+    const qc = SHIP_CLASSES[q.classId];
+    if ((qc.gun?.caliber || 0) > 152.9) assert.ok(q.blown, 'the magazine cue did not go off');
+    else {
+      assert.ok(q.smallMag && !q.blown && q.broke == null, `the ${q.classId}'s small-gun magazine did not burn, or broke her`);
+      assert.ok(q.hp < qc.hp * 0.85, `the magazine cue did not hurt her: ${Math.round(q.hp)} of ${qc.hp}`);
+    }
+  }
   run(2);
   assert.ok(ship('s:1:0').sinking, 'the Yamato was told to sink and did not');
   ln.send({ t: 'leave' });
@@ -31924,6 +31956,137 @@ check('each missile goes only for what it was built for, and the nuclear AGM-86B
   assert.deepEqual([...missileHits(AIR_MSL.agm86)].sort(), ['a', 'b', 'g', 'm', 's']);
   assert.deepEqual(missileHits(AIR_MSL.aim9), ['a']);
   assert.deepEqual(missileHits(AIR_MSL.agm84), ['s']);
+}));
+
+import {
+  detonate as blowMagazine, magazineBlows, integrityCategories, flyPlane as flyHand, dropOrdnance as dropHand,
+} from '../shared/sim.js';
+
+check('a multi-role Hornet strike lets go of its bombs and its Mavericks, and does not fly into the ship', () => pinned(() => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Iowa', classId: 'iowa', team: 1, index: 0 });
+  c.x = 0; c.z = -6000; foe.x = 0; foe.z = 6000;
+  setAirGroup(c, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'mr' } });
+  c.aimX = foe.x; c.aimZ = foe.z;
+  launchStrike(state, c);
+  const n = { bomb: 0, msl: 0, ram: 0 };
+  for (let i = 0; i < 400 / DT; i++) {
+    for (const e of step(state, DT)) {
+      if (e.e === 'bomb') n.bomb++;
+      if (e.e === 'mslLaunch' && e.air) n.msl++;
+      if (e.e === 'goingIn') n.ram++;
+    }
+  }
+  assert.ok(n.bomb > 0, 'not one Hornet dropped her bombs');
+  assert.ok(n.msl > 0, 'not one Hornet fired a missile off her rails');
+  assert.ok(n.ram < n.bomb, `${n.ram} Hornets flew into the ship against ${n.bomb} bombs dropped`);
+}));
+
+check('a fighter with nothing on her rack strafes a ship rather than flying into it', () => pinned(() => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Enterprise', classId: 'enterprise', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Fletcher', classId: 'fletcher', team: 1, index: 0 });
+  c.x = 0; c.z = -6000; foe.x = 0; foe.z = 6000;
+  setAirGroup(c, SHIP_CLASSES.enterprise, { fighters: 12, dive: 0, torpedo: 0 });
+  c.aimX = foe.x; c.aimZ = foe.z;
+  launchStrike(state, c);
+  let guns = 0;
+  const hp = foe.hp;
+  for (let i = 0; i < 400 / DT; i++) for (const e of step(state, DT)) if (e.e === 'airGuns') guns++;
+  assert.ok(guns > 20, `the fighters fired ${guns} bursts`);
+  assert.ok(foe.hp < hp, 'their strafing did nothing to her');
+}));
+
+check('a pilot\'s bombs go where the pipper says: on her, they hit; two hundred metres off, they miss', () => {
+  const run = (off) => {
+    const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+    const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+    const foe = addShip(state, { name: 'Iowa', classId: 'iowa', team: 1, index: 0 });
+    c.x = 0; c.z = -6000; foe.x = 0; foe.z = 6000; foe.speed = 0;
+    setAirGroup(c, SHIP_CLASSES.nimitz, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'mr' } });
+    c.aimX = foe.x; c.aimZ = foe.z;
+    launchStrike(state, c);
+    let p = null;
+    for (let i = 0; i < 40 / DT && !p; i++) { step(state, DT); p = state.planes.find((q) => q.owner === c.id && q.bomb > 0); }
+    assert.ok(p, 'no Hornet with bombs went');
+    // Level at four hundred metres and a hundred and fifty a second: the
+    // bombs carry forward the whole of their fall.
+    const v = 150, y = 400;
+    const ahead = v * Math.sqrt((2 * (y - 1.5)) / 9.81);
+    p.flownAt = state.t; p.x = foe.x + off; p.z = foe.z - ahead - 10; p.y = y;
+    assert.ok(flyHand(state, c, { i: p.id, x: foe.x + off, z: foe.z - ahead, h: 0, y, p: 0, v }));
+    assert.ok(dropHand(state, c, p.id), 'the drop was refused');
+    const before = foe.hp;
+    for (let i = 0; i < 12 / DT; i++) {
+      flyHand(state, c, { i: p.id, x: p.x, z: p.z + v * DT, h: 0, y, p: 0, v });
+      step(state, DT);
+    }
+    return before - foe.hp;
+  };
+  assert.ok(run(0) > 0, 'bombs dropped on the pipper missed her');
+  assert.equal(run(200), 0, 'bombs dropped two hundred metres wide hit her anyway');
+});
+
+check('a magazine of six-inch guns and under burns; a big-gun magazine blows', () => {
+  for (const [id, blows] of [['fletcher', false], ['cleveland', false], ['iowa', true]]) {
+    const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+    const a = addShip(state, { name: 'A', classId: id, team: 0, index: 0 });
+    addShip(state, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+    assert.equal(magazineBlows(SHIP_CLASSES[id], 'fwd'), blows, `${id}: the wrong kind of magazine`);
+    blowMagazine(state, a, 'fwd', null);
+    for (let i = 0; i < 2 / DT; i++) step(state, DT);
+    if (blows) assert.ok(!a.alive, `the ${id} survived her magazine going up`);
+    else {
+      assert.ok(a.alive && !a.sinking, `the ${id} was lost to a small-gun magazine fire`);
+      assert.ok(a.sections.fwd.fire > 0.5, `the ${id}'s magazine fire is not a big one`);
+    }
+  }
+});
+
+check('her integrity reads in three: structural, flooding and internal', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const a = addShip(state, { name: 'A', classId: 'cleveland', team: 0, index: 0 });
+  addShip(state, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+  let ic = integrityCategories(a);
+  assert.equal(ic.structural, 1); assert.equal(ic.flooding, 0); assert.equal(ic.internal, 1);
+  damageShip(state, a, null, a.maxHp * 0.3, 'pen', 'mid');
+  ic = integrityCategories(a);
+  assert.ok(ic.structural < 0.8 && ic.internal === 1, `structure: ${JSON.stringify(ic)}`);
+  a.engineDamage = 20;
+  assert.ok(integrityCategories(a).internal < 0.9, 'her engines out did not touch her internal integrity');
+  openHull(state, a, 'fwd', 8, 1, 3);
+  for (let i = 0; i < 30 / DT; i++) step(state, DT);
+  assert.ok(integrityCategories(a).flooding > 0, 'a hole below her waterline let in no water');
+  const wire = shipSnapshot(a, true, state);
+  assert.ok(Array.isArray(wire.ic) && wire.ic.length === 3, 'the three bars are not on the wire');
+});
+
+check('an eighty-eight hurts only what its rounds burst near, not every aeroplane inside seven kilometres', () => pinned(() => {
+  const world = generateWorld(4242, 'open_ocean');
+  world.islands = [];
+  const run = (off) => {
+    const st = createState(world, { mode: 'deathmatch' });
+    const c = addShip(st, { name: 'E', classId: 'enterprise', team: 1, index: 0 });
+    const f = addShip(st, { name: 'F', classId: 'liberty', team: 0, index: 0 });
+    c.x = 0; c.z = -9000; f.x = 0; f.z = 6000; f.speed = 0;
+    if (off !== null) addBattery(st, { batteryId: 'flak88', team: 0, x: off, z: 0 });
+    setAirGroup(c, SHIP_CLASSES.enterprise, { fighters: 0, dive: 12, torpedo: 0 });
+    c.aimX = f.x; c.aimZ = f.z;
+    launchStrike(st, c);
+    let up = 0;
+    for (let i = 0; i < 200 / DT; i++) {
+      step(st, DT);
+      up = Math.max(up, st.planes.filter((q) => q.owner === c.id).length);
+    }
+    return { up, left: st.planes.filter((q) => q.owner === c.id).length };
+  };
+  // Five kilometres off their track, it is as if it were not there.
+  const none = run(null);
+  const far = run(5000);
+  assert.ok(far.up > 0, 'nothing flew');
+  assert.ok(far.left >= none.left,
+    `an eighty-eight five kilometres off their track shot down ${none.left - far.left} more than no gun at all`);
 }));
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);

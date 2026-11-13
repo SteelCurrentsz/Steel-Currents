@@ -29,12 +29,15 @@ import {
   wallSections, sectionSpan, WALL_WIDTH, PARAPET, worksFloor, wallAt,
 } from '../../../shared/works.js';
 import { groundHeight, rawGround } from '../../../shared/world.js';
+import { Civilians } from './civilians.js';
 
 // ---------------------------------------------------------------------------
 // Textures, painted once
 // ---------------------------------------------------------------------------
 
 const TEX = {};
+/** How many blackened patches the paving keeps; the oldest goes first. */
+const SCORCH_MAX = 320;
 const SIZE = 128;
 
 function canvasTexture(key, paint, w = SIZE, h = SIZE) {
@@ -1284,6 +1287,8 @@ export class WorksView {
       for (const k of this.chunks.keys()) this.buildChunk(k);
       this.props();
       this.traffic();
+      // The people in its streets. See civilians.js.
+      try { this.civilians = new Civilians(scene, world, this.plans); } catch (e) { this.civilians = null; }
     }
     this.walls = [];
     this.wallDirty = new Set();
@@ -1625,6 +1630,7 @@ export class WorksView {
    * it, and a car near enough is thrown over and set alight.
    */
   blast(x, z, cal = 152, y = null) {
+    this.scorch(x, z, cal);
     if (!this.prop) return;
     const reach = 3 + cal / 22;
     // The traffic stops for good once the shells are falling in the streets:
@@ -1676,6 +1682,72 @@ export class WorksView {
       this.moving.add(e);
     }
     void y;
+  }
+
+  /**
+   * A burst on paving -- a street, a runway, a harbour's apron -- digs no
+   * crater (see blastWorks), but it does not leave the concrete as it was: a
+   * broken, blackened patch where it went off, which stays.
+   */
+  scorch(x, z, cal = 152) {
+    if (!this.plans.length) return;
+    let on = false;
+    for (const plan of this.plans) {
+      const c = plan.city;
+      const s = Math.sin(c.rot), k = Math.cos(c.rot);
+      const dx = x - c.x, dz = z - c.z;
+      const u = k * dx - s * dz, v = s * dx + k * dz;
+      if (Math.abs(u) <= plan.W / 2 && Math.abs(v) <= plan.D / 2) { on = true; break; }
+    }
+    if (!on) return;
+    if (!this.scorches) {
+      const geo = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+      // Black in the middle, going ragged and brown toward the edge.
+      let map = null;
+      if (typeof document !== 'undefined') {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = 128;
+        const g2 = cv.getContext('2d');
+        const grd = g2.createRadialGradient(64, 64, 4, 64, 64, 64);
+        grd.addColorStop(0, 'rgba(10,9,8,0.95)');
+        grd.addColorStop(0.45, 'rgba(25,22,18,0.8)');
+        grd.addColorStop(0.8, 'rgba(60,52,42,0.35)');
+        grd.addColorStop(1, 'rgba(60,52,42,0)');
+        g2.fillStyle = grd;
+        g2.fillRect(0, 0, 128, 128);
+        // Broken concrete and grit through it.
+        for (let i = 0; i < 260; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const d = Math.random() ** 0.7 * 58;
+          g2.fillStyle = `rgba(${Math.random() < 0.5 ? '15,13,11' : '95,90,82'},${0.25 + Math.random() * 0.5})`;
+          g2.fillRect(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, 1 + Math.random() * 3, 1 + Math.random() * 3);
+        }
+        map = new THREE.CanvasTexture(cv);
+        map.colorSpace = THREE.SRGBColorSpace;
+      }
+      const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({
+        map, color: map ? 0xffffff : 0x1a1714, transparent: true, opacity: map ? 1 : 0.6, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+      }), SCORCH_MAX);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      // Under the blood and what lies in it.
+      mesh.renderOrder = 1;
+      this.group.add(mesh);
+      this.scorches = { mesh, next: 0 };
+    }
+    const S = this.scorches;
+    const r = Math.min(10, 1 + cal / 70);
+    const g = groundHeight(this.world, x, z) + (worksFloor(this.world, x, z).rise || 0) + 0.06;
+    tmpQ.setFromAxisAngle(tmpV.set(0, 1, 0), Math.random() * Math.PI * 2);
+    tmpM.compose(tmpV.set(x, g, z), tmpQ, tmpS.set(r, 1, r * (0.75 + Math.random() * 0.4)));
+    S.mesh.setMatrixAt(S.next, tmpM);
+    S.next = (S.next + 1) % SCORCH_MAX;
+    S.mesh.count = Math.min(SCORCH_MAX, Math.max(S.mesh.count, S.next === 0 ? SCORCH_MAX : S.next));
+    S.mesh.instanceMatrix.needsUpdate = true;
+    // And the broken concrete thrown out of it.
+    this.spray(x, g + 0.3, z, Math.min(18, 4 + Math.round(cal / 40)), [0.5, 0.49, 0.46], 0.25 + cal / 1500, 6 + cal / 60, 4);
   }
 
   /** Knock over everything inside a falling building's footprint and round its foot. */
@@ -2411,6 +2483,7 @@ export class WorksView {
     this.stepProps(dt);
     this.stepTraffic(dt);
     this.stepDebris(dt);
+    this.civilians?.update(dt, camera);
     if (!this.plans.length) return;
     // Fire, in the burning buildings nearest the eye: flame out of the
     // windows and the roof, and the smoke of a town alight.
@@ -2445,6 +2518,7 @@ export class WorksView {
   }
 
   dispose() {
+    this.civilians?.dispose();
     this.scene.remove(this.group);
     this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   }
