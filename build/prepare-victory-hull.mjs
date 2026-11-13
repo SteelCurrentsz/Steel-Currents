@@ -18,13 +18,6 @@ await prepare({
   paints: USN_PAINTS, paint: usnPaint, paintLines: [0, BOOT],
   deckFallback: 12,
   hullTris: 50000,
-  // Her Oerlikons are built in victory.js as the fleet's own mounting of the
-  // gun; the model's are taken off her.
-  remove: [
-    { x: [-1.9, 1.9], y: [7.5, 11.5], z: [53.4, 56.2] },
-    { x: [-7.3, -5.6], z: [-56.8, -55.0] }, { x: [5.6, 7.3], z: [-56.8, -55.0] },
-    { x: [-4.9, -3.3], z: [-9.8, -8.2] }, { x: [3.3, 4.9], z: [-9.8, -8.2] },
-  ],
   kinds: {
     // Her 5"/38 on her poop, laid astern.
     main: { boxes: [{ x: [-2.6, 2.6], y: [7.4, 11.5], z: [-70.2, -62.4] }],
@@ -32,6 +25,12 @@ await prepare({
     // Her 3"/50 on her forecastle.
     sec: { boxes: [{ x: [-2.2, 2.2], y: [7.8, 11.5], z: [60.4, 66.6] }],
       gun: { guns: 1, minLen: 1.2, tris: 1000, barrelTris: 200, rests: [0] } },
+    // Her four Oerlikons as the model has them: a pair in the tubs on her
+    // poop and a pair on her midships house.
+    oer: { boxes: [
+      { x: [5.6, 7.7], y: [7.0, 9.2], z: [-56.6, -54.9] }, { x: [-7.7, -5.6], y: [7.0, 9.2], z: [-56.6, -54.9] },
+      { x: [3.2, 4.9], y: [12.3, 14.2], z: [-9.6, -8.2] }, { x: [-4.9, -3.2], y: [12.3, 14.2], z: [-9.6, -8.2] },
+    ], gun: { whole: true, tris: 2000, error: 0.01 } },
     // Her one screw.
     screw: { boxes: [{ x: [-2.5, 2.5], y: [-5.8, -0.6], z: [-65.6, -62.8] }], min: 20, hullToo: true },
   },

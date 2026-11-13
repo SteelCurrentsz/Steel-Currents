@@ -8,8 +8,8 @@
 // tubes are the model -- "Japanese Destroyer Fubuki" by kriss50
 // (https://skfb.ly/ptWOV), under Creative Commons Attribution 4.0 -- cut by
 // build/prepare-fubuki-hull.mjs (see build/kriss-hull.mjs), and put together
-// by krissShip.js with her two Lewis guns, her depth charge rails, her armour
-// and her insides.
+// by krissShip.js with her two Lewis guns, which the model does not draw, her
+// armour and her insides; her depth charge stowage aft is the model's own.
 import * as D from './fubukiHull.data.js';
 import { krissShip } from './krissShip.js';
 
@@ -18,6 +18,8 @@ const SHIP = krissShip({
   paints: { steel: 0x6e7175, steelDark: 0x4d5155, gun: 0x6e7175, gunDark: 0x3f4246, deckDark: 0x6b5242 },
   // Splinter plating round her machinery.
   armour: { citadel: [-22, 22], deck: 2.4, foot: -1.0, inset: 0.3 },
+  // Her depth charge stowage aft is the model's own, where her datasheet stands it.
+  gear: { model: true },
 });
 
 export const { LOA, BEAM, zAt, keelY, deckOver, shellAt, LINES, deckAt, MOUNT_SEATS } = SHIP;

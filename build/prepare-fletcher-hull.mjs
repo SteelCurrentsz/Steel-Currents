@@ -32,17 +32,8 @@ await prepare({
   paintLines: [0, BOOT, M22], deckPaints: ['deck'], underPaint: 'light',
   deckFallback: 5.5,
   hullTris: 45000,
-  // Her light guns and her depth charge gear are the fleet's own mountings,
-  // built in fletcher.js where the model has them; the model's are taken off.
-  remove: [
-    { x: [2.6, 6.2], y: [4.5, 10], z: [3.3, 6.8] }, { x: [-6.2, -2.6], y: [4.5, 10], z: [3.3, 6.8] },
-    { x: [-2, 2], y: [10.5, 13.6], z: [-27.6, -23.4] },
-    { x: [3.4, 6.2], y: [4.5, 8], z: [-17.8, -13.4] }, { x: [-6.2, -3.4], y: [4.5, 8], z: [-17.8, -13.4] },
-    { x: [3.2, 5.6], y: [4.5, 8], z: [-5.4, -3.2] }, { x: [-5.6, -3.2], y: [4.5, 8], z: [-5.4, -3.2] },
-    { x: [3.0, 5.6], y: [5, 10], z: [23.2, 25.6] }, { x: [-5.6, -3.0], y: [5, 10], z: [23.2, 25.6] },
-    { x: [3.4, 6.4], y: [3.8, 7], z: [-32, -21.4] }, { x: [-6.4, -3.4], y: [3.8, 7], z: [-32, -21.4] },
-    { x: [0.9, 2.7], y: [3.8, 7], z: [-57.6, -51.4] }, { x: [-2.7, -0.9], y: [3.8, 7], z: [-57.6, -51.4] },
-  ],
+  // Her light guns are cut free of her as the model draws them; her depth
+  // charge racks and K-guns stay on her as it draws them.
   kinds: {
     // Her five 5"/38s in their Mk 30 base-ring mounts: 51 and 52 forward,
     // 53 on her after deckhouse facing forward, 54 superfiring over 55 aft.
@@ -55,6 +46,17 @@ await prepare({
     ], gun: { guns: 1, minLen: 1.5, tris: 1400, barrelTris: 200, rests: [0, 0, 0, Math.PI, Math.PI],
       // Each about the middle of its gunhouse, over its base ring.
       pivots: [[0.14, 37.65], [0, 30.1], [0, -19.3], [0, -31.4], [0, -39.4]] } },
+    // Her twin Bofors on its tub on her after deckhouse.
+    bofors: { boxes: [
+      { x: [-1.4, 1.4], y: [10.45, 13], z: [-26.8, -24.4] },
+    ], gun: { whole: true, tris: 4000, error: 0.01 } },
+    // Her six Oerlikons: a pair on her bridge wings, two pairs abreast her
+    // after deckhouse.
+    oer: { boxes: [
+      { x: [3.3, 4.0], y: [8.0, 9.6], z: [24.3, 25.8] }, { x: [-4.0, -3.3], y: [8.0, 9.6], z: [24.3, 25.8] },
+      { x: [3.8, 5.2], y: [4.1, 5.6], z: [-14.45, -13.5] }, { x: [-5.2, -3.8], y: [4.1, 5.6], z: [-14.45, -13.5] },
+      { x: [3.8, 5.2], y: [4.1, 5.6], z: [-17.2, -16.3] }, { x: [-5.2, -3.8], y: [4.1, 5.6], z: [-17.2, -16.3] },
+    ], gun: { whole: true, tris: 2000, error: 0.01, rests: [0, 0, Math.PI / 2, -Math.PI / 2, Math.PI / 2, -Math.PI / 2] } },
     // Her two quintuple banks of 21-inch tubes on her centreline.
     tubes: { boxes: [
       { x: [-2.2, 2.2], y: [5, 8.5], z: [-15.2, -6.4] },

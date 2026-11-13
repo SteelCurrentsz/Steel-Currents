@@ -3,13 +3,13 @@
 // The VC2 emergency cargo ship of 1944: the Liberty ship's successor, a
 // hundred and thirty-nine metres, a geared turbine and fifteen and a half
 // knots, armed by the Naval Armed Guard with a 5"/38 on her poop, a 3"/50 on
-// her forecastle and eight Oerlikons.
+// her forecastle and four Oerlikons.
 //
-// Her hull, her house, her masts, booms and kingposts, and her two guns are
-// the model -- "Victory Cargo" by kriss50 (https://skfb.ly/pt9CU), under
+// Her hull, her house, her masts, booms and kingposts, her two guns and her
+// four Oerlikons are the model -- "Victory Cargo" by kriss50 (https://skfb.ly/pt9CU), under
 // Creative Commons Attribution 4.0 -- cut by build/prepare-victory-hull.mjs
 // (see build/kriss-hull.mjs), and put together by krissShip.js with her
-// Oerlikons, her insides and the splinter plating round her engine room.
+// insides and the splinter plating round her engine room.
 import * as D from './victoryHull.data.js';
 import { krissShip } from './krissShip.js';
 

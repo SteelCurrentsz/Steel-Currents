@@ -79,8 +79,8 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     const plate = steelMap();
     const planks = woodMap();
     mats = {
-      plating: new THREE.MeshPhongMaterial({ vertexColors: true, map: plate, specularMap: plate, specular: 0x3a4148, shininess: 30 }),
-      planked: new THREE.MeshPhongMaterial({ vertexColors: true, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5 }),
+      plating: new THREE.MeshPhongMaterial({ vertexColors: true, map: plate, specularMap: plate, specular: 0x3a4148, shininess: 30, side: THREE.DoubleSide }),
+      planked: new THREE.MeshPhongMaterial({ vertexColors: true, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5, side: THREE.DoubleSide }),
       sheet: new THREE.MeshPhongMaterial({ vertexColors: true, map: plate, specularMap: plate, specular: 0x3a4148, shininess: 30, side: THREE.DoubleSide }),
       deck: new THREE.MeshPhongMaterial({ color: 0x3e4856, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5 }),
     };
@@ -94,12 +94,15 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     for (const geo of slicesCache) g.add(new THREE.Mesh(geo, [m.plating, m.planked, m.sheet][geo.userData.surface] || m.plating));
   }
   const guns = new Map();
-  function gunPiece(kind) {
-    if (!guns.has(kind)) {
-      const p = D.GUNS[kind];
-      guns.set(kind, { house: decodePiece(p.house), guns: p.guns ? decodePiece(p.guns) : null, trunnion: p.trunnion, muzzles: p.muzzles, pitch: p.pitch, roof: p.roof });
+  function gunPiece(kind, ix = -1) {
+    // Each mounting as her model draws it, where it has its own piece.
+    const own = ix >= 0 && D.GUNS[kind] && D.GUNS[kind].each && D.GUNS[kind].each[ix];
+    const key = own ? `${kind}#${ix}` : kind;
+    if (!guns.has(key)) {
+      const p = own || D.GUNS[kind];
+      guns.set(key, { house: decodePiece(p.house), guns: p.guns ? decodePiece(p.guns) : null, trunnion: p.trunnion, muzzles: p.muzzles, pitch: p.pitch, roof: p.roof });
     }
-    return guns.get(kind);
+    return guns.get(key);
   }
 
   // ------------------------------------------------------- her lines ----
@@ -355,8 +358,8 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
 
   // -------------------------------------------------------- her guns ----
   const stowed = (m) => (m.rest === undefined ? m.angle : m.rest);
-  function sculpted(g, kind, x, y, z, rest, trainRate, name) {
-    const piece = gunPiece(kind);
+  function sculpted(g, kind, x, y, z, rest, trainRate, name, ix = -1) {
+    const piece = gunPiece(kind, ix);
     const m = new THREE.Group();
     m.position.set(x, y, z);
     m.rotation.y = rest;
@@ -382,12 +385,12 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
       if (d < bd) { bd = d; best = s; }
     }
     if (!best || bd > 0.8) throw new Error(`the ${CLS.name} has a ${what} at ${x}, ${z} her model does not`);
-    return best;
+    return { ...best, ix: (D.MOUNTS[kind] || []).indexOf(best) };
   }
   function mainBattery(g) {
     const turrets = CLS.turrets.map((t) => {
       const s = seatFor(t.piece || 'dp', t.x, t.z, 'dual-purpose gun');
-      const m = sculpted(g, t.piece || 'dp', s.x, s.y, s.z, stowed(t), CLS.gun.traverse, t.name);
+      const m = sculpted(g, t.piece || 'dp', s.x, s.y, s.z, stowed(t), CLS.gun.traverse, t.name, s.ix);
       m.userData.rest = undefined;
       return m;
     });
@@ -399,7 +402,7 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     for (const gun of CLS.aa.guns) {
       for (const spec of gun.mounts) {
         const s = seatFor(gun.piece, spec.x, spec.z, `${gun.caliber} mm`);
-        const a = sculpted(g, gun.piece, s.x, s.y, s.z, stowed(spec), gun.caliber < 25 ? 0.8 : 0.6);
+        const a = sculpted(g, gun.piece, s.x, s.y, s.z, stowed(spec), gun.caliber < 25 ? 0.8 : 0.6, undefined, s.ix);
         a.userData.rest = 0;
         a.userData.sector = { angle: spec.angle, arc: spec.arc, stow: stowed(spec) };
         a.userData.stops = gun.elev || null;

@@ -77,8 +77,8 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     const plate = steelMap();
     const planks = woodMap();
     mats = {
-      plating: new THREE.MeshPhongMaterial({ vertexColors: true, map: plate, specularMap: plate, specular: 0x3a4148, shininess: 30 }),
-      deck: new THREE.MeshPhongMaterial({ vertexColors: true, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5 }),
+      plating: new THREE.MeshPhongMaterial({ vertexColors: true, map: plate, specularMap: plate, specular: 0x3a4148, shininess: 30, side: THREE.DoubleSide }),
+      deck: new THREE.MeshPhongMaterial({ vertexColors: true, map: planks, specularMap: planks, specular: 0x16181c, shininess: 5, side: THREE.DoubleSide }),
       sheet: new THREE.MeshPhongMaterial({ vertexColors: true, map: plate, specularMap: plate, specular: 0x3a4148, shininess: 30, side: THREE.DoubleSide }),
     };
     finish(mats.plating);
@@ -91,16 +91,19 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     for (const geo of slices()) g.add(new THREE.Mesh(geo, [m.plating, m.deck, m.sheet][geo.userData.surface] || m.plating));
   }
   const guns = new Map();
-  function gunPiece(kind) {
-    if (!guns.has(kind)) {
-      const p = D.GUNS[kind];
+  function gunPiece(kind, ix = -1) {
+    // Each mounting as her model draws it, where it has its own piece.
+    const own = ix >= 0 && D.GUNS[kind] && D.GUNS[kind].each && D.GUNS[kind].each[ix];
+    const key = own ? `${kind}#${ix}` : kind;
+    if (!guns.has(key)) {
+      const p = own || D.GUNS[kind];
       if (!p) throw new Error(`${id} has no ${kind} cut from her model`);
-      guns.set(kind, {
+      guns.set(key, {
         house: decodePiece(p.house), guns: p.guns ? decodePiece(p.guns) : null,
         trunnion: p.trunnion, muzzles: p.muzzles, pitch: p.pitch, roof: p.roof,
       });
     }
-    return guns.get(kind);
+    return guns.get(key);
   }
 
   // ------------------------------------------------------ her lines ----
@@ -136,8 +139,8 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
 
   // ----------------------------------------------------- mountings ----
   const stowed = (m) => (m.rest === undefined ? m.angle : m.rest);
-  function sculpted(g, kind, x, y, z, rest, trainRate, name) {
-    const piece = gunPiece(kind);
+  function sculpted(g, kind, x, y, z, rest, trainRate, name, ix = -1) {
+    const piece = gunPiece(kind, ix);
     const m = new THREE.Group();
     m.position.set(x, y, z);
     m.rotation.y = rest;
@@ -165,12 +168,12 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
       if (d < bd) { bd = d; best = s; }
     }
     if (!best || bd > 0.8) throw new Error(`the ${CLS.name} has a ${what} at ${x}, ${z} her model does not`);
-    return best;
+    return { ...best, ix: (D.MOUNTS[kind] || []).indexOf(best) };
   }
   function mainBattery(g) {
     const turrets = CLS.turrets.map((t) => {
       const s = seatFor(main, t.x, t.z, 'turret');
-      return sculpted(g, main, s.x, s.y, s.z, stowed(t), CLS.gun.traverse, t.name);
+      return sculpted(g, main, s.x, s.y, s.z, stowed(t), CLS.gun.traverse, t.name, s.ix);
     });
     g.userData.turrets = turrets;
     return turrets;
@@ -189,7 +192,7 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     let a;
     if (battery.piece) {
       const s = seatFor(battery.piece, spec.x, spec.z, `${battery.caliber} mm`);
-      a = sculpted(g, battery.piece, s.x, s.y, s.z, stowed(spec), trainRate);
+      a = sculpted(g, battery.piece, s.x, s.y, s.z, stowed(spec), trainRate, undefined, s.ix);
     } else {
       const make = BUILDERS[battery.build];
       if (!make) throw new Error(`no mounting ${battery.build} for the ${CLS.name}'s ${battery.name}`);
@@ -215,7 +218,7 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     if (aa.length !== lightMounts(CLS).length) throw new Error(`the ${CLS.name} built a light battery her datasheet does not list`);
     const torp = CLS.torpedoes ? CLS.torpedoes.mounts.map((spec) => {
       const s = seatFor(tubes, spec.x, spec.z, 'bank of tubes');
-      const piece = gunPiece(tubes);
+      const piece = gunPiece(tubes, s.ix);
       const m = new THREE.Group();
       m.position.set(s.x, s.y, s.z);
       m.rotation.y = stowed(spec);
@@ -249,7 +252,8 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     return c;
   }
   function depthCharges(g) {
-    if (!DC) return;
+    // Her model draws her racks and her K-guns itself: nothing built over them.
+    if (!DC || gear.model) return;
     const RAIL = gear.rail ?? 4.2;
     for (const r of DC.racks) {
       const n = 8;
@@ -329,7 +333,9 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     const g = new THREE.Group();
     for (const [, b] of STATIC) b(g);
     if (extra) extra(g, ctx);
-    buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + 0.12, sheer: deckOver, zAt });
+    // Her insides kept under her decks as the model draws them: nothing of
+    // them showing through where a deck steps down.
+    buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + 0.12, sheer: deckOver, zAt, roofAt: surface.surfaceY });
     mergeStatic(g, bySection(LOA));
     const turrets = mainBattery(g);
     mountings(g);

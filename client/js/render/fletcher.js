@@ -11,9 +11,9 @@
 // two banks of tubes are the model -- "USS Fletcher (War Thunder)" by
 // KojfDiscord (https://skfb.ly/pxJuz), under Creative Commons Attribution
 // 4.0 -- cut by build/prepare-fletcher-hull.mjs (see build/kriss-hull.mjs),
-// and put together by krissShip.js with her twin Bofors and her Oerlikons,
-// her depth charge racks and K-guns where her datasheet stands them, her
-// splinter plating and her insides.
+// and put together by krissShip.js with her twin Bofors and her Oerlikons cut
+// from the model too, her depth charge racks and K-guns left on her as the
+// model draws them, her splinter plating and her insides.
 import * as D from './fletcherHull.data.js';
 import { krissShip } from './krissShip.js';
 
@@ -22,6 +22,8 @@ const SHIP = krissShip({
   // Measure 22's haze grey on her guns and her gear.
   paints: { steel: 0x87909a, steelDark: 0x5c646d, gun: 0x87909a, gunDark: 0x4d545c, deckDark: 0x3e4856 },
   armour: { citadel: [-24, 22], deck: 2.6, foot: -1.2, inset: 0.3 },
+  // Her racks and her K-guns are the model's own, where her datasheet stands them.
+  gear: { model: true },
 });
 
 export const { LOA, BEAM, zAt, keelY, deckOver, shellAt, LINES, MOUNT_SEATS } = SHIP;
