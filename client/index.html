@@ -489,6 +489,12 @@
       <p class="credit">"<a href="https://skfb.ly/pHKou" target="_blank" rel="noopener">Grumman E-2D Advanced Hawkeye</a>"
         by Muhamad Mirza Arrafi is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptOqN" target="_blank" rel="noopener">USS Alaska</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptKUo" target="_blank" rel="noopener">USS Salem (CA-139)</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/pKNuG" target="_blank" rel="noopener">USS North Carolina (War Thunder) Heavy Cavalry</a>"
         by KojfDiscord is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
@@ -502,6 +508,30 @@
         by kriss50 is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/ptuBZ" target="_blank" rel="noopener">HMS Agincourt (1913)</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptWOV" target="_blank" rel="noopener">Japanese Destroyer Fubuki</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pxJuz" target="_blank" rel="noopener">USS Fletcher (War Thunder)</a>"
+        by KojfDiscord is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptTAs" target="_blank" rel="noopener">Japanese destroyer Shimakaze</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptTA7" target="_blank" rel="noopener">Japanese Destroyer Yūgumo</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pt9CU" target="_blank" rel="noopener">Victory Cargo</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptKrU" target="_blank" rel="noopener">French Battleship Dunkerque</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptOWO" target="_blank" rel="noopener">USS Lexington</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/p9vxQ" target="_blank" rel="noopener">USS Essex (CV-9)</a>"
         by kriss50 is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/oAXAL" target="_blank" rel="noopener">M4A2 Sherman</a>"
@@ -1135,6 +1165,15 @@
   <div class="yard-grab" id="yard-grab"></div>
 
   <div class="yard-head">
+    <!-- Find a hull by name, class or type without walking the list to her:
+         what matches drops down under the box, and choosing one puts her on
+         the water, whichever era's list she is in. -->
+    <div class="yard-search" id="yard-search-wrap">
+      <input id="yard-search" class="yard-search-input" type="search" placeholder="Search ships" autocomplete="off"
+        spellcheck="false" enterkeyhint="go" role="combobox" aria-label="Search for a ship" aria-autocomplete="list"
+        aria-controls="yard-search-list" aria-expanded="false">
+      <ul id="yard-search-list" class="yard-search-list" role="listbox" aria-label="Ships found" hidden></ul>
+    </div>
     <h2 id="yard-name">Iowa</h2>
     <p class="yard-class" id="yard-class">Iowa Class Battleship</p>
     <button class="yard-commission" id="yard-commission" type="button">Commission Vessel</button>
@@ -1324,7 +1363,7 @@
     <div class="era-choices">
       <button class="btn era-btn" type="button" data-era="ww1">WWI<em>1914&ndash;1918</em></button>
       <button class="btn era-btn" type="button" data-era="wwii">WWII<em>1939&ndash;1945</em></button>
-      <button class="btn era-btn" type="button" data-era="modern">Modern<em>Cold War&ndash;Missile Age</em></button>
+      <button class="btn era-btn" type="button" data-era="modern">Modern<em>Post WWII&ndash;Missile Age</em></button>
       <button class="btn era-btn" type="button" data-era="civil">Transport and Cargo<em>Merchantmen &amp; Transports</em></button>
       <button class="btn era-btn" type="button" data-era="premium">Premium<em>Tillman &amp; the store&rsquo;s hulls</em></button>
     </div>

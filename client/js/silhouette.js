@@ -199,6 +199,41 @@ const HULLS = {
     <path d="M54 28 L55 15 L59 15 L59 28 Z"/>
     <rect x="62" y="22" width="9" height="8"/>
     <rect x="80" y="26" width="8" height="4"/>`,
+  // The Alaska: a long, low flush deck sheered up to a clipper bow, two
+  // triple turrets forward, the inner one superfiring with a twin 5 in over
+  // it, a tall tower bridge with its pole mast, one big funnel with a
+  // mainmast beside it, the after superstructure under a twin 5 in, and one
+  // triple turret aft on her quarterdeck.
+  alaska: `
+    <path d="M2 26 L18 29 L98 29 L95 37 L6 37 Z"/>
+    <rect x="23" y="25" width="8" height="4"/>
+    <rect x="30" y="22" width="8" height="4"/>
+    <rect x="37" y="19" width="4" height="4"/>
+    <rect x="41" y="12" width="9" height="17"/>
+    <rect x="44" y="4" width="3" height="9"/>
+    <rect x="45" y="1" width="1" height="4"/>
+    <path d="M53 29 L54 13 L60 13 L60 29 Z"/>
+    <rect x="61" y="8" width="1.4" height="21"/>
+    <rect x="62" y="20" width="8" height="9"/>
+    <rect x="68" y="18" width="4" height="3"/>
+    <rect x="71" y="25" width="8" height="4"/>`,
+  // The Des Moines: a long flush deck sheered up to her bow, two triple
+  // turrets forward, the inner one superfiring with a twin 5 in over it, a
+  // tall block bridge, a lattice-topped foremast, two funnels close together
+  // with a mainmast between them, and one triple turret aft under a twin 5 in.
+  desmoines: `
+    <path d="M2 27 L20 29 L98 29 L95 37 L6 37 Z"/>
+    <rect x="20" y="25" width="8" height="4"/>
+    <rect x="27" y="22" width="8" height="4"/>
+    <rect x="34" y="19" width="5" height="4"/>
+    <rect x="38" y="14" width="10" height="15"/>
+    <rect x="49" y="5" width="1.8" height="14"/>
+    <path d="M51 29 L52 15 L56 15 L56 29 Z"/>
+    <rect x="58" y="10" width="1.6" height="19"/>
+    <path d="M61 29 L62 17 L65 17 L65 29 Z"/>
+    <rect x="66" y="22" width="9" height="7"/>
+    <rect x="67" y="19" width="5" height="4"/>
+    <rect x="73" y="25" width="8" height="4"/>`,
   // The Leviathan: a long cruiser hull, a tall bridge forward, two big
   // funnels with a lattice mast abaft each, and four quadruple turrets, two
   // at each end, the inner ones superfiring.
@@ -268,7 +303,7 @@ export function silhouette(classId, { flip = false, cls = '', badge = null } = {
   // Maya off the Takao, the Missouri off the Iowa, which she is with missiles
   // on her, and the Hornet off the Enterprise, the Yorktown she was built to
   // the drawings of.
-  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise', nimitz: 'enterprise' }[classId] || classId] || HULLS.fletcher;
+  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise', nimitz: 'enterprise', essex: 'enterprise', lexington: 'enterprise', fubuki: 'yukikaze', shimakaze: 'yukikaze', yugumo: 'yukikaze', victory: 'liberty', dunkerque: 'richelieu' }[classId] || classId] || HULLS.fletcher;
   const mark = badge ? BADGES[badge] || '' : '';
   // Room either side for the arrow, and above for the cross. Equal margins, so
   // the box's centre line is the hull's centre line and the mirror below maps
