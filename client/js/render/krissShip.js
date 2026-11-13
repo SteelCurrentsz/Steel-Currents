@@ -324,7 +324,7 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
   }
 
   // --------------------------------------------------------- build ----
-  const STATIC = [['hullModel', hullModel], ['depthCharges', depthCharges], ['armour', armour], ['screws', screws]];
+  const STATIC = [['hull', hullModel], ['depthCharges', depthCharges], ['armour', armour], ['screws', screws]];
   function build(extra = null) {
     const g = new THREE.Group();
     for (const [, b] of STATIC) b(g);

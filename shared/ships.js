@@ -599,7 +599,7 @@ export const SHIP_CLASSES = {
       // third metres long; drawn, seven, so it lies inside the sculpt's
       // tubes. Each bank drops it from its own height (`my`).
       launch: {
-        eject: 12, stagger: 0.35, lanes: [-1.0, -0.5, 0, 0.5, 1.0], lie: 0.4, muzzle: 3.97,
+        eject: 12, stagger: 0.35, lanes: [-2.416, -1.472, -0.908, -0.223, 0.932], lie: 0.4, muzzle: 3.97,
         fish: { len: 7.0, r: 0.267, kind: 'mk15' },
       },
     },
@@ -617,8 +617,8 @@ export const SHIP_CLASSES = {
         // deckhouse between 53 and 54.
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.28, range: 3200, build: 'twinBofors',
           mounts: [
-            { x: -4.3, z: 4.9, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 2 },
-            { x: 4.3, z: 4.9, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 2 },
+            { x: -3.3, z: -4.0, angle: -1.57, arc: 1.9, rest: -Math.PI / 2, guns: 2 },
+            { x: 3.3, z: -4.0, angle: 1.57, arc: 1.9, rest: Math.PI / 2, guns: 2 },
             { x: 0, z: -25.5, angle: Math.PI, arc: 2.27, rest: Math.PI, guns: 2 },
           ] },
         // Eight single Oerlikons: a pair on her bridge wings, two pairs at her
@@ -631,10 +631,10 @@ export const SHIP_CLASSES = {
             { x: 4.1, z: 24.3, angle: 1.1, arc: 1.92, rest: Math.PI / 2, guns: 1 },
             { x: -4.2, z: -4.3, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1, y: 4.5 },
             { x: 4.2, z: -4.3, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1, y: 4.5 },
-            { x: -4.4, z: -14.3, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1 },
-            { x: 4.4, z: -14.3, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1 },
-            { x: -4.4, z: -16.8, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1 },
-            { x: 4.4, z: -16.8, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1 },
+            { x: -4.15, z: -14.3, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1 },
+            { x: 4.15, z: -14.3, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1 },
+            { x: -4.15, z: -16.8, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1 },
+            { x: 4.15, z: -16.8, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1 },
           ] },
       ],
     },
@@ -1304,8 +1304,8 @@ export const SHIP_CLASSES = {
         { name: '7.7 mm Lewis', caliber: 8, role: 'aa', reload: 0.1, range: 1500, build: 'single25',
           elev: { min: -0.175, max: 1.4 },
           mounts: [
-            { x: -3.2, z: 21.5, angle: -1.57, arc: 1.7, rest: -Math.PI / 2, guns: 1 },
-            { x: 3.2, z: 21.5, angle: 1.57, arc: 1.7, rest: Math.PI / 2, guns: 1 },
+            { x: -3.2, z: 21.5, angle: -1.2, arc: 1.4, rest: -Math.PI / 2, guns: 1 },
+            { x: 3.2, z: 21.5, angle: 1.57, arc: 1.4, rest: Math.PI / 2, guns: 1 },
           ] },
       ],
     },
@@ -4211,7 +4211,7 @@ export const SHIP_CLASSES = {
     nation: 'fra',
     blurb: 'Eight 330 mm all forward in two quadruple turrets, thirty knots, and the first dual-purpose secondary battery in any battleship.',
     hull: {
-      funnels: [[0, -22.6, 25.5]], length: 215.14, beam: 31.08, draft: 8.7, superstructure: 1.35 },
+      funnels: [[0, -19.8, 24.6]], length: 215.14, beam: 31.08, draft: 8.7, superstructure: 1.35 },
     hp: 56000,
     // A hundred and twelve thousand horsepower on four shafts.
     maxSpeed: 29.5 * KNOTS,

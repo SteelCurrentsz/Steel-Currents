@@ -29,8 +29,11 @@ export const FLETCHER_LOA = LOA;
 export const FLETCHER_BEAM = BEAM;
 export const DRAFT = SHIP.CLS.hull.draft;
 export const FLETCHER_DRAFT = DRAFT;
-/** Her deck on her centreline at z. */
-export const deckAt = (z) => SHIP.surfaceY(0, z);
+/** Her weather deck at z, a metre in from her side: under her guns, her tubes and her deckhouses. */
+export const deckAt = (z) => {
+  const t = (2 * z) / LOA;
+  return SHIP.surfaceY(Math.max(0.5, shellAt(t, deckOver(t) - 0.3) - 1.0), z);
+};
 /** The deck over her insides at station t (bow +1). */
 export const sheer = deckOver;
 /** How far out from her centreline her side is at z, at her deck. */
