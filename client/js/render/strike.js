@@ -428,10 +428,18 @@ export class Strike {
 
     this.yamato = new Hull('yamato', this.yamatoTrack, ocean, wakes);
     this.musashi = new Hull('musashi', this.musashiTrack, ocean, wakes);
+    // Their screen: destroyers of the Yukikaze's class ahead and on either
+    // beam, turning with the flagship.
+    const yTurns = [[66, -0.022, 26], [150, 0.026, 30], [195, -0.03, 30], [238, 0.018, 24]];
+    this.escorts = [[-1500, 1700], [2700, 900], [-1700, -1300]].map(([x, z], i) => {
+      const h = new Hull('yukikaze', new Track({ x, z, heading: 0, knots: 25, turns: yTurns.map(([t, r, d]) => [t + 1.5 * i, r * 1.1, d]) }), ocean, wakes);
+      h.id = `yukikaze${i}`;
+      return h;
+    });
     this.essex = new Hull('essex', this.cvTrack, ocean, wakes);
     this.essex2 = new Hull('essex', this.cv2Track, ocean, wakes);
     this.essex2.id = 'essex2';
-    this.ships = [this.yamato, this.musashi, this.essex, this.essex2];
+    this.ships = [this.yamato, this.musashi, ...this.escorts, this.essex, this.essex2];
     for (const s of this.ships) scene.add(s.group);
     // The flight deck: how high it stands, and how far it runs.
     this.deckY = this.essex.built.flightDeckY || this.essex.group.userData.flightDeckY || 17.5;
@@ -797,6 +805,7 @@ export class Strike {
     // The guns of both ships at whatever is in reach of them.
     this.antiAircraft(this.yamato, live, dt);
     this.antiAircraft(this.musashi, live, dt);
+    for (const e of this.escorts) this.antiAircraft(e, live, dt);
   }
 
   /** A fighter's six fifties: the flicker on her wings and the sea torn up ahead of her. */

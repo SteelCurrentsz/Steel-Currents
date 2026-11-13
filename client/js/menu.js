@@ -174,7 +174,7 @@ export class TitleScene {
     this.prev = null;
 
     // The fleet, fetched behind the title: the battle starts when it is in.
-    loadShips(['yamato', 'musashi', 'essex']).then(() => {
+    loadShips(['yamato', 'musashi', 'yukikaze', 'essex']).then(() => {
       try { this.begin(); } catch (e) { console.error('Steel Currents: the strike would not stage', e); }
     }).catch(() => { /* the sea alone, until they can be fetched */ });
   }
