@@ -70,7 +70,7 @@ export function mnPaint(f) {
 // upperworks, their weather decks bare planking -- the hull's own, and none
 // of the roofs and platforms over it -- red under the waterline with a black
 // band at it.
-export const IJN_BB_PAINTS = { ...IJN_PAINTS, wood: 0x8f7a5c };
+export const IJN_BB_PAINTS = { ...IJN_PAINTS, wood: 0x7e705c };
 export function ijnBBPaint(f) {
   if (f.kind === 'screw') return 'dark';
   if (f.cy < -0.02) return 'bottom';
