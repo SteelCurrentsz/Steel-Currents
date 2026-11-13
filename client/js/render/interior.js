@@ -91,6 +91,10 @@ function platform(g, m, hull, y, t0, t1, inset = 0.10, steps = 26) {
     // outside it, which puts the corner of the deck through her quarter.
     const w = narrowBetween(hull, t, y, span);
     const half = Math.max(0, w * (1 - inset));
+    // Under her deck all the way across, where the hull says how high her
+    // deck is at every point of it: a run of plate that would stand above it
+    // -- where her weather deck steps down -- is left out.
+    if (hull.roofAt && [-half, -half / 2, 0, half / 2, half].some((x) => hull.roofAt(x, z) < y + 0.3)) { prev = null; continue; }
     const a = n;
     pos.push(-half, y, z, half, y, z);
     n += 2;
@@ -1027,6 +1031,10 @@ function upperworks(inside, hull) {
       // somewhere to stand on it.
       const r = roomAt(za, lv.y - 0.12, lv.y + 0.12, zb);
       if (!r || !roomAt(za, lv.y + 0.25, lv.y + step * 0.5, zb)) continue;
+      // And only under a roof: a ship drawn off a model whose decks step down
+      // between her towers says how high her roof is everywhere, and a flat
+      // laid above it would show through.
+      if (hull.roofAt && [r.lo + 0.2, r.mid, r.hi - 0.2].some((x) => [za, zm, zb].some((z) => hull.roofAt(x, z) < lv.y + 0.4))) continue;
       box(inside, M.deck, r.half * 2, 0.18, zb - za, r.mid, lv.y, zm);
     }
     // The bulkheads that make it cabins and offices instead of one long space.
@@ -1067,6 +1075,13 @@ function upperworks(inside, hull) {
     if (!here || here.half < 0.5) break;
     top = lv.y + step * 0.4;
     room = here;
+  }
+  if (room && hull.roofAt) {
+    // Under the roof the model draws over it, and the foot over the deck under it.
+    const t0 = Math.min(2.2, Math.max(0.4, room.half * 0.6));
+    for (const x of [room.mid - t0, room.mid, room.mid + t0]) {
+      for (const z of [zc - t0 * 1.2, zc, zc + t0 * 1.2]) top = Math.min(top, hull.roofAt(x, z) - 0.3);
+    }
   }
   if (room && top > foot + step * 0.6) {
     const trunk = Math.min(2.2, Math.max(0.4, room.half * 0.6));

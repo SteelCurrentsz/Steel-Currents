@@ -10,8 +10,8 @@
 // and her 25 mm are the model -- "Japanese destroyer Shimakaze" by kriss50
 // (https://skfb.ly/ptTAs), under Creative Commons Attribution 4.0 -- cut by
 // build/prepare-shimakaze-hull.mjs (see build/kriss-hull.mjs), and put
-// together by krissShip.js with her depth charge rails, her armour and her
-// insides.
+// together by krissShip.js with her armour and her insides; her depth
+// charge stowage aft is the model's own.
 import * as D from './shimakazeHull.data.js';
 import { krissShip } from './krissShip.js';
 
@@ -20,6 +20,8 @@ const SHIP = krissShip({
   paints: { steel: 0x6e7175, steelDark: 0x4d5155, gun: 0x6e7175, gunDark: 0x3f4246, deckDark: 0x6b5242 },
   // Splinter plating round her machinery, and nothing over her magazines.
   armour: { citadel: [-24, 24], deck: 2.6, foot: -1.0, inset: 0.3 },
+  // Her depth charge stowage aft is the model's own, where her datasheet stands it.
+  gear: { model: true },
 });
 
 export const { LOA, BEAM, zAt, keelY, deckOver, shellAt, LINES, deckAt, MOUNT_SEATS } = SHIP;

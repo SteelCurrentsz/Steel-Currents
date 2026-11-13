@@ -135,6 +135,7 @@ export async function prepare(cfg) {
   // thick and metres long, over her deck: decimated, a scatter of shards in the
   // sky. Every such run comes off her.
   const RIG = { y: 6, len: 3, faces: 24, ...(cfg.rigging || {}) };
+  const WIRE = -7;
   {
     const P = model.P, T = model.T;
     const id = new Map(), up = [];
@@ -156,8 +157,14 @@ export async function prepare(cfg) {
     for (let t = 0; t < nf; t++) {
       const r = find(first[t]);
       let p = parts.get(r);
-      if (!p) parts.set(r, p = { n: 0, lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
+      if (!p) parts.set(r, p = { n: 0, area: 0, lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
       p.n++;
+      {
+        const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, c = T[t * 3 + 2] * 3;
+        const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+        const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+        p.area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+      }
       for (let k = 0; k < 3; k++) {
         const v = T[t * 3 + k];
         for (let c = 0; c < 3; c++) { p.lo[c] = Math.min(p.lo[c], P[v * 3 + c]); p.hi[c] = Math.max(p.hi[c], P[v * 3 + c]); }
@@ -168,16 +175,16 @@ export async function prepare(cfg) {
       const len = Math.hypot(p.hi[0] - p.lo[0], p.hi[1] - p.lo[1], p.hi[2] - p.lo[2]);
       const thin = Math.min(p.hi[0] - p.lo[0], p.hi[1] - p.lo[1], p.hi[2] - p.lo[2]) < 0.25;
       const upright = (p.hi[1] - p.lo[1]) > 0.95 * len;
-      if (len > RIG.len && p.n <= RIG.faces && thin && p.lo[1] > RIG.y && !upright) wire.add(r);
+      // A wire is thin all round: as much skin as a rod a hand across, not a
+      // plate of deck or a sheet of plating, which are thin one way only.
+      const rod = p.area < 0.3 * len;
+      if (len > RIG.len && p.n <= RIG.faces && thin && rod && p.lo[1] > RIG.y && !upright) wire.add(r);
     }
-    const T2 = [], G2 = [], L2 = [], M2 = [];
+    // Kept on her, as her model draws it, but marked: no mounting is made of
+    // a wire, and nothing is seated on one.
     let cut = 0;
-    for (let t = 0; t < nf; t++) {
-      if (wire.has(find(first[t]))) { cut++; continue; }
-      T2.push(T[t * 3], T[t * 3 + 1], T[t * 3 + 2]); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]);
-    }
-    model.T = T2; model.G = G2; model.L = L2; model.M = M2;
-    console.log(`rigging: ${wire.size} wires, ${cut} faces, taken off her`);
+    for (let t = 0; t < nf; t++) if (wire.has(find(first[t]))) { model.L[t] = WIRE; cut++; }
+    console.log(`rigging: ${wire.size} wires, ${cut} faces, kept off her decks`);
   }
 
   // ---- her flight deck (a carrier) --------------------------------------------------
@@ -335,6 +342,7 @@ export async function prepare(cfg) {
     const byRoot = new Map();
     const list = [];
     for (let t = 0; t < nf; t++) {
+      if (model.L[t] === WIRE) continue;
       const r = find(first[t]);
       let p = byRoot.get(r);
       if (!p) { p = { tris: [], node: model.L[t], lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] }; byRoot.set(r, p); list.push(p); }
@@ -745,7 +753,8 @@ export async function prepare(cfg) {
   }
   function reduce(m, target, error, flags = [], pinned = null) {
     const w = weldPainted(m);
-    const ratio = Math.min(1, target / (w.T.length / 3));
+    // Her model exactly as drawn: nothing thinned out of it unless a ship asks.
+    const ratio = cfg.decimate ? Math.min(1, target / (w.T.length / 3)) : 1;
     let lock = null;
     if (pinned) {
       lock = new Uint8Array(w.P.length / 3);
@@ -796,22 +805,29 @@ export async function prepare(cfg) {
   }
 
   // ---- her hull --------------------------------------------------------------------
-  const hullRaw = subMeshOf((t) => !kindOf.has(t) && !NOT_HERS.has(t));
+  const hullRaw = subMeshOf((t) => !kindOf.has(t) && !NOT_HERS.has(t) && model.L[t] !== WIRE);
+  const wires = creaseNormals(reduce(subMeshOf((t) => !kindOf.has(t) && !NOT_HERS.has(t) && model.L[t] === WIRE), Infinity, 0));
   console.log('hull:', hullRaw.T.length / 3, 'triangles before decimation');
   hullRaw.S0 = orient(hullRaw);
   {
-    // Repainted the way her faces now face: a flat looking down is never deck.
-    let n = 0;
+    // Her decks, every one of them looking up.
+    let flipped = 0;
     const deckKeys = new Set((cfg.deckPaints || ['deck']).map((k) => PI[k]).filter((v) => v !== undefined));
-    const under = PI[cfg.underPaint || 'grey'];
     for (let t = 0; t < hullRaw.T.length / 3; t++) {
       const c = hullRaw.C[t];
       if (!deckKeys.has(c)) continue;
-      const [x, y, z] = faceNormal(hullRaw, hullRaw.T[t * 3], hullRaw.T[t * 3 + 1], hullRaw.T[t * 3 + 2]);
-      const l = Math.hypot(x, y, z) || 1;
-      if (y < -0.9 * l && !hullRaw.S0[t] && under !== undefined) { hullRaw.C[t] = under; n++; }
+      const y = faceNormal(hullRaw, hullRaw.T[t * 3], hullRaw.T[t * 3 + 1], hullRaw.T[t * 3 + 2])[1];
+      // A deck wound the wrong way round, so it looks down at her hold --
+      // the model's own winding, or a deck under a boat or a gun that no
+      // look from outside could see: turned to look up, as the deck it is.
+      // She is drawn from both sides, so nothing goes missing by it.
+      if (y < 0) {
+        const a = hullRaw.T[t * 3 + 1];
+        hullRaw.T[t * 3 + 1] = hullRaw.T[t * 3 + 2]; hullRaw.T[t * 3 + 2] = a;
+        flipped++;
+      }
     }
-    console.log(`decks: ${n} flats looking down repainted`);
+    console.log(`decks: ${flipped} wound upside down turned over`);
   }
   let hull = creaseNormals(reduce(hullRaw, cfg.hullTris || 60000, cfg.hullError || 0.002, ['Prune'],
     (x, y) => PAINT_LINES.some((l) => Math.abs(y - l) < 1e-3)));
@@ -859,14 +875,17 @@ export async function prepare(cfg) {
   // Sealed: what the decimator kept on one side and not the other is copied
   // across, and every face seen from behind from outside is drawn from both sides.
   {
-    const m = mirrorSides(hull, { loa: LOA, y0: -DRAUGHT - 3, y1: 70 });
+    // Nothing copied across her centreline: an island, a crane or a boat on
+    // one side only stays on that side, as her model has it.
+    const m = cfg.mirror ? mirrorSides(hull, { loa: LOA, y0: -DRAUGHT - 3, y1: 70 }) : { copied: 0 };
     const s = sealFromOutside(hull);
     console.log(`sealed: ${m.copied} faces copied across her centreline, ${s.made} drawn from both sides`);
   }
   const deckKeys = new Set((cfg.deckPaints || ['deck']).map((k) => PI[k]).filter((v) => v !== undefined));
   const surfaceOf = (t) => {
     const [x, y, z] = faceNormal(hull, hull.T[t * 3], hull.T[t * 3 + 1], hull.T[t * 3 + 2]);
-    if (y > 0.85 * Math.hypot(x, y, z) && deckKeys.has(hull.C[t])) return 1;
+    // Whatever is painted deck is drawn as deck: the paint and the surface agree.
+    if (y > 0.3 * Math.hypot(x, y, z) && deckKeys.has(hull.C[t])) return 1;
     return hull.S[t] ? 2 : 0;
   };
   // Her surface, as a height map.
@@ -893,7 +912,7 @@ export async function prepare(cfg) {
   const DECK_FALL = cfg.deckFallback ?? DRAUGHT * 1.6;
   const st = stations(hull, { length: LOA, beamCap: Math.min(3.0, DECK_FALL * 0.5), edgeCap: DECK_FALL, slice: true, beamFloor: -(DRAUGHT - 0.4) });
   const y0 = -Math.ceil(DRAUGHT + 1);
-  const LINES = measureLines(hull, st, { z0: -Math.ceil(LOA / 2 + 1), dz: 1, nz: Math.ceil(LOA) + 4, y0, dy: 0.5, ny: Math.ceil((DECK_FALL + 14 - y0) / 0.5) }, DECK_FALL);
+  const LINES = measureLines(hull, st, { z0: -Math.ceil(LOA / 2 + 1), dz: 1, nz: Math.ceil(LOA) + 4, y0, dy: 0.5, ny: Math.ceil((DECK_FALL + 14 - y0) / 0.5), deckMin: cfg.deckMin ?? 2.0 }, DECK_FALL);
   {
     const { keel, half, ny } = LINES;
     let mended = 0;
@@ -914,6 +933,51 @@ export async function prepare(cfg) {
       k = e;
     }
     console.log(`lines: ${mended} stations mended`);
+  }
+  if (cfg.deckFromAbove) {
+    // Her deck as it is seen from over her: the lowest of what stands open to
+    // the sky across her outboard half, both sides -- a model drawn with decks
+    // inside her offers those to a look along her sections first.
+    const { deck } = LINES;
+    const seen = new Uint8Array(deck.length);
+    let took = 0;
+    for (let k = 0; k < deck.length; k++) {
+      const z = LINES.z0 + k * LINES.dz;
+      const hw = st.halfB[st.zBin(z)];
+      if (!(hw > 1.5)) continue;
+      const jz = Math.round((z - HM.z0) / HM.step);
+      if (jz < 0 || jz >= HM.nz) continue;
+      let low = Infinity;
+      for (let x = hw * 0.4; x <= hw - 0.6; x += 0.5) {
+        for (const sx of [-x, x]) {
+          const i = Math.round((sx - HM.x0) / HM.step);
+          if (i < 0 || i >= HM.nx) continue;
+          const y = hm[jz * HM.nx + i];
+          if (y > 0.5) low = Math.min(low, y);
+        }
+      }
+      if (Number.isFinite(low)) { deck[k] = +low.toFixed(2); took++; seen[k] = 1; }
+    }
+    // At her stem and her counter, too fine to look down on, the nearest that could be.
+    for (let k = 0; k < deck.length; k++) {
+      if (seen[k]) continue;
+      for (let d = 1; d < deck.length; d++) {
+        const q = [k - d, k + d].find((j) => j >= 0 && j < deck.length && seen[j]);
+        if (q !== undefined) { deck[k] = deck[q]; break; }
+      }
+    }
+    // And where a house stands right across her -- her bridge -- the deck
+    // under it is the deck either side of it.
+    let bridged = 0;
+    for (let k = 1; k + 1 < deck.length; k++) {
+      if (!(deck[k] > deck[k - 1] + 1.5)) continue;
+      let e = k;
+      while (e < deck.length && deck[e] > deck[k - 1] + 1.5) e++;
+      if (e >= deck.length || e - k > 24) continue;
+      for (let q = k; q < e; q++) { deck[q] = +(deck[k - 1] + ((deck[e] - deck[k - 1]) * (q - k + 1)) / (e - k + 1)).toFixed(2); bridged++; }
+      k = e;
+    }
+    console.log(`lines: ${took} stations of her deck taken from over her, ${bridged} under a house across her`);
   }
   if (DECK) {
     // How far out her plating actually is up the height of her hangar: at
@@ -945,6 +1009,13 @@ export async function prepare(cfg) {
     const w = [];
     for (let k = 0; k < NZ; k++) for (let jy = 0; jy < NY; jy++) w.push(+span(k, Y0 + jy * DY).toFixed(2));
     LINES.inner = { z0: Z0, dz: 1, nz: NZ, y0: Y0, dy: DY, ny: NY, w };
+  }
+  {
+    // Her rigging back on her, drawn from both sides, now her decks are measured.
+    const base = hull.P.length / 3;
+    hull.P.push(...wires.P); hull.N.push(...wires.N);
+    for (const v of wires.T) hull.T.push(v + base);
+    for (const c of wires.C) { hull.C.push(c); hull.S.push(1); }
   }
   const col = new Uint8Array(hull.P.length / 3 * 3);
   for (let t = 0; t < hull.T.length / 3; t++) for (let k = 0; k < 3; k++) col.set(PALETTE[hull.C[t]], hull.T[t * 3 + k] * 3);
@@ -1006,7 +1077,23 @@ export async function prepare(cfg) {
     let rest = Math.atan2(dx, dz);
     // A mounting laid fore and aft, as most are: put square on her line.
     if (spec.square) rest = Math.round(rest / (Math.PI / 2)) * (Math.PI / 2);
-    if (spec.rest !== undefined) rest = spec.rest;
+    if (spec.rest === 'axis') {
+      // A bank of tubes trained as the model has it: along the long way of
+      // it, the way of the two that is nearer her bow.
+      let sxx = 0, szz = 0, sxz = 0, n = 0, mx = 0, mz = 0;
+      for (let i = 0; i < m.P.length; i += 3) { mx += m.P[i]; mz += m.P[i + 2]; n++; }
+      mx /= n; mz /= n;
+      for (let i = 0; i < m.P.length; i += 3) {
+        const dx = m.P[i] - mx, dz = m.P[i + 2] - mz;
+        sxx += dx * dx; szz += dz * dz; sxz += dx * dz;
+      }
+      const th = 0.5 * Math.atan2(2 * sxz, szz - sxx);
+      rest = Math.abs(th) <= Math.PI / 2 ? th : th - Math.sign(th) * Math.PI;
+      // A degree or two off her centreline is the model's drawing, not a
+      // bank trained out: such a bank is laid fore and aft.
+      if (Math.abs(rest) < 0.06) rest = 0;
+      if (spec.flipAxis && spec.flipAxis(x, z)) rest += rest > 0 ? -Math.PI : Math.PI;
+    } else if (spec.rest !== undefined) rest = spec.rest;
     return { x, z, y: y0, rest };
   }
   function toMount(m, s) {
@@ -1126,7 +1213,52 @@ export async function prepare(cfg) {
       // Each tube's axis: its mouth, and the breech end of it, back along the bank.
       let zMin = Infinity;
       for (let i = 2; i < local.P.length; i += 3) zMin = Math.min(zMin, local.P[i]);
-      const muzzles = lanes.map((l) => [+(l.x / Math.max(1, l.n)).toFixed(3), +(l.y / Math.max(1, l.n)).toFixed(3), +zMax.toFixed(3)]);
+      let muzzles = lanes.map((l) => [+(l.x / Math.max(1, l.n)).toFixed(3), +(l.y / Math.max(1, l.n)).toFixed(3), +zMax.toFixed(3)]);
+      {
+        // Better, the tubes themselves: the runs of faces that hang together
+        // and lie the long way of the bank, long and narrow, each one's
+        // middle its lane and its fore end its mouth.
+        const P = local.P, T = local.T;
+        const up = [], id = new Map();
+        const find = (a) => { while (up[a] !== a) { up[a] = up[up[a]]; a = up[a]; } return a; };
+        const node = (v) => {
+          const k = `${Math.round(P[v * 3] * 500)},${Math.round(P[v * 3 + 1] * 500)},${Math.round(P[v * 3 + 2] * 500)}`;
+          let i = id.get(k);
+          if (i === undefined) { i = up.length; id.set(k, i); up.push(i); }
+          return i;
+        };
+        const first = [];
+        for (let t = 0; t < T.length; t += 3) {
+          const a = node(T[t]), b = node(T[t + 1]), c = node(T[t + 2]);
+          up[find(b)] = find(a); up[find(c)] = find(a);
+          first.push(a);
+        }
+        const runs = new Map();
+        for (let t = 0; t < T.length / 3; t++) {
+          const r = find(first[t]);
+          let q = runs.get(r);
+          if (!q) runs.set(r, q = { lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
+          for (let k = 0; k < 3; k++) {
+            const v = T[t * 3 + k];
+            for (let c = 0; c < 3; c++) { q.lo[c] = Math.min(q.lo[c], P[v * 3 + c]); q.hi[c] = Math.max(q.hi[c], P[v * 3 + c]); }
+          }
+        }
+        const len = zMax - zMin;
+        const long = [...runs.values()].filter((q) => q.hi[2] - q.lo[2] > Math.min(len * 0.45, 3.0) && q.hi[0] - q.lo[0] < 1.0 && q.hi[1] - q.lo[1] < 1.0)
+          .sort((a, b) => (b.hi[2] - b.lo[2]) - (a.hi[2] - a.lo[2]));
+        // One to a lane: the longest at each place across the bank.
+        const picked = [];
+        for (const q of long) {
+          const x = (q.lo[0] + q.hi[0]) / 2;
+          if (picked.every((o) => Math.abs((o.lo[0] + o.hi[0]) / 2 - x) > 0.3)) picked.push(q);
+          if (picked.length === tubes) break;
+        }
+        if (picked.length === tubes) {
+          const mouth = Math.max(...picked.map((q) => q.hi[2]));
+          muzzles = picked.map((q) => [+((q.lo[0] + q.hi[0]) / 2).toFixed(3), +((q.lo[1] + q.hi[1]) / 2).toFixed(3), +mouth.toFixed(3)])
+            .sort((a, b) => a[0] - b[0]);
+        } else console.log(`${kind}: ${picked.length} of ${tubes} tubes found as runs of their own; mouths from the fore end`);
+      }
       let roof = 0;
       for (let i = 1; i < hd.P.length; i += 3) roof = Math.max(roof, hd.P[i]);
       console.log(`${kind}: bank of ${tubes}, ${hd.T.length / 3} triangles, mouths ${muzzles.map((m) => m.join(',')).join(' ')}, breech ${zMin.toFixed(2)}`);
@@ -1181,13 +1313,25 @@ export async function prepare(cfg) {
   for (const [kind, spec] of Object.entries(cfg.kinds || {})) {
     if (!spec.gun) continue;
     GUNS[kind] = gunKind(kind, spec.gun);
+    // And every mounting of the kind as her model draws that one: no copy of
+    // one of them stood in the place of another that differs from it.
+    const tpl = spec.gun.template || 0;
+    GUNS[kind].each = KINDS[kind].map((_, i) => {
+      if (i === tpl) return null;
+      try { return gunKind(kind, { ...spec.gun, template: i }); } catch (e) {
+        console.log(`${kind} ${i}: drawn as mounting ${tpl} (${e.message})`);
+        return null;
+      }
+    });
+    CUR_KIND = kind;
   }
   function seats(kind) {
-    const g = GUNS[kind];
+    const g0 = GUNS[kind];
     const spec = cfg.kinds[kind].gun;
     return KINDS[kind].map((gi, i) => {
       const s = seatOf(groupMesh(gi), { ...spec, rest: (spec.rests && spec.rests[i] !== undefined) ? spec.rests[i] : spec.rest,
         pivot: spec.pivots ? spec.pivots[i] : spec.pivot });
+      const g = (g0.each && g0.each[i]) || g0;
       const c = Math.cos(g.pitch), sn = Math.sin(g.pitch);
       const out = g.muzzles.map(([x, y, z]) => {
         const yy = y * c + z * sn + g.trunnion[1], zz = -y * sn + z * c + g.trunnion[2];
@@ -1223,6 +1367,16 @@ export async function prepare(cfg) {
   console.log('screws:', SCREWS.map((s) => `(${s.x}, ${s.y}, ${s.z}) r ${s.r}`).join(' '));
 
   // ---- a look at her, whole ----------------------------------------------------------
+  if (process.env.DUMPBIN) {
+    // DUMPBIN=prefix: her hull before and after its finishing, as raw points and triangles.
+    const bin = (m, f) => {
+      const P = Float32Array.from(m.P), T = Uint32Array.from(m.T);
+      writeFileSync(f, Buffer.concat([Buffer.from(new Uint32Array([P.length, T.length]).buffer), Buffer.from(P.buffer), Buffer.from(T.buffer)]));
+    };
+    bin(hullRaw, `${process.env.DUMPBIN}-raw.bin`);
+    bin(model, `${process.env.DUMPBIN}-all.bin`);
+    bin(hull, `${process.env.DUMPBIN}-hull.bin`);
+  }
   if (process.env.DUMP) dumpGlb(process.env.DUMP, hull, MOUNTS, DEBUG, PALETTE);
 
   // ---- write --------------------------------------------------------------------------
