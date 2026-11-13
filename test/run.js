@@ -2999,9 +2999,10 @@ check('the Fuso is commissioned before the Mutsu, after the Kongo', () => {
   const i = SHIP_ORDER.indexOf('fuso');
   assert.ok(i >= 0, 'the Fuso is not in the yard');
   assert.equal(SHIP_ORDER[i - 1], 'kongo', `before the Fuso comes ${SHIP_ORDER[i - 1]}`);
-  // And the Mutsu between her and the Yamato.
-  assert.equal(SHIP_ORDER[i + 1], 'mutsu', `after the Fuso comes ${SHIP_ORDER[i + 1]}`);
-  assert.equal(SHIP_ORDER[i + 2], 'yamato', `after the Mutsu comes ${SHIP_ORDER[i + 2]}`);
+  // And her near-sister the Ise, and then the Mutsu between them and the Yamato.
+  assert.equal(SHIP_ORDER[i + 1], 'ise', `after the Fuso comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 2], 'mutsu', `after the Ise comes ${SHIP_ORDER[i + 2]}`);
+  assert.equal(SHIP_ORDER[i + 3], 'yamato', `after the Mutsu comes ${SHIP_ORDER[i + 3]}`);
   const cls = SHIP_CLASSES.fuso;
   assert.equal(cls.fullName, 'IJN Fuso');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
@@ -5753,9 +5754,10 @@ check('the Credits screen credits the model the Slava is drawn from', () => {
 check('the IJN Mutsu is commissioned after the Fuso, in the Second World War yard, armed as she was built', () => {
   const i = SHIP_ORDER.indexOf('mutsu');
   assert.ok(i >= 0, 'the Mutsu is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'fuso', `before the Mutsu comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 1], 'ise', `before the Mutsu comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 2], 'fuso', `before the Ise comes ${SHIP_ORDER[i - 2]}`);
   const w = WWII_ORDER.indexOf('mutsu');
-  assert.ok(w > 0 && WWII_ORDER[w - 1] === 'fuso', 'she is not in the Second World War yard after the Fuso');
+  assert.ok(w > 1 && WWII_ORDER[w - 1] === 'ise' && WWII_ORDER[w - 2] === 'fuso', 'she is not in the Second World War yard after the Fuso and the Ise');
   assert.ok(!MODERN_ORDER.includes('mutsu'), 'she is in the Modern yard');
   const cls = SHIP_CLASSES.mutsu;
   assert.equal(cls.fullName, 'IJN Mutsu');
