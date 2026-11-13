@@ -32,7 +32,7 @@ await prepare({
     tubes: { boxes: [
       { x: [-3.4, 3.4], y: [4.0, 6.8], z: [1.2, 10.3] },
       { x: [-3.4, 3.4], y: [3.8, 6.8], z: [-15.5, -6.6] },
-    ], gun: { tubes: 4, tris: 1400, rest: 0 } },
+    ], gun: { tubes: 4, tris: 1400, rest: 'axis' } },
     // Her 25 mm triples: one before her bridge, a pair abreast each funnel on
     // its platform, a pair on her quarterdeck and a pair right aft.
     aa3: { boxes: [

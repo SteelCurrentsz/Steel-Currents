@@ -912,7 +912,7 @@ export async function prepare(cfg) {
   const DECK_FALL = cfg.deckFallback ?? DRAUGHT * 1.6;
   const st = stations(hull, { length: LOA, beamCap: Math.min(3.0, DECK_FALL * 0.5), edgeCap: DECK_FALL, slice: true, beamFloor: -(DRAUGHT - 0.4) });
   const y0 = -Math.ceil(DRAUGHT + 1);
-  const LINES = measureLines(hull, st, { z0: -Math.ceil(LOA / 2 + 1), dz: 1, nz: Math.ceil(LOA) + 4, y0, dy: 0.5, ny: Math.ceil((DECK_FALL + 14 - y0) / 0.5) }, DECK_FALL);
+  const LINES = measureLines(hull, st, { z0: -Math.ceil(LOA / 2 + 1), dz: 1, nz: Math.ceil(LOA) + 4, y0, dy: 0.5, ny: Math.ceil((DECK_FALL + 14 - y0) / 0.5), deckMin: cfg.deckMin ?? 2.0 }, DECK_FALL);
   {
     const { keel, half, ny } = LINES;
     let mended = 0;
@@ -1032,7 +1032,20 @@ export async function prepare(cfg) {
     let rest = Math.atan2(dx, dz);
     // A mounting laid fore and aft, as most are: put square on her line.
     if (spec.square) rest = Math.round(rest / (Math.PI / 2)) * (Math.PI / 2);
-    if (spec.rest !== undefined) rest = spec.rest;
+    if (spec.rest === 'axis') {
+      // A bank of tubes trained as the model has it: along the long way of
+      // it, the way of the two that is nearer her bow.
+      let sxx = 0, szz = 0, sxz = 0, n = 0, mx = 0, mz = 0;
+      for (let i = 0; i < m.P.length; i += 3) { mx += m.P[i]; mz += m.P[i + 2]; n++; }
+      mx /= n; mz /= n;
+      for (let i = 0; i < m.P.length; i += 3) {
+        const dx = m.P[i] - mx, dz = m.P[i + 2] - mz;
+        sxx += dx * dx; szz += dz * dz; sxz += dx * dz;
+      }
+      const th = 0.5 * Math.atan2(2 * sxz, szz - sxx);
+      rest = Math.abs(th) <= Math.PI / 2 ? th : th - Math.sign(th) * Math.PI;
+      if (spec.flipAxis && spec.flipAxis(x, z)) rest += rest > 0 ? -Math.PI : Math.PI;
+    } else if (spec.rest !== undefined) rest = spec.rest;
     return { x, z, y: y0, rest };
   }
   function toMount(m, s) {
@@ -1152,7 +1165,52 @@ export async function prepare(cfg) {
       // Each tube's axis: its mouth, and the breech end of it, back along the bank.
       let zMin = Infinity;
       for (let i = 2; i < local.P.length; i += 3) zMin = Math.min(zMin, local.P[i]);
-      const muzzles = lanes.map((l) => [+(l.x / Math.max(1, l.n)).toFixed(3), +(l.y / Math.max(1, l.n)).toFixed(3), +zMax.toFixed(3)]);
+      let muzzles = lanes.map((l) => [+(l.x / Math.max(1, l.n)).toFixed(3), +(l.y / Math.max(1, l.n)).toFixed(3), +zMax.toFixed(3)]);
+      {
+        // Better, the tubes themselves: the runs of faces that hang together
+        // and lie the long way of the bank, long and narrow, each one's
+        // middle its lane and its fore end its mouth.
+        const P = local.P, T = local.T;
+        const up = [], id = new Map();
+        const find = (a) => { while (up[a] !== a) { up[a] = up[up[a]]; a = up[a]; } return a; };
+        const node = (v) => {
+          const k = `${Math.round(P[v * 3] * 500)},${Math.round(P[v * 3 + 1] * 500)},${Math.round(P[v * 3 + 2] * 500)}`;
+          let i = id.get(k);
+          if (i === undefined) { i = up.length; id.set(k, i); up.push(i); }
+          return i;
+        };
+        const first = [];
+        for (let t = 0; t < T.length; t += 3) {
+          const a = node(T[t]), b = node(T[t + 1]), c = node(T[t + 2]);
+          up[find(b)] = find(a); up[find(c)] = find(a);
+          first.push(a);
+        }
+        const runs = new Map();
+        for (let t = 0; t < T.length / 3; t++) {
+          const r = find(first[t]);
+          let q = runs.get(r);
+          if (!q) runs.set(r, q = { lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
+          for (let k = 0; k < 3; k++) {
+            const v = T[t * 3 + k];
+            for (let c = 0; c < 3; c++) { q.lo[c] = Math.min(q.lo[c], P[v * 3 + c]); q.hi[c] = Math.max(q.hi[c], P[v * 3 + c]); }
+          }
+        }
+        const len = zMax - zMin;
+        const long = [...runs.values()].filter((q) => q.hi[2] - q.lo[2] > Math.min(len * 0.45, 3.0) && q.hi[0] - q.lo[0] < 1.0 && q.hi[1] - q.lo[1] < 1.0)
+          .sort((a, b) => (b.hi[2] - b.lo[2]) - (a.hi[2] - a.lo[2]));
+        // One to a lane: the longest at each place across the bank.
+        const picked = [];
+        for (const q of long) {
+          const x = (q.lo[0] + q.hi[0]) / 2;
+          if (picked.every((o) => Math.abs((o.lo[0] + o.hi[0]) / 2 - x) > 0.3)) picked.push(q);
+          if (picked.length === tubes) break;
+        }
+        if (picked.length === tubes) {
+          const mouth = Math.max(...picked.map((q) => q.hi[2]));
+          muzzles = picked.map((q) => [+((q.lo[0] + q.hi[0]) / 2).toFixed(3), +((q.lo[1] + q.hi[1]) / 2).toFixed(3), +mouth.toFixed(3)])
+            .sort((a, b) => a[0] - b[0]);
+        } else console.log(`${kind}: ${picked.length} of ${tubes} tubes found as runs of their own; mouths from the fore end`);
+      }
       let roof = 0;
       for (let i = 1; i < hd.P.length; i += 3) roof = Math.max(roof, hd.P[i]);
       console.log(`${kind}: bank of ${tubes}, ${hd.T.length / 3} triangles, mouths ${muzzles.map((m) => m.join(',')).join(' ')}, breech ${zMin.toFixed(2)}`);

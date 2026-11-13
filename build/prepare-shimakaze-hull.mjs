@@ -36,7 +36,7 @@ await prepare({
       { x: [-3.6, 3.6], y: [3.8, 7.6], z: [0.6, 12.4] },
       { x: [-3.6, 3.6], y: [3.8, 7.4], z: [-15.2, -4.4] },
       { x: [-3.6, 3.6], y: [3.8, 7.4], z: [-27.6, -17.4] },
-    ], gun: { tubes: 5, tris: 1600, rest: 0 } },
+    ], gun: { tubes: 5, tris: 1600, rest: 'axis' } },
     // Her 25 mm Type 96 triples: one on the bandstand before her bridge and a
     // pair on the platform abreast her after funnel.
     aa3: { boxes: [

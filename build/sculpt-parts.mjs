@@ -754,7 +754,7 @@ export function measureLines(m, st, grid, deckFallback) {
       hits.sort((p, q) => p[0] - q[0]);
       for (let h = 0; h < hits.length; h++) {
         const [y, up] = hits[h];
-        if (y < 2.0 || up < 0.5) continue;
+        if (y < (grid.deckMin ?? 2.0) || up < 0.5) continue;
         const next = hits[h + 1];
         if (!next || next[1] < -0.3 || next[0] - y > 1.2) { lowest = Math.min(lowest, y); break; }
       }

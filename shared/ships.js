@@ -582,8 +582,10 @@ export const SHIP_CLASSES = {
     },
     torpedoes: {
       mounts: [
-        { id: 0, x: 0.017, z: 3.011, angle: 0, arc: 2.44, rest: 0, tubes: 5, my: 7.01 },
-        { id: 1, x: -0.013, z: -10.492, angle: 0, arc: 2.44, rest: 0, tubes: 5, my: 7.0 },
+        { id: 0, x: 0.017, z: 3.011, angle: -0.0089, arc: 2.44, rest: -0.0089, tubes: 5, my: 7.55,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.336, -0.72, -0.021, 0.66, 1.351], lie: -0.36, muzzle: 3.14, fish: { len: 7, r: 0.267, kind: 'mk15' } } },
+        { id: 1, x: -0.013, z: -10.492, angle: -0.0263, arc: 2.44, rest: -0.0263, tubes: 5, my: 7.07,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.332, -0.704, -0.014, 0.676, 1.366], lie: -0.024, muzzle: 3.476, fish: { len: 7, r: 0.267, kind: 'mk15' } } },
       ],
       name: 'Mk 15 torpedo', role: 'surface', caliber: 533,
       reach: 4.2,
@@ -693,16 +695,19 @@ export const SHIP_CLASSES = {
       // stations and there is a check that walks both and compares, the same
       // way her guns and her tubes are held to her datasheet.
       racks: [
-        { id: 0, x: -1.5, z: -56.0, my: 3.65, angle: Math.PI, arc: 0.45 },
-        { id: 1, x: 1.5, z: -56.0, my: 3.65, angle: Math.PI, arc: 0.45 },
+        { id: 0, x: -1.5, z: -56.0, my: 4.3, angle: Math.PI, arc: 0.45 },
+        { id: 1, x: 1.5, z: -56.0, my: 4.3, angle: Math.PI, arc: 0.45 },
       ],
+      // Her K-guns where the model has them at her quarterdeck edges, the
+      // after pair stood a little further aft so that the pattern they lay
+      // keeps its length: a boat that turns hard under it can still slip it.
       throwers: [
-        { id: 0, x: -4.4, z: -23.4, my: 3.6, angle: -Math.PI / 2, arc: 0.45, throw: 82 },
-        { id: 1, x: 4.4, z: -23.4, my: 3.6, angle: Math.PI / 2, arc: 0.45, throw: 82 },
-        { id: 2, x: -4.4, z: -25.2, my: 3.6, angle: -Math.PI / 2, arc: 0.45, throw: 58 },
-        { id: 3, x: 4.4, z: -25.2, my: 3.6, angle: Math.PI / 2, arc: 0.45, throw: 58 },
-        { id: 4, x: -4.4, z: -28.9, my: 3.6, angle: -Math.PI / 2, arc: 0.45, throw: 34 },
-        { id: 5, x: 4.4, z: -28.9, my: 3.6, angle: Math.PI / 2, arc: 0.45, throw: 34 },
+        { id: 0, x: -4.4, z: -25.2, my: 4.5, angle: -Math.PI / 2, arc: 0.45, throw: 82 },
+        { id: 1, x: 4.4, z: -25.2, my: 4.5, angle: Math.PI / 2, arc: 0.45, throw: 82 },
+        { id: 2, x: -4.4, z: -28.9, my: 4.5, angle: -Math.PI / 2, arc: 0.45, throw: 58 },
+        { id: 3, x: 4.4, z: -28.9, my: 4.5, angle: Math.PI / 2, arc: 0.45, throw: 58 },
+        { id: 4, x: -4.4, z: -32.5, my: 4.5, angle: -Math.PI / 2, arc: 0.45, throw: 34 },
+        { id: 5, x: 4.4, z: -32.5, my: 4.5, angle: Math.PI / 2, arc: 0.45, throw: 34 },
       ],
     },
     secondary: null,
@@ -1275,9 +1280,12 @@ export const SHIP_CLASSES = {
       // Three triple banks on her centreline, one between her funnels and two
       // abaft them, with a reload for each tube.
       mounts: [
-        { id: 0, x: 0.157, z: 10.659, angle: 0, arc: 2.5, rest: 0, tubes: 3, my: 6.71 },
-        { id: 1, x: 0.157, z: -10.956, angle: 0, arc: 2.5, rest: 0, tubes: 3, my: 5.23 },
-        { id: 2, x: -0.47, z: -22.542, angle: 0, arc: 2.5, rest: 0, tubes: 3, my: 5.73 },
+        { id: 0, x: 0.157, z: 10.659, angle: -0.0198, arc: 2.5, rest: -0.0198, tubes: 3, my: 6.47,
+          launch: { eject: 12, stagger: 0.35, lanes: [-0.785, 0.053, 0.891], lie: 2.1, muzzle: 5.047, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 1, x: 0.157, z: -10.956, angle: -0.0313, arc: 2.5, rest: -0.0313, tubes: 3, my: 4.95,
+          launch: { eject: 12, stagger: 0.35, lanes: [-0.868, -0.031, 0.807], lie: 0.361, muzzle: 3.161, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 2, x: 0.157, z: -20.92, angle: 0.0227, arc: 2.5, rest: 0.0227, tubes: 3, my: 4.95,
+          launch: { eject: 12, stagger: 0.35, lanes: [-0.887, -0.049, 0.789], lie: 1.743, muzzle: 4.543, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
       ],
       name: 'Type 90 torpedo', role: 'surface', caliber: 610,
       reach: 5.03,
@@ -1396,9 +1404,12 @@ export const SHIP_CLASSES = {
       // abaft them, each training out on either beam: fifteen fish in one
       // broadside, and no reloads -- the weight went into the banks.
       mounts: [
-        { id: 0, x: 0, z: 6.536, angle: 0, arc: 2.5, rest: 0, tubes: 5, my: 5.58 },
-        { id: 1, x: -0.16, z: -9.456, angle: 0, arc: 2.5, rest: 0, tubes: 5, my: 5.54 },
-        { id: 2, x: 0, z: -22.096, angle: 0, arc: 2.5, rest: 0, tubes: 5, my: 5.28 },
+        { id: 0, x: 0, z: 6.536, angle: 0.0258, arc: 2.5, rest: 0.0258, tubes: 5, my: 5.25,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.619, -0.811, -0.01, 0.793, 1.602], lie: 2.172, muzzle: 4.972, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 1, x: -0.16, z: -9.456, angle: 0.01, arc: 2.5, rest: 0.01, tubes: 5, my: 4.53,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.45, -0.642, 0.16, 0.963, 1.772], lie: 1.885, muzzle: 4.685, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 2, x: 0, z: -22.096, angle: 0.0253, arc: 2.5, rest: 0.0253, tubes: 5, my: 4.52,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.611, -0.803, -0.002, 0.801, 1.609], lie: 1.861, muzzle: 4.661, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
       ],
       name: 'Type 93 torpedo', role: 'surface', caliber: 610,
       reach: 5.22,
@@ -1527,8 +1538,10 @@ export const SHIP_CLASSES = {
       // Two quadruple banks on her centreline, with a reload for every tube
       // in lockers beside them.
       mounts: [
-        { id: 0, x: 0, z: 1.899, angle: 0, arc: 2.5, rest: 0, tubes: 4, my: 5.76 },
-        { id: 1, x: 0, z: -11.105, angle: 0, arc: 2.5, rest: 0, tubes: 4, my: 4.62 },
+        { id: 0, x: 0, z: 1.899, angle: -0.0024, arc: 2.5, rest: -0.0024, tubes: 4, my: 5.32,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.114, -0.369, 0.377, 1.127], lie: 0.592, muzzle: 3.392, height: 5.7, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 1, x: 0, z: -11.105, angle: -0.0066, arc: 2.5, rest: -0.0066, tubes: 4, my: 4.47,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.117, -0.368, 0.381, 1.13], lie: 1.859, muzzle: 4.659, height: 5.7, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
       ],
       name: 'Type 93 torpedo', role: 'surface', caliber: 610,
       reach: 5.74,
@@ -13885,16 +13898,15 @@ export const SHIP_CLASSES = {
     // them -- with a geared steam turbine in place of the Liberty's
     // triple-expansion engine, a finer hull and the five knots that kept her
     // out of reach of most submarines. Under the Naval Armed Guard she carried
-    // a 5"/38 on her poop, a 3"/50 on her forecastle and eight Oerlikons; she
-    // went across the Pacific with the fleet's ammunition, and three of them
-    // were sunk by kamikazes off Okinawa.
+    // a 5"/38 on her poop, a 3"/50 on her forecastle and up to eight
+    // Oerlikons -- the model has four; she went across the Pacific with the
+    // fleet's ammunition, and three of them were sunk by kamikazes off Okinawa.
     //
     // She is drawn from the owner's model of her (see victory.js and
     // build/prepare-victory-hull.mjs) -- "Victory Cargo" by kriss50, under
     // Creative Commons Attribution 4.0, credited on the Credits screen -- at
     // her 138.8 m over all, floated at her load draught of 8.7 m, in
-    // Measure 21. Her 5"/38 and her 3"/50 are the model's; her Oerlikons are
-    // the fleet's own mounting of the gun, where the model has them.
+    // Measure 21. Her 5"/38, her 3"/50 and her four Oerlikons are the model's.
     id: 'victory',
     name: 'Victory Ship',
     fullName: 'Victory Ship',
@@ -13958,109 +13970,6 @@ export const SHIP_CLASSES = {
             { x: -6.216, z: -55.751, angle: -1.9, arc: 2.0, rest: -1.5526, guns: 1, my: 8.57 },
             { x: 4.208, z: -8.794, angle: 1.9, arc: 2.89, rest: -1.5411, guns: 1, my: 14.02 },
             { x: -4.137, z: -8.799, angle: -1.9, arc: 2.94, rest: 1.4911, guns: 1, my: 14.03 },
-          ] },
-      ],
-    },
-    // What she is for: her five holds. A Liberty ship could carry 440 light
-    // tanks, or be fitted out to carry some 550 troops. For a future update:
-    // nothing embarks them yet, and the yard says so.
-    cargo: { tanks: 440, troops: 550, ready: false },
-    planes: null,
-    datasheet: {
-      displacement: 14245,
-      aircraft: 0,
-      mainRounds: 600,
-      torpedoesCarried: 0,
-      secondary: null,
-      tertiary: [
-        { caliber: 20, label: '20mm', barrels: 8, rounds: 19200 },
-      ],
-    },
-  },
-  victory: {
-    // A Victory ship: the Liberty ship's successor, built to the Maritime
-    // Commission's VC2 design from 1944 -- five hundred and thirty-one of
-    // them -- with a geared steam turbine in place of the Liberty's
-    // triple-expansion engine, a finer hull and the five knots that kept her
-    // out of reach of most submarines. Under the Naval Armed Guard she carried
-    // a 5"/38 on her poop, a 3"/50 on her forecastle and eight Oerlikons; she
-    // went across the Pacific with the fleet's ammunition, and three of them
-    // were sunk by kamikazes off Okinawa.
-    //
-    // She is drawn from the owner's model of her (see victory.js and
-    // build/prepare-victory-hull.mjs) -- "Victory Cargo" by kriss50, under
-    // Creative Commons Attribution 4.0, credited on the Credits screen -- at
-    // her 138.8 m over all, floated at her load draught of 8.7 m, in
-    // Measure 21. Her 5"/38 and her 3"/50 are the model's; her Oerlikons are
-    // the fleet's own mounting of the gun, where the model has them.
-    id: 'victory',
-    name: 'Victory Ship',
-    fullName: 'Victory Ship',
-    className: 'Victory',
-    type: 'AK',
-    typeName: 'Cargo Ship',
-    nation: 'usa',
-    blurb: 'The Liberty ship\'s faster sister: a turbine, fifteen and a half knots, and a 5"/38 on her poop to answer back.',
-    hull: {
-      funnels: [[0, -0.2, 19.6]],
-      length: 138.8, beam: 18.9, draft: 8.7, superstructure: 1.0,
-    },
-    hp: 25000,
-    // Six thousand horsepower through a geared turbine on one shaft.
-    maxSpeed: 15.5 * KNOTS,
-    reverseSpeed: 5 * KNOTS,
-    accel: 0.26,
-    turnRate: 0.055,
-    rudderShift: 7,
-    speedLossInTurn: 0.22,
-    concealment: 11000,
-    fireDetectPenalty: 3800,
-    radarRange: 9000,
-    repairCooldown: 80,
-    repairHeal: 0.08,
-    smokeCharges: 0,
-    armor: { belt: 19, deck: 13, citadel: 19, bow: 16, superstructure: 8 },
-    turrets: [
-      // Her 5"/38 on her poop, where the model stands it, firing on either
-      // quarter and over her stern and not forward over her masts and booms.
-      { id: 0, name: 'Y', x: 0.065, z: -65.075, angle: Math.PI, arc: 2.4, rest: Math.PI, guns: 1, my: 8.84 },
-    ],
-    gun: {
-      name: '5"/38 Mk 12', role: 'dp',
-      elev: { min: -0.26, max: 1.48 },
-      reach: 4.32,
-      caliber: 127, reload: 4.0, traverse: 0.35, range: 15900, sigma: 2.3,
-      shells: shells(127, 2000, 1750, 80, 792, 0.08),
-    },
-    torpedoes: null,
-    // Her 3"/50 on the platform on her forecastle.
-    secondary: {
-      name: '3"/50 Mk 22', role: 'dp', piece: 'sec',
-      elev: { min: -0.17, max: 1.48 },
-      reach: 4.36,
-      caliber: 76, reload: 2.4, traverse: 0.5, range: 12000, sigma: 2.0,
-      shells: shells(76, 900, 800, 45, 823, 0.05),
-      mounts: [
-        { x: -0.039, z: 61.497, angle: 0, arc: 2.4, rest: 0, guns: 1, my: 9.68 },
-      ],
-    },
-    aa: {
-      range: 1800, dps: 6,
-      guns: [
-        // Eight single Oerlikons: a pair on her forecastle gun platform, a
-        // pair in the tubs abreast her midships house, a pair on her bridge
-        // and a pair in the tubs on her poop.
-        { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, build: 'oerlikon',
-          elev: { min: -0.17, max: 1.5 },
-          mounts: [
-            { x: -1.4, z: 54.8, angle: -1.2, arc: 2.0, rest: -1.57, guns: 1 },
-            { x: 1.4, z: 54.8, angle: 1.2, arc: 2.0, rest: 1.57, guns: 1 },
-            { x: -6.0, z: 4.5, angle: -1.2, arc: 2.0, rest: -1.57, guns: 1 },
-            { x: 6.0, z: 4.5, angle: 1.2, arc: 2.0, rest: 1.57, guns: 1 },
-            { x: -4.1, z: -9.0, angle: -1.9, arc: 2.0, rest: -1.57, guns: 1 },
-            { x: 4.1, z: -9.0, angle: 1.9, arc: 2.0, rest: 1.57, guns: 1 },
-            { x: -6.5, z: -55.9, angle: -1.9, arc: 2.0, rest: -1.57, guns: 1 },
-            { x: 6.5, z: -55.9, angle: 1.9, arc: 2.0, rest: 1.57, guns: 1 },
           ] },
       ],
     },

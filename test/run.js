@@ -11271,6 +11271,11 @@ check('you cannot see into the destroyer over her transom', () => {
       for (let f = 0.05; f <= 0.95; f += 0.15) {
         // Between the sheer line and the crown of the deck at that offset.
         const y = sh + f * (1 - u * u) * 0.26;
+        // Only under her deck as her model draws it there: over it is the open
+        // air of her forecastle or her quarterdeck, not the inside of her.
+        ray.set(new THREE.Vector3(u * half, 40, end * 55), new THREE.Vector3(0, -1, 0));
+        const top = ray.intersectObjects(meshes, false)[0];
+        if (!top || y > 40 - top.distance - 0.05) continue;
         const from = new THREE.Vector3(u * half, y, end * 120);
         ray.set(from, new THREE.Vector3(0, 0, dir));
         const got = ray.intersectObjects(meshes, false);
@@ -17469,7 +17474,10 @@ check('every ship has an inside, and it is inside her', () => {
     // read as an engine room is the boilers and the turbines in it, and they
     // have to be down in the bottom of her amidships where they belong.
     const half = cls.hull.length / 2;
-    const deep = -cls.hull.draft * 0.55;
+    // The bottom of her as she is built: her keel amidships, where a model's
+    // propellers or her sonar dome are what reach down to her draught.
+    const keelMid = built.group.userData.lines ? built.group.userData.lines.keelY(0) : -cls.hull.draft;
+    const deep = Math.max(-cls.hull.draft, keelMid) * 0.55;
     let low = 0;
     for (const m of inside) {
       const pos = m.geometry.attributes.position;

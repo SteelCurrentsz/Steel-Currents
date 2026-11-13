@@ -31,6 +31,9 @@ await prepare({
   },
   paintLines: [0, BOOT, M22], deckPaints: ['deck'], underPaint: 'light',
   deckFallback: 5.5,
+  // Her model is drawn with a deck inside her at two metres: her weather
+  // deck is the lowest open deck over three.
+  deckMin: 3.0,
   hullTris: 45000,
   // Her light guns are cut free of her as the model draws them; her depth
   // charge racks and K-guns stay on her as it draws them.
@@ -61,6 +64,6 @@ await prepare({
     tubes: { boxes: [
       { x: [-2.2, 2.2], y: [5, 8.5], z: [-15.2, -6.4] },
       { x: [-2.2, 2.2], y: [5, 8.5], z: [-1.4, 7.4] },
-    ], gun: { tubes: 5, tris: 1400, rest: 0 } },
+    ], gun: { tubes: 5, tris: 1400, rest: 'axis' } },
   },
 });
