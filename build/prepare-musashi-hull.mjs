@@ -37,6 +37,8 @@ await prepare({
   paintLines: [0, BOOT], deckPaints: ['wood'],
   deckFallback: 8.5, hullTris: 90000,
   floaters: {},
+  // Her rigging kept apart from her hull: it stops no gun.
+  wireCards: true,
   // Her railings, nets and aerial wires, drawn by the model as cut-out cards,
   // and her bridge glass and her ensign: kept with their pictures.
   cards: { nodes: [5, 8, 13, 15, 17, 19, 44] },

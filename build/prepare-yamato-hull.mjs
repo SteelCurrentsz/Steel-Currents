@@ -32,6 +32,8 @@ await prepare({
   deckFallback: 8.5, hullTris: 90000,
   rigging: { y: 14 },
   floaters: {},
+  // Her rigging kept apart from her hull: it stops no gun.
+  wireCards: true,
   kinds: {
     // Her twelve twin 12.7 cm/40 Type 89 in their shields, three a side
     // abreast her funnel.

@@ -72,6 +72,7 @@ const inBox = (b, x, y, z, slack = 0) => (!b.x || (x >= b.x[0] - slack && x <= b
  *   deckFallback         her deck's height where her lines find none
  *   extra                anything else her data module carries
  *   cards                { nodes }: the model's pieces drawn as cut-out cards, kept textured
+ *   wireCards            her rigging written as a card of its own rather than into her hull
  *   floaters             { gap, near, keep }: take off whatever the export left adrift
  */
 export async function prepare(cfg) {
@@ -1324,7 +1325,19 @@ export async function prepare(cfg) {
     for (let k = 0; k < NZ; k++) for (let jy = 0; jy < NY; jy++) w.push(+span(k, Y0 + jy * DY).toFixed(2));
     LINES.inner = { z0: Z0, dz: 1, nz: NZ, y0: Y0, dy: DY, ny: NY, w };
   }
-  {
+  if (cfg.wireCards) {
+    // Her rigging as a card of its own, untextured: drawn as her model draws
+    // it, but known for what it is -- a line of rigging, which neither a gun
+    // nor a layer's eye is stopped by (see survey-arcs.mjs, structureAlong).
+    if (wires.T.length) {
+      const buf = Buffer.concat([
+        Buffer.from(Float32Array.from(wires.P).buffer), Buffer.from(new Float32Array(wires.P.length / 3 * 2).buffer),
+        Buffer.from(Uint32Array.from(wires.T).buffer),
+      ]);
+      CARDS.push({ tex: null, opacity: 1, verts: wires.P.length / 3, tris: wires.T.length / 3, b64: buf.toString('base64') });
+      console.log(`rigging: ${wires.T.length / 3} triangles as a card of their own`);
+    }
+  } else {
     // Her rigging back on her, drawn from both sides, now her decks are measured.
     const base = hull.P.length / 3;
     hull.P.push(...wires.P); hull.N.push(...wires.N);
