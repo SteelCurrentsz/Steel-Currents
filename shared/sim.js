@@ -18478,7 +18478,7 @@ export const FLOOD_CHOKE = 0.6;
  * gone, the sea most of the way to taking her down, everything inside her
  * wrecked. Two of the three, and she goes down; one alone she survives.
  */
-export const BAR_DOWN = { structural: 0.02, flooding: 0.9, internal: 0.04 };
+export const BAR_DOWN = { structural: 0.02, flooding: 0.9, internal: 0.06 };
 /** How far clear of destroyed a bar has to be brought back before she can be saved on it. */
 export const BAR_SAVE = 0.1;
 
@@ -18549,7 +18549,9 @@ export function integrityCategories(ship) {
   const steering = ship.steeringDamage > 0 ? 0.6 + 0.4 * Math.min(1, ship.steeringDamage / 30) : 0;
   const magFire = Math.max(ship.sections.fwd?.fire || 0, ship.sections.aft?.fire || 0);
   const loss = ship.blown ? 1
-    : p.weapons * 0.5 + engine * 0.22 + steering * 0.1 + Math.min(1, magFire * 1.4) * 0.18;
+    // Every gun, her engines and her steering all wrecked is the whole of
+    // it, magazines or no; a magazine fire on top only gets her there sooner.
+    : p.weapons * 0.55 + engine * 0.27 + steering * 0.13 + Math.min(1, magFire * 1.4) * 0.2;
   return { structural, flooding, internal: clamp(1 - loss, 0, 1), rising };
 }
 
@@ -18804,7 +18806,13 @@ export function hullIntegrity(ship) {
 
 export function damageShip(state, ship, source, amount, kind, where = null) {
   if (!ship.alive || amount <= 0) return;
-  if (kind !== 'magazine') amount *= HULL_TOUGHNESS;
+  // A submarine is a pressure hull: breached, she goes. The toughness and
+  // the two-bar rule are for surface ships.
+  const boat = shipClass(ship).type === 'SS';
+  // Nor is anything softened for her own magazine going up, or for a
+  // nuclear burst: nothing a ship is built to take is anything like either.
+  const overwhelming = kind === 'magazine' || kind === 'nuke';
+  if (!overwhelming && !boat) amount *= HULL_TOUGHNESS;
   if (HEAVY_KINDS.has(kind)) ship.heavyBlow = true;
   const before = ship.hp;
   // Into the compartment that took it. Fire, flooding, ramming and the ground
@@ -18836,7 +18844,7 @@ export function damageShip(state, ship, source, amount, kind, where = null) {
   // Shot to pieces is one of her three bars gone, and one bar alone does not
   // sink her: she goes when a second is gone too (see stepIntegrity), or at
   // once if it was her magazine.
-  if (ship.hp <= 0 && (kind === 'magazine' || barsDestroyed(ship) >= 2)) {
+  if (ship.hp <= 0 && (overwhelming || boat || barsDestroyed(ship) >= 2)) {
     // She is going, and fast -- but she goes down, she does not vanish, and
     // whatever she still has above the water fights on.
     startSinking(state, ship, kind === 'magazine' ? 'magazine' : 'shattered', source ? source.id : 0);

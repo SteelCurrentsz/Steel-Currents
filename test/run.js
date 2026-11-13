@@ -9328,12 +9328,16 @@ check('a battle is fought out to the last ship', () => {
   // Shot to pieces she goes down, which takes her a minute or two; the
   // battle is still on while she does, and still on when she has gone.
   damageShip(st, a1, b1, a1.maxHp + 1, 'test');
+  // Shot to pieces is one bar; start her going down as the second would.
+  startSinking(st, a1, 'shattered', b1.id);
   for (let i = 0; i < 30 * 300 && a1.alive; i++) step(st, DT);
   assert.equal(a1.alive, false, 'the flagship did not sink');
   assert.equal(st.over, false, 'the battle ended with the flagship');
 
   // The last of her side goes and it is over.
   damageShip(st, a2, b1, a2.maxHp + 1, 'test');
+  // Shot to pieces is one bar; start her going down as the second would.
+  startSinking(st, a2, 'shattered', b1.id);
   // Not over while she is still going down and fighting.
   step(st, DT);
   assert.equal(st.over, false, 'the battle ended while her last ship was still afloat');
@@ -9407,6 +9411,8 @@ check('a ship going down is still in the fight, and her guns go out as the sea g
   const flat = mk('cleveland');
   flat.s.trim = 0;
   damageShip(flat.st, flat.s, null, 1e9, 'he');
+  // Shot to pieces is one bar; start her going down as the second would.
+  startSinking(flat.st, flat.s, 'shattered', 0);
   let broke = false;
   for (let i = 0; i < 30 * 200 && flat.s.alive; i++) for (const e of step(flat.st, DT)) if (e.e === 'break') broke = true;
   assert.ok(!broke, 'she went down level and broke in two anyway');
@@ -9445,6 +9451,8 @@ check('a ship out of the fight goes on going down the way she was, until she is 
   const foe = addShip(st, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
   foe.x = s.x + 60000; foe.z = s.z + 60000;
   damageShip(st, s, foe, 1e9, 'he');
+  // Shot to pieces is one bar; start her going down as the second would.
+  startSinking(st, s, 'shattered', foe.id);
   let outAt = null;
   let underAt = null;
   let downOut = 0;
@@ -9519,6 +9527,8 @@ check('the corner says what the camera is riding: the aeroplane, the round, the 
 check('a sinking is credited to the shooter', () => {
   const { state, a, b } = duel('iowa', 'fletcher');
   damageShip(state, b, a, b.maxHp + 1, 'test');
+  // Shot to pieces is one bar; start her going down as the second would.
+  startSinking(state, b, 'shattered', a.id);
   // Shot to pieces she is going down -- but she goes down, and the kill is
   // the shooter's when she has gone, not the instant the last shell lands.
   assert.ok(b.sinking, 'she was shot to pieces and is not going down');
@@ -9846,6 +9856,8 @@ check('a ship that goes down in shallow water settles on the bottom, and the sea
   assert.ok(room !== null, 'no water off the island a cruiser floats in with a few metres under her');
   foe.x = s.x + 30000; foe.z = s.z + 30000;
   damageShip(st, s, foe, 1e9, 'he');
+  // Shot to pieces is one bar; start her going down as the second would.
+  startSinking(st, s, 'shattered', foe.id);
   let under = false;
   let deepest = 0;
   for (let i = 0; i < 30 * 900; i++) {
@@ -16030,7 +16042,7 @@ check('she is counted in compartments and holes, not in hit points', () => {
 
   // A shell into her machinery takes it out of her machinery and nowhere else.
   damageShip(st, her, null, 2000, 'pen', 'mid');
-  assert.equal(her.sections.mid.max - her.sections.mid.hp, 2000);
+  assert.ok(Math.abs(her.sections.mid.max - her.sections.mid.hp - 2000 * HULL_TOUGHNESS) < 1e-6);
   assert.equal(her.sections.bow.hp, her.sections.bow.max, 'her bow paid for a hit amidships');
   assert.equal(her.hp, hullIntegrity(her), 'her condition is not what her compartments say');
 
@@ -16039,10 +16051,10 @@ check('she is counted in compartments and holes, not in hit points', () => {
   // engines is a shell arriving in her engine room, not an accountancy total
   // crossing a line. This used to be a threshold, and it meant every ship in
   // the game broke down at exactly the same point in her life.
-  damageShip(st, her, null, her.sections.mid.hp, 'fire', 'mid');
+  damageShip(st, her, null, her.sections.mid.hp / HULL_TOUGHNESS + 1, 'fire', 'mid');
   assert.equal(her.sections.mid.hp, 0);
   assert.equal(her.engineDamage, 0, 'a number reaching zero stopped her engines');
-  damageShip(st, her, null, her.sections.stern.hp, 'fire', 'stern');
+  damageShip(st, her, null, her.sections.stern.hp / HULL_TOUGHNESS + 1, 'fire', 'stern');
   assert.equal(her.steeringDamage, 0, 'a number reaching zero jammed her helm');
   assert.ok(her.alive, 'two compartments should not sink a cruiser');
 
@@ -16051,10 +16063,18 @@ check('she is counted in compartments and holes, not in hit points', () => {
   damageShip(st, her, null, 900, 'fire');
   assert.ok(her.sections.bow.hp < beforeBow, 'a fire burned nothing at all');
 
-  // And she goes when every compartment is gone, not a moment before.
-  for (const k of SECTIONS) damageShip(st, her, null, cls.hp, 'pen', k.k);
+  // Every compartment gone is her structural bar gone -- one of three, and
+  // one alone does not sink her.
+  for (const k of SECTIONS) damageShip(st, her, null, cls.hp * 2, 'pen', k.k);
   assert.equal(her.hp, 0);
-  // Gutted, she is going down -- fast, but she goes down rather than vanishing.
+  assert.ok(!her.sinking, 'one bar gone and she went down');
+  // Her guns and machinery wrecked too, and she is going down -- fast, but
+  // she goes down rather than vanishing.
+  her.engineDamage = 30; her.steeringDamage = 30;
+  for (const t of her.turrets) t.hurt = 3;
+  for (const m of her.secMounts) m.hurt = 3;
+  for (const m of her.torpMounts) m.lost = true;
+  step(st, DT);
   assert.ok(her.sinking, 'gutted, and not going down');
   for (let i = 0; i < 30 * 300 && her.alive; i++) step(st, DT);
   assert.ok(!her.alive, 'gutted, and still afloat');
@@ -16076,13 +16096,15 @@ check('gunfire holes her where it hits her', () => {
     me.aimX = foe.x; me.aimZ = foe.z;
     if (i % 60 === 0) fireGuns(st, me);
     step(st, DT);
-    if (!foe.alive) break;
+    // Shot to pieces she is wrecked from end to end, whether or not she has
+    // started going down.
+    if (!foe.alive || foe.hp <= 0) break;
   }
   const holes = SECTIONS.reduce((a, k) => a + foe.sections[k.k].pens, 0);
   assert.ok(holes > 0, 'a battleship fired at a cruiser for two minutes and put no holes in her');
   const hurt = SECTIONS.filter((k) => foe.sections[k.k].hp < foe.sections[k.k].max);
   assert.ok(hurt.length > 0, 'she took damage in no compartment at all');
-  assert.ok(hurt.length < SECTIONS.length || !foe.alive,
+  assert.ok(hurt.length < SECTIONS.length || !foe.alive || foe.hp <= 0,
     'every compartment was opened evenly, which is not how shells work');
   // Holes only where something got in.
   for (const k of SECTIONS) {
@@ -17955,7 +17977,7 @@ check('water in her costs her speed, and the list costs her more', () => {
   const dry = mk();
   const fast = run(dry.s, dry.st, 90);
   const wet = mk();
-  wet.s.sections.fwd.holeS = 8;
+  wet.s.sections.fwd.holeS = 8 / FLOOD_CHOKE;
   wet.s.sections.fwd.holeY = 4;
   const slow = run(wet.s, wet.st, 90);
   assert.ok(fast > 12, `she never worked up: ${fast.toFixed(1)} m/s`);
@@ -18309,7 +18331,7 @@ check('the wire says where the water is running, and which way', () => {
   const { state, a } = duel('cleveland', 'iowa');
   const fwd = SECTIONS.findIndex((s) => s.k === 'fwd');
   const aft = SECTIONS.findIndex((s) => s.k === 'aft');
-  a.sections.fwd.holeS = 2.5;
+  a.sections.fwd.holeS = 2.5 / FLOOD_CHOKE;
   a.sections.fwd.holeY = 4;
   a.sections.fwd.side = 1;
   for (let i = 0; i < 30 * 10; i++) step(state, DT);
@@ -29139,7 +29161,7 @@ check('a staged battle does what its script says, when it says it', () => {
     if ((qc.gun?.caliber || 0) > 152.9) assert.ok(q.blown, 'the magazine cue did not go off');
     else {
       assert.ok(q.smallMag && !q.blown && q.broke == null, `the ${q.classId}'s small-gun magazine did not burn, or broke her`);
-      assert.ok(q.hp < qc.hp * 0.85, `the magazine cue did not hurt her: ${Math.round(q.hp)} of ${qc.hp}`);
+      assert.ok(q.hp < qc.hp * (1 - 0.15 * HULL_TOUGHNESS), `the magazine cue did not hurt her: ${Math.round(q.hp)} of ${qc.hp}`);
     }
   }
   run(2);

@@ -1151,7 +1151,7 @@ class HudBase {
     const trend = own.icr > 0 ? ' \u25B2' : own.icr < 0 ? ' \u25BC' : '';
     paint(rf, fl, pc(fl) + trend + (fl >= 90 ? gone : ''), fl > 35, fl > 70);
     if (rf) rf.row.classList.toggle('rising', own.icr > 0);
-    paint(ri, inn, pc(inn) + (inn <= 4 ? gone : ''), inn < 55, inn < 25);
+    paint(ri, inn, pc(inn) + (inn <= 6 ? gone : ''), inn < 55, inn < 25);
     el.integrity.classList.toggle('sinking', own.sn != null);
   }
 
