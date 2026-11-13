@@ -1448,7 +1448,8 @@ check('every catapult hands her scout over where and the way the plot has her, a
   const ships = [
     ['iowa', () => buildIowa({ breakaway: false })], ['cleveland', buildCleveland],
     ['baltimore', buildBaltimore], ['brooklyn', buildBrooklyn], ['massachusetts', buildMassachusetts],
-    ['musashi', buildMusashi], ['fuso', buildFuso], ['kongo', buildKongo],
+    // Not the Yamatos: their catapults are their models' own, and do not train.
+    ['fuso', buildFuso], ['kongo', buildKongo],
     ['bismarck', buildBismarck], ['richelieu', buildRichelieu],
     ['hipper', buildHipper], ['spee', buildSpee], ['scheer', buildScheer], ['soyuz', () => buildSoyuz().group],
   ];
