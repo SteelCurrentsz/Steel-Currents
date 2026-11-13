@@ -934,6 +934,51 @@ export async function prepare(cfg) {
     }
     console.log(`lines: ${mended} stations mended`);
   }
+  if (cfg.deckFromAbove) {
+    // Her deck as it is seen from over her: the lowest of what stands open to
+    // the sky across her outboard half, both sides -- a model drawn with decks
+    // inside her offers those to a look along her sections first.
+    const { deck } = LINES;
+    const seen = new Uint8Array(deck.length);
+    let took = 0;
+    for (let k = 0; k < deck.length; k++) {
+      const z = LINES.z0 + k * LINES.dz;
+      const hw = st.halfB[st.zBin(z)];
+      if (!(hw > 1.5)) continue;
+      const jz = Math.round((z - HM.z0) / HM.step);
+      if (jz < 0 || jz >= HM.nz) continue;
+      let low = Infinity;
+      for (let x = hw * 0.4; x <= hw - 0.6; x += 0.5) {
+        for (const sx of [-x, x]) {
+          const i = Math.round((sx - HM.x0) / HM.step);
+          if (i < 0 || i >= HM.nx) continue;
+          const y = hm[jz * HM.nx + i];
+          if (y > 0.5) low = Math.min(low, y);
+        }
+      }
+      if (Number.isFinite(low)) { deck[k] = +low.toFixed(2); took++; seen[k] = 1; }
+    }
+    // At her stem and her counter, too fine to look down on, the nearest that could be.
+    for (let k = 0; k < deck.length; k++) {
+      if (seen[k]) continue;
+      for (let d = 1; d < deck.length; d++) {
+        const q = [k - d, k + d].find((j) => j >= 0 && j < deck.length && seen[j]);
+        if (q !== undefined) { deck[k] = deck[q]; break; }
+      }
+    }
+    // And where a house stands right across her -- her bridge -- the deck
+    // under it is the deck either side of it.
+    let bridged = 0;
+    for (let k = 1; k + 1 < deck.length; k++) {
+      if (!(deck[k] > deck[k - 1] + 1.5)) continue;
+      let e = k;
+      while (e < deck.length && deck[e] > deck[k - 1] + 1.5) e++;
+      if (e >= deck.length || e - k > 24) continue;
+      for (let q = k; q < e; q++) { deck[q] = +(deck[k - 1] + ((deck[e] - deck[k - 1]) * (q - k + 1)) / (e - k + 1)).toFixed(2); bridged++; }
+      k = e;
+    }
+    console.log(`lines: ${took} stations of her deck taken from over her, ${bridged} under a house across her`);
+  }
   if (DECK) {
     // How far out her plating actually is up the height of her hangar: at
     // every metre of her length and every half metre of height, the least of
@@ -1044,6 +1089,9 @@ export async function prepare(cfg) {
       }
       const th = 0.5 * Math.atan2(2 * sxz, szz - sxx);
       rest = Math.abs(th) <= Math.PI / 2 ? th : th - Math.sign(th) * Math.PI;
+      // A degree or two off her centreline is the model's drawing, not a
+      // bank trained out: such a bank is laid fore and aft.
+      if (Math.abs(rest) < 0.06) rest = 0;
       if (spec.flipAxis && spec.flipAxis(x, z)) rest += rest > 0 ? -Math.PI : Math.PI;
     } else if (spec.rest !== undefined) rest = spec.rest;
     return { x, z, y: y0, rest };

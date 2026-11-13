@@ -21,7 +21,7 @@ const SHIP = krissShip({
   id: 'fletcher', data: D,
   // Measure 22's haze grey on her guns and her gear.
   paints: { steel: 0x87909a, steelDark: 0x5c646d, gun: 0x87909a, gunDark: 0x4d545c, deckDark: 0x3e4856 },
-  armour: { citadel: [-24, 22], deck: 2.6, foot: -1.2, inset: 0.3 },
+  armour: { citadel: [-24, 22], deck: 1.2, foot: -2.6, inset: 0.3 },
   // Her racks and her K-guns are the model's own, where her datasheet stands them.
   gear: { model: true },
 });

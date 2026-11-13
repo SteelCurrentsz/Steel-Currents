@@ -549,7 +549,7 @@ export const SHIP_CLASSES = {
     hull: {
       // Where her funnels come out, [across, along, up] in metres off her
       // model: what she makes smoke from. See funnelsOf in game.js.
-      funnels: [[0, 9.0, 15.4], [0, -4.2, 14.9]], length: 114.8, beam: 12.0, draft: 4.0, superstructure: 0.9 },
+      funnels: [[0, 9.0, 14.0], [0, -4.2, 13.5]], length: 114.8, beam: 12.0, draft: 5.4, superstructure: 0.9 },
     hp: 15600,
     maxSpeed: 36.5 * KNOTS,
     reverseSpeed: 9 * KNOTS,
@@ -568,11 +568,11 @@ export const SHIP_CLASSES = {
     // 51 and 52 forward, 52 superfiring; 53 on her after deckhouse facing
     // forward; 54 superfiring over 55 on her quarterdeck, both laid astern.
     turrets: [
-      { id: 0, name: '51', x: 0.14, z: 37.65, angle: 0, arc: 2.46, rest: 0, guns: 1, my: 8.24 },
-      { id: 1, name: '52', x: 0, z: 30.1, angle: 0, arc: 2.39, rest: 0, guns: 1, my: 9.59 },
-      { id: 2, name: '53', x: 0, z: -19.3, angle: 0, arc: 2.2, rest: 0, guns: 1, my: 7.49 },
-      { id: 3, name: '54', x: 0, z: -31.4, angle: Math.PI, arc: 2.36, rest: Math.PI, guns: 1, my: 8.52 },
-      { id: 4, name: '55', x: 0, z: -39.4, angle: Math.PI, arc: 2.27, rest: Math.PI, guns: 1, my: 5.92 },
+      { id: 0, name: '51', x: 0.14, z: 37.65, angle: 0, arc: 2.46, rest: 0, guns: 1, my: 6.84 },
+      { id: 1, name: '52', x: 0, z: 30.1, angle: 0, arc: 2.39, rest: 0, guns: 1, my: 8.19 },
+      { id: 2, name: '53', x: 0, z: -19.3, angle: 0, arc: 2.2, rest: 0, guns: 1, my: 6.09 },
+      { id: 3, name: '54', x: 0, z: -31.4, angle: Math.PI, arc: 2.36, rest: Math.PI, guns: 1, my: 7.12 },
+      { id: 4, name: '55', x: 0, z: -39.4, angle: Math.PI, arc: 2.27, rest: Math.PI, guns: 1, my: 4.52 },
     ],
     gun: {
       name: '5"/38 Mk 30', role: 'dp',
@@ -582,10 +582,10 @@ export const SHIP_CLASSES = {
     },
     torpedoes: {
       mounts: [
-        { id: 0, x: 0.017, z: 3.011, angle: -0.0089, arc: 2.44, rest: -0.0089, tubes: 5, my: 7.55,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.336, -0.72, -0.021, 0.66, 1.351], lie: -0.36, muzzle: 3.14, fish: { len: 7, r: 0.267, kind: 'mk15' } } },
-        { id: 1, x: -0.013, z: -10.492, angle: -0.0263, arc: 2.44, rest: -0.0263, tubes: 5, my: 7.07,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.332, -0.704, -0.014, 0.676, 1.366], lie: -0.024, muzzle: 3.476, fish: { len: 7, r: 0.267, kind: 'mk15' } } },
+        { id: 0, x: 0.017, z: 3.011, angle: 0, arc: 2.44, rest: 0, tubes: 5, my: 6.15,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.339, -0.714, -0.024, 0.678, 1.357], lie: -0.371, muzzle: 3.129, fish: { len: 7, r: 0.267, kind: 'mk15' } } },
+        { id: 1, x: -0.013, z: -10.492, angle: 0, arc: 2.44, rest: 0, tubes: 5, my: 5.67,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.346, -0.662, 0.018, 0.719, 1.399], lie: -0.058, muzzle: 3.442, fish: { len: 7, r: 0.267, kind: 'mk15' } } },
       ],
       name: 'Mk 15 torpedo', role: 'surface', caliber: 533,
       reach: 4.2,
@@ -618,7 +618,7 @@ export const SHIP_CLASSES = {
         // deckhouse between 53 and 54, cut from the model.
         { name: '40mm Bofors', caliber: 40, role: 'aa', reload: 0.28, range: 3200, piece: 'bofors',
           mounts: [
-            { x: 0, z: -25.772, angle: 3.1416, arc: 2.27, rest: 3.1322, guns: 2, my: 12.26 },
+            { x: 0, z: -25.772, angle: 3.1416, arc: 2.27, rest: 3.1322, guns: 2, my: 10.86 },
           ] },
         // Six single Oerlikons, as the model has them: a pair on her bridge
         // wings and two pairs at her deck edges abreast her after bank of
@@ -626,12 +626,12 @@ export const SHIP_CLASSES = {
         // carried them and how a captain picks one out of the arsenal.
         { name: '20mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, piece: 'oer',
           mounts: [
-            { x: 3.691, z: 25.128, angle: 1.1, arc: 1.92, rest: 0, guns: 1, my: 9.37 },
-            { x: -3.696, z: 25.128, angle: -1.1, arc: 1.92, rest: 0, guns: 1, my: 9.36 },
-            { x: 4.595, z: -14.02, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 5.38 },
-            { x: -4.578, z: -14.019, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 5.47 },
-            { x: 4.578, z: -16.766, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 5.38 },
-            { x: -4.578, z: -16.768, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 5.38 },
+            { x: 3.691, z: 25.128, angle: 1.1, arc: 1.92, rest: 0, guns: 1, my: 7.97 },
+            { x: -3.696, z: 25.128, angle: -1.1, arc: 1.92, rest: 0, guns: 1, my: 7.96 },
+            { x: 4.595, z: -14.02, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 3.98 },
+            { x: -4.578, z: -14.019, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 4.07 },
+            { x: 4.578, z: -16.766, angle: 1.57, arc: 1.83, rest: Math.PI / 2, guns: 1, my: 3.98 },
+            { x: -4.578, z: -16.768, angle: -1.57, arc: 1.83, rest: -Math.PI / 2, guns: 1, my: 3.98 },
           ] },
       ],
     },
@@ -695,19 +695,19 @@ export const SHIP_CLASSES = {
       // stations and there is a check that walks both and compares, the same
       // way her guns and her tubes are held to her datasheet.
       racks: [
-        { id: 0, x: -1.5, z: -56.0, my: 4.3, angle: Math.PI, arc: 0.45 },
-        { id: 1, x: 1.5, z: -56.0, my: 4.3, angle: Math.PI, arc: 0.45 },
+        { id: 0, x: -1.5, z: -56.0, my: 2.9, angle: Math.PI, arc: 0.45 },
+        { id: 1, x: 1.5, z: -56.0, my: 2.9, angle: Math.PI, arc: 0.45 },
       ],
       // Her K-guns where the model has them at her quarterdeck edges, the
       // after pair stood a little further aft so that the pattern they lay
       // keeps its length: a boat that turns hard under it can still slip it.
       throwers: [
-        { id: 0, x: -4.4, z: -25.2, my: 4.5, angle: -Math.PI / 2, arc: 0.45, throw: 82 },
-        { id: 1, x: 4.4, z: -25.2, my: 4.5, angle: Math.PI / 2, arc: 0.45, throw: 82 },
-        { id: 2, x: -4.4, z: -28.9, my: 4.5, angle: -Math.PI / 2, arc: 0.45, throw: 58 },
-        { id: 3, x: 4.4, z: -28.9, my: 4.5, angle: Math.PI / 2, arc: 0.45, throw: 58 },
-        { id: 4, x: -4.4, z: -32.5, my: 4.5, angle: -Math.PI / 2, arc: 0.45, throw: 34 },
-        { id: 5, x: 4.4, z: -32.5, my: 4.5, angle: Math.PI / 2, arc: 0.45, throw: 34 },
+        { id: 0, x: -4.4, z: -25.2, my: 3.1, angle: -Math.PI / 2, arc: 0.45, throw: 82 },
+        { id: 1, x: 4.4, z: -25.2, my: 3.1, angle: Math.PI / 2, arc: 0.45, throw: 82 },
+        { id: 2, x: -4.4, z: -28.9, my: 3.1, angle: -Math.PI / 2, arc: 0.45, throw: 58 },
+        { id: 3, x: 4.4, z: -28.9, my: 3.1, angle: Math.PI / 2, arc: 0.45, throw: 58 },
+        { id: 4, x: -4.4, z: -32.5, my: 3.1, angle: -Math.PI / 2, arc: 0.45, throw: 34 },
+        { id: 5, x: 4.4, z: -32.5, my: 3.1, angle: Math.PI / 2, arc: 0.45, throw: 34 },
       ],
     },
     secondary: null,
@@ -1280,12 +1280,12 @@ export const SHIP_CLASSES = {
       // Three triple banks on her centreline, one between her funnels and two
       // abaft them, with a reload for each tube.
       mounts: [
-        { id: 0, x: 0.157, z: 10.659, angle: -0.0198, arc: 2.5, rest: -0.0198, tubes: 3, my: 6.47,
-          launch: { eject: 12, stagger: 0.35, lanes: [-0.785, 0.053, 0.891], lie: 2.1, muzzle: 5.047, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
-        { id: 1, x: 0.157, z: -10.956, angle: -0.0313, arc: 2.5, rest: -0.0313, tubes: 3, my: 4.95,
-          launch: { eject: 12, stagger: 0.35, lanes: [-0.868, -0.031, 0.807], lie: 0.361, muzzle: 3.161, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
-        { id: 2, x: 0.157, z: -20.92, angle: 0.0227, arc: 2.5, rest: 0.0227, tubes: 3, my: 4.95,
-          launch: { eject: 12, stagger: 0.35, lanes: [-0.887, -0.049, 0.789], lie: 1.743, muzzle: 4.543, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 0, x: 0.157, z: 10.659, angle: 0, arc: 2.5, rest: 0, tubes: 3, my: 6.47,
+          launch: { eject: 12, stagger: 0.35, lanes: [-0.838, 0, 0.838], lie: 2.1, muzzle: 5.027, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 1, x: 0.157, z: -10.956, angle: 0, arc: 2.5, rest: 0, tubes: 3, my: 4.95,
+          launch: { eject: 12, stagger: 0.35, lanes: [-0.838, 0, 0.838], lie: 0.336, muzzle: 3.136, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 2, x: 0.157, z: -20.92, angle: 0, arc: 2.5, rest: 0, tubes: 3, my: 4.95,
+          launch: { eject: 12, stagger: 0.35, lanes: [-0.838, 0, 0.838], lie: 1.719, muzzle: 4.519, height: 5.4, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
       ],
       name: 'Type 90 torpedo', role: 'surface', caliber: 610,
       reach: 5.03,
@@ -1404,12 +1404,12 @@ export const SHIP_CLASSES = {
       // abaft them, each training out on either beam: fifteen fish in one
       // broadside, and no reloads -- the weight went into the banks.
       mounts: [
-        { id: 0, x: 0, z: 6.536, angle: 0.0258, arc: 2.5, rest: 0.0258, tubes: 5, my: 5.25,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.619, -0.811, -0.01, 0.793, 1.602], lie: 2.172, muzzle: 4.972, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
-        { id: 1, x: -0.16, z: -9.456, angle: 0.01, arc: 2.5, rest: 0.01, tubes: 5, my: 4.53,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.45, -0.642, 0.16, 0.963, 1.772], lie: 1.885, muzzle: 4.685, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
-        { id: 2, x: 0, z: -22.096, angle: 0.0253, arc: 2.5, rest: 0.0253, tubes: 5, my: 4.52,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.611, -0.803, -0.002, 0.801, 1.609], lie: 1.861, muzzle: 4.661, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 0, x: 0, z: 6.536, angle: 0, arc: 2.5, rest: 0, tubes: 5, my: 5.25,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.608, -0.8, 0.001, 0.805, 1.614], lie: 2.132, muzzle: 4.932, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 1, x: -0.16, z: -9.456, angle: 0, arc: 2.5, rest: 0, tubes: 5, my: 4.53,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.448, -0.64, 0.161, 0.965, 1.774], lie: 1.868, muzzle: 4.668, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 2, x: 0, z: -22.096, angle: 0, arc: 2.5, rest: 0, tubes: 5, my: 4.52,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.609, -0.8, 0.001, 0.805, 1.613], lie: 1.821, muzzle: 4.621, height: 5.6, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
       ],
       name: 'Type 93 torpedo', role: 'surface', caliber: 610,
       reach: 5.22,
@@ -1538,10 +1538,10 @@ export const SHIP_CLASSES = {
       // Two quadruple banks on her centreline, with a reload for every tube
       // in lockers beside them.
       mounts: [
-        { id: 0, x: 0, z: 1.899, angle: -0.0024, arc: 2.5, rest: -0.0024, tubes: 4, my: 5.32,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.114, -0.369, 0.377, 1.127], lie: 0.592, muzzle: 3.392, height: 5.7, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
-        { id: 1, x: 0, z: -11.105, angle: -0.0066, arc: 2.5, rest: -0.0066, tubes: 4, my: 4.47,
-          launch: { eject: 12, stagger: 0.35, lanes: [-1.117, -0.368, 0.381, 1.13], lie: 1.859, muzzle: 4.659, height: 5.7, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 0, x: 0, z: 1.899, angle: 0, arc: 2.5, rest: 0, tubes: 4, my: 5.32,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.123, -0.373, 0.373, 1.123], lie: 0.588, muzzle: 3.388, height: 5.7, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
+        { id: 1, x: 0, z: -11.105, angle: 0, arc: 2.5, rest: 0, tubes: 4, my: 4.47,
+          launch: { eject: 12, stagger: 0.35, lanes: [-1.124, -0.374, 0.374, 1.124], lie: 1.851, muzzle: 4.651, height: 5.7, fish: { len: 5.6, r: 0.24, kind: 'type93' } } },
       ],
       name: 'Type 93 torpedo', role: 'surface', caliber: 610,
       reach: 5.74,
