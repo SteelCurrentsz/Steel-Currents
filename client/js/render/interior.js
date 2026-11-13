@@ -1018,6 +1018,9 @@ function upperworks(inside, hull) {
   if (!levels.length) return;
 
   for (const lv of levels) {
+    // Not over a hull whose houses are not closed boxes (`openTop`): there
+    // its flats and its bulkheads show through the gaps.
+    if (hull.openTop && lv.y + step * 0.9 > hull.openTop((lv.z0 + lv.z1) / 2)) continue;
     // A flat between the two, cut to the width of the house at each station.
     // Built as a strip rather than one box, so a deckhouse that narrows as it
     // goes aft gets a deck that narrows with it.
@@ -1083,6 +1086,10 @@ function upperworks(inside, hull) {
       for (const z of [zc - t0 * 1.2, zc, zc + t0 * 1.2]) top = Math.min(top, hull.roofAt(x, z) - 0.3);
     }
   }
+  // A hull whose deckhouses are not closed boxes -- a model's, open under its
+  // platforms and round its funnel's foot -- says how high a trunk may stand
+  // without showing (`openTop`).
+  if (room && hull.openTop) top = Math.min(top, hull.openTop(zc));
   if (room && top > foot + step * 0.6) {
     const trunk = Math.min(2.2, Math.max(0.4, room.half * 0.6));
     box(inside, M.machine, trunk * 2, top - foot, trunk * 2.4, room.mid, (foot + top) / 2, zc);

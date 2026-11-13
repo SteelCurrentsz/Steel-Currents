@@ -63,6 +63,7 @@ const inBox = (b, x, y, z, slack = 0) => (!b.x || (x >= b.x[0] - slack && x <= b
  *   kinds                { kind: { boxes: [box...], gun: {...}, nodes?: [...], keep?: false } }:
  *                        every mounting of a kind, a box each, and how it is cut
  *                        (see gunKind); `screw` is her screws
+ *   drop                 the model's nodes, by name, that are strays and not hers at all
  *   remove               boxes whose faces are not hers and are taken off her
  *   measure              { name: [box...] }: the extent of what stands in each box
  *                        (a catapult, a lift), taken off her and written out
@@ -103,6 +104,8 @@ export async function prepare(cfg) {
       }
     }
     const gone = new Set([...box].filter(([, b]) => b[1] - b[0] < 1e-6 && b[3] - b[2] < 1e-6 && b[5] - b[4] < 1e-6).map(([l]) => l));
+    // And strays the export left lying about her, named in her description.
+    for (const l of box.keys()) if (cfg.drop && cfg.drop.includes(j.nodes[l]?.name)) gone.add(l);
     if (gone.size) {
       const T2 = [], G2 = [], L2 = [], M2 = [];
       for (let t = 0; t < model.T.length / 3; t++) {
@@ -314,7 +317,7 @@ export async function prepare(cfg) {
       for (let k = 0; k < 3; k++) { const v = model.T[t * 3 + k]; for (let c = 0; c < 3; c++) { b.lo[c] = Math.min(b.lo[c], model.P[v * 3 + c]); b.hi[c] = Math.max(b.hi[c], model.P[v * 3 + c]); } }
     }
     for (const [n, b] of [...by].sort((a, c) => (c[1].lo[2] + c[1].hi[2]) - (a[1].lo[2] + a[1].hi[2]))) {
-      console.log(`${n} ${j.nodes[n].name} ${b.n}t mat ${[...b.m].join('/')} x ${b.lo[0].toFixed(1)}..${b.hi[0].toFixed(1)} y ${b.lo[1].toFixed(1)}..${b.hi[1].toFixed(1)} z ${b.lo[2].toFixed(1)}..${b.hi[2].toFixed(1)}`);
+      console.log(`${n} ${j.nodes[n]?.name ?? "wire"} ${b.n}t mat ${[...b.m].join('/')} x ${b.lo[0].toFixed(1)}..${b.hi[0].toFixed(1)} y ${b.lo[1].toFixed(1)}..${b.hi[1].toFixed(1)} z ${b.lo[2].toFixed(1)}..${b.hi[2].toFixed(1)}`);
     }
     process.exit(0);
   }
@@ -388,7 +391,8 @@ export async function prepare(cfg) {
   if (process.env.PARTS_AT) {
     const [a, b, c, d, e, f] = process.env.PARTS_AT.split(',').map(Number);
     for (const p of parts) {
-      if (!inBox({ x: [a, b], y: [c, d], z: [e, f] }, ...p.mid)) continue;
+      if (process.env.PARTS_TOUCH ? !(p.lo[0] <= b && p.hi[0] >= a && p.lo[1] <= d && p.hi[1] >= c && p.lo[2] <= f && p.hi[2] >= e)
+        : !inBox({ x: [a, b], y: [c, d], z: [e, f] }, ...p.mid)) continue;
       console.log(`node ${p.node} ${p.tris.length}t x ${p.lo[0].toFixed(2)}..${p.hi[0].toFixed(2)} y ${p.lo[1].toFixed(2)}..${p.hi[1].toFixed(2)} z ${p.lo[2].toFixed(2)}..${p.hi[2].toFixed(2)}`);
     }
     process.exit(0);
@@ -412,6 +416,40 @@ export async function prepare(cfg) {
     for (const [l, e] of ext) if (e[0] < -1 && e[2] - e[1] > LOA * 0.08) HULL_PIECES.add(l);
   }
   console.log('hull pieces:', [...HULL_PIECES].join(','));
+  // BYNODE=1: each piece of the model's runs of faces, gathered where they
+  // stand within BYNODE_GAP of each other -- but only with runs of the same
+  // piece -- and counted by size: the model draws a kind of gun to a piece, so
+  // its mountings show up as a row of clusters alike.
+  if (process.env.BYNODE) {
+    const gap = +(process.env.BYNODE_GAP || 0.12);
+    const by = new Map();
+    for (const p of parts) {
+      if (HULL_PIECES.has(p.node) || p.lo[1] < 3) continue;
+      if (!by.has(p.node)) by.set(p.node, []);
+      by.get(p.node).push({ n: p.tris.length, lo: [...p.lo], hi: [...p.hi] });
+    }
+    for (const [node, list] of [...by].sort((a, b) => a[0] - b[0])) {
+      let cl = list;
+      const near = (A, B) => [0, 1, 2].every((c) => A.lo[c] - gap <= B.hi[c] && B.lo[c] - gap <= A.hi[c]);
+      for (let merged = true; merged;) {
+        merged = false;
+        for (let a = 0; a < cl.length; a++) for (let b = a + 1; b < cl.length; b++) {
+          if (!near(cl[a], cl[b])) continue;
+          const A = cl[a], B = cl[b];
+          A.n += B.n;
+          for (let c = 0; c < 3; c++) { A.lo[c] = Math.min(A.lo[c], B.lo[c]); A.hi[c] = Math.max(A.hi[c], B.hi[c]); }
+          cl.splice(b, 1); b--; merged = true;
+        }
+      }
+      const tot = cl.reduce((q, c) => q + c.n, 0);
+      console.log(`== node ${node} (${j.nodes[node]?.name}): ${cl.length} clusters, ${tot}t`);
+      if (cl.length > +(process.env.BYNODE_MAX || 400)) continue;
+      cl.sort((a, b) => b.hi[2] + b.lo[2] - a.hi[2] - a.lo[2]);
+      for (const c of cl) if (c.n >= +(process.env.BYNODE_MIN || 30)) console.log(`   ${c.n}t x ${c.lo[0].toFixed(2)}..${c.hi[0].toFixed(2)} y ${c.lo[1].toFixed(2)}..${c.hi[1].toFixed(2)} z ${c.lo[2].toFixed(2)}..${c.hi[2].toFixed(2)}  (${(c.hi[0] - c.lo[0]).toFixed(1)}x${(c.hi[1] - c.lo[1]).toFixed(1)}x${(c.hi[2] - c.lo[2]).toFixed(1)})`);
+    }
+    process.exit(0);
+  }
+
   const WATERLINE = 0.0;
   const PAINT_LINES = cfg.paintLines || [WATERLINE];
   const HB = new Float32Array(Math.ceil(LOA) + 4);
@@ -489,7 +527,10 @@ export async function prepare(cfg) {
     let cl = parts.filter((p) => !taken.has(p) && !kept(p) && !HULL_PIECES.has(p.node)
       && A.regions.some((r) => inBox(r, ...p.mid)) && Math.max(p.hi[0] - p.lo[0], p.hi[2] - p.lo[2]) < A.size[1])
       .map((p) => ({ ps: [p], lo: [...p.lo], hi: [...p.hi] }));
+    // `nodes`: only the model's pieces that draw this kind of gun, so a gun
+    // stood against a deckhouse is not taken for part of it.
     const near = (X, Y) => [0, 1, 2].every((c) => X.lo[c] - gap <= Y.hi[c] && Y.lo[c] - gap <= X.hi[c]);
+    if (A.nodes) cl = cl.filter((c) => A.nodes.includes(c.ps[0].node));
     for (let merged = true; merged;) {
       merged = false;
       for (let a = 0; a < cl.length; a++) {
@@ -1285,7 +1326,7 @@ export async function prepare(cfg) {
     }
     const sp = splitBarrels({ ...local, LF: raw.LF }, guns, minLen, test);
     const { house, barrels } = sp;
-    const face = spec.face ?? sp.face;
+    const face = (spec.faces && spec.faces[template] != null) ? spec.faces[template] : (spec.face ?? sp.face);
     const { fits, pitch } = boresOf(barrels, guns, face);
     const tz = face - inside;
     const ty = fits.reduce((a, f) => a + f.yAt(tz), 0) / guns;
