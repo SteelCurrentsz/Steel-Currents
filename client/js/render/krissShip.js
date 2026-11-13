@@ -329,6 +329,56 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     });
   }
 
+  // ------------------------------------------------------ her cards ----
+  // What her model draws as cut-out cards (see `cards` in build/kriss-hull.mjs):
+  // railings and aerial wires, cut out of their strips by their own picture
+  // so only the rail and the wire are left, and glass, which is seen through.
+  let cardGeo = null;
+  const cardMats = [];
+  function cards(g) {
+    const list = D.CARDS || [];
+    if (!list.length) return [];
+    if (!cardGeo) {
+      cardGeo = list.map((c) => {
+        const bin = Uint8Array.from(atob(c.b64), (ch) => ch.charCodeAt(0)).buffer;
+        const pos = new Float32Array(bin, 0, c.verts * 3);
+        const uv = new Float32Array(bin, c.verts * 12, c.verts * 2);
+        const idx = new Uint32Array(bin, c.verts * 20, c.tris * 3);
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        geo.setIndex(new THREE.BufferAttribute(idx, 1));
+        geo.computeVertexNormals();
+        return geo;
+      });
+      list.forEach((c) => {
+        const glass = c.opacity < 0.5;
+        const mat = new THREE.MeshLambertMaterial({
+          color: glass ? P.glass : P.steel, side: THREE.DoubleSide,
+          transparent: glass, opacity: glass ? 0.55 : 1, depthWrite: !glass,
+          alphaTest: glass ? 0 : 0.45,
+        });
+        if (c.tex && !glass && typeof document !== 'undefined') {
+          const img = new Image();
+          const tex = new THREE.Texture(img);
+          tex.flipY = false;
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = 4;
+          img.onload = () => { tex.needsUpdate = true; mat.needsUpdate = true; };
+          img.src = c.tex;
+          mat.map = tex;
+        }
+        cardMats.push(mat);
+      });
+    }
+    return cardGeo.map((geo, i) => {
+      const m = new THREE.Mesh(geo, cardMats[i]);
+      m.name = 'cards';
+      g.add(m);
+      return m;
+    });
+  }
+
   // --------------------------------------------------------- build ----
   const STATIC = [['hull', hullModel], ['depthCharges', depthCharges], ['armour', armour], ['screws', screws]];
   function build(extra = null) {
@@ -340,6 +390,8 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     buildInterior(g, { loa: LOA, shellAt, keelY: (t) => keelY(t) + 0.12, sheer: deckOver, zAt, roofAt: surface.surfaceY,
       openTop: (z) => deckOver((2 * z) / LOA) - 0.2 });
     mergeStatic(g, bySection(LOA));
+    // After the weld, which knows nothing of a picture on a mesh.
+    const cardMeshes = cards(g);
     const turrets = mainBattery(g);
     mountings(g);
     mergeMoving(g);
@@ -349,6 +401,7 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     return {
       group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
       secMounts: g.userData.secMounts || [], aaMounts: g.userData.aaMounts || [], torpMounts: g.userData.torpMounts || [],
+      cards: cardMeshes,
     };
   }
   /** Every piece of her and where it sits, for the tests. */

@@ -43,7 +43,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * background once the title screen is up, and waited for by the shipyard and
  * before a battle is joined.
  */
-let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina, buildMusashi,
+let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
 /**
@@ -78,7 +78,9 @@ const SCULPTED = {
   northcarolina: () => import('./northcarolina.js').then((m) => { buildNorthCarolina = m.buildNorthCarolina; }),
   massachusetts: () => import('./massachusetts.js')
     .then((m) => { buildMassachusetts = m.buildMassachusetts; }),
-  musashi: () => import('./musashi.js').then((m) => { buildMusashi = m.buildMusashi; }),
+  // The two Yamatos, each off her own whole-ship model (see yamato.js, musashi.js).
+  yamato: () => import('./yamato.js').then((m) => { KRISS.yamato = m.buildYamato; }),
+  musashi: () => import('./musashi.js').then((m) => { KRISS.musashi = m.buildMusashi; }),
   fuso: () => import('./fuso.js').then((m) => { buildFuso = m.buildFuso; }),
   mutsu: () => import('./mutsu.js').then((m) => { buildMutsu = m.buildMutsu; }),
   agincourt: () => import('./agincourt.js').then((m) => { buildAgincourt = m.buildAgincourt; }),
@@ -124,7 +126,7 @@ const SCULPTED = {
   lcm: () => import('./vehicles.js').then((m) => { buildLcm = m.buildLcm; }),
 };
 // The module each class is drawn by, where it is not her own name.
-const SCULPT_OF = { yamato: 'musashi', tirpitz: 'bismarck', spee: 'scheer', maya: 'takao' };
+const SCULPT_OF = { tirpitz: 'bismarck', spee: 'scheer', maya: 'takao' };
 const fetched = new Map();
 const ready = new Set();
 // When each fetch last failed. With no signal every ask fails at once, and
@@ -804,21 +806,6 @@ function buildModel(classId) {
     };
   }
 
-  // And the Yamato: the largest battleship ever built, drawn as her sister is.
-  if (cls.id === 'yamato') {
-    // Her sister's hull: see SHIP_CLASSES.yamato.
-    const built = buildMusashi();
-    Object.assign(built.group.userData, {
-      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
-    });
-    return {
-      group: built.group, turrets: built.turrets,
-      length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
-      torpMounts: [],
-    };
-  }
-
   // And the Richelieu: the owner's sculpts of her hull, her upperworks and
   // her guns, with her quarterdeck and its aviation built to her plans.
   if (cls.id === 'richelieu') {
@@ -957,20 +944,6 @@ function buildModel(classId) {
   // bridge and every gun she carried.
   if (cls.id === 'fuso') {
     const built = buildFuso();
-    Object.assign(built.group.userData, {
-      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
-    });
-    return {
-      group: built.group, turrets: built.turrets,
-      length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
-      torpMounts: [],
-    };
-  }
-
-  // And her sister, the owner's sculpts of her with all four of her 15.5 cm.
-  if (cls.id === 'musashi') {
-    const built = buildMusashi();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

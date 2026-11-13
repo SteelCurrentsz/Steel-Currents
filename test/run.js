@@ -113,7 +113,7 @@ import {
 } from '../client/js/render/scheer.js';
 import { scheerSurfaceY as speeSurfaceY, MOUNT_SEATS as SCHEER_SEATS } from '../client/js/render/scheerHull.js';
 const speeParts = () => panzerschiffParts('spee');
-import { buildYamato, yamatoParts, LINES as yamatoLines }
+import { buildYamato, yamatoParts, LINES as yamatoLines, yamatoGunPiece }
   from '../client/js/render/yamato.js';
 
 /**
@@ -129,7 +129,7 @@ import { buildYamato, yamatoParts, LINES as yamatoLines }
  * Taking a ship out of this set is the whole of what has to be done to put her
  * battery back under test.
  */
-const BARE_HULL = new Set(['yamato']);
+const BARE_HULL = new Set([]);
 import { buildTakao, takaoParts, LINES as takaoLines }
   from '../client/js/render/takao.js';
 import {
@@ -146,11 +146,7 @@ import {
 
 /** How far out the Massachusetts's side is at her main deck, at z. */
 const massachusettsHalfBeam = (z) => massachusettsShellAt((2 * z) / MASSACHUSETTS_LOA, 4.5);
-import {
-  buildMusashi, CAT_X as MUSASHI_CAT_X, CAT_Z as MUSASHI_CAT_Z,
-  shellAt as musashiShellAt, LOA as MUSASHI_LOA,
-} from '../client/js/render/musashi.js';
-import { musashiSurfaceY, gunPiece as musashiGunPiece } from '../client/js/render/musashiHull.js';
+import { buildMusashi, musashiGunPiece } from '../client/js/render/musashi.js';
 import {
   buildFuso, CAT_X as FUSO_CAT_X, CAT_Z as FUSO_CAT_Z, CAT_Z_PORT as FUSO_CAT_Z_PORT, shellAt as fusoShellAt, keelY as fusoKeel,
   deckOver as fusoSheer, zAt as fusoZAt, LOA as FUSO_LOA,
@@ -272,7 +268,6 @@ import { scharnhorstSurfaceY } from '../client/js/render/scharnhorstHull.js';
 const fusoHalfBeam = (z) => fusoShellAt((2 * z) / FUSO_LOA, Math.min(4.5, fusoSheer((2 * z) / FUSO_LOA) - 0.7));
 
 /** How far out the Musashi's side is at her aircraft deck, at z. */
-const musashiHalfBeam = (z) => musashiShellAt((2 * z) / MUSASHI_LOA, 5.0);
 import {
   buildBismarck, buildTirpitz, bismarckParts, CAT_Z as BISMARCK_CAT_Z, deckEdge as bismarckDeckEdge,
   builtDeckY as bismarckBuiltDeckY,
@@ -1688,8 +1683,7 @@ check('every gun on the Musashi trains inside its stops and fires only where her
   }
   const [dp, light] = cls.aa.guns;
   assert.equal(dp.mounts.length, 6, 'she carries six 12.7 cm twins');
-  assert.equal(light.mounts.length, 34, 'she carries thirty-four triple 25 mm');
-  assert.equal(light.mounts.filter((m) => m.pod).length, 14, 'she carries fourteen 25 mm in their shields');
+  assert.equal(light.mounts.length, 12, 'she carries the twelve triple 25 mm her model does');
   // Three 12.7 cm twins a side, and none of them where a wing turret trains.
   for (const sgn of [-1, 1]) {
     const side = dp.mounts.filter((m) => Math.sign(m.x) === sgn);
@@ -1702,9 +1696,6 @@ check('every gun on the Musashi trains inside its stops and fires only where her
       }
     }
   }
-  // The four right aft, two a side, are in their shields.
-  const stern = light.mounts.filter((m) => m.z < -94);
-  assert.ok(stern.length === 4 && stern.every((m) => m.pod), 'the four 25 mm right aft are not in their shields');
   // And none of the 25 mm stands where a wing turret's gunhouse and barrels
   // swing: each is further off than its barrels reach, or on a bearing it
   // never trains to.
@@ -1729,87 +1720,6 @@ check('a layer standing at a Musashi gun looks out over it, round its arc and no
         `${kind} ${i} is taken laid on ${((start * 180) / Math.PI).toFixed(0)} degrees, where it cannot fire`);
     });
   }
-});
-
-check('the Musashi carries open 25 mm on her turret roofs, which train with their turrets', () => {
-  const built = buildMusashi();
-  built.group.updateMatrixWorld(true);
-  const W = new THREE.Vector3();
-  for (const t of built.turrets) {
-    const roof = [];
-    t.traverse((o) => { if (o !== t && o.userData && o.userData.mounting) roof.push(o); });
-    assert.ok(roof.length >= 1, `${t.userData.name || 'a turret'} has no 25 mm on her roof`);
-    const q = roof[0];
-    const before = q.getWorldPosition(W).clone();
-    t.rotation.y += 1.0;
-    built.group.updateMatrixWorld(true);
-    const after = q.getWorldPosition(W).clone();
-    assert.ok(before.distanceTo(after) > 2, 'a 25 mm on a turret roof stayed where it was when she trained');
-    assert.ok(after.y > t.getWorldPosition(new THREE.Vector3()).y + 2.5, 'a 25 mm is not up on her roof');
-    t.rotation.y -= 1.0;
-  }
-});
-
-check('the Musashi trains her catapults out over her quarters and shoots on the simulation\'s clock', () => {
-  // Two catapults on her aircraft deck either side of her crane, each on a
-  // turntable at its after end and stowed pointing ahead, which train out over
-  // her quarters to shoot -- and the Jake leaves the end of the girder on the
-  // tick the simulation puts her flight on the plot, where it puts it.
-  const built = buildMusashi();
-  const g = built.group;
-  const deck = g.userData.deck;
-  const cats = deck.cats;
-  assert.equal(cats.length, 2, `she has ${cats.length} catapults`);
-  const fromAhead = () => cats.map((c) => Math.abs(angleDelta(0, c.group.rotation.y)));
-  g.userData.step(0);
-  assert.ok(fromAhead().every((a) => a < 0.2), 'she does not stow her catapults pointing ahead');
-  for (const c of cats) {
-    const p = c.group.position;
-    assert.ok(Math.abs(Math.abs(p.x) - MUSASHI_CAT_X) < 0.01 && Math.abs(p.z - MUSASHI_CAT_Z) < 0.01,
-      `a catapult stands at ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`);
-    // On her aircraft deck: nowhere round the foot of its pedestal is off her.
-    for (let k = 0; k < 8; k++) {
-      const a = (k * Math.PI) / 4;
-      const y = musashiSurfaceY(p.x + Math.sin(a) * 1.8, p.z + Math.cos(a) * 1.8);
-      assert.ok(Math.abs(y - 5.3) < 0.5, `a catapult's pedestal stands on ${y.toFixed(1)} m, not her aircraft deck`);
-    }
-    const r = c.group.rotation.y;
-    const end = [p.x + Math.sin(r) * deck.rig.FRONT, p.z + Math.cos(r) * deck.rig.FRONT];
-    const beam = musashiHalfBeam(end[1]);
-    assert.ok(Math.abs(end[0]) < beam, `a catapult stowed reaches ${Math.abs(end[0]).toFixed(1)} m out, `
-      + `over her side at ${beam.toFixed(1)}`);
-  }
-  const shots = [];
-  for (let n = 0; n < 2; n++) {
-    const t0 = n * 100;
-    g.userData.launch(t0);
-    const live = deck.live;
-    let away = null;
-    let widest = 0;
-    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
-      g.userData.step(t);
-      g.updateMatrixWorld(true);
-      widest = Math.max(widest, Math.abs(angleDelta(0, live.group.rotation.y)));
-      if (deck.airborne && away === null) away = t - t0;
-    }
-    assert.ok(widest > 1.0, `her catapult only trained out to ${widest.toFixed(2)} rad`);
-    const want = SHIP_CLASSES.musashi.planes.deckRun;
-    assert.ok(away !== null && Math.abs(away - want) < 0.2,
-      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${want}s on the plot`);
-    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
-    const off = launchOffset(SHIP_CLASSES.musashi, n === 0 ? -1 : 1);
-    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
-    assert.ok(Math.sign(end.x) === Math.sign(live.group.position.x), 'the Jake went off the other quarter');
-    assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
-      `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
-      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
-    assert.ok(Math.abs(end.y - SHIP_CLASSES.musashi.planes.runHeight) < 3, `the shot leaves her ${end.y.toFixed(1)} m up`);
-    shots.push(live);
-    g.userData.recover();
-    g.userData.step(t0 + 60);
-    assert.ok(fromAhead().every((a) => a < 0.2), 'her catapults stayed trained out');
-  }
-  assert.notEqual(shots[0], shots[1], 'she shot both Jakes off the same catapult');
 });
 
 check('the Musashi is commissioned after her sister', () => {
@@ -8467,83 +8377,103 @@ check('every gun aboard lays in both axes, and each one on its own', () => {
   }
 });
 
-check('the Musashi\'s 46 cm triples are the owner\'s sculpt, rails and all, and fire from their own muzzles', () => {
-  const piece = musashiGunPiece('main');
-  // One piece: every rail stanchion and chain on the roof is joined to the
-  // house it stands on, so nothing of it hangs in the air on its own.
-  const g = piece.house;
-  const p = g.attributes.position;
-  const idx = g.index;
-  const key = (i) => `${Math.round(p.getX(i) * 1e3)},${Math.round(p.getY(i) * 1e3)},${Math.round(p.getZ(i) * 1e3)}`;
-  const id = new Map();
-  const at = new Int32Array(p.count);
-  for (let i = 0; i < p.count; i++) { const k = key(i); if (!id.has(k)) id.set(k, id.size); at[i] = id.get(k); }
-  const parent = Int32Array.from({ length: id.size }, (_, i) => i);
-  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
-  const n = idx ? idx.count : p.count;
-  for (let t = 0; t < n; t += 3) {
-    const a = find(at[idx ? idx.getX(t) : t]);
-    parent[find(at[idx ? idx.getX(t + 1) : t + 1])] = a;
-    parent[find(at[idx ? idx.getX(t + 2) : t + 2])] = a;
+// ---- the Yamato and the Musashi, each off her own model -------------------------------
+// The Yamato by vvmilleriii and the Musashi by KojfDiscord, each cut by
+// build/kriss-hull.mjs and put together by krissShip.js.
+const YAMATO_MODELS = [
+  { id: 'yamato', link: 'pzJ8Q', title: 'Yamato', by: 'vvmilleriii', piece: yamatoGunPiece },
+  { id: 'musashi', link: 'pCEY8', title: 'IJN Musashi (War Thunder) Spearhead', by: 'KojfDiscord', piece: musashiGunPiece },
+];
+
+check('the Yamato and the Musashi are armed as their models arm them, each as she was', () => {
+  const C = SHIP_CLASSES;
+  for (const id of ['yamato', 'musashi']) {
+    assert.deepEqual(C[id].turrets.map((t) => t.guns), [3, 3, 3], `${id}: nine 46 cm in three triples`);
+    assert.equal(C[id].gun.caliber, 460);
+    assert.deepEqual(C[id].turrets.map((t) => Math.sign(t.z)), [1, 1, -1], `${id}: two turrets forward and one aft`);
   }
-  const sizes = new Map();
-  for (let t = 0; t < n; t += 3) { const r = find(at[idx ? idx.getX(t) : t]); sizes.set(r, (sizes.get(r) || 0) + 1); }
-  const pieces = [...sizes.values()].sort((x, y) => y - x);
-  const loose = pieces.slice(1).reduce((x, y) => x + y, 0);
-  assert.ok(loose <= n / 3 * 0.01, `${pieces.length} pieces, ${loose} triangles not joined to the house: ${pieces.slice(0, 6)}`);
-  // As wide as the gunhouses she had, on the same barbettes.
-  g.computeBoundingBox();
-  const w = g.boundingBox.max.x - g.boundingBox.min.x;
-  assert.ok(w > 13 && w < 17.5, `the gunhouse is ${w.toFixed(1)} m across`);
-  // Every muzzle the flash and the shell come out of is the end of a barrel.
-  const gp = piece.guns.attributes.position;
-  assert.equal(piece.muzzles.length, 3);
-  for (const [mx, my, mz] of piece.muzzles) {
-    let tip = -Infinity;
-    for (let i = 0; i < gp.count; i++) {
-      if (Math.abs(gp.getX(i) - mx) < 0.8 && Math.abs(gp.getY(i) - my) < 0.8) tip = Math.max(tip, gp.getZ(i));
-    }
-    assert.ok(Math.abs(tip - mz) < 0.05, `a muzzle at ${mz.toFixed(2)} m on a barrel that ends at ${tip.toFixed(2)} m`);
-  }
-  // And her three turrets are built from it.
-  const view = new ShipView({ add() {}, remove() {} }, 'musashi', 0, false);
-  const main = view.group.userData.turrets || [];
-  assert.equal(main.length, 3);
-  for (const m of main) assert.ok(m.children.some((c) => c.isMesh && c.geometry === piece.house), 'a turret not built from the sculpt');
+  // The Yamato as she sailed in April 1945: her wing 15.5 cm landed for six
+  // more twin 12.7 cm, and forty-six triple 25 mm.
+  const Y = C.yamato;
+  assert.equal(Y.secondary.mounts.length, 2, 'the Yamato kept two 15.5 cm triples');
+  assert.ok(Y.secondary.mounts.every((m) => Math.abs(m.x) < 1), 'a 15.5 cm off her centreline');
+  const yha = Y.aa.guns.filter((g) => g.caliber === 127).flatMap((g) => g.mounts);
+  const y25 = Y.aa.guns.filter((g) => g.caliber === 25).flatMap((g) => g.mounts);
+  assert.equal(yha.length, 12, 'the Yamato carries twelve twin 12.7 cm');
+  assert.equal(y25.length, 46, 'the Yamato carries forty-six triple 25 mm');
+  assert.equal(Y.datasheet.tertiary.find((t) => t.caliber === 127).barrels, 24);
+  assert.equal(Y.datasheet.tertiary.find((t) => t.caliber === 25).barrels, 138);
+  // The Musashi as she joined the fleet: all four 15.5 cm, six 12.7 cm twins
+  // and twelve triple 25 mm.
+  const M = C.musashi;
+  assert.equal(M.secondary.mounts.length, 4);
+  assert.equal(M.aa.guns.filter((g) => g.caliber === 127).flatMap((g) => g.mounts).length, 6);
+  assert.equal(M.aa.guns.filter((g) => g.caliber === 25).flatMap((g) => g.mounts).length, 12);
+  assert.equal(M.datasheet.tertiary.find((t) => t.caliber === 25).barrels, 36);
 });
 
-check('the Musashi\'s open 25 mm triples are the owner\'s sculpt, the size the old ones were', () => {
-  const piece = musashiGunPiece('aa');
-  const box = new THREE.Box3();
-  for (const g of [piece.house, piece.guns]) {
-    g.computeBoundingBox();
-    const b = g.boundingBox.clone();
-    if (g === piece.guns) b.translate(new THREE.Vector3(...piece.trunnion));
-    box.union(b);
+check('the Yamato and the Musashi build with every mounting their datasheets list, each from her own model', () => {
+  for (const { id, piece } of YAMATO_MODELS) {
+    const cls = SHIP_CLASSES[id];
+    const built = buildShip(id);
+    assert.equal(built.group.userData.classId, id);
+    assert.equal(built.turrets.length, 3);
+    assert.equal(built.secMounts.length, cls.secondary.mounts.length, `${id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${id}: light mounts`);
+    built.turrets.forEach((t, i) => {
+      const p = piece('main', i);
+      assert.ok(t.children.some((c) => c.isMesh && c.geometry === p.house), `${id}: No.${i + 1} is not her model's turret`);
+      // Every muzzle the flash and the shell come out of is the end of a barrel.
+      const gp = p.guns.attributes.position;
+      assert.equal(p.muzzles.length, 3);
+      for (const [mx, my, mz] of p.muzzles) {
+        let tip = -Infinity;
+        for (let k = 0; k < gp.count; k++) {
+          if (Math.abs(gp.getX(k) - mx) < 0.8 && Math.abs(gp.getY(k) - my) < 0.8) tip = Math.max(tip, gp.getZ(k));
+        }
+        assert.ok(Math.abs(tip - mz) < 0.1, `${id}: a muzzle at ${mz.toFixed(2)} m on a barrel that ends at ${tip.toFixed(2)} m`);
+      }
+      // As wide as the gunhouses they had.
+      p.house.computeBoundingBox();
+      const w = p.house.boundingBox.max.x - p.house.boundingBox.min.x;
+      assert.ok(w > 13 && w < 18, `${id}: a gunhouse ${w.toFixed(1)} m across`);
+    });
   }
-  const len = box.max.z - box.min.z;
-  const high = box.max.y - box.min.y;
-  // The open triple she had: three and a half metres stem to stern of it and
-  // two high.
-  assert.ok(len > 2.9 && len < 3.8, `${len.toFixed(2)} m long`);
-  assert.ok(high > 1.7 && high < 2.4, `${high.toFixed(2)} m high`);
-  assert.equal(piece.muzzles.length, 3);
-  // Each muzzle is the end of its own gun.
-  const gp = piece.guns.attributes.position;
-  for (const [mx, my, mz] of piece.muzzles) {
-    let tip = -Infinity;
-    for (let i = 0; i < gp.count; i++) {
-      if (Math.abs(gp.getX(i) - mx) < 0.15 && Math.abs(gp.getY(i) - my) < 0.25) tip = Math.max(tip, gp.getZ(i));
-    }
-    assert.ok(Math.abs(tip - mz) < 0.08, `a muzzle at ${mz.toFixed(2)} m on a gun that ends at ${tip.toFixed(2)} m`);
+});
+
+check('the Musashi carries no boats slung outboard of her sides, and neither ship has anything adrift', () => {
+  const at = new THREE.Vector3();
+  for (const id of ['yamato', 'musashi']) {
+    const built = buildShip(id);
+    const g = built.group;
+    g.updateMatrixWorld(true);
+    let out = 0, high = 0;
+    g.traverse((o) => {
+      if (!o.isMesh || !o.geometry?.attributes.position) return;
+      const p = o.geometry.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        at.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld);
+        // Abreast No.2, where the model had them on their davits.
+        if (at.z > 13 && at.z < 25 && at.y > 6 && Math.abs(at.x) > 19.4) out++;
+        // And nothing above her mastheads: the export's stray sheets were up there.
+        if (at.y > 50) high++;
+      }
+    });
+    assert.equal(out, 0, `${id}: ${out} points of her stand outboard of her side abreast No.2`);
+    assert.equal(high, 0, `${id}: ${high} points of her hang above her mastheads`);
   }
-  // And every open mounting of hers is built from it.
-  const view = new ShipView({ add() {}, remove() {} }, 'musashi', 0, false);
-  let open = 0;
-  view.group.traverse((o) => { if (o.isMesh && o.geometry === piece.house) open++; });
-  const lights = view.group.userData.aaMounts.filter((a) => a.children.some((c) => c.isMesh && c.geometry === piece.house));
-  assert.ok(lights.length >= 10, `only ${lights.length} of her light mountings are the sculpt`);
-  assert.ok(open > lights.length, 'the turret roofs have none');
+});
+
+check('the Credits screen credits the Yamato and the Musashi as their licences ask', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of YAMATO_MODELS) {
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(`https://skfb.ly/${m.link}`) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+  }
 });
 
 check('a smoke screen is a bank on the sea, not an aura round the ship that laid it', () => {

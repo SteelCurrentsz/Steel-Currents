@@ -17,7 +17,7 @@ import { buildShipModel, loadShips } from '../client/js/render/ships.js';
 import { SHIP_CLASSES } from '../shared/ships.js';
 
 const OUT = new URL('../client/js/render/funnelMouths.js', import.meta.url);
-const SAME = { maya: 'takao', tirpitz: 'bismarck', yamato: 'musashi', scheer: 'spee' };
+const SAME = { maya: 'takao', tirpitz: 'bismarck', scheer: 'spee' };
 const all = Object.keys(SHIP_CLASSES).filter((id) => SHIP_CLASSES[id].hull.funnels && !SAME[id]);
 const ids = process.argv.slice(2).length ? process.argv.slice(2) : all;
 const table = existsSync(OUT) ? { ...(await import(OUT.href)).FUNNEL_MOUTHS } : {};

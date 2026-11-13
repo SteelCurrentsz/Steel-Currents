@@ -71,6 +71,8 @@ const inBox = (b, x, y, z, slack = 0) => (!b.x || (x >= b.x[0] - slack && x <= b
  *   hullTris             how far her hull is decimated
  *   deckFallback         her deck's height where her lines find none
  *   extra                anything else her data module carries
+ *   cards                { nodes }: the model's pieces drawn as cut-out cards, kept textured
+ *   floaters             { gap, near, keep }: take off whatever the export left adrift
  */
 export async function prepare(cfg) {
   const MeshoptSimplifier = await simplifier();
@@ -188,6 +190,166 @@ export async function prepare(cfg) {
     let cut = 0;
     for (let t = 0; t < nf; t++) if (wire.has(find(first[t]))) { model.L[t] = WIRE; cut++; }
     console.log(`rigging: ${wire.size} wires, ${cut} faces, kept off her decks`);
+  }
+
+  // ---- what floats free of her ------------------------------------------------------
+  // `floaters: { gap, keep }`: a piece of the model that touches nothing of
+  // hers -- a plate left hanging in the air by the export, a fitting drawn a
+  // hand's breadth off the deck it belongs on -- is not part of the ship. Every
+  // run of faces is tried against every other for contact (any of its points
+  // within `gap` of another's faces); the runs that hang together that way
+  // and reach her hull, or into the water, are her, and whatever does not is
+  // taken off. Wires are left to the rigging above. `keep`: boxes whose runs
+  // stay whatever they touch. FLOATERS=1 lists what is taken and stops.
+  if (cfg.floaters) {
+    const F = { gap: 0.12, near: 0.5, keep: [], ...cfg.floaters };
+    const PAD = Math.max(F.gap, F.near);
+    const P = model.P, T = model.T, nf = T.length / 3;
+    const id = new Map(), up = [];
+    const find = (a) => { while (up[a] !== a) { up[a] = up[up[a]]; a = up[a]; } return a; };
+    const node = (v, l) => {
+      const k = `${l},${Math.round(P[v * 3] * 1000)},${Math.round(P[v * 3 + 1] * 1000)},${Math.round(P[v * 3 + 2] * 1000)}`;
+      let i = id.get(k);
+      if (i === undefined) { i = up.length; id.set(k, i); up.push(i); }
+      return i;
+    };
+    const first = new Int32Array(nf);
+    for (let t = 0; t < nf; t++) {
+      const a = node(T[t * 3], model.L[t]), b = node(T[t * 3 + 1], model.L[t]), c = node(T[t * 3 + 2], model.L[t]);
+      up[find(b)] = find(a); up[find(c)] = find(a);
+      first[t] = a;
+    }
+    // Each run of faces, numbered.
+    const runOf = new Int32Array(nf).fill(-1);
+    const runs = [];
+    {
+      const ix = new Map();
+      for (let t = 0; t < nf; t++) {
+        // Wires too: a ladder's rungs hang off its rails, which the rigging
+        // above took for wires -- they join what they touch, and stay.
+        const r = find(first[t]);
+        let i = ix.get(r);
+        if (i === undefined) { i = runs.length; ix.set(r, i); runs.push({ tris: [], lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity], node: model.L[t] }); }
+        runOf[t] = i;
+        const q = runs[i];
+        q.tris.push(t);
+        for (let k = 0; k < 3; k++) { const v = T[t * 3 + k]; for (let c = 0; c < 3; c++) { q.lo[c] = Math.min(q.lo[c], P[v * 3 + c]); q.hi[c] = Math.max(q.hi[c], P[v * 3 + c]); } }
+      }
+    }
+    // Every face in the cells of a grid it reaches into.
+    const CELL = 1.0;
+    const grid = new Map();
+    const ck = (i, j, k) => (i + 2048) * 16777216 + (j + 2048) * 4096 + (k + 2048);
+    for (let t = 0; t < nf; t++) {
+      if (runOf[t] < 0) continue;
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (let k = 0; k < 3; k++) {
+        const v = T[t * 3 + k] * 3;
+        x0 = Math.min(x0, P[v]); x1 = Math.max(x1, P[v]); y0 = Math.min(y0, P[v + 1]); y1 = Math.max(y1, P[v + 1]); z0 = Math.min(z0, P[v + 2]); z1 = Math.max(z1, P[v + 2]);
+      }
+      for (let i = Math.floor((x0 - PAD) / CELL); i <= Math.floor((x1 + PAD) / CELL); i++)
+        for (let j = Math.floor((y0 - PAD) / CELL); j <= Math.floor((y1 + PAD) / CELL); j++)
+          for (let k = Math.floor((z0 - PAD) / CELL); k <= Math.floor((z1 + PAD) / CELL); k++) {
+            const key = ck(i, j, k);
+            let a = grid.get(key);
+            if (!a) grid.set(key, a = []);
+            a.push(t);
+          }
+    }
+    // The square of how far a point is from a face (Ericson, Real-Time Collision Detection 5.1.5).
+    const dist2 = (px, py, pz, t) => {
+      const a = T[t * 3] * 3, b = T[t * 3 + 1] * 3, c = T[t * 3 + 2] * 3;
+      const ax = P[a], ay = P[a + 1], az = P[a + 2];
+      const abx = P[b] - ax, aby = P[b + 1] - ay, abz = P[b + 2] - az;
+      const acx = P[c] - ax, acy = P[c + 1] - ay, acz = P[c + 2] - az;
+      const apx = px - ax, apy = py - ay, apz = pz - az;
+      const d1 = abx * apx + aby * apy + abz * apz, d2 = acx * apx + acy * apy + acz * apz;
+      const at = (u, v) => { const qx = ax + abx * u + acx * v - px, qy = ay + aby * u + acy * v - py, qz = az + abz * u + acz * v - pz; return qx * qx + qy * qy + qz * qz; };
+      if (d1 <= 0 && d2 <= 0) return at(0, 0);
+      const bpx = px - P[b], bpy = py - P[b + 1], bpz = pz - P[b + 2];
+      const d3 = abx * bpx + aby * bpy + abz * bpz, d4 = acx * bpx + acy * bpy + acz * bpz;
+      if (d3 >= 0 && d4 <= d3) return at(1, 0);
+      const vc = d1 * d4 - d3 * d2;
+      if (vc <= 0 && d1 >= 0 && d3 <= 0) return at(d1 / (d1 - d3), 0);
+      const cpx = px - P[c], cpy = py - P[c + 1], cpz = pz - P[c + 2];
+      const d5 = abx * cpx + aby * cpy + abz * cpz, d6 = acx * cpx + acy * cpy + acz * cpz;
+      if (d6 >= 0 && d5 <= d6) return at(0, 1);
+      const vb = d5 * d2 - d1 * d6;
+      if (vb <= 0 && d2 >= 0 && d6 <= 0) return at(0, d2 / (d2 - d6));
+      const va = d3 * d6 - d5 * d4;
+      if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return at(1 - w, w); }
+      const den = 1 / (va + vb + vc);
+      return at(vb * den, vc * den);
+    };
+    // Runs that touch, joined.
+    const rup = runs.map((_, i) => i);
+    const rfind = (a) => { while (rup[a] !== a) { rup[a] = rup[rup[a]]; a = rup[a]; } return a; };
+    const g2 = F.gap * F.gap;
+    for (let ri = 0; ri < runs.length; ri++) {
+      const verts = new Set();
+      for (const t of runs[ri].tris) for (let k = 0; k < 3; k++) verts.add(T[t * 3 + k]);
+      const tried = new Set();
+      for (const v of verts) {
+        const px = P[v * 3], py = P[v * 3 + 1], pz = P[v * 3 + 2];
+        const cell = grid.get(ck(Math.floor(px / CELL), Math.floor(py / CELL), Math.floor(pz / CELL)));
+        if (!cell) continue;
+        for (const t of cell) {
+          const rj = runOf[t];
+          if (rj === ri || tried.has(rj) || rfind(rj) === rfind(ri)) continue;
+          if (dist2(px, py, pz, t) <= g2) { rup[rfind(rj)] = rfind(ri); tried.add(rj); }
+        }
+      }
+    }
+    // Her: whatever hangs together with her hull or reaches into the water.
+    const anchored = new Set();
+    runs.forEach((q, i) => {
+      if ((cfg.hull && cfg.hull.includes(q.node)) || q.node === WIRE || q.lo[1] < -0.5 || F.keep.some((b) => inBox(b, (q.lo[0] + q.hi[0]) / 2, (q.lo[1] + q.hi[1]) / 2, (q.lo[2] + q.hi[2]) / 2))) anchored.add(rfind(i));
+    });
+    // A group that touches nothing of hers but stands within `near` of her --
+    // the plate across a turret's face that its barrels pass through, a fuze
+    // setter a hand off its gun -- is a detail drawn standing off, and is
+    // hers: only what is adrift, clear of her all round, goes.
+    {
+      const n2 = F.near * F.near;
+      const groups = new Map();
+      runs.forEach((q, i) => { const r = rfind(i); if (!anchored.has(r)) { if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); } });
+      for (const [r, members] of groups) {
+        let near = false;
+        for (const ri of members) {
+          for (const t0 of runs[ri].tris) {
+            for (let k = 0; k < 3 && !near; k++) {
+              const v = T[t0 * 3 + k];
+              const px = P[v * 3], py = P[v * 3 + 1], pz = P[v * 3 + 2];
+              const cell = grid.get(ck(Math.floor(px / CELL), Math.floor(py / CELL), Math.floor(pz / CELL)));
+              if (!cell) continue;
+              for (const t of cell) if (anchored.has(rfind(runOf[t])) && dist2(px, py, pz, t) <= n2) { near = true; break; }
+            }
+            if (near) break;
+          }
+          if (near) break;
+        }
+        if (near) anchored.add(r);
+      }
+    }
+    const loose = new Map();
+    runs.forEach((q, i) => {
+      const r = rfind(i);
+      if (anchored.has(r)) return;
+      let g = loose.get(r);
+      if (!g) loose.set(r, g = { n: 0, runs: 0, lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity], nodes: new Set() });
+      g.n += q.tris.length; g.runs++; g.nodes.add(q.node);
+      for (let c = 0; c < 3; c++) { g.lo[c] = Math.min(g.lo[c], q.lo[c]); g.hi[c] = Math.max(g.hi[c], q.hi[c]); }
+    });
+    for (const g of loose.values()) console.log(`  floating: ${g.n}t in ${g.runs} runs, nodes ${[...g.nodes].join('/')} x ${g.lo[0].toFixed(2)}..${g.hi[0].toFixed(2)} y ${g.lo[1].toFixed(2)}..${g.hi[1].toFixed(2)} z ${g.lo[2].toFixed(2)}..${g.hi[2].toFixed(2)}`);
+    if (process.env.FLOATERS) process.exit(0);
+    const T2 = [], G2 = [], L2 = [], M2 = [];
+    let gone = 0;
+    for (let t = 0; t < nf; t++) {
+      if (runOf[t] >= 0 && loose.has(rfind(runOf[t]))) { gone++; continue; }
+      T2.push(T[t * 3], T[t * 3 + 1], T[t * 3 + 2]); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]);
+    }
+    model.T = T2; model.G = G2; model.L = L2; model.M = M2;
+    console.log(`floaters: ${loose.size} pieces, ${gone} faces, taken off her`);
   }
 
   // ---- her flight deck (a carrier) --------------------------------------------------
@@ -620,6 +782,57 @@ export async function prepare(cfg) {
     });
     KINDS[kind].forEach((set, i) => { for (const t of set) { kindOf.set(t, kind); mountIx.set(t, i); } });
     console.log(`${kind}: ${KINDS[kind].length} mountings, ${KINDS[kind].map((s) => s.size).join('/')} faces`);
+  }
+
+  // ---- her cards ---------------------------------------------------------------------
+  // `cards: { nodes, color }`: pieces the model draws as flat cards with a
+  // texture cut out of them -- railings, nets, aerial wires laid as strips
+  // with only the wire left opaque in the picture. Drawn solid, a railing is a
+  // bulwark and a wire is a ribbon a metre wide. So they come off her hull and
+  // are written as they are, with their texture coordinates and the picture
+  // itself, to be drawn cut out (see krissShip.js). Any of them that is part of
+  // a mounting stays with the mounting, which trains.
+  const CARDS = [];
+  if (cfg.cards) {
+    const want = new Set(cfg.cards.nodes);
+    const byMat = new Map();
+    for (let t = 0; t < model.T.length / 3; t++) {
+      if (!want.has(model.L[t]) || kindOf.has(t) || NOT_HERS.has(t)) continue;
+      const mat = model.M[t];
+      let c = byMat.get(mat);
+      if (!c) byMat.set(mat, c = { at: new Map(), P: [], UV: [], I: [] });
+      for (let k = 0; k < 3; k++) {
+        const v = model.T[t * 3 + k];
+        let w = c.at.get(v);
+        if (w === undefined) {
+          w = c.P.length / 3;
+          c.at.set(v, w);
+          c.P.push(model.P[v * 3], model.P[v * 3 + 1], model.P[v * 3 + 2]);
+          c.UV.push(model.UV[v * 2], model.UV[v * 2 + 1]);
+        }
+        c.I.push(w);
+      }
+      NOT_HERS.add(t);
+    }
+    for (const [mat, c] of byMat) {
+      const m = j.materials[mat] || {};
+      const sg = m.extensions && m.extensions.KHR_materials_pbrSpecularGlossiness;
+      const ti = (m.pbrMetallicRoughness && m.pbrMetallicRoughness.baseColorTexture && m.pbrMetallicRoughness.baseColorTexture.index)
+        ?? (sg && sg.diffuseTexture && sg.diffuseTexture.index);
+      const factor = (sg && sg.diffuseFactor) || (m.pbrMetallicRoughness && m.pbrMetallicRoughness.baseColorFactor) || [1, 1, 1, 1];
+      let tex = null;
+      if (ti !== undefined) {
+        const img = j.images[j.textures[ti].source];
+        const bytes = model.views[img.bufferView];
+        tex = `data:${img.mimeType};base64,${Buffer.from(bytes).toString('base64')}`;
+      }
+      const buf = Buffer.concat([
+        Buffer.from(Float32Array.from(c.P).buffer), Buffer.from(Float32Array.from(c.UV).buffer),
+        Buffer.from(Uint32Array.from(c.I).buffer),
+      ]);
+      CARDS.push({ tex, opacity: +(factor[3] ?? 1).toFixed(3), verts: c.P.length / 3, tris: c.I.length / 3, b64: buf.toString('base64') });
+    }
+    console.log('cards:', CARDS.map((c) => `${c.tris}t${c.tex ? '' : ' untextured'} opacity ${c.opacity}`).join(', '));
   }
 
   // ---- a look at her -----------------------------------------------------------------
@@ -1492,7 +1705,9 @@ export async function prepare(cfg) {
     + `// Her flight deck, a carrier's: its height and its outline (see carrier.js).\n`
     + `export const DECK = ${JSON.stringify(DECK)};\n`
     + `export const ISLAND = ${JSON.stringify(cfg.carrier ? cfg.carrier.island : null)};\n`
-    + `export const EXTRA = ${JSON.stringify(cfg.extra || {})};\n`);
+    + `export const EXTRA = ${JSON.stringify(cfg.extra || {})};\n`
+    + `// Her cut-out cards -- railings, nets, aerial wires -- with their pictures.\n`
+    + `export const CARDS = ${JSON.stringify(CARDS)};\n`);
   console.log('wrote', path.relative(ROOT, OUT_DATA), `${(readFileSync(OUT_DATA).length / 1e6).toFixed(2)} MB`);
 }
 
