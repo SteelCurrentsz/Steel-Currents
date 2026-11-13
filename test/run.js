@@ -3922,6 +3922,119 @@ check('the Brooklyn flies her scouts off her own catapults, off the quarter the 
   }
 });
 
+// ---- the Standards, the Ise and the Implacable ------------------------------------------
+// Four American battleships, a Japanese one and a British carrier, each off its
+// own model by build/kriss-hull.mjs, and the carrier's two aircraft off theirs
+// by build/naval-air-source.mjs.
+const STANDARD_MODELS = [
+  { id: 'texas', link: 'ptOpy', title: 'USS Texas', by: 'kriss50' },
+  { id: 'newmexico', link: 'ptOVP', title: 'USS New Mexico', by: 'kriss50' },
+  { id: 'maryland', link: 'ptOoS', title: 'USS Maryland', by: 'kriss50' },
+  { id: 'pennsylvania', link: 'ptOoD', title: 'USS Pennsylvania', by: 'kriss50' },
+  { id: 'ise', link: 'ptuAM', title: 'Japanese Battleship Hyūga', by: 'kriss50' },
+  { id: 'implacable', link: 'ptKt7', title: 'HMS Implacable', by: 'kriss50' },
+];
+
+check('the four Standards come before the North Carolina, the Ise after the Fuso and the Implacable after the Graf Zeppelin', () => {
+  const i = SHIP_ORDER.indexOf('northcarolina');
+  assert.deepEqual(SHIP_ORDER.slice(i - 4, i), ['texas', 'newmexico', 'maryland', 'pennsylvania']);
+  assert.equal(SHIP_ORDER.indexOf('ise'), SHIP_ORDER.indexOf('fuso') + 1);
+  assert.equal(SHIP_ORDER.indexOf('implacable'), SHIP_ORDER.indexOf('grafzeppelin') + 1);
+  for (const id of ['texas', 'newmexico', 'maryland', 'pennsylvania', 'ise', 'implacable']) assert.ok(WWII_ORDER.includes(id), `${id} is not in the WWII yard`);
+});
+
+check('the Standards and the Ise are armed as they were and as their models arm them', () => {
+  const C = SHIP_CLASSES;
+  // Ten 14-inch in five twins; twelve 14-inch/50 and twelve 14-inch/45 in four triples; eight 16-inch in four twins.
+  assert.deepEqual(C.texas.turrets.map((t) => t.guns), [2, 2, 2, 2, 2]);
+  assert.deepEqual(C.newmexico.turrets.map((t) => t.guns), [3, 3, 3, 3]);
+  assert.deepEqual(C.pennsylvania.turrets.map((t) => t.guns), [3, 3, 3, 3]);
+  assert.deepEqual(C.maryland.turrets.map((t) => t.guns), [2, 2, 2, 2]);
+  assert.equal(C.maryland.gun.caliber, 406);
+  for (const id of ['texas', 'newmexico', 'pennsylvania']) assert.equal(C[id].gun.caliber, 356);
+  // The Texas's six 5-inch/51 in casemates and the New Mexico's twelve.
+  assert.equal(C.texas.secondary.mounts.length, 6);
+  assert.equal(C.newmexico.secondary.mounts.length, 12);
+  // The Ise's twelve 35.6 cm in six twins, two of them back to back amidships.
+  assert.deepEqual(C.ise.turrets.map((t) => t.guns), [2, 2, 2, 2, 2, 2]);
+  assert.equal(C.ise.gun.caliber, 356);
+  assert.equal(C.ise.turrets.filter((t) => t.z > 0).length, 2);
+  for (const id of ['texas', 'newmexico', 'maryland', 'pennsylvania']) assert.equal(C[id].nation, 'usa');
+  assert.equal(C.ise.nation, 'jpn');
+});
+
+check('the Implacable flies eighty-one Seafires, Fireflies and Avengers, the Fireflies with bombs or sixteen rockets', () => {
+  const P = SHIP_CLASSES.implacable.planes;
+  assert.equal(P.group.total, 81);
+  assert.deepEqual(P.types, { fighter: 'seafire', dive: 'firefly', torpedo: 'avenger' });
+  const F = P.slots.dive;
+  assert.equal(F.type, 'firefly');
+  assert.deepEqual(Object.keys(F.loadouts), ['bombs', 'rockets']);
+  assert.ok(F.loadouts.bombs.bomb > 0 && !F.loadouts.bombs.rockets);
+  assert.equal(F.loadouts.rockets.rockets, 16);
+  // Both loads are a captain's to choose, and the choice sticks.
+  for (const k of ['bombs', 'rockets']) {
+    assert.equal(normaliseAirGroup(SHIP_CLASSES.implacable, { ...defaultAirGroup(SHIP_CLASSES.implacable), load: { dive: k } }).load.dive, k);
+  }
+});
+
+check('a Firefly on her rocket load fires sixteen rockets down her dive at the ship she is diving on, and they hit', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Implacable', classId: 'implacable', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Liberty', classId: 'liberty', team: 1, index: 0 });
+  c.x = 0; c.z = -6000; c.heading = 0; foe.x = 600; foe.z = 2000; foe.heading = Math.PI / 2;
+  setAirGroup(c, SHIP_CLASSES.implacable, { fighters: 0, dive: 4, torpedo: 0, load: { dive: 'rockets' } });
+  c.aimX = foe.x; c.aimZ = foe.z;
+  assert.ok(launchStrike(state, c), 'she would not launch');
+  let fired = 0, rockets = 0, hits = 0;
+  const hp0 = foe.hp;
+  for (let i = 0; i < Math.ceil(420 / DT) && fired < 16 * 2; i++) {
+    for (const ev of step(state, DT)) {
+      if (ev.e === 'airDrop' && ev.rp) fired += ev.rp;
+      if (ev.e === 'hit' && ev.victim === foe.id) hits++;
+    }
+    rockets = Math.max(rockets, state.shells.filter((sh) => sh.rocket && sh.plane).length);
+  }
+  assert.ok(fired >= 16 && fired % 16 === 0, `${fired} rockets fired`);
+  assert.ok(rockets >= 8, 'the rockets were never in the air');
+  assert.ok(hits > 0 || foe.hp < hp0, 'not one rocket hit her');
+  // And on the wire she carries them until she lets them go.
+  const loaded = state.planes.filter((p) => p.type === 'firefly' && p.rockets > 0);
+  for (const p of loaded) assert.equal(p.load, 'rockets');
+});
+
+check('the Standards, the Ise and the Implacable build with every mounting their datasheets list', () => {
+  for (const { id } of STANDARD_MODELS) {
+    const cls = SHIP_CLASSES[id];
+    const built = buildShip(id);
+    assert.equal(built.group.userData.classId, id, `${id} was built as something else`);
+    assert.equal(built.turrets.length, cls.turrets.length, `${id}: ${built.turrets.length} turrets`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${id}: ${built.aaMounts.length} light mounts`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${id}: secondaries`);
+  }
+});
+
+check('the Implacable has her two lifts, and they run', () => {
+  const built = buildShip('implacable');
+  assert.equal(built.lifts.length, 2, `she has ${built.lifts.length} lifts`);
+  const ud = built.group.userData;
+  const ys = (t) => { ud.step(t); return built.lifts.map((l) => l.group.position.y); };
+  const a = ys(0), b = ys(21);
+  assert.ok(a.some((y, i) => Math.abs(y - b[i]) > 1), 'no lift moved');
+});
+
+check('the Credits screen credits the Standards, the Hyuga, the Implacable and the Spitfire', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of [...STANDARD_MODELS, { link: 'oyQIs', title: 'Supermarine Spitfire Mk.IIa', by: 'barking_dogo' }]) {
+    const at = screen.indexOf(`${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(`https://skfb.ly/${m.link}`) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+  }
+});
+
 // ---- the ships of the owner's eight new models ---------------------------------------
 // Each built off its model by build/kriss-hull.mjs and put together by
 // krissShip.js or carrier.js: where it comes in the yard, how it is armed, that

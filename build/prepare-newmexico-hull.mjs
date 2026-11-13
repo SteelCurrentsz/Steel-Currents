@@ -1,3 +1,11 @@
+// USS New Mexico off the owner's model of her -- "USS New Mexico" by kriss50
+// (https://skfb.ly/ptOVP), under Creative Commons Attribution 4.0, credited on
+// the game's Credits screen -- through build/kriss-hull.mjs: her hull, her
+// tower bridge and her funnel as one painted mesh, and her four triple
+// 14-inch/50 turrets, twelve 5-inch/51, eight 5-inch/25, Oerlikons,
+// .50-calibres and four screws cut free of her.
+//
+//   node build/prepare-newmexico-hull.mjs
 import { prepare } from './kriss-hull.mjs';
 import { USN_PAINTS, usnPaint, BOOT } from './kriss-paints.mjs';
 

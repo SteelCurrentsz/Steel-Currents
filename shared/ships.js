@@ -13983,7 +13983,8 @@ export const SHIP_CLASSES = {
       // What each of her three types is, and what the Firefly can be loaded
       // with: her two bombs, or her sixteen rockets.
       slots: {
-        fighters: { type: 'seafire', label: 'Supermarine Seafire', role: 'fighter' },
+        fighters: { type: 'seafire', label: 'Supermarine Seafire', role: 'fighter',
+          note: 'Seafire L.III: two cannon and four machine guns, over the fleet and over the strike' },
         dive: {
           type: 'firefly', label: 'Fairey Firefly', default: 'bombs',
           loadouts: {
@@ -13991,7 +13992,8 @@ export const SHIP_CLASSES = {
             rockets: { name: 'Rocket Load Out', note: 'sixteen RP-3 unguided rockets, eight under each wing, fired down her dive', role: 'dive', rockets: 16 },
           },
         },
-        torpedo: { type: 'avenger', label: 'TBF Avenger', role: 'torpedo' },
+        torpedo: { type: 'avenger', label: 'TBF Avenger', role: 'torpedo',
+          note: 'Avenger: an aerial torpedo, run in low' },
       },
     },
     datasheet: {

@@ -1,7 +1,8 @@
-// The Nimitz's three aircraft and the Ka-27, from the glbs the owner uploaded to the pieces
-// the game flies.
+// The Nimitz's three aircraft, the Ka-27, and the Implacable's Seafire and
+// Firefly, from the glbs the owner uploaded to the pieces the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60|ka27   ->  client/js/render/<kind>Model.data.js
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly
+//     ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
 //
@@ -18,6 +19,11 @@
 //         (https://skfb.ly/p96qS) -- assets/models/sh-60b_seahawk_helicopter-maximum-compressed.glb
 //   ka27  "KA-27" by theutkarsh
 //         (https://skfb.ly/poZTv) -- assets/models/ka-27-maximum-compressed.glb
+//   seafire  "Supermarine Spitfire Mk.IIa" by barking_dogo
+//         (https://skfb.ly/oyQIs) -- assets/models/supermarine_spitfire_mk.iia-maximum-compressed.glb,
+//         repainted as a Fleet Air Arm Seafire (see its `recolour`)
+//   firefly  the owner's Fairey Firefly F.I
+//         -- assets/models/fairey_firefly_f.i-maximum-compressed.glb
 //
 // What comes out, in her own frame -- nose +z, up +y, wheels on y = 0, put to
 // her real length -- each piece painted at every point off the model's own
@@ -27,7 +33,11 @@
 //   gear    her legs and wheels, which come up into her (the F/A-18's and
 //           the Hawkeye's; a Seahawk's stay down)
 //   spin    what turns, each about its own hub: the Hawkeye's two airscrews
-//           and her rotodome, the Seahawk's main and tail rotors
+//           and her rotodome, the Seahawk's main and tail rotors, a Seafire's
+//           and a Firefly's airscrew
+//
+// PARTS=1 lists every run of faces of the model, by node, with its box: what
+// a model's pieces are told apart by.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';

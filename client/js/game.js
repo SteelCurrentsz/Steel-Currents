@@ -35,7 +35,7 @@ import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
   steerToWaypoint, PENETRATING, SECTIONS, sectionAt, gunLimits, layFloor, DT,
   freeboardOf, cutLoses, dpMounts, bombThrow, seabedRoom, SMOKE_DRIFT, samKinds, MISSILE_CODE, missileHits, missileRole, RAMP_RUN,
-  driveHull,
+  driveHull, ROCKET_SPEED,
 } from '../../shared/sim.js';
 import { Held } from './predict.js';
 import { windAt, rideOf } from '../../shared/sea.js';
@@ -441,6 +441,27 @@ function flightLoad(pl, role) {
 
 /** Gravity, for the pipper: the same pull the simulation drops her bombs under. */
 const BOMB_G = 9.81;
+
+/**
+ * Where a ripple of rockets fired now strikes: down her nose at her speed and
+ * the rocket's own, falling under gravity, to the sea or the ground -- the
+ * flight the simulation gives each one (see fireRockets). Null if it never
+ * comes down within its reach.
+ */
+export function rocketPipper(p, ground = () => 0) {
+  const v = Math.max(40, p.v || 0) + ROCKET_SPEED;
+  const pitch = p.pitch || 0;
+  const vx = Math.sin(p.heading) * Math.cos(pitch) * v, vz = Math.cos(p.heading) * Math.cos(pitch) * v;
+  let vy = Math.sin(pitch) * v;
+  let x = p.x, y = (p.y || 0) - 1.2, z = p.z;
+  const dt = 0.05;
+  for (let t = 0; t < 8; t += dt) {
+    x += vx * dt; z += vz * dt; y += vy * dt; vy -= 9.81 * dt;
+    const g = Math.max(0, ground(x, z) || 0);
+    if (y <= g) return { x, y: g, z, t: t + dt };
+  }
+  return null;
+}
 
 /**
  * Where a bomb let go now lands: off her own flight path at her own speed,
@@ -6722,9 +6743,13 @@ export class Battle {
     // on a multi-role load. Put it on the ship and press drop.
     if (!f.heavy && !this.turret && f.armed && f.load && f.load.key !== 'TORPEDO') {
       const w = this.scene?.world || this.world;
-      const hit = bombPipper(p, (x, z) => (w ? groundHeight(w, x, z) : 0));
+      const ground = (x, z) => (w ? groundHeight(w, x, z) : 0);
+      // Rockets go down her nose, bombs fall off her flight path.
+      const rockets = f.load.key === 'ROCKETS';
+      const hit = rockets ? rocketPipper(p, ground) : bombPipper(p, ground);
       const at = hit ? project(hit.x, hit.y, hit.z) : null;
-      this.hud.placeBombSight(at, false, at ? `BOMB PIPPER · ${hit.t.toFixed(1)} s · DROP TO RELEASE` : '');
+      this.hud.placeBombSight(at, false, at
+        ? `${rockets ? 'ROCKET' : 'BOMB'} PIPPER · ${hit.t.toFixed(1)} s · ${rockets ? 'FIRE' : 'DROP'} TO RELEASE` : '');
     } else this.hud.placeBombSight(null);
     const aim = this.turret ? null : project(
       cam.position.x + f.aimF.x * 2000,

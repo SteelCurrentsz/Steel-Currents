@@ -1,3 +1,11 @@
+// USS Maryland off the owner's model of her -- "USS Maryland" by kriss50
+// (https://skfb.ly/ptOoS), under Creative Commons Attribution 4.0, credited on
+// the game's Credits screen -- through build/kriss-hull.mjs: her hull, her
+// cage foremast and her funnels as one painted mesh, and her four twin
+// 16-inch turrets, 5-inch/51s, 5-inch/25s, Bofors, Oerlikons and four screws
+// cut free of her.
+//
+//   node build/prepare-maryland-hull.mjs
 import { prepare } from './kriss-hull.mjs';
 import { USN_PAINTS, usnPaint, BOOT } from './kriss-paints.mjs';
 

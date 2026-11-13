@@ -1,3 +1,11 @@
+// IJN Ise off the owner's model of her sister -- "Japanese Battleship Hyuga"
+// by kriss50 (https://skfb.ly/ptuAM), under Creative Commons Attribution 4.0,
+// credited on the game's Credits screen; the two were alike in 1941 --
+// through build/kriss-hull.mjs: her hull, her pagoda, her funnel and her
+// mainmast as one painted mesh, and her six twin 35.6 cm turrets, four twin
+// 12.7 cm, ten twin 25 mm and four screws cut free of her.
+//
+//   node build/prepare-ise-hull.mjs
 import { prepare } from './kriss-hull.mjs';
 import { IJN_BB_PAINTS, ijnBBPaint, BOOT } from './kriss-paints.mjs';
 

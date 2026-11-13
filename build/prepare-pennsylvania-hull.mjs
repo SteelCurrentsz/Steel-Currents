@@ -1,3 +1,11 @@
+// USS Pennsylvania off the owner's model of her -- "USS Pennsylvania" by
+// kriss50 (https://skfb.ly/ptOoD), under Creative Commons Attribution 4.0,
+// credited on the game's Credits screen -- through build/kriss-hull.mjs: her
+// hull, her tripods and her funnel as one painted mesh, and her four triple
+// 14-inch turrets (No.3 with her catapult on its roof), 5-inch/51 casemates,
+// 5-inch/25s, Bofors, Oerlikons, .50-calibres and four screws cut free of her.
+//
+//   node build/prepare-pennsylvania-hull.mjs
 import { prepare } from './kriss-hull.mjs';
 import { USN_PAINTS, usnPaint, BOOT } from './kriss-paints.mjs';
 

@@ -1,3 +1,12 @@
+// HMS Implacable off the owner's model of her -- "HMS Implacable" by kriss50
+// (https://skfb.ly/ptKt7), under Creative Commons Attribution 4.0, credited on
+// the game's Credits screen -- through build/kriss-hull.mjs: her hull and her
+// island as one mesh in Admiralty grey; her flight deck taken up and its
+// outline kept for carrier.js to lay her runway over with her two lifts cut
+// through it; and her eight twin 4.5-inch, her pom-poms, Bofors and Oerlikons
+// cut free of her, each as the model drew it.
+//
+//   node build/prepare-implacable-hull.mjs
 import { prepare } from './kriss-hull.mjs';
 import { RN_PAINTS, rnPaint, BOOT } from './kriss-paints.mjs';
 

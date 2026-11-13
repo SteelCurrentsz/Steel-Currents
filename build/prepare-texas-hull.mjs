@@ -1,3 +1,13 @@
+// USS Texas off the owner's model of her -- "USS Texas" by kriss50
+// (https://skfb.ly/ptOpy), under Creative Commons Attribution 4.0, credited on
+// the game's Credits screen -- through build/kriss-hull.mjs: her hull, her
+// tripods, her funnel and her deckhouses as one painted mesh, and her five
+// twin 14-inch turrets (No.3 with her catapult on its roof), six 5-inch/51
+// casemates, ten 3-inch/50, ten quadruple Bofors, Oerlikons and two screws
+// cut free of her, each as the model drew it. Her light guns are found by
+// the model's own pieces, which draw one kind of gun each.
+//
+//   node build/prepare-texas-hull.mjs
 import { prepare } from './kriss-hull.mjs';
 import { USN_PAINTS, usnPaint, BOOT } from './kriss-paints.mjs';
 
