@@ -152,7 +152,7 @@ function act(room, stage, cue) {
       // name still has the forward one.
       const where = ship.sections.aft && ship.sections.fwd
         && ship.sections.aft.hp > ship.sections.fwd.hp ? 'aft' : 'fwd';
-      detonate(state, ship, where, null);
+      detonate(state, ship, where, null, { force: true });
       break;
     }
     default: break;

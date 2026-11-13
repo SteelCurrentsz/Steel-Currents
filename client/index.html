@@ -551,11 +551,23 @@
     </div>
     <div class="ship-plate">
       <div class="name" id="own-name">—</div>
-      <div class="integrity" id="integrity" title="Integrity: structural, flooding, fire and weapon damage together">
-        <div class="integrity-head"><span>INTEGRITY</span><b id="integrity-pct">100%</b></div>
-        <div class="integrity-track">
-          <div class="integrity-lost" id="integrity-lost"></div>
-          <div class="integrity-fill" id="integrity-fill"></div>
+      <!-- Her integrity in three: her hull and upperworks, the sea in her,
+           and what is inside her and working. -->
+      <div class="integrity" id="integrity">
+        <div class="ig-row" id="ig-structural" title="Structural Integrity: holes, shell, bomb and torpedo damage to her hull and superstructure, and her fires">
+          <div class="integrity-head"><span>STRUCTURAL INTEGRITY</span><b>100%</b></div>
+          <div class="integrity-track">
+            <div class="integrity-lost" id="integrity-lost"></div>
+            <div class="integrity-fill"></div>
+          </div>
+        </div>
+        <div class="ig-row flood" id="ig-flooding" title="Flooding: how much water is in her, out of what would sink her, and whether it is still coming in">
+          <div class="integrity-head"><span>FLOODING</span><b>0%</b></div>
+          <div class="integrity-track"><div class="integrity-fill"></div></div>
+        </div>
+        <div class="ig-row" id="ig-internal" title="Internal Integrity: her guns, engines, steering and magazines">
+          <div class="integrity-head"><span>INTERNAL INTEGRITY</span><b>100%</b></div>
+          <div class="integrity-track"><div class="integrity-fill"></div></div>
         </div>
       </div>
       <div class="cond-row" id="cond-row"></div>
@@ -1314,6 +1326,7 @@
       <button class="btn era-btn" type="button" data-era="wwii">WWII<em>1939&ndash;1945</em></button>
       <button class="btn era-btn" type="button" data-era="modern">Modern<em>Cold War&ndash;Missile Age</em></button>
       <button class="btn era-btn" type="button" data-era="civil">Transport and Cargo<em>Merchantmen &amp; Transports</em></button>
+      <button class="btn era-btn" type="button" data-era="premium">Premium<em>Tillman &amp; the store&rsquo;s hulls</em></button>
     </div>
     <button class="btn ghost era-cancel" id="era-cancel" type="button">Cancel</button>
   </div>

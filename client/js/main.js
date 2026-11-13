@@ -778,7 +778,9 @@ function openYard(side, { order = SHIP_ORDER, at = null, from = null } = {}) {
 // The ship icon asks first which navy to look at: the Great War's hulls, the
 // Second World War's, the missile age's, or Transport and Cargo -- the
 // merchantmen and the landing craft. The yard then walks that list alone.
-const ERA_ORDER = { ww1: WWI_ORDER, wwii: WWII_ORDER, modern: MODERN_ORDER, civil: CIVIL_ORDER };
+// And the Premium Equipment store's hulls, for either fleet: the Tillman can
+// be sailed against you as well as by you.
+const ERA_ORDER = { ww1: WWI_ORDER, wwii: WWII_ORDER, modern: MODERN_ORDER, civil: CIVIL_ORDER, premium: PREMIUM_ORDER };
 const eraEl = document.getElementById('era-pick');
 let eraSide = 'ally';
 
@@ -792,6 +794,13 @@ for (const b of eraEl.querySelectorAll('[data-era]')) {
   b.onclick = () => {
     audio.click();
     closeEra();
+    if (b.dataset.era === 'premium') {
+      // Only the hulls this captain has unlocked; the rest are in the store.
+      const open = PREMIUM_ORDER.filter((id) => premiumUnlocked(id));
+      if (!open.length) { toast('Unlock a hull in the Premium Equipment store first.'); return; }
+      openYard(eraSide, { order: open });
+      return;
+    }
     openYard(eraSide, { order: ERA_ORDER[b.dataset.era] });
   };
 }
@@ -1367,7 +1376,13 @@ function renderPremiumShips() {
       + `${Math.round(c.armor.belt / 25.4)}" belt · ${c.datasheet.displacement.toLocaleString('en-US')} t</div>
       <div class="ps-foot"><span class="ps-badge">${ADS_REQUIRED
         ? (open ? 'Unlocked' : 'Watch an ad to unlock') : 'Free while the game is in development'}</span>
-      <button class="btn" type="button">${open ? 'Open in the yard' : 'Watch ad'}</button></div>`;
+      <span class="ps-btns"><button class="btn" type="button">${open ? 'Your fleet' : 'Watch ad'}</button>`
+      + `${open ? '<button class="btn ghost ps-enemy" type="button">Enemy fleet</button>' : ''}</span></div>`;
+    // She can be commissioned into the enemy's order of battle too.
+    card.querySelector('.ps-enemy')?.addEventListener('click', () => {
+      audio.click();
+      openYard('enemy', { order: PREMIUM_ORDER, at: id, from: 'premium-ships' });
+    });
     card.querySelector('button').onclick = async () => {
       audio.click();
       if (!premiumUnlocked(id)) {

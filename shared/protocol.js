@@ -6,7 +6,7 @@ import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
   slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds, planeRack, CHAFF_LOAD,
-  canCallEscort, escortStrength, dockState, fieldReport,
+  canCallEscort, escortStrength, dockState, fieldReport, integrityCategories,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -242,6 +242,14 @@ export function shipSnapshot(ship, full, state = null) {
     // be brought back to. See stepIntegrity.
     s.ig = Math.round((ship.integrity ?? 1) * 1000);
     s.igc = Math.round((ship.igCap ?? 1) * 1000);
+    // And the same in its three parts, for the three bars on her plate:
+    // structural, flooding (how full of the sea she is), internal; and
+    // whether the water in her is rising (1) or going down (-1).
+    {
+      const ic = integrityCategories(ship);
+      s.ic = [Math.round(ic.structural * 1000), Math.round(ic.flooding * 1000), Math.round(ic.internal * 1000)];
+      s.icr = ic.rising;
+    }
     // The depth charge gear, for the bridge that works it: how many charges
     // are left in the stowage, what the pistols are wound to, how long each
     // rack and thrower has to go, and whether her own anti-submarine officer
@@ -569,6 +577,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // Whether she still has anything to drop, so a pilot's release button
       // can go dead once she has let go of it.
       d: p.dropped ? 1 : 0,
+      // What is on her rack to drop, to her own side: bombs and torpedoes,
+      // so a pilot's drop key is there on whatever is carrying something --
+      // a Hornet with bombs under her as much as a Dauntless.
+      bm: p.team === team && !p.dropped && p.bomb > 0 ? p.bomb : undefined,
+      tq: p.team === team && !p.dropped && p.torp > 0 ? p.torp : undefined,
       // The missiles still on her rails, kind by kind, to her own side: what
       // a pilot has to lock on and fire (see fireLocked).
       rk: p.team === team && (p.rack || p.standoff) ? rackWire(p) : undefined,
