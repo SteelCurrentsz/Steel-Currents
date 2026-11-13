@@ -5,7 +5,6 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { buildEnterprise } from './enterprise.js';
-import { buildFletcher } from './fletcher.js';
 import { buildHipper } from './hipper.js';
 import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
@@ -47,6 +46,14 @@ import { loadDauntless } from './dauntlessModel.js';
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina, buildMusashi,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
+/**
+ * The ships put together by krissShip.js off the owner's whole-ship models,
+ * each builder by class once its module has loaded: every one of them is
+ * built the same way (see buildModel).
+ */
+const KRISS = {};
+/** And the carriers put together by carrier.js. */
+const CARRIERS = {};
 const SCULPTED = {
   // Not a ship: the Japanese, German and American carrier aircraft, off the
   // owner's sculpts. Every battle builds them to fly (planes.js) and the Shinano and
@@ -78,6 +85,14 @@ const SCULPTED = {
   kongo: () => import('./kongo.js').then((m) => { buildKongo = m.buildKongo; }),
   matsu: () => import('./matsu.js').then((m) => { buildMatsu = m.buildMatsu; }),
   yukikaze: () => import('./yukikaze.js').then((m) => { buildYukikaze = m.buildYukikaze; }),
+  fletcher: () => import('./fletcher.js').then((m) => { KRISS.fletcher = m.buildFletcher; }),
+  fubuki: () => import('./fubuki.js').then((m) => { KRISS.fubuki = m.buildFubuki; }),
+  shimakaze: () => import('./shimakaze.js').then((m) => { KRISS.shimakaze = m.buildShimakaze; }),
+  yugumo: () => import('./yugumo.js').then((m) => { KRISS.yugumo = m.buildYugumo; }),
+  dunkerque: () => import('./dunkerque.js').then((m) => { KRISS.dunkerque = m.buildDunkerque; }),
+  essex: () => import('./essex.js').then((m) => { CARRIERS.essex = m.buildEssex; }),
+  lexington: () => import('./lexington.js').then((m) => { CARRIERS.lexington = m.buildLexington; }),
+  victory: () => import('./victory.js').then((m) => { KRISS.victory = m.buildVictory; }),
   bismarck: () => import('./bismarck.js')
     .then((m) => { buildBismarck = m.buildBismarck; buildTirpitz = m.buildTirpitz; }),
   scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
@@ -121,7 +136,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(classId === 'shinano' || classId === 'shokaku' || classId === 'hornet' || classId === 'nimitz' ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hornet', 'nimitz', 'essex', 'lexington'].includes(classId) ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */
@@ -871,6 +886,37 @@ function buildModel(classId) {
     };
   }
 
+  // And the carriers carrier.js puts together off the owner's models: the
+  // Essex and the Lexington, runway, lifts, hangar and all.
+  if (CARRIERS[cls.id]) {
+    const built = CARRIERS[cls.id]();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      flightDeckY: built.flightDeckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets, lifts: built.lifts,
+      deckPlane: built.deckPlane,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
+    };
+  }
+
+  // And the ships krissShip.js puts together off the owner's whole-ship
+  // models -- the Shimakaze and her sisters: hull, guns, tubes and all.
+  if (KRISS[cls.id]) {
+    const built = KRISS[cls.id]();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
   // And the Yukikaze: the owner's sculpts of her hull, her twin, her triple
   // and her tubes.
   if (cls.id === 'yukikaze') {
@@ -1490,18 +1536,6 @@ function buildModel(classId) {
     };
   }
 
-  if (cls.id === 'fletcher') {
-    const built = buildFletcher();
-    Object.assign(built.group.userData, {
-      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
-    });
-    return {
-      group: built.group, turrets: built.turrets,
-      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts),
-      torpMounts: built.torpMounts || [],
-      length: built.length, beam: built.beam, deckY: built.deckY,
-    };
-  }
   return buildGenerated(cls);
 }
 

@@ -967,7 +967,8 @@ check('the guns and the tubes on the models actually train', () => {
   // With nothing in the air the light battery comes back to its rest bearing.
   for (let i = 0; i < 400; i++) view.layMounts(null, null, null, [], 1 / 30);
   for (const m of view.aaMounts) {
-    assert.ok(Math.abs(m.rotation.y) < 0.02, 'a gun did not come back to its rest bearing');
+    const stow = m.userData.sector ? m.userData.sector.stow : 0;
+    assert.ok(Math.abs(angleDelta(m.rotation.y, stow)) < 0.02, 'a gun did not come back to its rest bearing');
   }
 });
 
@@ -3914,6 +3915,92 @@ check('the Brooklyn flies her scouts off her own catapults, off the quarter the 
       + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
     g.userData.recover();
     g.userData.step(t0 + 60);
+  }
+});
+
+// ---- the ships of the owner's eight new models ---------------------------------------
+// Each built off its model by build/kriss-hull.mjs and put together by
+// krissShip.js or carrier.js: where it comes in the yard, how it is armed, that
+// it builds with every mounting its datasheet lists, and that its model is
+// credited as its licence asks.
+const NEW_MODELS = [
+  { id: 'fubuki', link: 'ptWOV', title: 'Japanese Destroyer Fubuki', by: 'kriss50' },
+  { id: 'shimakaze', link: 'ptTAs', title: 'Japanese destroyer Shimakaze', by: 'kriss50' },
+  { id: 'yugumo', link: 'ptTA7', title: 'Japanese Destroyer Yūgumo', by: 'kriss50' },
+  { id: 'fletcher', link: 'pxJuz', title: 'USS Fletcher (War Thunder)', by: 'KojfDiscord' },
+  { id: 'victory', link: 'pt9CU', title: 'Victory Cargo', by: 'kriss50' },
+  { id: 'dunkerque', link: 'ptKrU', title: 'French Battleship Dunkerque', by: 'kriss50' },
+  { id: 'lexington', link: 'ptOWO', title: 'USS Lexington', by: 'kriss50' },
+  { id: 'essex', link: 'p9vxQ', title: 'USS Essex (CV-9)', by: 'kriss50' },
+];
+
+check('the Fubuki, the Shimakaze and the Yugumo come in the yard after the Yukikaze', () => {
+  const i = SHIP_ORDER.indexOf('yukikaze');
+  assert.deepEqual(SHIP_ORDER.slice(i + 1, i + 4), ['fubuki', 'shimakaze', 'yugumo']);
+  for (const id of ['fubuki', 'shimakaze', 'yugumo']) {
+    assert.equal(SHIP_CLASSES[id].nation, 'jpn');
+    assert.equal(SHIP_CLASSES[id].type, 'DD');
+  }
+  // Their tubes as they carried them: three triples, three quintuples, two quadruples.
+  assert.deepEqual(SHIP_CLASSES.fubuki.torpedoes.mounts.map((m) => m.tubes), [3, 3, 3]);
+  assert.deepEqual(SHIP_CLASSES.shimakaze.torpedoes.mounts.map((m) => m.tubes), [5, 5, 5]);
+  assert.deepEqual(SHIP_CLASSES.yugumo.torpedoes.mounts.map((m) => m.tubes), [4, 4]);
+  // Six 12.7 cm each, in three twins.
+  for (const id of ['fubuki', 'shimakaze', 'yugumo']) assert.deepEqual(SHIP_CLASSES[id].turrets.map((t) => t.guns), [2, 2, 2]);
+});
+
+check('the Victory ship comes after the Liberty ship, and the Dunkerque before the Richelieu', () => {
+  assert.equal(SHIP_ORDER.indexOf('victory'), SHIP_ORDER.indexOf('liberty') + 1);
+  assert.equal(SHIP_ORDER.indexOf('dunkerque'), SHIP_ORDER.indexOf('richelieu') - 1);
+  assert.equal(SHIP_CLASSES.victory.gun.caliber, 127);
+  assert.equal(SHIP_CLASSES.victory.secondary.caliber, 76);
+  assert.equal(SHIP_CLASSES.dunkerque.gun.caliber, 330);
+  assert.deepEqual(SHIP_CLASSES.dunkerque.turrets.map((t) => t.guns), [4, 4]);
+  assert.ok(SHIP_CLASSES.dunkerque.turrets.every((t) => t.z > 0), 'her main battery is not all forward');
+  assert.equal(SHIP_CLASSES.dunkerque.secondary.mounts.reduce((n, m) => n + m.guns, 0), 16);
+});
+
+check('the Essex comes after the Enterprise with a hundred aircraft, the Lexington before the Hornet with ninety', () => {
+  assert.equal(SHIP_ORDER.indexOf('essex'), SHIP_ORDER.indexOf('enterprise') + 1);
+  assert.equal(SHIP_ORDER.indexOf('lexington'), SHIP_ORDER.indexOf('hornet') - 1);
+  assert.equal(SHIP_CLASSES.essex.planes.group.total, 100);
+  assert.equal(SHIP_CLASSES.lexington.planes.group.total, 90);
+});
+
+check('the new models build with every mounting their datasheets list', () => {
+  for (const { id } of NEW_MODELS) {
+    const cls = SHIP_CLASSES[id];
+    const built = buildShip(id);
+    assert.equal(built.group.userData.classId, id, `${id} was built as something else`);
+    assert.equal(built.turrets.length, cls.turrets.length, `${id}: ${built.turrets.length} turrets`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${id}: ${built.aaMounts.length} light mounts`);
+    assert.equal((built.torpMounts || []).length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${id}: tubes`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${id}: secondaries`);
+  }
+});
+
+check('the Essex and the Lexington have lifts that run, the Essex one at her deck edge', () => {
+  for (const [id, n] of [['essex', 3], ['lexington', 2]]) {
+    const built = buildShip(id);
+    assert.equal(built.lifts.length, n, `${id} has ${built.lifts.length} lifts`);
+    const ud = built.group.userData;
+    const ys = (t) => { ud.step(t); return built.lifts.map((l) => l.group.position.y); };
+    const a = ys(0), b = ys(21);
+    assert.ok(a.some((y, i) => Math.abs(y - b[i]) > 1), `${id}: no lift moved`);
+  }
+  const essex = buildShip('essex');
+  assert.ok(essex.lifts.some((l) => Math.abs(l.group.position.x) > 12), 'the Essex has no deck-edge lift');
+});
+
+check('the Credits screen credits every one of the new models', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of NEW_MODELS) {
+    const at = screen.indexOf(`${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(`https://skfb.ly/${m.link}`) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
   }
 });
 
