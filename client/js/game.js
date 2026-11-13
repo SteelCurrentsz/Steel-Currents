@@ -2978,6 +2978,8 @@ export class Battle {
     for (const ev of events) {
       if (!late && this.holdBack(ev)) continue;
       const d = this.distanceFade(ev.x, ev.z);
+      // The people in the towns hear it, and run -- or are caught by it.
+      this.scene.worksView?.civilians?.event(ev);
       switch (ev.e) {
         // The word a second before a weapon goes: nothing is heard of it.
         case 'order': break;
@@ -3308,6 +3310,7 @@ export class Battle {
           const g = groundHeight(this.scene.world, ev.x, ev.z);
           fx.hit(ev.x, g + 4, ev.z, 'he', ev.cal);
           fx.debris(ev.x, g + 3, ev.z, Math.max(6, ev.cal / 12));
+          audio.explosion(Math.min(ev.bomb ? 1 : 0.6, 0.12 + ev.cal / (ev.bomb ? 400 : 700)), { x: ev.x, y: g + 3, z: ev.z });
           // In the town: lamp-posts and trees knocked flat, cars thrown over.
           this.scene.worksView?.blast(ev.x, ev.z, ev.cal);
           break;

@@ -2342,9 +2342,9 @@ export function orderAttack(state, team, kind, id, foeKind, targetId) {
       : kind === 'bomber' ? [u] : [];
     for (const q of flights) {
       if (cease) { q.order = null; n++; continue; }
-      // Carrier aircraft are not sent at the town; the heavies of the
-      // squadron are, and the flights carry on with their own business.
-      if (works) continue;
+      // At a town, an airfield, a harbour or a wall, only a flight with
+      // bombs on her rack goes: the rest carry on with their own business.
+      if (works && !((q.bomb ?? 0) > 0)) continue;
       // Going home empty, or in the circuit to land, is not turned round.
       if (q.phase !== 'outbound' && q.phase !== 'formup') continue;
       q.order = { k: foeKind, id: targetId };
@@ -2396,6 +2396,8 @@ function flightOrder(state, p) {
   if (o.k === 'battery') return { battery: foe };
   if (o.k === 'plane') return { air: foe };
   if (o.k === 'bomber') return { heavy: foe };
+  // A town, an airfield, a harbour or a run of sea wall: she goes and bombs it.
+  if (o.k === 'town' || o.k === 'wall') return { works: foe };
   p.order = null;
   return null;
 }
@@ -3890,6 +3892,48 @@ function bombBattery(state, p, bat, P) {
   // And into the ground round it, which takes its craters like any other.
   landStrike(state, bat.x + (state.rng() - 0.5) * 30, bat.z + (state.rng() - 0.5) * 30,
     0.3, 'bomb');
+}
+
+/**
+ * A flight's bombs into a town, an airfield, a harbour or a sea wall.
+ *
+ * Each bomb comes down somewhere about the aim point -- nearer it the
+ * steadier she was -- and goes off on whatever is there: through the roof of
+ * the building standing on that spot, or on the street, the runway, the
+ * apron or the wall. A flight with no bombs strafes it instead.
+ */
+function bombWorks(state, p, w, P) {
+  const world = state.world;
+  const n = p.bomb || 0;
+  const bore = P.bombBore ?? 0.25;
+  const aim = ((p.wear && p.wear.aim) ?? 1) * diveSteady(p);
+  state.events.push({ e: 'bomb', team: p.team, i: p.id, x: p.x, z: p.z, tx: w.x, tz: w.z, hit: n > 0 ? 1 : 0 });
+  if (n <= 0) {
+    // Her guns down the street: rifle calibre, which a town shrugs off.
+    for (let k = 0; k < 6; k++) {
+      const x = w.x + gauss(state.rng) * 25;
+      const z = w.z + gauss(state.rng) * 25;
+      const b = buildingAt(world, x, z);
+      if (b) hurtBuilding(world, b, (P.strafeDamage ?? 260) * BULLET_WORKS * 0.25, state.events, worksDice(state));
+      state.events.push({ e: 'airHit', x: r(x), y: r(groundHeight(world, x, z) + 0.5), z: r(z), air: 0, land: 1 });
+    }
+    return;
+  }
+  for (let k = 0; k < n; k++) {
+    const spread = 18 / Math.max(0.3, aim);
+    const x = w.x + gauss(state.rng) * spread;
+    const z = w.z + gauss(state.rng) * spread;
+    const g = groundHeight(world, x, z);
+    const inside = worksImpact(world, x, g + 80, z, x, g - 1, z);
+    const cal = Math.round(bore * 1000);
+    if (inside) {
+      state.events.push({ e: 'bldghit', x: r(inside.x), y: r(inside.y), z: r(inside.z), cal, bomb: 1, id: inside.b.id });
+      landStrike(state, inside.x, inside.z, bore, 'bomb', 1, inside.b);
+    } else {
+      state.events.push({ e: g > 0.5 ? 'landhit' : 'splash', x: r(x), z: r(z), cal, bomb: 1 });
+      if (g > 0.5 || (world.works?.walls?.length && wallAt(world, x, z, 8))) landStrike(state, x, z, bore, 'bomb', 1);
+    }
+  }
 }
 
 /** A point a long way down her heading and standing still: what a fish let go at nothing is aimed at. */
@@ -7991,6 +8035,25 @@ export function magazineTons(state, ship, cls, where) {
 export const MAGAZINE_FIRE_BORE = 152.4;
 
 /**
+ * The largest gun round that cannot break a ship's back, millimetres: six
+ * inches. A round that size or smaller -- a destroyer's main battery as much
+ * as a battleship's secondaries, since what matters is the bore and not which
+ * battery it came from -- holes her, burns her, floods her and can sink her,
+ * but it does not set off her magazine and it does not leave her to go down
+ * broken in two. Only heavier blows do: a bigger shell, a bomb, a torpedo, a
+ * mine, a missile, a ram.
+ */
+export const LIGHT_ROUND_BORE = 152.4;
+
+/** Whether a gun round of this calibre is one that cannot break her. */
+export function lightRound(cal) {
+  return (cal || 0) <= LIGHT_ROUND_BORE + 0.5;
+}
+
+/** The damage kinds that are a heavy blow in themselves, whatever caused them. */
+const HEAVY_KINDS = new Set(['bomb', 'depthCharge', 'magazine', 'mine', 'nuke', 'ram', 'torpedo', 'wave', 'grounding']);
+
+/**
  * Whether a magazine in `where` feeds a main battery heavy enough to take the
  * ship with it. A magazine under her secondaries, or under guns of six inches
  * and less -- a destroyer's, a light cruiser's -- holds charges in cases and
@@ -8326,7 +8389,7 @@ function bombOnMount(state, ship, owner, P, at) {
  * down on them -- and when they do it is an explosion of its own, which makes
  * a hole of its own, under whatever is standing next to it.
  */
-export function undercut(state, ship, at, r, owner, depth = 0) {
+export function undercut(state, ship, at, r, owner, depth = 0, light = false) {
   if (!ship.alive || !at || !(r > 0)) return;
   const cls = shipClass(ship);
   const deckY = freeboardOf(cls);
@@ -8355,12 +8418,12 @@ export function undercut(state, ship, at, r, owner, depth = 0) {
     }
     if (book[key] >= area * FOOTING) fell.push(g);
   }
-  for (const g of fell) dropMount(state, ship, cls, g, owner, blew, depth);
+  for (const g of fell) dropMount(state, ship, cls, g, owner, blew, depth, light);
   for (const g of blew) readyUse(state, ship, cls, g, owner, depth);
 }
 
 /** A mounting going down through the deck under it. */
-function dropMount(state, ship, cls, g, owner, blew, depth) {
+function dropMount(state, ship, cls, g, owner, blew, depth, light = false) {
   const key = `${g.k}:${g.i}`;
   (ship.fell || (ship.fell = {}))[key] = 1;
   if (g.m) {
@@ -8382,7 +8445,7 @@ function dropMount(state, ship, cls, g, owner, blew, depth) {
   }
   // And a main turret is stood on its magazine. Coming down through the deck
   // on top of it, it can take the magazine with it -- not often.
-  if (g.k === 'main' && depth === 0) {
+  if (g.k === 'main' && depth === 0 && !light) {
     const where = sectionAt(g.s.z / half, 'deck');
     if ((where === 'fwd' || where === 'aft') && state.rng() < 0.08) {
       detonate(state, ship, where, owner);
@@ -8557,6 +8620,9 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // same way without the damage code having to know which it is holding.
   const owner = shellOwner(state, sh);
   const where = sectionAt(l.z / (cls.hull.length * 0.5), sec.part);
+  // Six inches or less, from whichever battery: it cannot break her back.
+  const light = lightRound(sh.caliber);
+  if (!light && kind !== 'ricochet') target.heavyBlow = true;
   if (dmg > 0) damageShip(state, target, owner, dmg, kind, where);
   // A penetration is a hole in her, and holes are what she is now counted in.
   // A shell that bounced or shattered on the plate has not opened anything.
@@ -8578,7 +8644,7 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // through, and the box it got into was a magazine and not her machinery.
   // Then it is the size of the burst against the size of the handling room,
   // the same arithmetic as everything else that happens inside her.
-  if (kind === 'citadel' && (where === 'fwd' || where === 'aft')
+  if (kind === 'citadel' && (where === 'fwd' || where === 'aft') && !light
     && pen > effArmor * 1.5 && target.alive) {
     const room = sectionVolume(cls, where) || 1;
     const bore = sh.caliber / 1000;
@@ -8621,7 +8687,7 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // A hole in her deck or her upperworks is under something, as often as
   // not, and that does not stay where it was. See undercut.
   if (HOLING.has(kind) && (sec.part === 'deck' || sec.part === 'superstructure') && target.alive) {
-    undercut(state, target, { x: l.x, y: cy, z: l.z }, deckHole(kind, sh.caliber / 1000), owner);
+    undercut(state, target, { x: l.x, y: cy, z: l.z }, deckHole(kind, sh.caliber / 1000), owner, 0, light);
   }
   // A battery keeps no ribbon book: there is nobody aboard it to give one to.
   if (owner && owner.ribbons) {
@@ -9909,6 +9975,7 @@ function missileHit(state, m, K, t, cls) {
   const skims = m.kind === 'harpoon' || m.kind === 'agm84' || m.kind === 'penguin' || m.kind === 'kh25';
   const armour = skims ? cls.armor.belt : cls.armor.deck;
   const cut = clamp(armour / 900, 0, 0.32);
+  t.heavyBlow = true;
   damageShip(state, t, owner, K.damage * (1 - cut), 'he', where);
   wreckContents(state, t, where, 0.53, 'bomb', { x: lt.x, y: m.y, z: lt.z });
   if (state.rng() < K.fire) startFire(state, t, where, 0.45);
@@ -13426,6 +13493,7 @@ function ramShip(state, p, s, cls) {
     }
   }
 
+  if (armed) s.heavyBlow = true;
   damageShip(state, s, owner, dmg, armed ? 'bomb' : 'he', where);
   s.sections[where].pens++;
   // Everything standing about where she came in. A burst this size on a boat
@@ -13541,6 +13609,7 @@ function wreckIntoShip(state, f, s, cls) {
   const speed = Math.max(30, Math.hypot(f.vx, f.vy, f.vz));
   const armed = f.load > 0;
   const dmg = f.mass * (speed / 110) * (speed / 110) * 0.7 + f.load;
+  if (armed) s.heavyBlow = true;
   damageShip(state, s, owner, dmg, armed ? 'bomb' : 'he', where);
   s.sections[where].pens++;
   wreckContents(state, s, y > 12 ? 'works' : where,
@@ -15159,7 +15228,12 @@ function stepPlanes(state, dt) {
       // either: see orderAttack.
       const mate = wingTarget(state, p);
       const want = flightOrder(state, p) || (mate ? { ship: mate } : pickAirTarget(state, p));
-      if (want && want.battery) {
+      if (want && !want.works) p.targetWorks = 0;
+      if (want && want.works) {
+        p.targetWorks = want.works.id;
+        p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0; p.targetBat = 0;
+        p.tx = want.works.x; p.tz = want.works.z;
+      } else if (want && want.battery) {
         p.targetBat = want.battery.id;
         p.targetAir = 0; p.targetId = 0; p.targetHeavy = 0;
         p.tx = want.battery.x; p.tz = want.battery.z;
@@ -15192,14 +15266,20 @@ function stepPlanes(state, dt) {
     }
     // And she follows it: a ship under way is not where she was two seconds ago.
     if (p.phase === 'outbound') {
-      const mark = p.targetAir
+      const mark = p.targetWorks
+        ? worksTarget(state.world, p.targetWorks, state.t)
+        : p.targetAir
         ? state.planes.find((q) => q.id === p.targetAir)
         : p.targetHeavy
           ? (state.bombers || []).find((q) => q.id === p.targetHeavy && q.alive)
           : p.targetBat
             ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
             : state.ships.find((q) => q.id === p.targetId && q.alive);
-      if (mark) { p.tx = mark.x; p.tz = mark.z; }
+      if (p.targetWorks && mark && mark.alive === false) {
+        // Nothing of it left standing: she looks for something else.
+        p.targetWorks = 0; p.hunt = 0;
+      } else if (mark) { p.tx = mark.x; p.tz = mark.z; }
+      else if (p.targetWorks) { p.targetWorks = 0; p.hunt = 0; }
       else if (!p.targetAir && !p.targetId && !p.targetHeavy && !p.targetBat && p.escortHeavy) {
         // On station with the heavies, who do not stay where they were.
         const esc = escortOf(state, p);
@@ -15521,6 +15601,21 @@ function stepPlanes(state, dt) {
         // turret's arc -- see heavyGunners -- and not only at whoever is
         // attacking her: a fighter flown by hand gets the same answer.
         gunsSeen(state, p, heavy.x, heavy.z, true);
+        out.push(p);
+        continue;
+      }
+    }
+
+    // A town, an airfield, a harbour or a sea wall, worked over the same way:
+    // over it, she lets her bombs go into it, or strafes it if she has none.
+    if (p.phase === 'outbound' && p.targetWorks) {
+      const w = worksTarget(state.world, p.targetWorks, state.t);
+      if (w && w.alive !== false && dist(p.x, p.z, w.x, w.z) < 300) {
+        bombWorks(state, p, w, P);
+        state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
+        p.targetWorks = 0;
+        p.dropped = true;
+        p.phase = 'return';
         out.push(p);
         continue;
       }
@@ -17867,6 +17962,9 @@ export function breakHer(state, ship, at, why) {
   // A ship that has already had a piece cut off her has parted once, at the
   // cut: what is left of her goes down as one piece.
   if (ship.broke != null || ship.cut) return;
+  // Going down by an end only breaks a ship something heavy has hit. One sunk
+  // by nothing bigger than six-inch fire settles and goes down whole.
+  if (why === 'trim' && !ship.heavyBlow) return;
   ship.broke = at;
   state.events.push({ e: 'break', ship: ship.id, at: r(at), x: r(ship.x), z: r(ship.z), why });
   if (!ship.sinking) startSinking(state, ship, why === 'magazine' ? 'magazine' : 'shattered');
@@ -18594,6 +18692,7 @@ export function hullIntegrity(ship) {
 
 export function damageShip(state, ship, source, amount, kind, where = null) {
   if (!ship.alive || amount <= 0) return;
+  if (HEAVY_KINDS.has(kind)) ship.heavyBlow = true;
   const before = ship.hp;
   // Into the compartment that took it. Fire, flooding, ramming and the ground
   // are not a hit in one place, so they are shared out over what is left of

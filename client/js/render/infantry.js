@@ -31,7 +31,21 @@ import { decode } from './vehicles.js';
 import {
   SOLDIER_NEAR, SOLDIER_FAR, SOLDIER_JOINTS as J, SOLDIER_PIVOTS as PV, GARAND_NEAR, GARAND_FAR,
 } from './infantry.data.js';
-import { footing } from '../../../shared/infantry.js';
+import { footing as bareFooting } from '../../../shared/infantry.js';
+import { worksFloor } from '../../../shared/works.js';
+
+/**
+ * What a man, a body or a drop of blood comes to rest on: the ground, and in
+ * a town the kerb, the lawn or the paving laid on it, or the heap a building
+ * left -- which stand a little above the ground they are laid on, so blood
+ * that stopped at the ground was under them and out of sight.
+ */
+export function footing(world, x, z) {
+  const g = bareFooting(world, x, z);
+  if (!world?.works) return g;
+  const f = worksFloor(world, x, z);
+  return g + (f.rise || 0);
+}
 
 const PARTS = ['torso', 'head', 'uarmL', 'uarmR', 'farmL', 'farmR', 'thighL', 'thighR', 'shinL', 'shinR', 'rifle'];
 const NEAR_CAP = 700;
@@ -129,18 +143,68 @@ function bodyMaterial() {
   return m;
 }
 
-function partSet(scene, data, rifle, cap) {
+/**
+ * A civilian's head: bare, a face and a head of hair, in the frame the
+ * soldier's helmeted head is modelled in (its origin at the neck).
+ */
+function civilHead() {
+  const skin = new THREE.SphereGeometry(0.105, 10, 8).scale(0.92, 1.08, 1).translate(0, 0.16, 0.01);
+  const hair = new THREE.SphereGeometry(0.112, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55)
+    .scale(0.95, 1.0, 1.05).translate(0, 0.175, -0.008);
+  const neck = new THREE.CylinderGeometry(0.05, 0.055, 0.1, 6).translate(0, 0.04, 0);
+  const paint = (g, c) => {
+    const n = g.attributes.position.count;
+    const a = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) a.set(c, i * 3);
+    g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+    return g.toNonIndexed();
+  };
+  const parts = [paint(skin, [1, 1, 1]), paint(hair, [0.22, 0.15, 0.1]), paint(neck, [0.95, 0.95, 0.95])];
+  const g = new THREE.BufferGeometry();
+  for (const k of ['position', 'color']) {
+    const len = parts.reduce((t, q) => t + q.attributes[k].array.length, 0);
+    const arr = new Float32Array(len);
+    let o = 0;
+    for (const q of parts) { arr.set(q.attributes[k].array, o); o += q.attributes[k].array.length; }
+    g.setAttribute(k, new THREE.BufferAttribute(arr, 3));
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * The soldier's own pieces with the olive drab taken out of them: the
+ * shading kept, the colour left to the instance, so each civilian can be
+ * dressed in his own coat and trousers.
+ */
+function undyed(geo) {
+  const c = geo.attributes.color;
+  if (!c) return geo;
+  let top = 1e-6;
+  for (let i = 0; i < c.count; i++) top = Math.max(top, c.getX(i) * 0.3 + c.getY(i) * 0.59 + c.getZ(i) * 0.11);
+  for (let i = 0; i < c.count; i++) {
+    const l = (c.getX(i) * 0.3 + c.getY(i) * 0.59 + c.getZ(i) * 0.11) / top;
+    const v = 0.5 + 0.5 * l;
+    c.setXYZ(i, v, v, v);
+  }
+  c.needsUpdate = true;
+  return geo;
+}
+
+function partSet(scene, data, rifle, cap, civil = false) {
   const mat = bodyMaterial();
   const gun = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 30, specular: 0x222222 });
   gun.userData.painted = true;
   const set = {};
   for (const k of PARTS) {
-    const geo = k === 'rifle' ? decode(rifle) : decode(data[k]);
+    let geo = k === 'rifle' ? decode(rifle) : decode(data[k]);
+    if (civil && k === 'head') geo = civilHead();
+    else if (civil && k !== 'rifle') geo = undyed(geo);
     const mesh = new THREE.InstancedMesh(geo, k === 'rifle' ? gun : mat, cap);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.count = 0;
     mesh.frustumCulled = false;
-    mesh.castShadow = cap <= NEAR_CAP;
+    mesh.castShadow = !civil && cap <= NEAR_CAP;
     mesh.receiveShadow = false;
     // Instance colours, so each side's uniform can be told apart.
     mesh.setColorAt(0, new THREE.Color(1, 1, 1));
@@ -155,6 +219,17 @@ function partSet(scene, data, rifle, cap) {
 // toward a cold field grey, so the two can be told apart at a glance.
 const TINT = [new THREE.Color(2.0, 1.95, 1.75), new THREE.Color(1.45, 1.55, 1.85)];
 const DEAD_TINT = [new THREE.Color(1.6, 1.5, 1.4), new THREE.Color(1.2, 1.25, 1.45)];
+
+const DRESS = new THREE.Color();
+/** The colour of one piece of a civilian: `col` is { coat, legs, skin }, each a THREE.Color. */
+function partColour(col, part, k = 1) {
+  const c = part === 'head' ? col.skin
+    : part.startsWith('thigh') || part.startsWith('shin') ? col.legs : col.coat;
+  return DRESS.copy(c).multiplyScalar(k);
+}
+function dress(set, n, col, k) {
+  for (const part of PARTS) set[part].setColorAt(n, partColour(col, part, k));
+}
 
 // ---------------------------------------------------------------------------
 // Blood
@@ -465,11 +540,19 @@ function buildHut(team) {
 // ---------------------------------------------------------------------------
 
 export class InfantryView {
-  constructor(scene, world) {
+  /**
+   * `civil` draws them as townspeople rather than soldiers: no rifle, bare
+   * heads, arms swinging as they walk or thrown up as they run, and each in
+   * the colours his own entry carries (`col`: coat, trousers, skin).
+   */
+  constructor(scene, world, { civil = false, nearCap = NEAR_CAP, farCap = FAR_CAP } = {}) {
     this.scene = scene;
     this.world = world;
-    this.near = partSet(scene, SOLDIER_NEAR, GARAND_NEAR, NEAR_CAP);
-    this.far = partSet(scene, SOLDIER_FAR, GARAND_FAR, FAR_CAP);
+    this.civil = civil;
+    this.nearCap = nearCap;
+    this.farCap = farCap;
+    this.near = partSet(scene, SOLDIER_NEAR, GARAND_NEAR, nearCap, civil);
+    this.far = partSet(scene, SOLDIER_FAR, GARAND_FAR, farCap, civil);
     this.gore = new Gore(scene);
     this.rounds = new Rounds(scene);
     // Each man's own animation state, by his id.
@@ -565,7 +648,7 @@ export class InfantryView {
     gripR.y -= 0.07;
     const gripL = V[8].copy(butt).addScaledVector(dir, a.reload > 0.5 ? 0.42 : 0.63);
     gripL.y -= a.reload > 0.5 ? -0.05 : 0.045;
-    if (a.dropped) set.rifle.setMatrixAt(n, ZERO);
+    if (a.dropped || this.civil) set.rifle.setMatrixAt(n, ZERO);
     else put('rifle', butt, aimQuat(dir, RIFLE_Q));
     // And his arms, reaching for it.
     for (let k = 0; k < 2; k++) {
@@ -576,6 +659,14 @@ export class InfantryView {
       const S = T(R.S, V[9]);
       const pole = V[10].set(side * 0.7, -1, -0.35).applyQuaternion(torsoQ);
       let target = k ? gripL : gripR;
+      if (this.civil && !a.splay) {
+        // Unarmed: his arms swing against his legs as he walks, and in a
+        // panic they are up round his head as he runs.
+        const sw = Math.sin(a.phase + (k ? 0 : Math.PI)) * lerp(0.12, 0.5, run) * a.moving;
+        const hang = V[11].set(side * 0.1, -0.52 * Math.cos(sw), 0.52 * Math.sin(sw) + 0.04);
+        const up = V[13].set(side * 0.16, 0.3 + 0.05 * Math.sin(a.phase * 2 + k), 0.12);
+        target = hang.lerp(up, a.panic || 0).applyQuaternion(torsoQ).add(S);
+      }
       if (a.splay) target = V[11].set(side * 0.5, -0.1, 0.25).applyQuaternion(torsoQ).add(S);
       const E = V[12];
       reach(S, target, R.L1, R.L2, pole, E);
@@ -639,12 +730,14 @@ export class InfantryView {
       if (d > FAR_OUT) continue;
       _q.setFromAxisAngle(Y, p.h);
       a.matrix.compose(_v.set(p.x, p.y, p.z), _q, _s1);
-      const near = d < NEAR_OUT && nn < NEAR_CAP - 40;
+      const near = d < NEAR_OUT && nn < this.nearCap - 40;
       const set = near ? this.near : this.far;
       const n = near ? nn++ : nf++;
-      if (!near && nf > FAR_CAP) continue;
+      if (!near && nf >= this.farCap) continue;
+      a.panic = (a.panic || 0) + (((f & 256) ? 1 : 0) - (a.panic || 0)) * k;
       this.pose(p, a, set, n);
-      for (const part of PARTS) set[part].setColorAt(n, TINT[p.tm === team ? 0 : 1]);
+      if (p.col) dress(set, n, p.col, 1);
+      else for (const part of PARTS) set[part].setColorAt(n, TINT[p.tm === team ? 0 : 1]);
     }
     for (const id of this.anim.keys()) if (!seen.has(id) && !this.dead.some((c) => c.id === id)) this.anim.delete(id);
     // The dead, where they fell.
@@ -663,12 +756,13 @@ export class InfantryView {
       a.matrix.compose(_v.set(c.x, y, c.z), _q, _s1);
       const d = Math.hypot(c.x - cam.x, c.y - cam.y, c.z - cam.z);
       if (d > FAR_OUT) continue;
-      const near = d < NEAR_OUT && nn < NEAR_CAP - 40;
+      const near = d < NEAR_OUT && nn < this.nearCap - 40;
       const set = near ? this.near : this.far;
       const n = near ? nn++ : nf++;
-      if (!near && nf > FAR_CAP) continue;
+      if (!near && nf >= this.farCap) continue;
       this.pose(c, a, set, n);
-      for (const part of PARTS) set[part].setColorAt(n, DEAD_TINT[c.tm === team ? 0 : 1]);
+      if (c.col) dress(set, n, c.col, 0.8);
+      else for (const part of PARTS) set[part].setColorAt(n, DEAD_TINT[c.tm === team ? 0 : 1]);
       // His rifle, on the ground beside him.
       if (a.dropped) {
         _q.setFromAxisAngle(Y, c.h + 1.2);
@@ -696,12 +790,12 @@ export class InfantryView {
         }
       }
       const d = Math.hypot(p.x - cam.x, p.z - cam.z);
-      if (d > NEAR_OUT * 3 || nn >= NEAR_CAP) continue;
+      if (d > NEAR_OUT * 3 || nn >= this.nearCap) continue;
       const n = nn++;
       for (const part of PARTS) this.near[part].setMatrixAt(n, ZERO);
       _m.compose(_v.set(p.x, p.y, p.z), p.q, _s1);
       this.near[p.part].setMatrixAt(n, _m);
-      this.near[p.part].setColorAt(n, DEAD_TINT[p.tm === team ? 0 : 1]);
+      this.near[p.part].setColorAt(n, p.col ? partColour(p.col, p.part, 0.8) : DEAD_TINT[p.tm === team ? 0 : 1]);
       if (p.t > 240) this.pieces.splice(i, 1);
     }
     for (const [s, n] of [[this.near, nn], [this.far, nf]]) {
@@ -768,7 +862,7 @@ export class InfantryView {
       phase: 0, crouch: ev.c, kneel: 0, run: 0, sprint: 0, air: 0, aim: 0, reload: 0, moving: 0, twist: 0, pitch: 0, matrix: new THREE.Matrix4(),
     };
     a.dropped = true;
-    const corpse = { id: ev.i, x: ev.x, y: ev.y, z: ev.z, g, h: face, tm: ev.tm, t: 0, c: ev.c, a, way: 1 };
+    const corpse = { id: ev.i, x: ev.x, y: ev.y, z: ev.z, g, h: face, tm: ev.tm, t: 0, c: ev.c, a, way: 1, col: ev.col };
     // Blood: a great deal of it, out of where he was hit, and a pool under him.
     this.gore.spurt(ev.hx ?? ev.x, ev.hy ?? ev.y + 1.2, ev.hz ?? ev.z, dx / hl, 0.4, dz / hl, 34, 4.5, 0.025, this.world);
     this.gore.puff(ev.hx ?? ev.x, ev.hy ?? ev.y + 1.2, ev.hz ?? ev.z, 9, 0.6);
@@ -787,7 +881,7 @@ export class InfantryView {
       a.noLeg = Math.random() < 0.5 ? (Math.random() < 0.5 ? 'L' : 'R') : null;
       const throwPiece = (part, y) => {
         this.pieces.push({
-          part, tm: ev.tm, x: ev.x, y: ev.y + y, z: ev.z,
+          part, tm: ev.tm, col: ev.col, x: ev.x, y: ev.y + y, z: ev.z,
           vx: (dx / hl) * 5 + (Math.random() - 0.5) * 8, vy: 3 + Math.random() * 6, vz: (dz / hl) * 5 + (Math.random() - 0.5) * 8,
           sx: (Math.random() - 0.5) * 14, sy: (Math.random() - 0.5) * 14,
           q: new THREE.Quaternion().setFromEuler(_e.set(Math.random() * 6, Math.random() * 6, 0)), t: 0,
