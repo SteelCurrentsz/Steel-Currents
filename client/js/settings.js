@@ -18,6 +18,7 @@ const DEFAULTS = {
   // Whether a side's shells, torpedoes, charges, aircraft and stems hurt its
   // own ships. Off until a captain turns it on.
   friendlyFire: false,
+  ultraRealism: false,
   // How a carrier is stored, when a captain has re-balanced her in the yard.
   // Null means she sails with what her datasheet says.
   airGroup: null,

@@ -63,6 +63,9 @@ export function createState(world, opts = {}) {
     // Whether a side's own fire, torpedoes, charges, aircraft and stems hurt
     // its own ships. Off unless the battle was set up with it on.
     friendlyFire: !!opts.friendlyFire,
+    // Ultra-Realism Mechanics: gunnery that starts wild and settles in over
+    // half an hour, and radar that matters. See realismSpread.
+    ultraRealism: !!opts.ultraRealism,
     t: 0,
     tick: 0,
     ships: [],
@@ -2960,6 +2963,65 @@ export function canFire(ship) {
     && t.laid !== false && !mountOff(ship, 'main', t.id) && gunState(ship, cls, cls.turrets[t.id], t) < 3);
 }
 
+// ------------------------------------------------- Ultra-Realism Mechanics
+//
+// With Ultra-Realism Mechanics on, gunnery is what it was at sea: the first
+// salvos go nowhere near, the fall of shot wanders long and short while the
+// spotters and the plot work the range out, and the guns only walk onto the
+// target over the first half hour of the action. And radar matters: a ship
+// that can range her target by radar shoots a great deal straighter than one
+// that is doing it by eye and rangefinder.
+
+/** How long, in seconds, the guns take to settle in with Ultra-Realism on. */
+export const UR_SETTLE = 1800;
+/** How much wider the fall of shot is at the start than once settled. */
+export const UR_OPEN = 5;
+/** How often, in seconds, the plot's error in range is worked out afresh. */
+const UR_FIX = 40;
+
+/**
+ * How much wider than normal a ship's fall of shot is at range `d`: one with
+ * Ultra-Realism off, otherwise very wide at the start of the battle, closing
+ * in slowly over UR_SETTLE, and scaled by her radar -- tighter with the target
+ * inside her radar's reach, worse with no radar at all.
+ */
+export function realismSpread(state, ship, d) {
+  if (!state.ultraRealism) return 1;
+  return realismTime(state) * radarFactor(ship, d);
+}
+
+/** The time part of it: UR_OPEN at the first shot, one after half an hour. */
+export function realismTime(state) {
+  const k = clamp((state.t || 0) / UR_SETTLE, 0, 1);
+  // Slow at first and slower at the end: most of the improvement comes in
+  // the middle of the half hour, as the plot and the spotters learn.
+  const left = 1 - k * k * (3 - 2 * k);
+  return 1 + (UR_OPEN - 1) * left;
+}
+
+/** Her radar's part of it: under one with the target in reach, over one without radar. */
+export function radarFactor(ship, d) {
+  const radar = shipClass(ship).radarRange || 0;
+  if (radar <= 0) return 1.5;
+  return d <= radar ? 0.65 : 1.05;
+}
+
+/**
+ * Where the middle of her fall of shot is off the target in range, metres:
+ * the plot's own error, which a whole salvo shares and which a gunnery officer
+ * walks in by spotting. Nought with Ultra-Realism off. It shrinks with the
+ * time part of realismSpread, and her radar makes it smaller.
+ */
+export function realismBias(state, ship, d) {
+  if (!state.ultraRealism) return 0;
+  if (ship.urAt == null || state.t - ship.urAt >= UR_FIX) {
+    ship.urAt = state.t;
+    ship.urErr = clamp(gauss(state.rng), -2, 2);
+  }
+  const time = (realismTime(state) - 1) / (UR_OPEN - 1);
+  return ship.urErr * d * (0.012 + 0.07 * time) * radarFactor(ship, d);
+}
+
 /**
  * Fire every turret that is loaded and on target. Returns barrels fired.
  *
@@ -3022,10 +3084,12 @@ export function fireGuns(state, ship, only = null, { assignedOnly = false } = {}
 
     const bearing = wrapAngle(ship.heading + t.angle);
     // Dispersion: a cone that widens with range, tightened by the gun's sigma.
-    const spreadBase = (d * 0.0125) / gun.sigma;
+    // With Ultra-Realism on, wider and off in range early on (realismSpread).
+    const spreadBase = (d * 0.0125) / gun.sigma * realismSpread(state, ship, d);
+    const bias = realismBias(state, ship, d);
     for (let g = 0; g < tSpec.guns; g++) {
       const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
-      const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
+      const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase + bias;
       const aimDist = clamp(d + rng, 300, gun.range);
       // Each barrel from its own muzzle: the three shells of a salvo leave
       // three bores a yard apart, not one point in the middle of the turret.
@@ -4605,10 +4669,11 @@ function stepDpSurface(state, ship, dt) {
     if (!mountBears(ship, spec, b)) continue;
     if (!orderGiven(state, ship, 'sec')) continue;
     const aimD = clamp(given.d, 400, B.range);
-    const spread = (aimD * 0.0125) / B.sigma;
+    const spread = (aimD * 0.0125) / B.sigma * realismSpread(state, ship, aimD);
+    const bias = realismBias(state, ship, aimD);
     for (let gi = 0; gi < (spec.guns || 1); gi++) {
       const lat = clamp(gauss(state.rng), -2.4, 2.4) * spread * 0.35;
-      const rr = clamp(gauss(state.rng), -2.4, 2.4) * spread;
+      const rr = clamp(gauss(state.rng), -2.4, 2.4) * spread + bias;
       const mz = muzzlePos(ship, cls, spec, B, b, gi, spec.guns || 1);
       const s2 = solveBallistic(B, clamp(aimD + rr, 300, B.range), mz.y - aimHeight(state, given.x, given.z));
       const bb = b + Math.atan2(lat, Math.max(600, aimD));
@@ -4735,10 +4800,11 @@ function secondarySalvo(state, ship, m, spec, spec0, lx, lz, cond) {
   const bearing = wrapAngle(ship.heading + m.angle);
   const aimD = clamp(dist(pos.x, pos.z, lx, lz), 400, S.range);
   const up = aimHeight(state, lx, lz);
-  const spreadBase = (aimD * 0.0125) / S.sigma;
+  const spreadBase = (aimD * 0.0125) / S.sigma * realismSpread(state, ship, aimD);
+  const bias = realismBias(state, ship, aimD);
   for (let g = 0; g < spec.guns; g++) {
     const lat = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase * 0.35;
-    const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase;
+    const rng = clamp(gauss(state.rng), -2.4, 2.4) * spreadBase + bias;
     const shotD = clamp(aimD + rng, 300, S.range);
     const mz = muzzlePos(ship, cls, spec, S, bearing, g, spec.guns);
     const s2 = solveBallistic(S, shotD, mz.y - up);
@@ -17750,7 +17816,7 @@ function stepFlooding(state, ship, dt) {
         // How much sea is standing over the hole now: what it was when it
         // was made, plus however much deeper she is sitting since.
         const head = (c.holeY ?? 1) + b.sink;
-        if (head > 0.05) rate += 0.62 * open * Math.sqrt(2 * 9.81 * head) * 0.16;
+        if (head > 0.05) rate += 0.62 * open * Math.sqrt(2 * 9.81 * head) * 0.16 * FLOOD_CHOKE;
       }
       // ...and every hole that is somewhere, with the sea asked about it
       // where it is: the waves, her roll and pitch, her list, her trim and
@@ -17759,7 +17825,7 @@ function stepFlooding(state, ship, dt) {
       if (c.holes && c.holes.length) {
         for (const h of c.holes) {
           const head = holeHead(state, ship, h);
-          if (head > 0.02) rate += 0.62 * h.a * worse * Math.sqrt(2 * 9.81 * head) * 0.16;
+          if (head > 0.02) rate += 0.62 * h.a * worse * Math.sqrt(2 * 9.81 * head) * 0.16 * FLOOD_CHOKE;
         }
       }
       if (rate > 0) {
@@ -18399,6 +18465,34 @@ export const INTEGRITY_WEIGHTS = { structure: 0.75, flooding: 0.3, fire: 0.3, we
 export const INTEGRITY_SCAR = 0.2;
 /** How much integrity she has to be brought back to before she can be saved from going down on it. */
 export const INTEGRITY_SAVE = 0.12;
+/**
+ * How much of a blow her hull actually feels. Ships are built to take a great
+ * deal of punishment, and every hit, bomb and fire counts for this share of
+ * what it used to against her structure. A magazine going up is not softened.
+ */
+export const HULL_TOUGHNESS = 0.7;
+/** How much slower the sea gets into her through her holes than it used to. */
+export const FLOOD_CHOKE = 0.6;
+/**
+ * Where each of her three bars counts as destroyed: her structure all but
+ * gone, the sea most of the way to taking her down, everything inside her
+ * wrecked. Two of the three, and she goes down; one alone she survives.
+ */
+export const BAR_DOWN = { structural: 0.02, flooding: 0.9, internal: 0.04 };
+/** How far clear of destroyed a bar has to be brought back before she can be saved on it. */
+export const BAR_SAVE = 0.1;
+
+/**
+ * Which of her three integrity bars are destroyed -- structural, flooding,
+ * internal -- with `margin` asking for that much more than destroyed.
+ */
+export function barsDestroyed(ship, margin = 0, ic = integrityCategories(ship)) {
+  let n = 0;
+  if (ic.structural <= BAR_DOWN.structural + margin) n++;
+  if (ic.flooding >= BAR_DOWN.flooding - margin) n++;
+  if (ic.internal <= BAR_DOWN.internal + margin) n++;
+  return n;
+}
 
 /**
  * How much of her is still a ship, nought to one, and what it is made of.
@@ -18447,7 +18541,7 @@ export function integrityParts(ship) {
  */
 export function integrityCategories(ship) {
   const p = integrityParts(ship);
-  const structural = clamp(1 - (p.structure + p.fire * 0.4), 0, 1);
+  const structural = clamp(1 - (p.structure + p.fire * 0.25), 0, 1);
   const flooding = p.flooding;
   const rate = ship.reserveRate || 0;
   const rising = rate < -0.0004 ? 1 : rate > 0.0004 ? -1 : 0;
@@ -18491,7 +18585,9 @@ function stepIntegrity(state, ship, dt) {
   const loss = 1 - raw;
   if (loss > 0.002) ship.igCap = Math.min(ship.igCap, 1 - Math.max(0.01, loss * INTEGRITY_SCAR));
   ship.integrity = Math.min(raw, ship.igCap);
-  if (ship.alive && !ship.sinking && ship.integrity <= 0) startSinking(state, ship, 'integrity');
+  // Two of her three bars gone -- structural, flooding, internal -- and she
+  // is going down. Any one of them on its own she can live through.
+  if (ship.alive && !ship.sinking && barsDestroyed(ship) >= 2) startSinking(state, ship, 'integrity');
 }
 
 /** A fresh set of compartments, all sound. */
@@ -18708,6 +18804,7 @@ export function hullIntegrity(ship) {
 
 export function damageShip(state, ship, source, amount, kind, where = null) {
   if (!ship.alive || amount <= 0) return;
+  if (kind !== 'magazine') amount *= HULL_TOUGHNESS;
   if (HEAVY_KINDS.has(kind)) ship.heavyBlow = true;
   const before = ship.hp;
   // Into the compartment that took it. Fire, flooding, ramming and the ground
@@ -18735,10 +18832,13 @@ export function damageShip(state, ship, source, amount, kind, where = null) {
   // zero used to stop her engines on its own, which meant a ship burned out
   // amidships by fires she never took a shell in came to a stand, and meant
   // every ship in the game broke down at exactly the same point in her life.
-  if (ship.hp <= 0) {
-    ship.hp = 0;
-    // Shot to pieces. She is going, and fast -- but she goes down, she does
-    // not vanish, and whatever she still has above the water fights on.
+  if (ship.hp <= 0) ship.hp = 0;
+  // Shot to pieces is one of her three bars gone, and one bar alone does not
+  // sink her: she goes when a second is gone too (see stepIntegrity), or at
+  // once if it was her magazine.
+  if (ship.hp <= 0 && (kind === 'magazine' || barsDestroyed(ship) >= 2)) {
+    // She is going, and fast -- but she goes down, she does not vanish, and
+    // whatever she still has above the water fights on.
     startSinking(state, ship, kind === 'magazine' ? 'magazine' : 'shattered', source ? source.id : 0);
     if (ship.sinking && source) ship.sinking.by = source.id;
   }
@@ -19165,7 +19265,7 @@ function saved(ship, S, dt) {
   // she needs enough of it back to be a ship again.
   const b = buoyancy(ship);
   const gaining = (ship.reserveRate || 0) >= -0.0015;
-  const whole = S.kind !== 'integrity' || (ship.integrity ?? 1) >= INTEGRITY_SAVE;
+  const whole = S.kind !== 'integrity' || barsDestroyed(ship, BAR_SAVE) < 2;
   const ok = b.reserve >= 0.15 && Math.abs(b.heel) < 0.5 && gaining && whole;
   S.held = ok ? (S.held || 0) + dt : Math.max(0, (S.held || 0) - dt * 2);
   return S.held >= SAVE_HOLD;

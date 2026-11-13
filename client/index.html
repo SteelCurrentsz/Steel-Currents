@@ -386,6 +386,15 @@
         <p class="help">Off by default. With it on, your own side's shells, torpedoes,
           depth charges, aircraft and rams hurt your own side, and the enemy's hurt
           the enemy. Applies to the next battle you start.</p>
+        <label class="check"><input type="checkbox" id="opt-ur" /> <span>Ultra-Realism Mechanics</span></label>
+        <p class="help">Off by default. With it on, gunnery works as it did at sea:
+          every ship opens fire very inaccurately, with her salvos straddling
+          nothing and her fall of shot wandering long and short, and only slowly
+          walks onto the target over the first thirty minutes of the battle.
+          Radar matters too: a ship with radar ranges on her target and shoots
+          noticeably straighter while it is inside her radar's reach, and a ship
+          with no radar has a much harder time of it. Applies to the next battle
+          you start.</p>
 
         <h3>Fighting the ship</h3>
         <p class="help">Shells take time to fly. Lead the target: the aim marker
@@ -583,7 +592,7 @@
       <div class="name" id="own-name">—</div>
       <!-- Her integrity in three: her hull and upperworks, the sea in her,
            and what is inside her and working. -->
-      <div class="integrity" id="integrity">
+      <div class="integrity" id="integrity" title="Any one bar destroyed she survives; two destroyed and she sinks">
         <div class="ig-row" id="ig-structural" title="Structural Integrity: holes, shell, bomb and torpedo damage to her hull and superstructure, and her fires">
           <div class="integrity-head"><span>STRUCTURAL INTEGRITY</span><b>100%</b></div>
           <div class="integrity-track">

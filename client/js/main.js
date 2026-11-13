@@ -334,7 +334,7 @@ const PLANE_PATIENCE = 45000;
   const send = net.send.bind(net);
   net.send = (m) => {
     if (!(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom'))) return send(m);
-    const go = () => send({ ...m, ff: getSettings().friendlyFire === true });
+    const go = () => send({ ...m, ff: getSettings().friendlyFire === true, ur: getSettings().ultraRealism === true });
     const need = fleetOf(m);
     if (fleetReady(need)) return go();
     boot.show('Bringing up the fleet');
@@ -1834,6 +1834,7 @@ const optShadows = document.getElementById('opt-shadows');
 const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
 const optFF = document.getElementById('opt-ff');
+const optUR = document.getElementById('opt-ur');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -1844,6 +1845,7 @@ optShadows.checked = settings.shadows;
 optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
 if (optFF) optFF.checked = settings.friendlyFire === true;
+if (optUR) optUR.checked = settings.ultraRealism === true;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -1863,6 +1865,7 @@ optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQ
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
+if (optUR) optUR.onchange = () => { setSettings({ ultraRealism: optUR.checked }); toast(optUR.checked ? 'Ultra-Realism Mechanics on from the next battle.' : 'Ultra-Realism Mechanics off from the next battle.'); };
 if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked }); toast(optFF.checked ? 'Friendly fire on from the next battle.' : 'Friendly fire off from the next battle.'); };
 
 // ------------------------------------------------------------------- net --

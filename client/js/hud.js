@@ -1141,14 +1141,17 @@ class HudBase {
       r.row.classList.toggle('warn', warn && !bad);
       r.row.classList.toggle('bad', bad);
     };
-    paint(rs, st, pc(st), st < 55, st < 25);
+    // A bar past the point the simulation counts it destroyed says so: two
+    // of the three destroyed and she goes down (see barsDestroyed).
+    const gone = ' \u2014 DESTROYED';
+    paint(rs, st, pc(st) + (st <= 2 ? gone : ''), st < 55, st < 25);
     // The part of her structure she can never be mended back to.
     if (el.integrityLost) el.integrityLost.style.width = `${100 - cap}%`;
     // Flooding fills as she fills: an arrow says whether it is still coming in.
     const trend = own.icr > 0 ? ' \u25B2' : own.icr < 0 ? ' \u25BC' : '';
-    paint(rf, fl, pc(fl) + trend, fl > 35, fl > 70);
+    paint(rf, fl, pc(fl) + trend + (fl >= 90 ? gone : ''), fl > 35, fl > 70);
     if (rf) rf.row.classList.toggle('rising', own.icr > 0);
-    paint(ri, inn, pc(inn), inn < 55, inn < 25);
+    paint(ri, inn, pc(inn) + (inn <= 4 ? gone : ''), inn < 55, inn < 25);
     el.integrity.classList.toggle('sinking', own.sn != null);
   }
 

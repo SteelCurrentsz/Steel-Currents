@@ -38,6 +38,7 @@ import { mountRoof } from '../shared/armor.js';
 import { TANK_ARMOUR, tankStrike } from '../shared/tankarmor.js';
 import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER, CIVIL_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
+import { HULL_TOUGHNESS, FLOOD_CHOKE, realismSpread, realismBias, UR_SETTLE } from '../shared/sim.js';
 import { layMine, troopsFor } from '../shared/sim.js';
 import {
   addBarracks, addSoldier, dryLand, footing, woundSoldier, blastInfantry, shootRifle, clearLine, orderSquads,
@@ -2000,6 +2001,25 @@ check('pressing launch again while a Nimitz launch is on her deck does not throw
   assert.ok(up >= 8, `only ${up} of the first squadron got off the deck`);
   assert.ok(!c.squadrons.some((q) => q.id !== first && q.state === 'flying' && !(c.launching && c.launching.sqId === q.id)
     && !state.planes.some((p) => p.sqId === q.id && p.owner === c.id)), 'a squadron was marked flying with nothing in the air');
+});
+
+check('aircraft still in the air stay on the wire for both sides once the battle is over', () => {
+  const state = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Nimitz', classId: 'nimitz', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Iowa', classId: 'iowa', team: 1, index: 0 });
+  c.x = 0; c.z = -6000; c.heading = 0; foe.x = 0; foe.z = 4000;
+  c.aimX = 0; c.aimZ = 8000; c.sel = 0;
+  launchStrike(state, c);
+  let p = null;
+  for (let i = 0; i < 25 / DT && !p; i++) { step(state, DT); p = state.planes.find((q) => q.owner === c.id); }
+  assert.ok(p, 'nothing got off her deck');
+  // Her enemy gone: the battle is over, and the side that lost has nothing
+  // left afloat -- but the aeroplanes are still up, and still seen.
+  foe.alive = false;
+  step(state, DT);
+  assert.ok(state.over, 'the battle did not end');
+  assert.ok(buildSnapshot(state, 1, foe.id).planes.some((q) => q.i === p.id), 'the aeroplanes vanished when the battle ended');
+  assert.ok(buildSnapshot(state, 0, c.id).planes.some((q) => q.i === p.id), 'her own aeroplanes vanished when the battle ended');
 });
 
 check('a Hornet\'s pilot locks on and fires: a Maverick into a ship and a gun ashore, an AMRAAM at an aeroplane', () => {
@@ -27761,12 +27781,68 @@ check('her integrity is every way she is hurt, never mends to a hundred, and at 
   assert.ok(a.integrity < 0.99 && a.integrity > hurt,
     `mended, her integrity is ${a.integrity}: it should come back, but not all the way`);
   assert.ok(shipSnapshot(a, true).igc < 1000, 'the wire does not say how far she can be mended');
-  // And run down to nothing, she starts going down -- not blown up, not gone.
-  damageShip(state, a, null, a.maxHp * 0.93, 'shell', 'mid');
-  for (const k of SECTIONS) a.sections[k.k].fire = 1;
-  for (const t of a.turrets) t.hurt = 3;
+  // Her structure shot away entirely is one bar gone, and one bar alone does
+  // not sink her.
+  damageShip(state, a, null, a.maxHp * 2, 'shell', 'mid');
   step(state, DT);
-  assert.ok(a.sinking && a.alive, `at ${a.integrity} integrity she is not going down`);
+  assert.equal(a.hp, 0);
+  assert.ok(!a.sinking && a.alive, 'one integrity bar gone and she went down');
+  // A second bar -- everything inside her wrecked -- and she starts going
+  // down (and with no gun left working, she is out of the fight as she goes).
+  a.engineDamage = 30; a.steeringDamage = 30;
+  for (const t of a.turrets) t.hurt = 3;
+  for (const m of a.secMounts) m.hurt = 3;
+  for (const m of a.torpMounts) m.lost = true;
+  a.sections.fwd.fire = 1;
+  step(state, DT);
+  assert.ok(a.sinking && !a.blown, `two bars gone and she is not going down: ${JSON.stringify(integrityCategories(a))}`);
+});
+
+check('ships are tougher: a blow counts for less against her structure, and the sea comes in slower', () => {
+  const { state, a } = duel('cleveland', 'iowa');
+  damageShip(state, a, null, a.maxHp * 0.5, 'shell', null);
+  assert.ok(Math.abs(a.hp - a.maxHp * (1 - 0.5 * HULL_TOUGHNESS)) < a.maxHp * 0.01,
+    `half her hit points in one blow left her at ${a.hp / a.maxHp}`);
+  assert.ok(FLOOD_CHOKE < 1, 'the sea comes in as fast as ever');
+});
+
+check('Ultra-Realism Mechanics: off changes nothing; on, the guns start wild and settle over thirty minutes, and radar tightens them', () => {
+  const plain = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+  const real = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch', ultraRealism: true });
+  assert.equal(plain.ultraRealism, false);
+  assert.equal(real.ultraRealism, true);
+  const radar = addShip(real, { name: 'R', classId: 'iowa', team: 0, index: 0 });
+  const blind = addShip(real, { name: 'B', classId: 'mutsu', team: 1, index: 0 });
+  const plainShip = addShip(plain, { name: 'P', classId: 'iowa', team: 0, index: 0 });
+  assert.ok(SHIP_CLASSES.iowa.radarRange > 0, 'the Iowa has no radar');
+  assert.equal(realismSpread(plain, plainShip, 10000), 1, 'off, it widened her fall of shot');
+  assert.equal(realismBias(plain, plainShip, 10000), 0, 'off, it put her fall of shot off');
+  const r = SHIP_CLASSES.iowa.radarRange * 0.8;
+  const open = realismSpread(real, radar, r);
+  real.t = UR_SETTLE * 0.5;
+  const mid = realismSpread(real, radar, r);
+  real.t = UR_SETTLE;
+  const settled = realismSpread(real, radar, r);
+  real.t = UR_SETTLE * 3;
+  assert.equal(realismSpread(real, radar, r), settled, 'she went on getting better after half an hour');
+  assert.ok(open > mid && mid > settled, `not settling in: ${open} ${mid} ${settled}`);
+  assert.ok(open > 2.5, `the first salvos are only ${open}x as wide`);
+  // Radar inside its reach beats no radar, early and late.
+  assert.ok(!SHIP_CLASSES.mutsu.radarRange, 'the Mutsu has radar now');
+  real.t = 0;
+  assert.ok(realismSpread(real, blind, r) > realismSpread(real, radar, r) * 1.8, 'radar made no difference');
+  real.t = UR_SETTLE;
+  assert.ok(realismSpread(real, blind, r) > 1.2, 'a ship with no radar shoots as straight as ever');
+  assert.ok(realismSpread(real, radar, r) < 1, 'a ship with radar shoots no straighter');
+  // Out past her radar's reach she is back to ranging by eye.
+  assert.ok(realismSpread(real, radar, SHIP_CLASSES.iowa.radarRange * 1.5) > realismSpread(real, radar, r));
+  // And early on her whole salvo falls off the target together, by more than later.
+  real.t = 0;
+  let early = 0; let late = 0;
+  for (let i = 0; i < 40; i++) { radar.urAt = null; early += Math.abs(realismBias(real, radar, 15000)); }
+  real.t = UR_SETTLE;
+  for (let i = 0; i < 40; i++) { radar.urAt = null; late += Math.abs(realismBias(real, radar, 15000)); }
+  assert.ok(early > late * 3, `the plot's error did not close in: ${early} vs ${late}`);
 });
 
 check('a ship that is saved comes back up gradually, not in one tick', () => {
