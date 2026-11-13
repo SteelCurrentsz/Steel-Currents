@@ -128,6 +128,64 @@ const KINDS = {
       { name: 'lower', hub: [0.03, 4.05, -0.065], axis: 'y' },
     ],
   },
+  // The Implacable's fighter: a Seafire, off the owner's Spitfire Mk.IIa --
+  // the same airframe, hooked and navalised -- repainted in the Fleet Air
+  // Arm's temperate sea scheme.
+  seafire: {
+    src: 'supermarine_spitfire_mk.iia-maximum-compressed.glb', length: 9.12, keep: 0.6,
+    // Her two 20 mm Hispanos and four Brownings in her wings.
+    guns: [[-2.1, 1.6, 2.9], [2.1, 1.6, 2.9]],
+    piece: ({ c, mat, own }) => {
+      const [x, y, z] = c;
+      if (mat === 2) return 'glass';
+      // Her airscrew -- three blades on the spinner's hub -- turns.
+      if (own === 'Object_150' || own === 'Object_160') return 'spin0';
+      // Her legs, wheels and doors, and her tail wheel.
+      if (/^Object_(128|140|198|200|202|204|206|210|228|236|240|242)$/.test(own)) return 'gear';
+      if (y < -0.9 && Math.abs(x) < 1.2 && z > 0.3 && z < 2.4) return 'gear';
+      return 'body';
+    },
+    // The Fleet Air Arm's temperate sea scheme over the RAF's: Extra Dark Sea
+    // Grey for her Dark Earth, Dark Slate Grey for her Dark Green, over the
+    // Sky she already has under her; the red of her markings white, as the
+    // British Pacific Fleet painted them out, and her squadron's codes gone.
+    recolour: ([r, g, b], { low, ny, piece }) => {
+      if (piece !== 'body') return [r, g, b];
+      const l = (r + g + b) / 3, sat = Math.max(r, g, b) - Math.min(r, g, b);
+      // Her roundels' blue stays; their red goes white.
+      if (b > r + 0.08 && b > g + 0.04) return [r, g, b];
+      if (r > 0.35 && r > g * 1.7 && r > b * 1.7) return [0.86, 0.86, 0.84];
+      // Her squadron's letters, its chequer and her pale sand, on her upper
+      // surfaces, painted out.
+      // (Upper by where it stands or by which way the model says it looks:
+      // her ailerons' tops are mapped off the Sky of her texture.)
+      if ((!low || ny > 0.3) && sat < 0.11 && l > 0.42) return [0.30, 0.33, 0.35].map((v) => v * Math.min(1.25, l / 0.5));
+      if (sat < 0.05) return [r, g, b];
+      if (r >= g && r > b + 0.05) return [0.30, 0.33, 0.35].map((v) => v * Math.min(1.3, l / 0.42));
+      if (g >= r - 0.02 && g > b + 0.02) return [0.24, 0.29, 0.25].map((v) => v * Math.min(1.3, l / 0.36));
+      return [r, g, b];
+    },
+    spins: [{ name: 'prop', hub: [0, 0.065, 3.5], axis: 'z' }],
+  },
+  // And her strike fighter, the Fairey Firefly.
+  firefly: {
+    src: 'fairey_firefly_f.i-maximum-compressed.glb', length: 11.46, keep: 0.28,
+    // Her four 20 mm Hispanos, two in each wing.
+    guns: [[-2.95, 1.95, 2.7], [-2.55, 1.95, 2.7], [2.55, 1.95, 2.7], [2.95, 1.95, 2.7]],
+    piece: ({ c, mat, own }) => {
+      const [x, y, z] = c;
+      if (mat === 4) return 'glass';
+      // Her spinner and her three blades.
+      if (own === 'Object_19') return 'spin0';
+      if (own === 'Object_4' && z > 4.9 && (y > 2.6 || z > 5.06) && Math.hypot(x, y - 2.73) > 0.3) return 'spin0';
+      // Her main legs and wheels, outboard under her centre section, and her
+      // tail wheel.
+      if (own === 'Object_4' && Math.abs(x) > 1.55 && Math.abs(x) < 2.1 && y < 1.6 && z > 2.2 && z < 3.7) return 'gear';
+      if (own === 'Object_4' && Math.abs(x) < 0.25 && y < 0.9 && z < -3.0 && z > -3.95) return 'gear';
+      return 'body';
+    },
+    spins: [{ name: 'prop', hub: [0, 2.73, 5.2], axis: 'z' }],
+  },
 };
 const KIND = process.argv[2];
 const K = KINDS[KIND];
@@ -191,7 +249,7 @@ function flatten(buf) {
     }
     return { out, n };
   };
-  const P = [], UV = [], T = [], M = [], L = [];
+  const P = [], UV = [], T = [], M = [], L = [], NY = [];
   const walk = (ni, parent) => {
     const n = j.nodes[ni];
     const w = mul(parent, compose(n));
@@ -202,6 +260,7 @@ function flatten(buf) {
         if (prim.mode !== undefined && prim.mode !== 4) continue;
         const pos = acc(prim.attributes.POSITION);
         const uv = prim.attributes.TEXCOORD_0 !== undefined ? acc(prim.attributes.TEXCOORD_0) : null;
+        const nrm = prim.attributes.NORMAL !== undefined ? acc(prim.attributes.NORMAL) : null;
         const base = P.length / 3;
         const nv = pos.out.length / pos.n;
         for (let k = 0; k < nv; k++) {
@@ -209,6 +268,12 @@ function flatten(buf) {
           P.push(w[0] * x + w[4] * y + w[8] * z + w[12], w[1] * x + w[5] * y + w[9] * z + w[13],
             w[2] * x + w[6] * y + w[10] * z + w[14]);
           if (uv) UV.push(uv.out[k * 2], uv.out[k * 2 + 1]); else UV.push(0, 0);
+          if (nrm) {
+            const a = nrm.out[k * 3], b = nrm.out[k * 3 + 1], c = nrm.out[k * 3 + 2];
+            const nx = w[0] * a + w[4] * b + w[8] * c, ny = w[1] * a + w[5] * b + w[9] * c, nz = w[2] * a + w[6] * b + w[10] * c;
+            const l = Math.hypot(nx, ny, nz) || 1;
+            NY.push(ny / l);
+          } else NY.push(0);
         }
         const idx = prim.indices !== undefined ? acc(prim.indices).out : Float64Array.from({ length: nv }, (_, i) => i);
         for (let t = 0; t < idx.length; t += 3) {
@@ -225,13 +290,43 @@ function flatten(buf) {
   };
   const I = Float64Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   for (const r of j.scenes[j.scene || 0].nodes) walk(r, I);
-  return { P, UV, T, M, L, j, views };
+  return { P, UV, T, M, L, NY, j, views };
 }
 const model = flatten(readFileSync(SRC));
 const { j, P, UV } = model;
 const parentOf = new Map();
 j.nodes.forEach((n, i) => (n.children || []).forEach((c) => parentOf.set(c, i)));
 const nameOf = (ni) => (j.nodes[parentOf.get(ni)] || {}).name || j.nodes[ni].name || '';
+
+// PARTS=1: every run of faces that hang together, by node, with its box in
+// the model's own frame -- what her pieces are told apart by.
+if (process.env.PARTS) {
+  const id = new Map(), up = [];
+  const find = (a) => { while (up[a] !== a) { up[a] = up[up[a]]; a = up[a]; } return a; };
+  const node = (v) => {
+    const k = `${Math.round(P[v * 3] * 1e4)},${Math.round(P[v * 3 + 1] * 1e4)},${Math.round(P[v * 3 + 2] * 1e4)}`;
+    let i = id.get(k);
+    if (i === undefined) { i = up.length; id.set(k, i); up.push(i); }
+    return i;
+  };
+  const n = model.T.length / 3, first = [];
+  for (let t = 0; t < n; t++) {
+    const a = node(model.T[t * 3]), b = node(model.T[t * 3 + 1]), c = node(model.T[t * 3 + 2]);
+    up[find(b)] = find(a); up[find(c)] = find(a); first.push(a);
+  }
+  const runs = new Map();
+  for (let t = 0; t < n; t++) {
+    const r = `${model.L[t]}:${find(first[t])}`;
+    let q = runs.get(r);
+    if (!q) runs.set(r, q = { node: j.nodes[model.L[t]].name, mat: model.M[t], n: 0, lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
+    q.n++;
+    for (let k = 0; k < 3; k++) { const v = model.T[t * 3 + k]; for (let c = 0; c < 3; c++) { q.lo[c] = Math.min(q.lo[c], P[v * 3 + c]); q.hi[c] = Math.max(q.hi[c], P[v * 3 + c]); } }
+  }
+  for (const q of [...runs.values()].filter((q) => q.n >= +(process.env.PARTS_MIN || 20)).sort((a, b) => b.n - a.n)) {
+    console.log(`${q.node} m${q.mat} ${q.n}t x ${q.lo[0].toFixed(2)}..${q.hi[0].toFixed(2)} y ${q.lo[1].toFixed(2)}..${q.hi[1].toFixed(2)} z ${q.lo[2].toFixed(2)}..${q.hi[2].toFixed(2)}`);
+  }
+  process.exit(0);
+}
 
 // ---- sort every face into the piece it belongs to -------------------------
 const nt = model.T.length / 3;
@@ -257,7 +352,9 @@ const box = (pick) => {
 };
 const [alo, ahi] = box(() => true);
 const [llo, lhi] = K.lengthOf ? box((t) => PIECE[t] === K.lengthOf) : [alo, ahi];
-const S = K.length / (lhi[2] - llo[2]);
+// Put to her real length -- or, where the model's proportions are its own,
+// to her real span.
+const S = K.span ? K.span / (ahi[0] - alo[0]) : K.length / (lhi[2] - llo[2]);
 // Centred on her length and across her; her wheels (her lowest point) on y = 0.
 const ORIGIN = [(alo[0] + ahi[0]) / 2, alo[1], (llo[2] + lhi[2]) / 2];
 const toHer = (x, y, z) => [(x - ORIGIN[0]) * S, (y - ORIGIN[1]) * S, (z - ORIGIN[2]) * S];
@@ -284,6 +381,7 @@ async function texture(mi) {
   tex.set(mi, { t, f });
   return tex.get(mi);
 }
+let COLS = null;
 async function colourOf(v, mi, t0 = -1) {
   // A model with no paint of its own is painted by where each face is (K.paint).
   if (K.paint && t0 >= 0) {
@@ -291,11 +389,36 @@ async function colourOf(v, mi, t0 = -1) {
     return K.paint({ c, p: [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], piece: PIECE[t0], own: j.nodes[model.L[t0]].name || '' });
   }
   const { t, f } = await texture(mi);
-  if (!t) return [f[0], f[1], f[2]];
+  // A model painted in someone else's colours is repainted in hers (K.recolour).
+  // Whether the point is nearer the bottom of her than the top, looking
+  // straight down through her where it is: under her wing, her belly and the
+  // lower half of her sides.
+  let low = false;
+  if (K.recolour) {
+    if (!COLS) {
+      COLS = new Map();
+      for (let t = 0; t < nt; t++) {
+        if (PIECE[t] !== 'body') continue;
+        for (let k = 0; k < 3; k++) {
+          const q = model.T[t * 3 + k];
+          const key = `${Math.round(P[q * 3] / 0.1)},${Math.round(P[q * 3 + 2] / 0.1)}`;
+          const c = COLS.get(key);
+          if (!c) COLS.set(key, [P[q * 3 + 1], P[q * 3 + 1]]);
+          else { c[0] = Math.min(c[0], P[q * 3 + 1]); c[1] = Math.max(c[1], P[q * 3 + 1]); }
+        }
+      }
+    }
+    const c = COLS.get(`${Math.round(P[v * 3] / 0.1)},${Math.round(P[v * 3 + 2] / 0.1)}`);
+    low = !!c && c[1] - c[0] > 0.015 && P[v * 3 + 1] - c[0] < c[1] - P[v * 3 + 1];
+  }
+  const ny = model.NY[v] || 0;
+  const at = { p: [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], ny, low, piece: t0 >= 0 ? PIECE[t0] : null };
+  const re = K.recolour && !process.env.NORECOLOUR ? (c) => K.recolour(c, at) : (c) => c;
+  if (!t) return re([f[0], f[1], f[2]]);
   const u = ((UV[v * 2] % 1) + 1) % 1, w = ((UV[v * 2 + 1] % 1) + 1) % 1;
   const x = Math.min(t.w - 1, Math.floor(u * t.w)), y = Math.min(t.h - 1, Math.floor(w * t.h));
   const o = (y * t.w + x) * 3;
-  return [t.data[o] / 255 * f[0], t.data[o + 1] / 255 * f[1], t.data[o + 2] / 255 * f[2]];
+  return re([t.data[o] / 255 * f[0], t.data[o + 1] / 255 * f[1], t.data[o + 2] / 255 * f[2]]);
 }
 
 /**
@@ -312,7 +435,9 @@ async function piece(which, keep, about = [0, 0, 0]) {
       const v = model.T[t * 3 + k];
       const c = await colourOf(v, model.M[t], t);
       const p = toHer(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
-      const id = p.map((x) => Math.round(x * 1e4)).join(',');
+      // A repainted model keeps its upper and lower skins' points apart where
+      // they meet, so the two colours are not run together along the edge.
+      const id = p.map((x) => Math.round(x * 1e4)).join(',') + (K.recolour ? (model.NY[v] > 0 ? '+' : '-') : '');
       let n = key.get(id);
       if (n === undefined) {
         n = pos.length / 3;
@@ -430,7 +555,7 @@ const META = {
   tips: [[r3([blo[0] + 0.3, (blo[1] + bhi[1]) / 2, 0])[0], +((blo[1] + bhi[1]) / 2).toFixed(2), 0],
     [r3([bhi[0] - 0.3])[0], +((blo[1] + bhi[1]) / 2).toFixed(2), 0]],
   // What she fires forward from: her nose.
-  guns: [[0, +((blo[1] + bhi[1]) / 2).toFixed(2), +(bhi[2] - 0.4).toFixed(2)]],
+  guns: K.guns || [[0, +((blo[1] + bhi[1]) / 2).toFixed(2), +(bhi[2] - 0.4).toFixed(2)]],
 };
 const NAME = KIND.toUpperCase();
 const lines = [

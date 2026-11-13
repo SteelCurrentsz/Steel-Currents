@@ -4108,6 +4108,105 @@ const f18 = (g, x, y, z, ry, folded, opts = {}) => navalAir('f18', g, x, y, z, r
 const e2d = (g, x, y, z, ry, folded, opts = {}) => navalAir('e2d', g, x, y, z, ry, opts);
 const sh60 = (g, x, y, z, ry, folded, opts = {}) => navalAir('sh60', g, x, y, z, ry, opts);
 const ka27 = (g, x, y, z, ry, folded, opts = {}) => navalAir('ka27', g, x, y, z, ry, opts);
+// And the Implacable's two of her own, off the owner's models of them.
+const seafire = (g, x, y, z, ry, folded, opts = {}) => navalAir('seafire', g, x, y, z, ry, opts);
+const firefly = (g, x, y, z, ry, folded, opts = {}) => fireflyStores(navalAir('firefly', g, x, y, z, ry, opts), opts);
+
+/**
+ * What a Firefly carries under her wings, by her load: two 1,000 lb bombs on
+ * the racks just outboard of her legs ('bombs'), or sixteen RP-3 rockets --
+ * three-inch motors with sixty-pound heads -- eight under each wing, two to a
+ * rail on four rails a side, the lower of each pair hung on the upper's
+ * lugs ('rockets'). Each is a moving part of her (see Flights.trimParts),
+ * drawn only for the load she went out with; a bomb falls when she lets go,
+ * and the rockets go with the shell that takes each one over. `opts.load`
+ * draws one load only, for a model that is not a flight's.
+ */
+const FIREFLY_LOADS = ['bombs', 'rockets'];
+function fireflyStores(p, opts = {}) {
+  const steel = new THREE.MeshLambertMaterial({ color: 0x3c4146 });
+  const olive = new THREE.MeshLambertMaterial({ color: 0x5a5c45 });
+  const head = new THREE.MeshLambertMaterial({ color: 0x6b6a5e });
+  const parts = p.userData.parts || (p.userData.parts = []);
+  const show = (load) => !opts.load || opts.load === load;
+  // Her two bombs: a thousand pounds each, on the racks outboard of her legs.
+  if (show('bombs')) {
+    for (const s of [-1, 1]) {
+      const b = new THREE.Group();
+      b.position.set(s * 2.62, 0.8, 1.55);
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.235, 1.15, 14), olive);
+      body.rotation.x = Math.PI / 2;
+      b.add(body);
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.235, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), olive);
+      nose.rotation.x = Math.PI / 2;
+      nose.position.z = 0.575;
+      b.add(nose);
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.07, 0.55, 14), olive);
+      tail.rotation.x = -Math.PI / 2;
+      tail.position.z = -0.85;
+      b.add(tail);
+      for (let k = 0; k < 4; k++) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.3, 0.32), steel);
+        fin.position.set(0, 0, -1.0);
+        fin.rotation.z = (k * Math.PI) / 2;
+        fin.translateY(0.15);
+        b.add(fin);
+      }
+      // The rack's crutches over it.
+      const rack = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.7), steel);
+      rack.position.set(0, 0.28, 0);
+      b.add(rack);
+      p.add(b);
+      parts.push({ name: s < 0 ? 'store' : 'store1', node: b, axis: 'z', open: 0, fall: true, load: 'bombs', loads: FIREFLY_LOADS });
+    }
+  }
+  // Her rockets: four rails a side, two rounds to a rail.
+  if (show('rockets')) {
+    const rails = new THREE.Group();
+    const rounds = new THREE.Group();
+    const motor = new THREE.CylinderGeometry(0.038, 0.038, 1.4, 8);
+    const warhead = new THREE.CylinderGeometry(0.076, 0.076, 0.42, 10);
+    const tip = new THREE.ConeGeometry(0.076, 0.14, 10);
+    const fin = new THREE.BoxGeometry(0.012, 0.2, 0.26);
+    const rail = new THREE.BoxGeometry(0.05, 0.07, 1.7);
+    for (const s of [-1, 1]) {
+      for (let k = 0; k < 4; k++) {
+        const x = s * (2.42 + k * 0.4);
+        const yTop = 1.03 + k * 0.035;
+        const r0 = new THREE.Mesh(rail, steel);
+        r0.position.set(x, yTop + 0.06, 1.55);
+        rails.add(r0);
+        for (let tier = 0; tier < 2; tier++) {
+          const y = yTop - 0.05 - tier * 0.19;
+          const m = new THREE.Mesh(motor, steel);
+          m.rotation.x = Math.PI / 2;
+          m.position.set(x, y, 1.35);
+          rounds.add(m);
+          const h = new THREE.Mesh(warhead, head);
+          h.rotation.x = Math.PI / 2;
+          h.position.set(x, y, 2.26);
+          rounds.add(h);
+          const t = new THREE.Mesh(tip, head);
+          t.rotation.x = Math.PI / 2;
+          t.position.set(x, y, 2.54);
+          rounds.add(t);
+          for (let f = 0; f < 4; f++) {
+            const fm = new THREE.Mesh(fin, steel);
+            fm.position.set(x, y, 0.72);
+            fm.rotation.z = (f * Math.PI) / 2 + Math.PI / 4;
+            fm.translateY(0.1);
+            rounds.add(fm);
+          }
+        }
+      }
+    }
+    p.add(rails);
+    p.add(rounds);
+    parts.push({ name: 'rails', node: rails, axis: 'x', open: 0, load: 'rockets', loads: FIREFLY_LOADS });
+    parts.push({ name: 'rp3', node: rounds, axis: 'x', open: 0, load: 'rockets', loads: FIREFLY_LOADS, fired: true });
+  }
+  return p;
+}
 
 // ------------------------------------------------------ the heavy squadrons --
 //
@@ -5577,7 +5676,7 @@ function b52Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27 };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

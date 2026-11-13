@@ -582,6 +582,11 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // a Hornet with bombs under her as much as a Dauntless.
       bm: p.team === team && !p.dropped && p.bomb > 0 ? p.bomb : undefined,
       tq: p.team === team && !p.dropped && p.torp > 0 ? p.torp : undefined,
+      // Which of her type's loads she went out with, to everybody: what is
+      // hanging under her wings is there for anyone to see.
+      ld: p.load || undefined,
+      // And her rockets on their rails, on a Firefly's rocket load.
+      rp: p.team === team && !p.dropped && p.rockets > 0 ? p.rockets : undefined,
       // The missiles still on her rails, kind by kind, to her own side: what
       // a pilot has to lock on and fire (see fireLocked).
       rk: p.team === team && (p.rack || p.standoff) ? rackWire(p) : undefined,

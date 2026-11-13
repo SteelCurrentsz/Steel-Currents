@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, arado, kingfisher, besson, loire, walrus, kor1, ro43,
-  jake, mitchell, f18, e2d, sh60, ka27, muzzlesOf, dressPlane,
+  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -1020,7 +1020,7 @@ export function flightModels() {
       parts.push({
         name: spec.name, axis: spec.axis, open: spec.open, fall: spec.fall,
         spin: spec.spin, rate: spec.rate, gear: spec.gear, tuck: spec.tuck, slide: spec.slide,
-        turret: spec.turret, at, rot, geo, mats,
+        turret: spec.turret, load: spec.load, loads: spec.loads, fired: spec.fired, at, rot, geo, mats,
       });
       if (spec.turret) KIT_GUNS[key] = { at: at.toArray(), rot: rot.clone(), muzzle: spec.muzzle };
     }
@@ -1055,6 +1055,9 @@ export function flightModels() {
   make('sh60', (g) => sh60(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Ka-27 off the Sovremenny's and the Slava's pads.
   make('ka27', (g) => ka27(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  // And the Implacable's Seafires and Fireflies.
+  make('seafire', (g) => seafire(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  make('firefly', (g) => firefly(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Devastator the Hornet's torpedo squadron flew at Midway.
   out.devastator = devastatorFlightModel();
   MUZZLES.devastator = DEVASTATOR.guns.slice().sort((a, b) => a[0] - b[0]);
@@ -1119,7 +1122,7 @@ export const ROLE_TYPE = {
   fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'e2d', 'sh60', 'ka27', 'arado', 'kingfisher',
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'arado', 'kingfisher',
   'besson', 'loire', 'walrus', 'kor1', 'ro43', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
@@ -1553,6 +1556,12 @@ export class Flights {
       if (segGone(q.spec.seg || q.spec.name, cut)) continue;
       // And one shut away inside the wing is not drawn at all.
       if (q.spec.brake && !q.spec.always && brake < 0.02) continue;
+      // What hangs under her for one load and not another: a Firefly's
+      // bombs, or her rockets on their rails. Drawn for the load she went
+      // out with -- and for a load nobody has said, the first of them.
+      if (q.spec.load && q.spec.load !== ((trim && trim.load) || q.spec.loads[0])) continue;
+      // Rockets once they have gone: not drawn. The shell pipeline has them.
+      if (q.spec.fired && trim && trim.gone) continue;
       // A weapon that has gone is not drawn at all, and once it is clear of
       // her the simulation's own bomb or torpedo has taken it over.
       if (q.spec.fall && fall !== null && fall > 3.5) continue;

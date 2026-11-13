@@ -267,6 +267,8 @@ const SEABED = -34;
 
 /** What to call a flight on screen: the machine, not the job she is on. */
 const FLIGHT_NAME = {
+  seafire: 'her Seafires',
+  firefly: 'her Fireflies',
   hellcat: 'her Hellcats',
   wildcat: 'her fighters',
   dauntless: 'her dive bombers',
@@ -294,6 +296,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
+  seafire: 'Supermarine Seafire', firefly: 'Fairey Firefly',
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
   f18: 'F/A-18C Hornet', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
@@ -312,6 +315,8 @@ const ROLE_NAME = {
 
 /** What each machine's forward guns are, so the tracer is the right tracer. */
 const GUN_CALIBRE = {
+  seafire: 20,        // two Hispanos and four Brownings in the wings
+  firefly: 20,        // four Hispanos in the wings
   hellcat: 12.7,      // six fifties in the wings
   wildcat: 12.7,      // four fifties in the wings
   dauntless: 12.7,    // two in the cowling
@@ -354,6 +359,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
+  seafire: 2, firefly: 4,
   hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
@@ -414,6 +420,8 @@ const LOAD = {
   torpedo: { key: 'TORPEDO', name: 'torpedoes', near: 1600, away: 'Torpedoes away' },
   // One of a deckload, bombing on the level: a B-25 off the Hornet.
   level: { key: 'BOMBS', name: 'bombs', near: 1200, away: 'Bombs away' },
+  // A Firefly's sixteen RP-3s, fired down her dive along her nose.
+  rockets: { key: 'ROCKETS', name: 'rockets', near: 950, away: 'Rockets away' },
 };
 
 
@@ -424,9 +432,10 @@ const LOAD = {
  * says nothing about falls back on her role, as before.
  */
 function flightLoad(pl, role) {
+  if (pl.rp > 0) return LOAD.rockets;
   if (pl.tq > 0) return LOAD.torpedo;
   if (pl.bm > 0) return role === 'level' ? LOAD.level : LOAD.dive;
-  if (pl.tq === undefined && pl.bm === undefined && !pl.rk) return LOAD[role] || null;
+  if (pl.tq === undefined && pl.bm === undefined && pl.rp === undefined && !pl.rk) return LOAD[role] || null;
   return pl.d ? (LOAD[role] || null) : null;
 }
 
@@ -7140,6 +7149,8 @@ export class Battle {
     // times a second and the jacks run them out smoothly.
     const brakeWant = flyer && !flyer.heavy ? (flyer.pilot.brakes || 0) : (pl.db || 0);
     t.brake = (t.brake ?? brakeWant) + (brakeWant - (t.brake ?? brakeWant)) * (1 - Math.exp(-dt * 8));
+    // What is under her wings: her load, for a type that has more than one.
+    t.load = pl.ld || null;
     if (pl.d && !t.gone) { t.gone = true; t.fall = 0; t.hold = 2.4; }
     const mine = this.flight && this.flight.id === pl.i ? this.flight : null;
     if (mine && mine.asked > 0) t.hold = Math.max(t.hold, 1.0);

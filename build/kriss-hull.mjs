@@ -262,6 +262,18 @@ export async function prepare(cfg) {
         k = hi;
       }
     }
+    // A deck drawn in a few large plates -- cambered, sloping off at her bow --
+    // is not all found flat at one height: her description gives the least
+    // her runway runs out to either side (`outline(z)`, metres off her
+    // centreline), and her plan is never narrower than that.
+    if (C.outline) {
+      for (let k = 0; k < plan.nz; k++) {
+        const h = C.outline(plan.z0 + k * plan.dz);
+        if (!(h > 0)) continue;
+        plan.port[k] = Math.max(plan.port[k], h);
+        plan.stbd[k] = Math.max(plan.stbd[k], h);
+      }
+    }
     const planAt = (side, z) => { const k = Math.round((z - plan.z0) / plan.dz); return k < 0 || k >= plan.nz ? 0 : plan[side][k]; };
     let FD_AFT = 0, FD_FWD = 0;
     for (let k = 0; k < plan.nz; k++) if (plan.port[k] > 0.5 && plan.stbd[k] > 0.5) { FD_AFT = plan.z0 + k * plan.dz; break; }
@@ -287,11 +299,15 @@ export async function prepare(cfg) {
       }
     }
     const BAND = 0.6;
+    const GUN_NODES = new Set(Object.values(cfg.kinds || {}).flatMap((k) => (k.auto && k.auto.nodes) || []));
     const T2 = [], G2 = [], L2 = [], M2 = [];
     let gone = 0;
     for (let t = 0; t < nf; t++) {
       const v = [0, 1, 2].map((k) => T[t * 3 + k] * 3);
       const cx = (P[v[0]] + P[v[1]] + P[v[2]]) / 3, cy = (P[v[0] + 1] + P[v[1] + 1] + P[v[2] + 1]) / 3, cz = (P[v[0] + 2] + P[v[1] + 2] + P[v[2] + 2]) / 3;
+      // Never her guns: a mounting stood on a sponson flush with her flight
+      // deck is inside its outline, and is hers to keep.
+      if (GUN_NODES.has(model.L[t])) { T2.push(T[t * 3], T[t * 3 + 1], T[t * 3 + 2]); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]); continue; }
       let carve = onDeck.has(t);
       if (!carve && !inIsland(cx, cz) && cz > FD_AFT - 0.5 && cz < FD_FWD + 0.5 && cy > FD - 0.35) {
         const out = cx > 0 ? planAt('port', cz) : planAt('stbd', cz);
@@ -542,6 +558,38 @@ export async function prepare(cfg) {
           cl.splice(b, 1); b--; merged = true;
         }
       }
+    }
+    // `each`: the faces one mounting has. A cluster with the faces of two or
+    // more -- mountings stood close enough to touch -- is split into that many
+    // by where its runs stand.
+    if (A.each) {
+      const out = [];
+      for (const c of cl) {
+        const n = c.ps.reduce((q, p) => q + p.tris.length, 0);
+        const k = Math.round(n / A.each);
+        if (k < 2) { out.push(c); continue; }
+        const mid = (p) => [(p.lo[0] + p.hi[0]) / 2, (p.lo[1] + p.hi[1]) / 2, (p.lo[2] + p.hi[2]) / 2];
+        const axis = [0, 1, 2].reduce((b, a) => (c.hi[a] - c.lo[a] > c.hi[b] - c.lo[b] ? a : b), 0);
+        let ctr = [...Array(k)].map((_, i) => c.lo[axis] + ((i + 0.5) * (c.hi[axis] - c.lo[axis])) / k);
+        let groups = null;
+        for (let it = 0; it < 20; it++) {
+          groups = ctr.map(() => []);
+          for (const p of c.ps) {
+            const v = mid(p)[axis];
+            let bi = 0;
+            for (let i = 1; i < k; i++) if (Math.abs(v - ctr[i]) < Math.abs(v - ctr[bi])) bi = i;
+            groups[bi].push(p);
+          }
+          ctr = groups.map((g, i) => (g.length ? g.reduce((q, p) => q + mid(p)[axis] * p.tris.length, 0) / g.reduce((q, p) => q + p.tris.length, 0) : ctr[i]));
+        }
+        for (const g of groups) {
+          if (!g.length) continue;
+          const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+          for (const p of g) for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], p.lo[a]); hi[a] = Math.max(hi[a], p.hi[a]); }
+          out.push({ ps: g, lo, hi });
+        }
+      }
+      cl = out;
     }
     if (process.env.AUTO_DEBUG === kind) for (const c of cl) console.log(`  ${kind} cluster ${c.ps.reduce((q, p) => q + p.tris.length, 0)}t x ${c.lo[0].toFixed(1)}..${c.hi[0].toFixed(1)} y ${c.lo[1].toFixed(1)}..${c.hi[1].toFixed(1)} z ${c.lo[2].toFixed(1)}..${c.hi[2].toFixed(1)}`);
     cl = cl.filter((c) => {
