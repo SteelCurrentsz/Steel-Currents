@@ -118,16 +118,48 @@ class Hull {
     this.pose = {};
     // Every gun she has that can be laid on an aeroplane, and when each fires next.
     this.aa = [...(built.secMounts || []), ...(built.aaMounts || [])].map((m) => ({
-      m, cal: m.userData.cal || 25, next: srand() * 2,
+      m, next: srand() * 2, target: null,
     }));
     this.turrets = built.turrets || [];
+    // Where each turret stood when she was built: trained fore and aft.
+    this.stowed = this.turrets.map((t) => t.rotation.y);
+    // What her main battery is laid on, a function of time, and which turrets.
+    this.mainTarget = null;
+    this.mainTurrets = [];
   }
 
   reset() {
     this.fires.length = 0;
     this.list = this.listTo = 0;
     this.trim = this.trimTo = 0;
-    for (const t of this.turrets) t.rotation.y = 0;
+    this.mainTarget = null;
+    this.turrets.forEach((t, i) => {
+      t.rotation.y = this.stowed[i];
+      const gn = t.userData.gunNode;
+      if (gn && gn !== t) gn.rotation.x = t.userData.elevRest || 0;
+    });
+    for (const g of this.aa) g.target = null;
+  }
+
+  /**
+   * Lay a mounting on a point in the world: train it round at `rate` radians
+   * a second and elevate its guns at `up`, never faster -- forty-six
+   * centimetre turrets go round at two degrees a second and look it. Whether
+   * it is on yet.
+   */
+  layOn(m, world, dt, rate, up = 0.5) {
+    const local = this.group.worldToLocal(_w.copy(world));
+    const dx = local.x - m.position.x, dz = local.z - m.position.z, dy = local.y - m.position.y;
+    let d = Math.atan2(dx, dz) - m.rotation.y;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    m.rotation.y += Math.max(-rate * dt, Math.min(rate * dt, d));
+    const gn = m.userData.gunNode;
+    if (gn && gn !== m) {
+      const el = Math.max(-0.08, Math.min(1.35, Math.atan2(dy, Math.hypot(dx, dz))));
+      gn.rotation.x += Math.max(-up * dt, Math.min(up * dt, -el - gn.rotation.x));
+    }
+    return Math.abs(d) < 0.12;
   }
 
   /** A fire burning at a place in her, her own frame. */
@@ -145,6 +177,10 @@ class Hull {
     g.rotation.set(att.pitch * 0.6 + this.trim * 0.01, p.h, att.roll * 0.5 + this.list - p.rate * 2.2);
     g.updateMatrixWorld(true);
     this.wake.update(dt, p.x, p.z, p.h, p.speed);
+    if (this.mainTarget) {
+      const at = this.mainTarget(t + 6);
+      for (const i of this.mainTurrets) if (this.turrets[i]) this.layOn(this.turrets[i], at, dt, 0.11, 0.12);
+    }
     for (const f of this.fires) {
       _v.set(f.lx, f.ly, f.lz).applyMatrix4(g.matrixWorld);
       flames.at(f.key, _v.x, _v.y, _v.z, f.heat, f.span);
@@ -238,7 +274,8 @@ class Flight {
     if (this.model) return;
     this.model = MODELS[this.kind]();
     this.model.traverse((o) => { if (o.isMesh) o.frustumCulled = true; });
-    this.model.userData.gear?.(1);
+    // Wheels down only for those that start on a deck; the strike is in the air.
+    this.model.userData.gear?.(this.events.some((e) => e.k === 'gearUp') ? 1 : 0);
     this.model.visible = false;
     scene.add(this.model);
   }
@@ -247,11 +284,14 @@ class Flight {
     this.down = null;
     this.next = 0;
     this.live = false;
+    this.gearAt = undefined;
+    this.gunsTill = 0;
     this.quat.identity();
     if (this.model) {
       this.model.visible = false;
       this.model.rotation.set(0, 0, 0);
       this.model.userData.bay?.(0);
+      this.model.userData.gear?.(this.events.some((e) => e.k === 'gearUp') ? 1 : 0);
       if (this.model.userData.store) this.model.userData.store.visible = true;
       for (const s of this.model.userData.wingStores || []) s.visible = true;
     }
@@ -563,6 +603,10 @@ export class Strike {
     this.events.push({ t: 61, k: 'salvo', ship: 'musashi', turrets: [0, 1], target: on(this.cast.diveA) });
     this.events.push({ t: 64.5, k: 'salvo', ship: 'yamato', turrets: [0, 1], target: on(this.cast.diveA) });
     this.events.push({ t: 142, k: 'salvo', ship: 'yamato', turrets: [0, 1], target: on(this.cast.diveB) });
+    // Each ship trains her turrets round onto them well before she fires.
+    this.events.push({ t: 41, k: 'train', ship: 'yamato', turrets: [0, 1, 2], target: on(this.cast.diveA) });
+    this.events.push({ t: 49, k: 'train', ship: 'musashi', turrets: [0, 1, 2], target: on(this.cast.diveA) });
+    this.events.push({ t: 130, k: 'train', ship: 'yamato', turrets: [0, 1, 2], target: on(this.cast.diveB) });
     this.events.sort((a, b) => a.t - b.t);
     this.leadA = leadA;
     this.leadB = leadB;
@@ -696,6 +740,7 @@ export class Strike {
       const e = this.events[this.ev++];
       if (e.fn) e.fn();
       else if (e.k === 'salvo') this.salvo(e);
+      else if (e.k === 'train') { const s = this.ship(e.ship); s.mainTarget = e.target; s.mainTurrets = e.turrets; }
     }
     // Spent one-off moments come off, so the list does not grow round the loop.
     if (this.ev > 64) { this.events.splice(0, this.ev); this.ev = 0; }
@@ -720,7 +765,7 @@ export class Strike {
       if (m.userData.prop) m.userData.prop.rotation.z += dt * 60;
       while (f.next < f.events.length && f.events[f.next].t <= t) {
         const e = f.events[f.next++];
-        if (e.k === 'gearUp') { f.gearAt = t; }
+        if (e.k === 'gearUp') f.gearAt = t;
         else if (e.k === 'torp') this.dropTorpedo(f, e);
         else if (e.k === 'bomb') this.dropBomb(f, e);
         else if (e.k === 'guns') f.gunsTill = t + e.dur;
@@ -816,12 +861,19 @@ export class Strike {
     const { effects, flak } = this.fx;
     const sp = s.group.position;
     const near = live.filter((f) => !f.down && f.pos.distanceToSquared(sp) < 4600 * 4600 && f.pos.y > 20 && f.pos.x < 12000);
-    if (!near.length) return;
     for (const g of s.aa) {
-      g.next -= dt;
-      if (g.next > 0) continue;
       const m = g.m;
-      const cal = s.built.secMounts.includes(m) ? 155 : (m.userData.muzzles && m.userData.muzzles.length === 2 ? 127 : 25);
+      if (g.cal === undefined) g.cal = s.built.secMounts.includes(m) ? 155 : (m.userData.muzzles && m.userData.muzzles.length === 2 ? 127 : 25);
+      const cal = g.cal;
+      // Every frame, laid on whatever it is engaging: round and up after her.
+      if (g.target && (g.target.down || !g.target.live)) g.target = null;
+      if (g.target) {
+        const tof = g.target.pos.distanceTo(sp) / (cal < 75 ? 900 : 700);
+        _v.copy(g.target.vel).multiplyScalar(tof).add(g.target.pos);
+        s.layOn(m, _v, dt, cal < 75 ? 1.6 : 0.7, cal < 75 ? 1.4 : 0.6);
+      }
+      g.next -= dt;
+      if (g.next > 0 || !near.length) continue;
       g.next = cal >= 127 ? sr(1.4, 2.6) : sr(0.25, 0.7);
       const mp = muzzleWorld(m, 0, new THREE.Vector3());
       let best = null, bd = Infinity;
@@ -832,18 +884,14 @@ export class Strike {
       if (!best) continue;
       const range = Math.sqrt(bd);
       if (cal < 75 && range > 2600) continue;
-      // Train it round onto her.
-      const local = s.group.worldToLocal(_w.copy(best.pos));
-      const mpos = m.position;
-      const want = Math.atan2(local.x - mpos.x, local.z - mpos.z);
-      m.rotation.y = want;
+      g.target = best;
       // Lead her by the time of flight, and miss -- nearly every burst does.
       const tof = range / (cal < 75 ? 900 : 700);
       const spread = cal < 75 ? 30 + range * 0.03 : 60 + range * 0.05;
       flak.fire(mp.x, mp.y, mp.z,
         best.pos.x + best.vel.x * tof, best.pos.y + best.vel.y * tof, best.pos.z + best.vel.z * tof,
         cal, cal < 75 ? 9 : 6, effects, spread, 4);
-      if (cal >= 127 && srand() < 0.5) effects.muzzle(mp.x, mp.y, mp.z, s.pose.h + want, cal, _v.subVectors(best.pos, mp).normalize());
+      if (cal >= 127 && srand() < 0.5) effects.muzzle(mp.x, mp.y, mp.z, s.pose.h + m.rotation.y, cal, _v.subVectors(best.pos, mp).normalize());
     }
   }
 

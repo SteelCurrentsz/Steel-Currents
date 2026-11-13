@@ -2120,7 +2120,7 @@ window.addEventListener('pointerdown', () => audio.resume(), { once: true });
 applyQuality();
 
 // Who is at the wheel. An account already on this device goes straight to the
-// menu; nobody signed in gets the gate, once, over the burning harbour.
+// menu; nobody signed in gets the gate, once, over the strike on the Yamatos.
 const signedIn = account.current();
 if (signedIn?.name) setSettings({ name: signedIn.name });
 gateNote();
@@ -2193,10 +2193,10 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !wind
 }
 requestAnimationFrame(frame);
 
-// The harbour, built behind the loading screen. Two frames of waiting first,
+// The title's battle, built behind the loading screen. Two frames of waiting first,
 // so the screen the player is looking at is one the browser has actually
 // painted rather than one it has merely been told about.
-boot.say('Raising the harbour', 0.35);
+boot.say('Putting to sea', 0.35);
 requestAnimationFrame(() => requestAnimationFrame(() => {
   try {
     title = new TitleScene(renderer);
@@ -2206,8 +2206,8 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
     // console is what found the sky.
     window.__title = title;
     resize();
-    boot.say('Lighting the fires', 0.8);
-    // One more frame so the harbour is drawn under the screen before it lifts,
+    boot.say('Flying off the strike', 0.8);
+    // One more frame so the sea is drawn under the screen before it lifts,
     // rather than the player watching it appear.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       boot.done();
@@ -2217,8 +2217,8 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
       setTimeout(() => preloadShips(), 300);
     }));
   } catch (e) {
-    console.error('Steel Currents: the harbour would not build', e);
+    console.error('Steel Currents: the title battle would not build', e);
     boot.el?.classList.add('stuck');
-    boot.say('Could not raise the harbour — reload to try again', 1);
+    boot.say('Could not put to sea — reload to try again', 1);
   }
 }));

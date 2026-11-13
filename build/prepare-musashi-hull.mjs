@@ -42,8 +42,8 @@ await prepare({
   cards: { nodes: [5, 8, 13, 15, 17, 19, 44] },
   // Her boats on their davits, slung outboard abreast No.2, either side.
   remove: [
-    { x: [17.6, 23.0], y: [7.0, 13.5], z: [14.0, 24.6], nodes: [19, 41, 65, 67, 69] },
-    { x: [-23.0, -17.6], y: [7.0, 13.5], z: [14.0, 24.6], nodes: [19, 41, 65, 67, 69] },
+    { x: [17.6, 23.0], y: [7.0, 13.5], z: [14.0, 24.6], nodes: [19, 41, 65, 67, 69], wires: true },
+    { x: [-23.0, -17.6], y: [7.0, 13.5], z: [14.0, 24.6], nodes: [19, 41, 49, 67, 69], wires: true },
   ],
   kinds: {
     // Her six twin 12.7 cm/40 Type 89 in their shields, three a side abreast

@@ -226,7 +226,9 @@ export async function prepare(cfg) {
       const ix = new Map();
       for (let t = 0; t < nf; t++) {
         // Wires too: a ladder's rungs hang off its rails, which the rigging
-        // above took for wires -- they join what they touch, and stay.
+        // above took for wires -- they join what they touch, and stay, as a
+        // stay does that runs to a mast. A wire that touches nothing is a
+        // sliver the export left in the air, and goes.
         const r = find(first[t]);
         let i = ix.get(r);
         if (i === undefined) { i = runs.length; ix.set(r, i); runs.push({ tris: [], lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity], node: model.L[t] }); }
@@ -303,7 +305,7 @@ export async function prepare(cfg) {
     // Her: whatever hangs together with her hull or reaches into the water.
     const anchored = new Set();
     runs.forEach((q, i) => {
-      if ((cfg.hull && cfg.hull.includes(q.node)) || q.node === WIRE || q.lo[1] < -0.5 || F.keep.some((b) => inBox(b, (q.lo[0] + q.hi[0]) / 2, (q.lo[1] + q.hi[1]) / 2, (q.lo[2] + q.hi[2]) / 2))) anchored.add(rfind(i));
+      if ((cfg.hull && cfg.hull.includes(q.node)) || q.lo[1] < -0.5 || F.keep.some((b) => inBox(b, (q.lo[0] + q.hi[0]) / 2, (q.lo[1] + q.hi[1]) / 2, (q.lo[2] + q.hi[2]) / 2))) anchored.add(rfind(i));
     });
     // A group that touches nothing of hers but stands within `near` of her --
     // the plate across a turret's face that its barrels pass through, a fuze
@@ -678,6 +680,16 @@ export async function prepare(cfg) {
   const taken = new Set();
   for (const box of cfg.remove || []) {
     for (const p of parts) if (!taken.has(p) && !kept(p) && claim(box, p, { hullToo: box.hullToo })) { for (const t of p.tris) NOT_HERS.add(t); taken.add(p); }
+    // `wires`: and whatever thin runs in it the rigging pass took for wires --
+    // a boat's gunwales and keel are as thin as a stay.
+    if (box.wires) {
+      const P = model.P, T = model.T;
+      for (let t = 0; t < T.length / 3; t++) {
+        if (model.L[t] !== WIRE) continue;
+        const v = [0, 1, 2].map((k) => T[t * 3 + k] * 3);
+        if (v.every((i) => inBox(box, P[i], P[i + 1], P[i + 2], 0.1))) NOT_HERS.add(t);
+      }
+    }
   }
   const MEASURED = {};
   for (const [name, boxes] of Object.entries(cfg.measure || {})) {

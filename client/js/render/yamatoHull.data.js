@@ -21,3 +21,5 @@ export const LINES = {"z0":-133,"dz":1,"nz":267,"y0":-12,"dy":0.5,"ny":69,"deckM
 export const DECK = null;
 export const ISLAND = null;
 export const EXTRA = {};
+// Her cut-out cards -- railings, nets, aerial wires -- with their pictures.
+export const CARDS = [];

@@ -19470,9 +19470,9 @@ check('a frame that goes wrong costs a frame, not the battle', () => {
     'the loading screen still hides itself on a timer rather than when the game is ready');
   assert.ok(/boot\.done\(\)/.test(main),
     'nothing in the game takes the loading screen down');
-  const raise = main.slice(main.indexOf("boot.say('Raising the harbour'"));
+  const raise = main.slice(main.indexOf("boot.say('Putting to sea'"));
   assert.ok(/new TitleScene\(renderer\)/.test(raise),
-    'the harbour is not built behind the loading screen');
+    'the title scene is not built behind the loading screen');
   // And it has to be painted before the work starts, or it is never seen at
   // all: a browser does not repaint between a style change and the blocking
   // work that follows it on the same task.
