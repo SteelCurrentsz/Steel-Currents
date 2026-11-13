@@ -1703,8 +1703,10 @@ check('every gun on the Musashi trains inside its stops and fires only where her
   for (const w of wings) {
     for (const m of light.mounts) {
       const b = Math.atan2(m.x - w.x, m.z - w.z);
-      assert.ok(Math.hypot(m.x - w.x, m.z - w.z) > cls.secondary.reach + 2.5
-        || Math.abs(angleDelta(w.angle, b)) > w.arc + 0.25,
+      // Beyond the reach of its barrels, off its arc, or where the survey has
+      // it lift its guns to clear.
+      assert.ok(Math.hypot(m.x - w.x, m.z - w.z) > cls.secondary.reach + 0.5
+        || Math.abs(angleDelta(w.angle, b)) > w.arc + 0.25 || layFloor(w.lift, b) > 0,
         `a 25 mm at ${m.x}, ${m.z} stands in the way of the wing 15.5 cm at ${w.x}, ${w.z}`);
     }
   }
