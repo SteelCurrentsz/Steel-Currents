@@ -497,10 +497,16 @@ export function armsSheet(cls, group = null, vls = null) {
     const SL = cls.planes.slots;
     if (SL) {
       // Her types by name, and what each is armed with.
-      const short = { f18: 'F/A-18C', e2d: 'E-2D', sh60: 'MH-60', ka27: 'Ka-27' };
+      const short = { f18: 'F/A-18', f35: 'F-35C', e2d: 'E-2D', sh60: 'MH-60', ka27: 'Ka-27' };
+      // A type flown among another's machines (`of`) -- the Ford's F-35Cs
+      // among her Super Hornets -- is counted out of that type's number.
+      const subs = (k) => Object.values(SL).filter((q) => q.of === k);
       rows.push([one ? 'Helicopter' : 'Air group', ['fighters', 'dive', 'torpedo'].filter((k) => SL[k])
-        .map((k) => `${g[k]} ${short[SL[k].type] || SL[k].label}`).join(' &middot; '), 'airgroup']);
-      for (const k of ['fighters', 'dive', 'torpedo']) {
+        .flatMap((k) => [
+          `${g[k] - subs(k).reduce((a, q) => a + q.n, 0)} ${short[SL[k].type] || SL[k].label}`,
+          ...subs(k).map((q) => `${q.n} ${short[q.type] || q.label}`),
+        ]).join(' &middot; '), 'airgroup']);
+      for (const k of Object.keys(SL)) {
         const sl = SL[k];
         if (!sl.loadouts) continue;
         const L = sl.loadouts[(g.load && g.load[k]) || sl.default];

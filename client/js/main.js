@@ -927,7 +927,7 @@ function renderAirGroup() {
     if (!nm) continue;
     if (nm.firstChild && nm.firstChild.nodeType === 3) {
       nm.dataset.plain ??= nm.firstChild.textContent;
-      nm.firstChild.textContent = SL && SL[k] ? SL[k].label : nm.dataset.plain;
+      nm.firstChild.textContent = SL && SL[k] ? (SL[k].rowLabel || SL[k].label) : nm.dataset.plain;
     }
     // A ship that flies one type has no row for the others.
     const row = nm.closest('.ag-row');
@@ -950,7 +950,13 @@ function renderAirGroup() {
     const em = document.querySelector(`.ag-row[data-kind="${k}"] em`);
     const sl = SL && SL[k];
     const loaded = sl && sl.loadouts ? sl.loadouts[(g.load && g.load[k]) || sl.default] : null;
-    if (em) em.textContent = sl ? (loaded ? loaded.name : sl.note || '') : `${NAMES[types[role]] || fallback} \u2014 ${job}`;
+    // A row shared between two types -- the Ford's Super Hornets and her
+    // F-35Cs -- says how many of each.
+    const subs = SL ? Object.values(SL).filter((q) => q.of === k) : [];
+    if (em && subs.length) {
+      const own = g[k] - subs.reduce((a, q) => a + q.n, 0);
+      em.textContent = [`${own} ${sl.label}`, ...subs.map((q) => `${q.n} ${q.label}`)].join(' \u00b7 ');
+    } else if (em) em.textContent = sl ? (loaded ? loaded.name : sl.note || '') : `${NAMES[types[role]] || fallback} \u2014 ${job}`;
   }
   for (const k of AG_KINDS) document.getElementById(`ag-n-${k}`).textContent = g[k];
   // Her deckload, if she has one: on her flight deck, not in her hangar, so
@@ -990,7 +996,9 @@ function renderAirGroup() {
 function renderLoads(SL, g) {
   const box = document.getElementById('ag-loads');
   if (!box) return;
-  const kinds = SL ? AG_KINDS.filter((k) => SL[k] && SL[k].loadouts) : [];
+  // Every type of hers with a choice of loads, in the order her slots give
+  // them: a type flown among another's (`of`) has a row of its own.
+  const kinds = SL ? Object.keys(SL).filter((k) => SL[k].loadouts) : [];
   box.hidden = !kinds.length;
   box.innerHTML = kinds.map((k) => {
     const sl = SL[k];
@@ -1310,7 +1318,7 @@ document.getElementById('ag-done').onclick = () => {
     return;
   }
   if (yardUi.ag) {
-    // A ship whose mix is fixed -- the Nimitz, or a destroyer with her one
+    // A ship whose mix is fixed -- the Nimitz, the Ford, or a destroyer with her one
     // helicopter -- changes only what her types are armed with: the mix a
     // captain chose for the carriers that have one is left as he chose it.
     const spec = airGroupSpec();

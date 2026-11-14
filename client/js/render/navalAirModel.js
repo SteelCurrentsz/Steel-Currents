@@ -1,5 +1,6 @@
-// The Nimitz's air wing, as the game draws it: the F/A-18C Hornet, the E-2D
-// Advanced Hawkeye and the SH-60 Seahawk, each off the owner's model of her.
+// The Nimitz's and the Ford's air wings, as the game draws them: the F/A-18
+// Super Hornet, the F-35C Lightning II, the E-2D Advanced Hawkeye and the
+// SH-60 Seahawk, each off the owner's model of her.
 //
 // build/naval-air-source.mjs turns each glb into pieces -- her airframe, her
 // canopy, her legs, and what turns about its own hub -- painted at every point
@@ -20,6 +21,8 @@ const SOURCES = {
   // And the Implacable's Seafires and Fireflies.
   seafire: () => import('./seafireModel.data.js').then((m) => [m.SEAFIRE_PIECES, m.SEAFIRE_META]),
   firefly: () => import('./fireflyModel.data.js').then((m) => [m.FIREFLY_PIECES, m.FIREFLY_META]),
+  // And the Gerald R. Ford's F-35C Lightning II.
+  f35: () => import('./f35Model.data.js').then((m) => [m.F35_PIECES, m.F35_META]),
 };
 const PIECES = {};
 /** Each kind's measurements -- span, length, hubs -- once loadNavalAir() is in. */
@@ -72,7 +75,7 @@ function materials() {
 const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22, prop: 1 };
 
 /** How far each kind's legs rise into her as they come up. */
-const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45 };
+const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2 };
 
 /**
  * One of the three, nose +z, wheels on y = 0, her length centred on her

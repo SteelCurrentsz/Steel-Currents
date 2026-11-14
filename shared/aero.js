@@ -118,13 +118,21 @@ export const AERO = {
     thrust: 41000, vMax: 125, name: 'B-25B',
     helix: 0.040, gLimit: 3.67,
   },
-  // The Nimitz's air wing. The F/A-18C Hornet: two F404s and a wing built
-  // for the deck, sixteen tonnes with a load on her; nothing in the air of the
-  // war she would meet could stay with her.
+  // The Nimitz's and the Ford's air wings. The F/A-18 Super Hornet: two
+  // engines and a wing built for the deck, sixteen tonnes with a load on her;
+  // nothing in the air of the war she would meet could stay with her.
   f18: {
     mass: 16000, wing: 37.16, span: 12.31, clMax: 1.7, cd0: 0.0240,
-    thrust: 190000, vMax: 300, name: 'F/A-18C', jet: true,
+    thrust: 190000, vMax: 300, name: 'F/A-18 Super Hornet', jet: true,
     helix: 0.11, gLimit: 7.5,
+  },
+  // The Ford's F-35C Lightning II: the carrier's own, with the bigger wing
+  // of the three, one F135 and her weapons inside her; twenty tonnes loaded,
+  // and as quick as the Super Hornet with a good deal more wing.
+  f35: {
+    mass: 20000, wing: 62.1, span: 13.11, clMax: 1.7, cd0: 0.0230,
+    thrust: 191000, vMax: 300, name: 'F-35C Lightning', jet: true,
+    helix: 0.10, gLimit: 7.5,
   },
   // The E-2D Advanced Hawkeye: two T56 turboprops and the rotodome over her
   // back. She does not fight; she sees.

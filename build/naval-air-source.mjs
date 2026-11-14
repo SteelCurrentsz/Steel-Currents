@@ -1,7 +1,7 @@
 // The Nimitz's three aircraft, the Ka-27, and the Implacable's Seafire and
 // Firefly, from the glbs the owner uploaded to the pieces the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35
 //     ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
@@ -24,6 +24,9 @@
 //         repainted as a Fleet Air Arm Seafire (see its `recolour`)
 //   firefly  the owner's Fairey Firefly F.I
 //         -- assets/models/fairey_firefly_f.i-maximum-compressed.glb
+//   f35   "F-35A Lightning II - USAF (WARNO mod)" by rran81 (Sketchfab), the
+//         owner's upload -- assets/models/f-35a_lightning_ii__usaf_warno_mod-maximum-compressed.glb,
+//         flown as the Ford's F-35C
 //
 // What comes out, in her own frame -- nose +z, up +y, wheels on y = 0, put to
 // her real length -- each piece painted at every point off the model's own
@@ -137,6 +140,18 @@ const KINDS = {
       { name: 'rotor', hub: [0.03, 5.5, -0.065], axis: 'y' },
       { name: 'lower', hub: [0.03, 4.05, -0.065], axis: 'y' },
     ],
+  },
+  // The Gerald R. Ford's stealth fighter: the F-35C Lightning II, off the
+  // owner's model of an F-35A (her airframe less her carrier's bigger wing
+  // and her hook), at the F-35C's length.
+  f35: {
+    src: 'f-35a_lightning_ii__usaf_warno_mod-maximum-compressed.glb', length: 15.7, keep: 0.6, nose: '+x',
+    piece: ({ node, mat }) => {
+      if (mat === 1 || node === 'Window_58') return 'glass';
+      if (node === 'Gear_35') return 'gear';
+      return 'body';
+    },
+    spins: [],
   },
   // The Implacable's fighter: a Seafire, off the owner's Spitfire Mk.IIa --
   // the same airframe, hooked and navalised -- repainted in the Fleet Air
@@ -304,6 +319,11 @@ function flatten(buf) {
 }
 const model = flatten(readFileSync(SRC));
 const { j, P, UV } = model;
+// A model drawn nose along +x is turned to put it along +z, about her
+// vertical, and stays a right-handed aeroplane.
+if (K.nose === '+x') {
+  for (let i = 0; i < P.length; i += 3) { const x = P[i], z = P[i + 2]; P[i] = -z; P[i + 2] = x; }
+}
 const parentOf = new Map();
 j.nodes.forEach((n, i) => (n.children || []).forEach((c) => parentOf.set(c, i)));
 const nameOf = (ni) => (j.nodes[parentOf.get(ni)] || {}).name || j.nodes[ni].name || '';

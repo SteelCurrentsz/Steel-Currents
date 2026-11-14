@@ -476,6 +476,32 @@ export const AIR_MISSILE_HITS = {
 };
 
 /**
+ * What an F/A-18 Super Hornet off a super carrier can be loaded with, as her
+ * captain chooses in the yard: the Nimitz's and the Ford's alike. `rack` is
+ * what a pilot can lock on and fire by hand (see fireLocked in sim.js); a
+ * standoff load can be too.
+ */
+export const SUPER_HORNET_LOADOUTS = {
+  as: { name: 'Anti-Ship Load Out', note: 'two AGM-84 Harpoons, fired from twenty kilometres, and two Sidewinders', role: 'dive', standoff: { kind: 'agm84', n: 2 }, rack: { aim9: 2 } },
+  aa: { name: 'Anti-Air Load Out', note: 'four AMRAAMs and two Sidewinders: she clears the air', role: 'fighter', rack: { aim120: 4, aim9: 2 } },
+  mr: { name: 'Multi-Role Load Out', note: 'AMRAAMs and Sidewinders for the air, two Mavericks and two bombs', role: 'fighter', bomb: 2, rack: { aim120: 2, aim9: 2, agm65: 2 } },
+  cas: { name: 'CAS Load Out', note: 'four guided five-hundred-pounders, four Mavericks and two Sidewinders', role: 'dive', bomb: 4, rack: { agm65: 4, aim9: 2 } },
+};
+
+/**
+ * And an F-35C Lightning II off the Ford. She carries what she must keep
+ * hidden in her two bays -- four weapons -- and what she need not under her
+ * wings: the heavy anti-ship load hangs four Harpoons outside her, twice the
+ * Super Hornet's.
+ */
+export const LIGHTNING_LOADOUTS = {
+  aa: { name: 'Air-to-Air Load Out', note: 'four AMRAAMs in her bays and two Sidewinders under her wings', role: 'fighter', rack: { aim120: 4, aim9: 2 } },
+  has: { name: 'Heavy Anti-Ship Load Out', note: 'four AGM-84 Harpoons under her wings, fired from twenty kilometres, and two AMRAAMs in her bays', role: 'dive', standoff: { kind: 'agm84', n: 4 }, rack: { aim120: 2 } },
+  mr: { name: 'Multi-Role Load Out', note: 'two AMRAAMs and two Sidewinders for the air, two guided bombs in her bays', role: 'fighter', bomb: 2, rack: { aim120: 2, aim9: 2 } },
+  cas: { name: 'CAS Load Out', note: 'four guided five-hundred-pounders, two Mavericks and two AMRAAMs', role: 'dive', bomb: 4, rack: { agm65: 2, aim120: 2 } },
+};
+
+/**
  * The two loads a ship's helicopter can be sent out with, as her captain
  * chooses in the yard: missiles for a ship, or her dipping sonar and homing
  * torpedoes for a boat under the sea. The Seahawk's are the Nimitz's own.
@@ -9284,9 +9310,9 @@ export const SHIP_CLASSES = {
     // and two Mk 49 RAM launchers. She has no other gun; her Phalanx are her
     // only battery, against a boat close aboard as much as against a missile.
     //
-    // Her air wing is ninety aircraft: sixty-six F/A-18C Hornets, five E-2D
-    // Hawkeyes and nineteen Seahawks, each type loaded as her captain chooses
-    // (see `slots`).
+    // Her air wing is ninety aircraft: sixty-six F/A-18 Super Hornets, five
+    // E-2D Hawkeyes and nineteen Seahawks, each type loaded as her captain
+    // chooses (see `slots`).
     id: 'nimitz',
     name: 'Nimitz',
     fullName: 'USS Nimitz (CVN-68)',
@@ -9294,7 +9320,7 @@ export const SHIP_CLASSES = {
     type: 'CV',
     typeName: 'Aircraft Carrier',
     nation: 'usa',
-    blurb: 'Ninety aircraft -- Hornets, Hawkeyes and Seahawks, armed as you choose -- with Sea Sparrow, RAM and Phalanx to keep the missiles off her.',
+    blurb: 'Ninety aircraft -- Super Hornets, Hawkeyes and Seahawks, armed as you choose -- with Sea Sparrow, RAM and Phalanx to keep the missiles off her.',
     hull: { length: 332.8, beam: 40.8, draft: 11.3, superstructure: 0.6, flightDeck: true },
     hp: 98000,
     maxSpeed: 31.5 * KNOTS,
@@ -9377,8 +9403,8 @@ export const SHIP_CLASSES = {
     },
     planes: {
       squadrons: 4, perSquadron: 23, cruiseSpeed: 180, strikeRange: 30000,
-      // Each type at her own pace: a Hornet at three hundred and seventy
-      // knots, a Hawkeye at two hundred and thirty, a Seahawk at a hundred
+      // Each type at her own pace: a Super Hornet at three hundred and
+      // seventy knots, a Hawkeye at two hundred and thirty, a Seahawk at a hundred
       // and thirty.
       cruiseOf: { f18: 190, e2d: 120, sh60: 68 },
       // Where her aircraft put their wheels down coming home: a little way
@@ -9417,19 +9443,12 @@ export const SHIP_CLASSES = {
         default: { fighters: 66, dive: 5, torpedo: 19 },
       },
       // What each of her three types is, and what it can be loaded with.
-      // `fighters` are her Hornets, `dive` her Hawkeyes and `torpedo` her
-      // Seahawks; a load says how she flies (`role`) and what she carries.
+      // `fighters` are her Super Hornets, `dive` her Hawkeyes and `torpedo`
+      // her Seahawks; a load says how she flies (`role`) and what she carries.
       slots: {
         fighters: {
-          type: 'f18', label: 'F/A-18C Hornet', default: 'mr',
-          loadouts: {
-            // `rack` is what a pilot can lock on and fire by hand (see
-            // fireLocked in sim.js); a standoff load can be too.
-            as: { name: 'Anti-Ship Load Out', note: 'two AGM-84 Harpoons, fired from twenty kilometres, and two Sidewinders', role: 'dive', standoff: { kind: 'agm84', n: 2 }, rack: { aim9: 2 } },
-            aa: { name: 'Anti-Air Load Out', note: 'four AMRAAMs and two Sidewinders: she clears the air', role: 'fighter', rack: { aim120: 4, aim9: 2 } },
-            mr: { name: 'Multi-Role Load Out', note: 'AMRAAMs and Sidewinders for the air, two Mavericks and two bombs', role: 'fighter', bomb: 2, rack: { aim120: 2, aim9: 2, agm65: 2 } },
-            cas: { name: 'CAS Load Out', note: 'four guided five-hundred-pounders, four Mavericks and two Sidewinders', role: 'dive', bomb: 4, rack: { agm65: 4, aim9: 2 } },
-          },
+          type: 'f18', label: 'F/A-18 Super Hornet', default: 'mr',
+          loadouts: SUPER_HORNET_LOADOUTS,
         },
         dive: {
           type: 'e2d', label: 'E-2D Hawkeye', role: 'aew',
@@ -9451,6 +9470,180 @@ export const SHIP_CLASSES = {
       ],
       missiles: [
         { label: 'RIM-7 Sea Sparrow (4 Mk 29)', rounds: 32 },
+        { label: 'RIM-116 RAM (2 Mk 49)', rounds: 42 },
+      ],
+    },
+  },
+
+  ford: {
+    // USS Gerald R. Ford (CVN-78), the first of her class: a hundred thousand
+    // tons on a Nimitz's hull, two new reactors with three times the
+    // electrical power, electromagnetic catapults and arresting gear, her
+    // island smaller and set further aft, and three lifts where a Nimitz has
+    // four. She went into commission in 2017.
+    //
+    // She is drawn from the owner's model of her (see ford.js and
+    // build/prepare-ford-hull.mjs) -- "Gerald R Ford aircraft Carrier" by
+    // waelXcm, under Creative Commons Attribution 4.0 -- at her own length,
+    // floated at her own draught. She carries what the model stands on her
+    // sponsons: three Phalanx, two Mk 29 Sea Sparrow launchers and two Mk 49
+    // RAM launchers. Her Phalanx are her only guns.
+    //
+    // Her air wing is ninety aircraft: forty-six F/A-18 Super Hornets, twenty
+    // F-35C Lightnings, five E-2D Hawkeyes and nineteen Seahawks, each type
+    // loaded as her captain chooses (see `slots`).
+    id: 'ford',
+    name: 'Gerald R. Ford',
+    fullName: 'USS Gerald R. Ford (CVN-78)',
+    className: 'Gerald R. Ford',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'usa',
+    blurb: 'Ninety aircraft -- Super Hornets, F-35C Lightnings, Hawkeyes and Seahawks, armed as you choose -- with Sea Sparrow, RAM and three Phalanx to keep the missiles off her.',
+    hull: { length: 337, beam: 41, draft: 12, superstructure: 0.55, flightDeck: true },
+    hp: 102000,
+    maxSpeed: 31.5 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.42,
+    turnRate: 0.044,
+    rudderShift: 14,
+    speedLossInTurn: 0.16,
+    concealment: 18000,
+    fireDetectPenalty: 5200,
+    // Her SPY-3 and SPY-4 dual band radar.
+    radarRange: 26000,
+    repairCooldown: 80,
+    repairHeal: 0.15,
+    smokeCharges: 0,
+    armor: { belt: 64, deck: 76, citadel: 102, bow: 25, superstructure: 19 },
+    // Her three Phalanx, as her battery, where the model has them
+    // (FORD_MOUNTS.ciws): on her starboard bow sponson by her catapults, on
+    // her starboard quarter, and on her port side amidships. Each stowed
+    // facing out from her -- the one forward to starboard was drawn by the
+    // model facing in over her own deck, and faces out with the other two.
+    turrets: [
+      { id: 0, name: 'CIWS 1', x: -26.757, z: 90.956, angle: -Math.PI / 2, arc: 2.6, rest: -Math.PI / 2, guns: 6, my: 16.68 },
+      { id: 1, name: 'CIWS 2', x: -16.626, z: -164.828, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 6, my: 11.16 },
+      { id: 2, name: 'CIWS 3', x: 40.807, z: 0.586, angle: Math.PI / 2, arc: 2.6, rest: Math.PI / 2, guns: 6, my: 14.91 },
+    ],
+    gun: {
+      name: '20 mm Phalanx Mk 15', role: 'dp',
+      reach: 2.25,
+      caliber: 20, reload: 0.6, traverse: 1.4, range: 2200, sigma: 0.6,
+      elev: { min: -0.44, max: 1.4 },
+      shells: shells(20, 70, 60, 30, 1100, 0.02),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 5600, dps: 80,
+      guns: [
+        // The same three, as the close-in weapons they are (see stepCiws).
+        { name: 'Phalanx CIWS', caliber: 20, role: 'aa', reload: 0.02, range: 1800, piece: 'ciws', ciws: true,
+          elev: { min: -0.44, max: 1.4 },
+          mounts: [
+            { x: -26.757, z: 90.956, angle: -Math.PI / 2, arc: 2.6, rest: -Math.PI / 2, guns: 6, my: 16.68 },
+            { x: -16.626, z: -164.828, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 6, my: 11.16 },
+            { x: 40.807, z: 0.586, angle: Math.PI / 2, arc: 2.6, rest: Math.PI / 2, guns: 6, my: 14.91 },
+          ] },
+      ],
+    },
+    // Her missiles, for what comes at her through the air: the Sea Sparrow
+    // off her two Mk 29 launchers, eight in each; the RAM off her two Mk 49s,
+    // twenty-one in each, a last line inside them.
+    missiles: {
+      kinds: {
+        essm: {
+          name: 'RIM-7 Sea Sparrow', short: 'SPARROW', code: 'r', role: 'sam', launch: 'rail', rounds: 16,
+          launchers: 2, note: '16 in 2 eight-cell Mk 29 launchers',
+          speed: 850, range: 16000, cruise: 600, turn: 1.6, damage: 0, hp: 1, interval: 2.0,
+          length: 3.66, kill: 12, pk: 0.75, air: true,
+        },
+        ram: {
+          name: 'RIM-116 RAM', short: 'RAM', code: 'x', role: 'sam', launch: 'rail', rounds: 42,
+          launchers: 2, note: '42 in 2 Mk 49 launchers of 21',
+          speed: 680, range: 9000, cruise: 300, turn: 2.2, damage: 0, hp: 1, interval: 1.0,
+          length: 2.79, kill: 8, pk: 0.85, air: true,
+        },
+      },
+      // The tops of her launchers, [across, up, along, stowed bearing, kind]
+      // (FORD_MOUNTS.sparrow and .ram): each stowed pointing out over her side.
+      rails: [
+        [-26.22, 18.5, 98.416, -Math.PI / 2, 'essm'],
+        [26.622, 20.6, -155.189, Math.PI / 2, 'essm'],
+        [19.041, 15.5, 105.114, Math.PI / 2, 'ram'],
+        [-35.644, 18.7, -157.006, -Math.PI / 2, 'ram'],
+      ],
+      fcs: 'SAM',
+    },
+    planes: {
+      squadrons: 4, perSquadron: 23, cruiseSpeed: 180, strikeRange: 30000,
+      // Each type at her own pace: a Super Hornet or a Lightning at three
+      // hundred and seventy knots, a Hawkeye at two hundred and thirty, a
+      // Seahawk at a hundred and thirty.
+      cruiseOf: { f18: 190, f35: 190, e2d: 120, sh60: 68 },
+      // Where her aircraft put their wheels down coming home: a little way up
+      // her deck from the round-down, on her centreline.
+      touchdown: { z: -140, y: 18.7 },
+      types: { fighter: 'f18', dive: 'f18', torpedo: 'sh60', aew: 'e2d' },
+      // Shot off her bow catapults, which run to within a few metres of her
+      // bow: off it at a hundred and fifty knots and climbing. A Seahawk goes
+      // straight up off her spot amidships to a hover eighteen metres over it.
+      runOut: { fighter: 185, dive: 185, aew: 185, torpedo: -10 },
+      runHeight: { fighter: 24.6, dive: 24.6, aew: 23.6, torpedo: 36.7 },
+      launchSpeed: { fighter: 83, dive: 83, aew: 83, torpedo: 4 },
+      helipad: { x: 0, z: -10, y: 18.7 },
+      // Each one up a lift from the hangar, along the deck and off a bow
+      // catapult. EMALS cycles faster than steam: one off every eight seconds.
+      deckRun: 14, deckNext: 8, deckCycle: 13,
+      turnaround: 55,
+      rearm: 40, torpDamage: 7000, torpSpeed: 40 * KNOTS, torpRange: 4000,
+      floodChance: 0.3, hp: 1600, dropSpread: 0.05,
+      bombDamage: 3000, bombHit: 0.7, bombFire: 0.35, bombPen: 60, bombBore: 0.3,
+      group: {
+        total: 90,
+        min: { fighters: 66, dive: 5, torpedo: 19 },
+        max: { fighters: 66, dive: 5, torpedo: 19 },
+        minStrike: 0,
+        default: { fighters: 66, dive: 5, torpedo: 19 },
+      },
+      // What each of her four types is, and what it can be loaded with.
+      // `fighters` are her strike fighters -- Super Hornets, with the twenty
+      // F-35Cs of `f35` among them (`of`) -- `dive` her Hawkeyes and
+      // `torpedo` her Seahawks.
+      slots: {
+        fighters: {
+          type: 'f18', label: 'F/A-18 Super Hornet', default: 'mr',
+          rowLabel: 'Super Hornets & F-35Cs',
+          loadouts: SUPER_HORNET_LOADOUTS,
+        },
+        f35: {
+          type: 'f35', label: 'F-35C Lightning', default: 'mr',
+          // Twenty of her sixty-six strike fighters, flown off among the
+          // Super Hornets.
+          of: 'fighters', n: 20,
+          loadouts: LIGHTNING_LOADOUTS,
+        },
+        dive: {
+          type: 'e2d', label: 'E-2D Hawkeye', role: 'aew',
+          note: 'her radar shows her side everything for forty kilometres, and her ships fire further and sooner',
+        },
+        torpedo: {
+          type: 'sh60', label: 'MH-60 Seahawk', default: 'asw',
+          loadouts: SEAHAWK_LOADOUTS,
+        },
+      },
+    },
+    datasheet: {
+      displacement: 100000,
+      aircraft: 0,
+      mainRounds: 4500,
+      secondary: null,
+      tertiary: [
+        { caliber: 20, label: 'Phalanx CIWS', barrels: 18, mounts: 3, rounds: 4650 },
+      ],
+      missiles: [
+        { label: 'RIM-7 Sea Sparrow (2 Mk 29)', rounds: 16 },
         { label: 'RIM-116 RAM (2 Mk 49)', rounds: 42 },
       ],
     },
@@ -15095,18 +15288,18 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'kongo', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'ford', 'kongo', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'shokaku', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
  * yard opens: the Great War's hulls, the Second World War's, or the post-war
  * and missile age's. A hull is modern if she
- * sails as she was after 1945 (Missouri as recommissioned in 1991, the Nimitz, Leviathan, the
+ * sails as she was after 1945 (Missouri as recommissioned in 1991, the Nimitz, the Ford, Leviathan, the
  * Des Moines, the Ticonderoga, the Guangzhou, the Sovremenny, the Slava and the Arleigh
  * Burke); everything else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz']);
+export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford']);
 // And the Great War's: the dreadnoughts that sailed as they were before 1919.
 export const WWI_SHIPS = new Set(['agincourt']);
 // And the ships that are not warships at all, whatever war they sailed in:

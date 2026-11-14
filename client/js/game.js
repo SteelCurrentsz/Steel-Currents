@@ -275,7 +275,8 @@ const FLIGHT_NAME = {
   avenger: 'her torpedo bombers',
   devastator: 'her Devastators',
   mitchell: 'her B-25s',
-  f18: 'her Hornets',
+  f18: 'her Super Hornets',
+  f35: 'her Lightnings',
   e2d: 'her Hawkeye',
   sh60: 'her Seahawks',
   ka27: 'her Ka-27',
@@ -299,7 +300,7 @@ const PLANE_NAME = {
   seafire: 'Supermarine Seafire', firefly: 'Fairey Firefly',
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
-  f18: 'F/A-18C Hornet', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
+  f18: 'F/A-18 Super Hornet', f35: 'F-35C Lightning', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   walrus: 'Supermarine Walrus', kor1: 'Beriev KOR-1', ro43: 'IMAM Ro.43',
   zero: 'A6M Zero',
@@ -324,6 +325,7 @@ const GUN_CALIBRE = {
   devastator: 7.62,   // one thirty in the cowling
   mitchell: 12.7,     // the fifty in her nose
   f18: 20,            // her M61 in the nose
+  f35: 25,            // the GAU-22/A in her gun pod
   sh60: 7.62,         // the door gun
   ka27: 7.62,         // the door gun
   arado: 20,          // two MG FF in the wings and an MG 17 over the engine
@@ -360,7 +362,7 @@ const GUN_CALIBRE = {
  */
 const GUN_COUNT = {
   seafire: 2, firefly: 4,
-  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
 };

@@ -58,7 +58,7 @@ import {
   LOADOUT_SLOTS, listLoadouts, saveLoadout, deleteLoadout, describeLoadout,
 } from '../client/js/loadouts.js';
 import {
-  normaliseAirGroup, defaultAirGroup, setAirGroup, rotary, launchStrike, strikeAim, launchOrder, gunRear, steerToWaypoint, steerToward,
+  normaliseAirGroup, defaultAirGroup, setAirGroup, rotary, launchStrike, strikeAim, launchOrder, slotOrder, torpOf, gunRear, steerToWaypoint, steerToward,
   SECTIONS, PENETRATING, hullIntegrity, sectionAt, freshSections, pickAirTarget,
   DECK_RUN, DECK_NEXT, DECK_RUN_OUT, aaBattery, aaBarrels, aaBearing, mountBears, torpedoClear,
   flightDeckOut, runwayLength, takeoffRoll, deckRunFate, resolveShellHit, buoyancy, launchOffset, gunLimits,
@@ -449,6 +449,10 @@ import {
 import {
   HANGAR as NZ_HANGAR, FD as NZ_FD, HELO as NZ_HELO, HELO_RISE as NZ_RISE, LIFTS as NZ_LIFTS,
 } from '../client/js/render/nimitz.js';
+import {
+  HANGAR as FORD_HANGAR, FD as FORD_FD, HELO as FORD_HELO, HELO_RISE as FORD_RISE, LIFTS as FORD_LIFTS, CATS as FORD_CATS,
+} from '../client/js/render/ford.js';
+import { FORD_MOUNTS } from '../client/js/render/fordHull.data.js';
 import {
   fletcherParts, buildFletcher, fletcherCharges, deckAt as fletcherDeckAt,
   halfDeck as fletcherHalfDeck, sheer as fletcherSheer,
@@ -1761,6 +1765,199 @@ check('the Nimitz is commissioned after the Missouri, with her air wing of ninet
   assert.equal(normaliseAirGroup(cls, { ...g, load: { fighters: 'nonsense' } }).load.fighters, S.fighters.default);
 });
 
+/** Every machine of a slot carrier's whole group, squadron by squadron, as her deck sends them. */
+function wholeWing(cls, g) {
+  const n = cls.planes.squadrons;
+  const share = (k, id) => { const a = g[k]; const b = Math.floor(a / n); return b + (id < a - b * n ? 1 : 0); };
+  const before = (k, id) => { let s = 0; for (let i = 0; i < id; i++) s += share(k, i); return s; };
+  const out = [];
+  for (let id = 0; id < n; id++) {
+    out.push(...slotOrder(cls, g, share('fighters', id), share('dive', id), share('torpedo', id),
+      { fighters: before('fighters', id), dive: before('dive', id), torpedo: before('torpedo', id) }));
+  }
+  return out;
+}
+
+check('the Gerald R. Ford is commissioned after the Nimitz, with Super Hornets, F-35Cs, Hawkeyes and Seahawks, and her own weapons', () => {
+  const i = MODERN_ORDER.indexOf('ford');
+  assert.ok(i > 0, 'the Ford is not in the modern yard');
+  assert.equal(MODERN_ORDER[i - 1], 'nimitz', `before the Ford comes ${MODERN_ORDER[i - 1]}`);
+  const cls = SHIP_CLASSES.ford;
+  assert.equal(cls.fullName, 'USS Gerald R. Ford (CVN-78)');
+  assert.equal(cls.type, 'CV');
+  // Three Phalanx, two Sea Sparrow launchers and two RAM, each where the model stands it.
+  assert.equal(cls.aa.guns.filter((g) => g.ciws).reduce((n, g) => n + g.mounts.length, 0), 3);
+  assert.equal(cls.turrets.length, 3);
+  const rails = cls.missiles.rails;
+  assert.equal(rails.filter((r) => r[4] === 'essm').length, 2, 'two Mk 29 Sea Sparrow launchers');
+  assert.equal(rails.filter((r) => r[4] === 'ram').length, 2, 'two Mk 49 RAM launchers');
+  for (const [x, , z, , kind] of rails) {
+    const seats = FORD_MOUNTS[kind === 'ram' ? 'ram' : 'sparrow'];
+    assert.ok(seats.some((s) => Math.hypot(s.x - x, s.z - z) < 0.6), `a ${kind} launcher at ${x}, ${z} her model has not`);
+  }
+  // Ninety, fixed: sixty-six strike fighters, five Hawkeyes and nineteen
+  // Seahawks -- and of the strike fighters, twenty F-35Cs.
+  const g = defaultAirGroup(cls);
+  assert.deepEqual([g.fighters, g.dive, g.torpedo], [66, 5, 19]);
+  const forced = normaliseAirGroup(cls, { fighters: 90, dive: 0, torpedo: 0 });
+  assert.deepEqual([forced.fighters, forced.dive, forced.torpedo], [66, 5, 19], 'her mix can be changed');
+  const by = {};
+  for (const f of wholeWing(cls, g)) by[f.type] = (by[f.type] || 0) + 1;
+  assert.deepEqual(by, { f18: 46, f35: 20, e2d: 5, sh60: 19 }, 'her air wing does not fly as her datasheet says');
+  // The Super Hornet's four loads, the Nimitz's; the F-35C's four of her own;
+  // the Seahawk's two.
+  const S = cls.planes.slots;
+  assert.equal(S.fighters.label, 'F/A-18 Super Hornet');
+  assert.equal(S.fighters.loadouts, SHIP_CLASSES.nimitz.planes.slots.fighters.loadouts, 'her Super Hornets are not loaded as the Nimitz\'s');
+  assert.equal(S.torpedo.loadouts, SHIP_CLASSES.nimitz.planes.slots.torpedo.loadouts, 'her Seahawks are not loaded as the Nimitz\'s');
+  assert.equal(S.f35.label, 'F-35C Lightning');
+  assert.deepEqual(Object.values(S.f35.loadouts).map((l) => l.name),
+    ['Air-to-Air Load Out', 'Heavy Anti-Ship Load Out', 'Multi-Role Load Out', 'CAS Load Out']);
+  assert.ok(S.f35.loadouts.has.standoff.n > S.fighters.loadouts.as.standoff.n, 'the heavy anti-ship load is not heavier than the Super Hornet\'s');
+  for (const fl of Object.keys(S.f35.loadouts)) {
+    const w = normaliseAirGroup(cls, { ...g, load: { fighters: 'aa', f35: fl, torpedo: 'as' } });
+    assert.deepEqual(w.load, { fighters: 'aa', f35: fl, torpedo: 'as' });
+    const lit = wholeWing(cls, w).filter((f) => f.type === 'f35');
+    assert.ok(lit.length === 20 && lit.every((f) => f.load === fl), `her F-35Cs do not fly the ${fl} load`);
+  }
+  assert.equal(normaliseAirGroup(cls, { ...g, load: { f35: 'nonsense' } }).load.f35, S.f35.default);
+  // And the Nimitz flies Super Hornets now, under the same loads.
+  assert.equal(SHIP_CLASSES.nimitz.planes.slots.fighters.label, 'F/A-18 Super Hornet');
+});
+
+check('the Ford\'s Phalanx by her island, which her model drew facing in over her deck, faces out', () => {
+  // The model stands the Phalanx on her starboard bow sponson, by her island
+  // and her catapults, with its barrels over her own flight deck. It is
+  // stowed facing out from her, as the other two are.
+  const cls = SHIP_CLASSES.ford;
+  const seat = FORD_MOUNTS.ciws.find((s) => s.x < -20 && s.z > 50);
+  assert.ok(seat, 'no Phalanx on her starboard bow');
+  assert.ok(Math.sin(seat.drawn) * Math.sign(seat.x) < -0.9, 'the model\'s Phalanx there does not face in, so nothing was turned');
+  const t = cls.turrets.find((q) => Math.hypot(q.x - seat.x, q.z - seat.z) < 0.6);
+  assert.ok(Math.sin(t.rest) * Math.sign(seat.x) > 0.9, 'it is not stowed facing out over her side');
+  const built = buildShip('ford');
+  for (const [k, m] of built.turrets.entries()) {
+    const spec = cls.turrets[k];
+    // Out from her: away from her middle, over her side or her stern.
+    const r = Math.hypot(spec.x, spec.z);
+    const out = (Math.sin(m.rotation.y) * spec.x + Math.cos(m.rotation.y) * spec.z) / r;
+    assert.ok(out > 0.1, `${spec.name} faces ${m.rotation.y.toFixed(2)}, in over her`);
+  }
+});
+
+check('the Ford brings her aircraft up her lifts to her catapults -- an F-35C among them -- and her Seahawks go straight up off her spot', () => {
+  const ud = buildShip('ford').group.userData;
+  const d = ud.deck;
+  assert.equal(d.lifts.length, 3, 'she has three lifts');
+  assert.equal(FORD_LIFTS.filter((l) => l.side < 0).length, 2, 'two to starboard');
+  const run = (t0, t1, f) => { for (let t = t0; t <= t1 + 1e-9; t += 0.05) { ud.step(t); if (f) f(t); } };
+  ud.step(0);
+  ud.launch(0, 'fighter', 14, 'f35');
+  const a = d.actors[d.actors.length - 1];
+  assert.equal(a.kind, 'f35', 'the deck did not range an F-35C');
+  const lift = a.lift;
+  let lowest = Infinity;
+  run(0, 14.1, () => { lowest = Math.min(lowest, lift.y); });
+  assert.ok(Math.abs(lowest - FORD_HANGAR) < 0.05, `her lift only went down to ${lowest.toFixed(2)}`);
+  assert.ok(d.airborne && a.done && d.plane.kind === 'f35', 'she was not off the bow when the simulation put her in the air');
+  // Off a catapult that runs along her flight deck, and not off its edge.
+  for (const c of FORD_CATS) {
+    assert.ok(Math.abs(c.x) < 20, `a catapult at ${c.x} m is off her deck`);
+  }
+  const P = SHIP_CLASSES.ford.planes;
+  ud.launch(20, 'torpedo', 16, 'sh60');
+  const h = d.actors[d.actors.length - 1];
+  const rise = [];
+  run(20, 36.1, () => { const p = h.m.body.position; if (!h.done && p.y > FORD_FD + 0.5) rise.push([p.x, p.z]); });
+  assert.ok(rise.length > 10 && h.done, 'she never went up');
+  for (const [x, z] of rise) assert.ok(Math.hypot(x - FORD_HELO.x, z - FORD_HELO.z) < 0.01, 'she went up sideways');
+  assert.ok(Math.abs(P.runOut.torpedo - FORD_HELO.z) < 0.5 && Math.abs(P.runHeight.torpedo - (FORD_FD + FORD_RISE)) < 0.5
+    && Math.abs(P.helipad.x - FORD_HELO.x) < 0.5,
+  'the simulation does not pick her up where the deck leaves her');
+  assert.ok(Math.abs(P.touchdown.y - FORD_FD) < 0.2, 'she lands on a deck at the wrong height');
+});
+
+check('a Ford strike flies her F-35Cs on the load chosen for them, and her Super Hornets on theirs', () => {
+  const state = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Ford', classId: 'ford', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  c.x = 0; c.z = 0; foe.x = 0; foe.z = 15000;
+  setAirGroup(c, SHIP_CLASSES.ford, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'cas', f35: 'has', torpedo: 'asw' } });
+  const seen = new Map();
+  for (let i = 0; i < 30 * 160; i++) {
+    foe.spottedBy[0] = 3; c.aimX = foe.x; c.aimZ = foe.z;
+    if (i % 60 === 0) launchStrike(state, c);
+    step(state, DT);
+    for (const p of state.planes) if (!seen.has(p.id)) seen.set(p.id, p);
+  }
+  const flown = [...seen.values()];
+  const lit = flown.filter((p) => p.type === 'f35');
+  assert.ok(lit.length > 0, 'not one F-35C left her deck');
+  assert.ok(lit.every((p) => p.load === 'has' && p.standoff && p.standoff.kind === 'agm84'), 'her F-35Cs are not on the heavy anti-ship load');
+  assert.ok(flown.filter((p) => p.type === 'f18').every((p) => p.load === 'cas'), 'her Super Hornets are not on the CAS load');
+});
+
+check('a torpedo bomber off a slot carrier carries her fish, and drops it', () => {
+  // The Implacable's Avengers are a slot with no choice of loads. Each was
+  // sent out with nothing under her, flew her run in on the water, and pulled
+  // away having dropped nothing.
+  const cls = SHIP_CLASSES.implacable;
+  assert.equal(torpOf(cls.planes.slots.torpedo), 1, 'her Avenger hangs no torpedo');
+  assert.equal(torpOf(SHIP_CLASSES.nimitz.planes.slots.torpedo.loadouts.asw), 0, 'a Seahawk\'s homing torpedoes are counted as a bomber\'s fish');
+  assert.equal(torpOf(SHIP_CLASSES.nimitz.planes.slots.torpedo.loadouts.as), 0, 'a Seahawk\'s missiles are counted as a fish');
+  const q = slotOrder(cls, defaultAirGroup(cls), 0, 0, 3);
+  assert.ok(q.length === 3 && q.every((f) => f.torp === 1 && f.role === 'torpedo'), 'her Avengers go out without their fish');
+  const state = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
+  const cv = addShip(state, { name: 'Implacable', classId: 'implacable', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 9000;
+  setAirGroup(cv, cls, { fighters: 0, dive: 0, torpedo: 81 });
+  let fish = 0;
+  for (let i = 0; i < 30 * 300 && !fish; i++) {
+    foe.spottedBy[0] = 3; cv.aimX = foe.x; cv.aimZ = foe.z;
+    if (i % 300 === 0) launchStrike(state, cv);
+    for (const ev of step(state, DT)) if (ev.e === 'airDrop' && ev.fish) fish += ev.fish;
+  }
+  assert.ok(fish > 0, 'not one of her Avengers put a torpedo in the water');
+});
+
+check('a helicopter drops her homing torpedoes by hand, and at a ship she is sent against', () => {
+  for (const id of ['nimitz', 'ford', 'burke', 'slava']) {
+    // By hand, over a boat: they used to be refused, being carried as `asw`.
+    const state = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
+    const c = addShip(state, { name: 'C', classId: id, team: 0, index: 0 });
+    const boat = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+    c.x = 0; c.z = 0; boat.x = 0; boat.z = 6000;
+    const cls = SHIP_CLASSES[id];
+    setAirGroup(c, cls, { ...defaultAirGroup(cls), load: { ...(defaultAirGroup(cls).load || {}), torpedo: 'asw' } });
+    let helo = null;
+    for (let i = 0; i < 30 * 200 && !helo; i++) {
+      boat.spottedBy[0] = 3; c.aimX = boat.x; c.aimZ = boat.z;
+      if (i % 60 === 0) launchStrike(state, c);
+      step(state, DT);
+      helo = state.planes.find((p) => p.asw > 0 && !p.dead) || null;
+    }
+    assert.ok(helo, `the ${id} never put up a helicopter with torpedoes`);
+    const before = state.torps.length;
+    assert.ok(dropOrdnance(state, c, helo.id), `the ${id}'s helicopter could not drop her torpedoes by hand`);
+    assert.ok(state.torps.length - before === 2 && state.torps.slice(before).every((t) => t.homing && t.aerial),
+      `the ${id}'s helicopter dropped ${state.torps.length - before} homing torpedoes`);
+  }
+  // On the autopilot, sent at a ship with no boat about, she goes in and
+  // drops on her rather than hovering over her with both still aboard.
+  const state = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
+  const c = addShip(state, { name: 'Burke', classId: 'burke', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+  c.x = 0; c.z = 0; foe.x = 0; foe.z = 7000;
+  let fish = 0;
+  for (let i = 0; i < 30 * 300 && !fish; i++) {
+    foe.spottedBy[0] = 3; c.aimX = foe.x; c.aimZ = foe.z;
+    if (i % 300 === 0) launchStrike(state, c);
+    for (const ev of step(state, DT)) if (ev.e === 'airDrop' && ev.fish) fish += ev.fish;
+  }
+  assert.equal(fish, 2, 'the Burke\'s Seahawk did not drop her torpedoes on the ship she was sent at');
+});
+
 check('the Nimitz brings each aircraft up a lift to her catapults, takes each down one coming home, and her Seahawks go straight up and come straight down', () => {
   const ud = buildShip('nimitz').group.userData;
   const d = ud.deck;
@@ -2269,9 +2466,11 @@ check('the Nimitz flies her Hornets, Hawkeyes and Seahawks as their loads say, a
 check('the Kongo is commissioned before the Fuso, after the Missouri', () => {
   const i = SHIP_ORDER.indexOf('kongo');
   assert.ok(i >= 0, 'the Kongo is not in the yard');
-  // The Nimitz is in the list between them, but in the missile age's yard.
-  assert.equal(SHIP_ORDER[i - 1], 'nimitz', `before the Kongo comes ${SHIP_ORDER[i - 1]}`);
-  assert.equal(SHIP_ORDER[i - 2], 'missouri', `two before the Kongo comes ${SHIP_ORDER[i - 2]}`);
+  // The Nimitz and the Ford are in the list between them, but in the missile
+  // age's yard.
+  assert.deepEqual(SHIP_ORDER.slice(i - 3, i), ['missouri', 'nimitz', 'ford'],
+    `before the Kongo come ${SHIP_ORDER.slice(i - 3, i).join(', ')}`);
+  assert.equal(WWII_ORDER[WWII_ORDER.indexOf('kongo') - 1], 'iowa', 'in the WWII yard the Kongo does not follow the Iowa');
   assert.equal(SHIP_ORDER[i + 1], 'fuso', `after the Kongo comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.kongo;
   assert.equal(cls.fullName, 'IJN Kongo');
