@@ -583,7 +583,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // so a pilot's drop key is there on whatever is carrying something --
       // a Hornet with bombs under her as much as a Dauntless.
       bm: p.team === team && !p.dropped && p.bomb > 0 ? p.bomb : undefined,
-      tq: p.team === team && !p.dropped && p.torp > 0 ? p.torp : undefined,
+      tq: p.team === team && !p.dropped && p.torp > 0 ? p.torp
+        // A helicopter's homing torpedoes are torpedoes to her pilot too.
+        : p.team === team && !p.dropped && p.asw > 0 ? p.asw : undefined,
       // Which of her type's loads she went out with, to everybody: what is
       // hanging under her wings is there for anyone to see.
       ld: p.load || undefined,

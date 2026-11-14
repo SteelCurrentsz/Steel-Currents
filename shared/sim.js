@@ -4125,6 +4125,22 @@ export function dropOrdnance(state, ship, id) {
     p.phase = 'return';
     return true;
   }
+  // A helicopter's homing torpedoes, by hand: into the sea under her, at the
+  // nearest boat her sonar hears if there is one, and otherwise the way she
+  // is pointing, to search for one themselves. They used to be refused
+  // outright -- they are carried as `asw`, not as a torpedo bomber's fish --
+  // and a pilot flying a Seahawk could not drop the torpedoes she was
+  // carrying at all.
+  if ((p.asw ?? 0) > 0 && torp <= 0 && bomb <= 0) {
+    let sub = null, sd = ASW_SONAR;
+    for (const s of state.ships) {
+      if (!s.alive || !mayHurt(state, p.team, s) || !getClass(s.classId).dive) continue;
+      const d = dist(p.x, p.z, s.x, s.z);
+      if (d < sd) { sd = d; sub = s; }
+    }
+    if (sub) p.targetId = sub.id;
+    return dropAsw(state, p, sub) > 0;
+  }
   if (torp <= 0 && bomb <= 0) return false;
   // Bombs by hand are aimed by hand. They leave the rack as bodies, at her
   // speed and down her flight path, and come down wherever that puts them --
@@ -11921,6 +11937,16 @@ export function launchStrike(state, ship, escortFor = 0) {
   let fighters = share('fighters');
   let bomb = share('dive');
   let torp = share('torpedo');
+  // How many of a type the squadrons before this one have, so a type shared
+  // between two machines (see `of` in slotOrder) is shared out across her
+  // whole group, and not afresh in every squadron.
+  const before = (k) => {
+    const all = Math.max(0, group[k] | 0);
+    const base = Math.floor(all / n);
+    let sum = 0;
+    for (let i = 0; i < sq.id; i++) sum += base + (i < all - base * n ? 1 : 0);
+    return sum;
+  };
   // A group small enough to round away to nothing still sends what it has:
   // otherwise a captain who embarked two torpedo bombers watches a squadron
   // fly out, find the enemy and drop nothing at all.
@@ -11950,7 +11976,9 @@ export function launchStrike(state, ship, escortFor = 0) {
     ? Array.from({ length: ship.deckload }, () => ({
       role: 'level', count: 1, torp: 0, bomb: DL.bombs, type: DL.type, deckload: 1,
     }))
-    : cls.planes.slots ? slotOrder(cls, group, fighters, bomb, torp) : launchOrder(fighters, bomb, torp);
+    : cls.planes.slots ? slotOrder(cls, group, fighters, bomb, torp, {
+      fighters: before('fighters'), dive: before('dive'), torpedo: before('torpedo'),
+    }) : launchOrder(fighters, bomb, torp);
   if (escortee) {
     // Only what flies as a fighter: a slot carrier's `fighters` type may have
     // been loaded for something else, and that is no escort.
@@ -12067,6 +12095,19 @@ export function launchOrder(fighters, bomb, torp) {
 }
 
 /**
+ * How many torpedoes a slot's load hangs under her: what it says, or for a
+ * torpedo bomber whose load says nothing else -- the Implacable's Avengers --
+ * the one fish she was built to carry. Only a helicopter's homing torpedoes
+ * (`asw`) and a load of missiles (`standoff`) on a 'torpedo' job are not fish.
+ * Every torpedo bomber off a slot carrier used to be sent out with none, and
+ * flew her run in and pulled away with nothing to drop.
+ */
+export function torpOf(spec) {
+  if (Number.isFinite(spec.torp)) return spec.torp;
+  return spec.role === 'torpedo' && !spec.asw && !spec.standoff && !spec.bomb && !spec.rockets ? 1 : 0;
+}
+
+/**
  * The order a strike goes off a deck whose types each fly the job their load
  * makes them (see `slots`): one of each type in turn, as launchOrder, each
  * aeroplane carrying what the captain loaded that type with.
@@ -12078,7 +12119,7 @@ export function launchOrder(fighters, bomb, torp) {
  * ship (`standoff`), or homing torpedoes she drops on a boat under the sea
  * (`asw`).
  */
-export function slotOrder(cls, group, fighters, bomb, torp) {
+export function slotOrder(cls, group, fighters, bomb, torp, offset = {}) {
   const SL = cls.planes.slots;
   const share = { fighters, dive: bomb, torpedo: torp };
   const left = { ...share };
@@ -12089,14 +12130,31 @@ export function slotOrder(cls, group, fighters, bomb, torp) {
     const key = (group && group.load && sl.loadouts[group.load[k]]) ? group.load[k] : sl.default;
     return { key, spec: sl.loadouts[key] };
   };
+  // A type flown among another's machines, `n` of them in that type's whole
+  // number (`of`): the Ford's F-35Cs among her Super Hornets. The `i`th of the
+  // shared machines of the whole group is hers whenever the running count of
+  // hers goes up at it, so she is spread evenly through every squadron and
+  // the group as a whole flies exactly her `n`.
+  const made = { fighters: offset.fighters | 0, dive: offset.dive | 0, torpedo: offset.torpedo | 0 };
+  const subOf = (k) => {
+    const all = Math.max(1, (group && group[k]) | 0);
+    const i = made[k]++;
+    for (const [q, sl] of Object.entries(SL)) {
+      if (sl.of !== k || !(sl.n > 0)) continue;
+      const f = Math.min(1, sl.n / all);
+      if (Math.floor((i + 1) * f) > Math.floor(i * f)) return q;
+    }
+    return k;
+  };
   while (left.fighters + left.dive + left.torpedo > 0) {
-    for (const k of ['fighters', 'dive', 'torpedo']) {
-      if (left[k] <= 0 || !SL[k]) { left[k] = 0; continue; }
-      left[k]--;
+    for (const k0 of ['fighters', 'dive', 'torpedo']) {
+      if (left[k0] <= 0 || !SL[k0]) { left[k0] = 0; continue; }
+      left[k0]--;
+      const k = subOf(k0);
       const { key, spec } = loadOf(k);
       queue.push({
         role: spec.role, count: 1, type: SL[k].type, load: key,
-        torp: 0, bomb: spec.bomb || 0, bombEach: spec.bomb || 1,
+        torp: torpOf(spec), bomb: spec.bomb || 0, bombEach: spec.bomb || 1,
         standoff: spec.standoff || null, asw: spec.asw || 0,
         rack: spec.rack || null, rockets: spec.rockets || 0,
       });
@@ -14641,6 +14699,38 @@ export const AEW_FASTER = 0.6;
 export const ASW_SONAR = 9000;
 /** How close over a boat she lets her torpedo go. */
 const ASW_DROP = 450;
+/** How near where she was sent a ship has to be for her to go for it, with no boat about. */
+const ASW_SHIP_NEAR = 2500;
+/** And how far off a ship she lets her torpedoes go: inside their seekers' hearing. */
+const ASW_SHIP_DROP = 1000;
+
+/**
+ * A helicopter's homing torpedoes into the sea: off her as she hovers, each
+ * a little either side of the bearing of the boat she has on her sonar --
+ * or, with nothing heard, the way she is heading -- to swim out and search
+ * for one on their own seekers. The autopilot drops them over a contact; a
+ * pilot flying her drops them wherever he says.
+ */
+export function dropAsw(state, p, best = null) {
+  const n = p.asw | 0;
+  if (n <= 0) return 0;
+  const r = (v) => Math.round(v * 10) / 10;
+  const toward = best ? headingTo(p.x, p.z, best.x, best.z) : (p.heading || 0);
+  for (let i = 0; i < n; i++) {
+    const h = wrapAngle(toward + (i - (n - 1) / 2) * 0.4);
+    state.torps.push({
+      id: eid(), owner: p.owner, team: p.team,
+      x: p.x, z: p.z, heading: h,
+      speed: 20.6, range: 4000, travelled: 0, damage: 7000, detection: 1400, arming: 0, flood: 0.3,
+      kind: 'mk46', homing: { seek: 1400, cone: 0.8, turn: 0.2, after: 0 }, aerial: true, air: 2,
+    });
+  }
+  state.events.push({ e: 'airDrop', x: r(p.x), z: r(p.z), r: p.role, i: p.id, fish: n });
+  p.asw = 0;
+  p.dropped = true;
+  p.phase = 'return';
+  return n;
+}
 /** How far an aeroplane's own radar holds a ship for her missiles. */
 const AIR_RADAR = 15000;
 
@@ -14703,21 +14793,25 @@ function stepAirJobs(state, p, carrier) {
       p.targetId = best.id;
       const v = velocityOf(best);
       p.tx = best.x + v.x * 8; p.tz = best.z + v.z * 8;
-      if (bd < ASW_DROP) {
-        for (let i = 0; i < p.asw; i++) {
-          const h = wrapAngle(headingTo(p.x, p.z, best.x, best.z) + (i - (p.asw - 1) / 2) * 0.4);
-          state.torps.push({
-            id: eid(), owner: p.owner, team: p.team,
-            x: p.x, z: p.z, heading: h,
-            speed: 20.6, range: 4000, travelled: 0, damage: 7000, detection: 1400, arming: 0, flood: 0.3,
-            kind: 'mk46', homing: { seek: 1400, cone: 0.8, turn: 0.2, after: 0 }, aerial: true, air: 2,
-          });
-        }
-        state.events.push({ e: 'airDrop', x: r(p.x), z: r(p.z), r: p.role, i: p.id, fish: p.asw });
-        p.asw = 0;
-        p.dropped = true;
-        p.phase = 'return';
-      }
+      if (bd < ASW_DROP) dropAsw(state, p, best);
+      return;
+    }
+    // No boat on her sonar, but a ship where she was sent: her homing
+    // torpedoes hear a ship's screws as well as a boat's, and she goes in and
+    // puts them in the water ahead of her, as a torpedo bomber would. She
+    // used to hover over the ship she was sent at with both still on her.
+    let ship = null, sd = Infinity;
+    for (const s of state.ships) {
+      if (!s.alive || s.team === p.team || !mayHurt(state, p.team, s) || getClass(s.classId).dive) continue;
+      if (dist(s.x, s.z, p.ax, p.az) > ASW_SHIP_NEAR) continue;
+      const d = dist(p.x, p.z, s.x, s.z);
+      if (d < sd) { sd = d; ship = s; }
+    }
+    if (ship) {
+      p.targetId = ship.id;
+      const v = velocityOf(ship);
+      p.tx = ship.x + v.x * 20; p.tz = ship.z + v.z * 20;
+      if (sd < ASW_SHIP_DROP) dropAsw(state, p, ship);
     } else {
       // Nothing heard: she goes to where she was sent and hovers about it,
       // dipping her sonar.
@@ -15023,7 +15117,7 @@ function surfaceMissileShot(state, p, force) {
 // her and veer off after it, and burst on nothing when it burns out.
 
 /** The aeroplanes that carry a dispenser, and how many salvos are in it. */
-export const CHAFF_LOAD = { f18: 8, e2d: 6, sh60: 6 };
+export const CHAFF_LOAD = { f18: 8, f35: 8, e2d: 6, sh60: 6 };
 /** Flares in a salvo. */
 const CHAFF_FLARES = 6;
 /** How long a flare burns, in seconds. */

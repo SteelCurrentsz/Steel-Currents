@@ -4091,8 +4091,9 @@ function mitchell(g, x, y, z, ry, folded = false, opts = {}) {
 
 
 /**
- * One of the Nimitz's air wing, off the owner's models of them: an F/A-18C
- * Hornet ('f18'), an E-2D Hawkeye ('e2d') or an SH-60 Seahawk ('sh60'). None
+ * One of the Nimitz's or the Ford's air wing, off the owner's models of them:
+ * an F/A-18 Super Hornet ('f18'), an F-35C Lightning II ('f35'), an E-2D
+ * Hawkeye ('e2d') or an SH-60 Seahawk ('sh60'). None
  * of them folds here; `opts.gear === false` has her legs up.
  */
 function navalAir(kind, g, x, y, z, ry, opts = {}) {
@@ -4108,6 +4109,8 @@ const f18 = (g, x, y, z, ry, folded, opts = {}) => navalAir('f18', g, x, y, z, r
 const e2d = (g, x, y, z, ry, folded, opts = {}) => navalAir('e2d', g, x, y, z, ry, opts);
 const sh60 = (g, x, y, z, ry, folded, opts = {}) => navalAir('sh60', g, x, y, z, ry, opts);
 const ka27 = (g, x, y, z, ry, folded, opts = {}) => navalAir('ka27', g, x, y, z, ry, opts);
+// The Ford's F-35C.
+const f35 = (g, x, y, z, ry, folded, opts = {}) => navalAir('f35', g, x, y, z, ry, opts);
 // And the Implacable's two of her own, off the owner's models of them.
 const seafire = (g, x, y, z, ry, folded, opts = {}) => navalAir('seafire', g, x, y, z, ry, opts);
 const firefly = (g, x, y, z, ry, folded, opts = {}) => fireflyStores(navalAir('firefly', g, x, y, z, ry, opts), opts);
@@ -5676,7 +5679,7 @@ function b52Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35 };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked
