@@ -4186,7 +4186,59 @@ const NEW_MODELS = [
   { id: 'dunkerque', link: 'ptKrU', title: 'French Battleship Dunkerque', by: 'kriss50' },
   { id: 'lexington', link: 'ptOWO', title: 'USS Lexington', by: 'kriss50' },
   { id: 'essex', link: 'p9vxQ', title: 'USS Essex (CV-9)', by: 'kriss50' },
+  { id: 'evarts', link: 'ptByP', title: 'Evarts Destroyer Escort', by: 'kriss50' },
+  { id: 'hclass', link: 'ptKqU', title: 'HMS Harvester 1939', by: 'kriss50' },
+  { id: 'tribal', link: 'ptwqF', title: 'Tribal-class Destroyer (1936)', by: 'kriss50' },
+  { id: 'z1', link: 'ptvyI', title: 'Type 34 Destroyer', by: 'kriss50' },
+  { id: 'z57', link: 'o6KVM', title: 'German Destroyer Z-57', by: '全斗焕' },
+  { id: 'soldati', link: 'ptBxW', title: 'Soldati Destroyer', by: 'kriss50' },
 ];
+
+check('the six destroyers off the owner\'s new models come in the yard with the Fletcher, armed as their models are', () => {
+  const i = SHIP_ORDER.indexOf('fletcher');
+  assert.deepEqual(SHIP_ORDER.slice(i, i + 7), ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati']);
+  const C = SHIP_CLASSES;
+  assert.equal(C.z1.fullName, 'KMS Z1');
+  assert.equal(C.hclass.fullName, 'HMS H-Class');
+  for (const id of ['evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati']) assert.equal(C[id].type, 'DD');
+  assert.deepEqual(['evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati'].map((id) => C[id].nation), ['usa', 'gbr', 'gbr', 'ger', 'ger', 'ita']);
+  assert.equal(C.evarts.typeName, 'Destroyer Escort');
+  // Main batteries: three 3"/50; four single 4.7"; four twin 4.7"; five
+  // single 12.7 cm; four twin 12.8 cm; three twin 120 mm.
+  const guns = (id) => C[id].turrets.map((t) => t.guns);
+  assert.deepEqual(guns('evarts'), [1, 1, 1]);
+  assert.deepEqual(guns('hclass'), [1, 1, 1, 1]);
+  assert.deepEqual(guns('tribal'), [2, 2, 2, 2]);
+  assert.deepEqual(guns('z1'), [1, 1, 1, 1, 1]);
+  assert.deepEqual(guns('z57'), [2, 2, 2, 2]);
+  assert.deepEqual(guns('soldati'), [2, 2, 2]);
+  assert.deepEqual([C.evarts, C.hclass, C.tribal, C.z1, C.z57, C.soldati].map((c) => c.gun.caliber), [76, 120, 120, 127, 128, 120]);
+  // Tubes as the models draw them: none on the escort; two quadruples on the
+  // H-class and the Z1; the Tribal's one bank with three tubes in it; the
+  // Z-57's one quadruple; the Soldati's two triples.
+  const tubes = (id) => (C[id].torpedoes ? C[id].torpedoes.mounts.map((m) => m.tubes) : []);
+  assert.deepEqual(tubes('evarts'), []);
+  assert.deepEqual(tubes('hclass'), [4, 4]);
+  assert.deepEqual(tubes('tribal'), [3]);
+  assert.deepEqual(tubes('z1'), [4, 4]);
+  assert.deepEqual(tubes('z57'), [4]);
+  assert.deepEqual(tubes('soldati'), [3, 3]);
+  // Their light guns, mounting by mounting.
+  const light = (id) => C[id].aa.guns.flatMap((g) => g.mounts.map(() => g.caliber));
+  assert.equal(light('evarts').filter((c) => c === 20).length, 9);
+  assert.deepEqual(light('hclass'), [12.7, 12.7]);
+  assert.deepEqual(light('z1'), [37, 37, 20, 20, 20, 20, 20]);
+  assert.deepEqual(light('z57'), [55, 37, 37, 30, 30, 30, 30]);
+  // The escort's K-guns and racks, and the Z-57's throwers, where the models draw them.
+  assert.equal(C.evarts.depthCharges.throwers.length, 8);
+  assert.equal(C.z57.depthCharges.throwers.length, 8);
+  // Each of them built, each mounting on the model's own.
+  for (const id of ['evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati']) {
+    const built = buildShip(id);
+    assert.equal(built.turrets.length, C[id].turrets.length, `${id}: turrets`);
+    assert.equal((built.torpMounts || []).length, tubes(id).length, `${id}: tubes`);
+  }
+});
 
 check('the Fubuki, the Shimakaze and the Yugumo come in the yard after the Yukikaze', () => {
   const i = SHIP_ORDER.indexOf('yukikaze');

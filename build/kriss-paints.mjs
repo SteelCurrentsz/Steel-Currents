@@ -98,3 +98,45 @@ export function rnPaint(f) {
   if (f.up && f.cy > 2) return 'deck';
   return 'grey';
 }
+
+// The Kriegsmarine's destroyers: light grey (Hellgrau 50) over hull and
+// upperworks, the steel weather decks dark grey (Dunkelgrau 51), a black
+// boot topping and red under water.
+export const KM_PAINTS = {
+  grey: 0x8b9095,
+  dark: 0x50555a,
+  deck: 0x5b6065,
+  boot: 0x17191b,
+  bottom: 0x6e2e26,
+};
+export function kmPaint(f) {
+  if (f.kind === 'screw') return 'dark';
+  if (f.cy < -0.02) return 'bottom';
+  if (f.shell && f.cy < BOOT) return 'boot';
+  if (f.kind) return 'grey';
+  if (f.up && f.cy > 2) return 'deck';
+  return 'grey';
+}
+
+// The Royal Navy's destroyers of 1939-40: Admiralty light grey (507C) over
+// hull and upperworks, their steel decks a darker grey, a black boot topping
+// and red under water.
+export const RN_DD_PAINTS = {
+  grey: 0x878e93,
+  dark: 0x4f555a,
+  deck: 0x5a6065,
+  boot: 0x16181b,
+  bottom: 0x7a3228,
+};
+export const rnDDPaint = rnPaint;
+
+// The Regia Marina's destroyers: grigio chiaro over hull and upperworks, the
+// steel decks a dark grey, a black boot topping and red under water.
+export const RM_PAINTS = {
+  grey: 0x9aa0a4,
+  dark: 0x575d62,
+  deck: 0x62676b,
+  boot: 0x17191b,
+  bottom: 0x7a3228,
+};
+export const rmPaint = rnPaint;

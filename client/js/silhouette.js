@@ -48,6 +48,87 @@ const HULLS = {
     <rect x="70" y="26" width="9" height="4"/>
     <rect x="20" y="26" width="9" height="4"/>`,
   // A light cruiser: longer, a tower bridge, twin funnels, four turrets.
+  // The six destroyers off the owner's models -- the Evarts, the H-class,
+  // the Tribal, the Z1, the Z-57 and the Soldati -- each off her own side
+  // elevation (build/prepare-<ship>-hull.mjs), her bow to the left.
+  evarts: `
+    <path d="M2.0 26.9 L98.0 28.6 L95.0 36 L7.0 36 Z"/>
+    <rect x="23.9" y="24.7" width="17.4" height="6.3"/>
+    <rect x="29.3" y="22.4" width="8.7" height="8.6"/>
+    <rect x="47.3" y="22.6" width="3.2" height="8.4"/>
+    <rect x="53.3" y="26.4" width="31.5" height="4.6"/>
+    <rect x="10.8" y="26.8" width="5.5" height="4.2"/>
+    <rect x="68.5" y="25.8" width="4.9" height="5.2"/>
+    <rect x="78.1" y="26.4" width="4.6" height="4.6"/>
+    <rect x="37.7" y="13.5" width="1.6" height="17.5"/>`,
+  hclass: `
+    <path d="M2.0 27.5 L98.0 29.2 L95.0 36 L7.0 36 Z"/>
+    <rect x="20.3" y="25.1" width="18.0" height="5.9"/>
+    <rect x="27.6" y="22.2" width="9.7" height="8.8"/>
+    <rect x="40.6" y="23.2" width="2.2" height="7.8"/>
+    <rect x="52.3" y="23.4" width="2.2" height="7.6"/>
+    <rect x="12.8" y="26.1" width="6.7" height="4.9"/>
+    <rect x="19.8" y="24.4" width="6.4" height="6.6"/>
+    <rect x="79.7" y="26.0" width="6.9" height="5.0"/>
+    <rect x="86.6" y="27.8" width="6.3" height="3.2"/>
+    <rect x="75.4" y="26.9" width="7.8" height="4.1"/>
+    <rect x="62.7" y="26.4" width="5.8" height="4.6"/>
+    <rect x="39.3" y="15.3" width="1.6" height="15.7"/>
+    <rect x="78.9" y="18.4" width="1.6" height="12.6"/>`,
+  tribal: `
+    <path d="M2.0 26.8 L98.0 28.9 L95.0 36 L7.0 36 Z"/>
+    <rect x="20.8" y="24.4" width="16.7" height="6.6"/>
+    <rect x="29.1" y="22.2" width="6.7" height="8.8"/>
+    <rect x="44.2" y="23.0" width="2.3" height="8.0"/>
+    <rect x="54.2" y="23.0" width="2.5" height="8.0"/>
+    <rect x="15.7" y="25.8" width="2.6" height="5.2"/>
+    <rect x="24.1" y="24.4" width="2.7" height="6.6"/>
+    <rect x="65.9" y="25.8" width="11.7" height="5.2"/>
+    <rect x="78.2" y="26.0" width="2.5" height="5.0"/>
+    <rect x="85.1" y="27.5" width="2.5" height="3.5"/>
+    <rect x="40.7" y="16.0" width="1.6" height="15.0"/>
+    <rect x="67.4" y="21.9" width="1.6" height="9.1"/>`,
+  z1: `
+    <path d="M2.0 26.8 L98.0 28.9 L95.0 36 L7.0 36 Z"/>
+    <rect x="24.2" y="24.0" width="16.1" height="7.0"/>
+    <rect x="29.8" y="22.6" width="9.7" height="8.4"/>
+    <rect x="35.9" y="21.6" width="3.2" height="9.4"/>
+    <rect x="49.6" y="22.2" width="3.2" height="8.8"/>
+    <rect x="58.9" y="25.4" width="10.5" height="5.6"/>
+    <rect x="69.4" y="26.2" width="6.0" height="4.8"/>
+    <rect x="14.5" y="25.8" width="2.2" height="5.2"/>
+    <rect x="18.5" y="24.2" width="2.1" height="6.8"/>
+    <rect x="70.6" y="26.2" width="2.0" height="4.8"/>
+    <rect x="79.2" y="26.1" width="2.0" height="4.9"/>
+    <rect x="85.5" y="27.5" width="2.0" height="3.5"/>
+    <rect x="34.3" y="12.8" width="1.6" height="18.2"/>
+    <rect x="65.3" y="20.5" width="1.6" height="10.5"/>`,
+  z57: `
+    <path d="M2.0 26.6 L98.0 28.9 L95.0 36 L7.0 36 Z"/>
+    <rect x="27.1" y="23.3" width="16.0" height="7.7"/>
+    <rect x="32.5" y="21.2" width="6.8" height="9.8"/>
+    <rect x="43.1" y="22.0" width="4.2" height="9.0"/>
+    <rect x="58.4" y="22.0" width="4.6" height="9.0"/>
+    <rect x="65.2" y="25.1" width="6.1" height="5.9"/>
+    <rect x="16.2" y="24.7" width="4.2" height="6.3"/>
+    <rect x="22.3" y="23.1" width="4.1" height="7.9"/>
+    <rect x="73.9" y="24.8" width="4.3" height="6.2"/>
+    <rect x="81.2" y="26.5" width="4.2" height="4.5"/>
+    <rect x="39.1" y="10.0" width="1.6" height="21.0"/>
+    <rect x="69.8" y="21.2" width="1.6" height="9.8"/>`,
+  soldati: `
+    <path d="M2.0 27.1 L98.0 28.7 L95.0 36 L7.0 36 Z"/>
+    <rect x="23.0" y="24.4" width="18.9" height="6.6"/>
+    <rect x="30.2" y="21.6" width="6.3" height="9.4"/>
+    <rect x="37.0" y="22.5" width="5.1" height="8.5"/>
+    <rect x="16.0" y="25.7" width="2.8" height="5.3"/>
+    <rect x="61.3" y="25.5" width="2.8" height="5.5"/>
+    <rect x="65.3" y="26.8" width="5.4" height="4.2"/>
+    <rect x="79.5" y="25.3" width="2.9" height="5.7"/>
+    <rect x="76.1" y="26.4" width="9.9" height="4.6"/>
+    <rect x="34.8" y="12.5" width="1.6" height="18.5"/>
+    <rect x="74.8" y="15.6" width="1.6" height="15.4"/>`,
+
   cleveland: `
     <path d="M3 30 L97 30 L93 37 L8 37 Z"/>
     <rect x="42" y="18" width="14" height="12"/>

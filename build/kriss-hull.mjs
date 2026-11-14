@@ -94,6 +94,17 @@ export async function prepare(cfg) {
       if (cfg.bow === '+x') { P[i] = -z; P[i + 2] = x; } else if (cfg.bow === '-x') { P[i] = z; P[i + 2] = -x; } else if (cfg.bow === '-z') { P[i] = -x; P[i + 2] = -z; }
     }
   }
+  // `yaw`: a model drawn turned a degree or so off its own axis, its bow off
+  // to one side of its stern, is turned back square (radians, about her
+  // height, positive turning her bow to port). CENTRELINE=1 lists how far off
+  // her middle her sides are, station by station, to find it.
+  if (cfg.yaw) {
+    const P = model.P, c = Math.cos(cfg.yaw), s = Math.sin(cfg.yaw);
+    for (let i = 0; i < P.length; i += 3) {
+      const x = P[i], z = P[i + 2];
+      P[i] = x * c + z * s; P[i + 2] = -x * s + z * c;
+    }
+  }
   // Pieces scaled away to nothing, left over in the export.
   {
     const box = new Map();
@@ -124,8 +135,29 @@ export async function prepare(cfg) {
     const i = model.T[t] * 3;
     for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], model.P[i + c]); hi[c] = Math.max(hi[c], model.P[i + c]); }
   }
-  const SCALE = LOA / (hi[2] - lo[2]);
-  const XC = (lo[0] + hi[0]) / 2, ZC = (lo[2] + hi[2]) / 2;
+  // `endsBelow`: her length over all is her hull's, stem to stern, not the
+  // reach of a jackstaff or an ensign staff leaning out past them. Measured
+  // over what stands lower than that many metres over her keel, which takes
+  // in the head of her stem and her transom and leaves out the staffs over
+  // them; and the beam and middle she is centred on are her hull's too.
+  let SCALE = LOA / (hi[2] - lo[2]);
+  let XC = (lo[0] + hi[0]) / 2, ZC = (lo[2] + hi[2]) / 2;
+  if (cfg.endsBelow) {
+    for (let pass = 0; pass < 3; pass++) {
+      const top = lo[1] + cfg.endsBelow / SCALE;
+      let z0 = Infinity, z1 = -Infinity, x0 = Infinity, x1 = -Infinity;
+      for (let t = 0; t < model.T.length; t++) {
+        const i = model.T[t] * 3;
+        if (model.P[i + 1] > top) continue;
+        z0 = Math.min(z0, model.P[i + 2]); z1 = Math.max(z1, model.P[i + 2]);
+        x0 = Math.min(x0, model.P[i]); x1 = Math.max(x1, model.P[i]);
+      }
+      SCALE = LOA / (z1 - z0);
+      XC = (x0 + x1) / 2; ZC = (z0 + z1) / 2;
+      lo[0] = x0; hi[0] = x1;
+    }
+    console.log(`ends: over all ${((hi[2] - lo[2]) * SCALE).toFixed(2)} m with her staffs, ${LOA} m stem to stern`);
+  }
   // Floated at her draught: her keel -- the lowest of her -- that far under.
   const SINK = DRAUGHT + lo[1] * SCALE + (cfg.lift || 0);
   for (let i = 0; i < model.P.length; i += 3) {
@@ -134,6 +166,30 @@ export async function prepare(cfg) {
     model.P[i + 2] = (model.P[i + 2] - ZC) * SCALE;
   }
   const BEAM = (hi[0] - lo[0]) * SCALE;
+  if (process.env.CENTRELINE) {
+    // Her sides at the waterline, a metre up, at every tenth of her length.
+    const out = [];
+    for (let f = -0.4; f <= 0.41; f += 0.1) {
+      const z = f * LOA;
+      let a = Infinity, b = -Infinity;
+      // Where her faces' edges cross the station.
+      for (let t = 0; t < model.T.length; t += 3) {
+        for (let e = 0; e < 3; e++) {
+          const i = model.T[t + e] * 3, k = model.T[t + (e + 1) % 3] * 3;
+          const zi = model.P[i + 2], zk = model.P[k + 2];
+          if ((zi - z) * (zk - z) > 0 || zi === zk) continue;
+          const u = (z - zi) / (zk - zi);
+          const y = model.P[i + 1] + (model.P[k + 1] - model.P[i + 1]) * u;
+          if (y < 0.3 || y > 1.5) continue;
+          const x = model.P[i] + (model.P[k] - model.P[i]) * u;
+          a = Math.min(a, x); b = Math.max(b, x);
+        }
+      }
+      out.push(`${z.toFixed(0)}: ${((a + b) / 2).toFixed(3)} (${(b - a).toFixed(2)})`);
+    }
+    console.log('centreline', out.join('  '));
+    process.exit(0);
+  }
   console.log(`${cfg.name}: x${SCALE.toFixed(2)}, ${LOA} m long, ${BEAM.toFixed(2)} m across, keel ${(lo[1] * SCALE - SINK).toFixed(2)}, truck ${(hi[1] * SCALE - SINK).toFixed(2)}`);
 
   // ---- her rigging -----------------------------------------------------------------

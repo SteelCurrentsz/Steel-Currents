@@ -63,6 +63,20 @@ export const TORPEDO_KINDS = {
     blades: [4, 4], stud: true,
     paint: { head: 0x2f3337, flask: 0x6f7378, after: 0x656a6f, tail: 0x5b5f63, joint: 0x8a6b3a, screw: 0xb38b4f },
   },
+  // The Royal Navy's 21-inch Mk IX, out of the destroyers' quadruple banks:
+  // a round head, a grey body and a brass-bound tail.
+  mk9: {
+    len: 7.21, r: 0.267, nose: 'round', head: 0.26, flask: 0.36, cone: 3.9, fin: 0.98,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x3b4044, flask: 0x8e9599, after: 0x80878b, tail: 0x8a7046, joint: 0x2b2f32, screw: 0xb38b4f },
+  },
+  // The Regia Marina's W 270/533.4 x 7.2 from Whitehead of Fiume: a pointed
+  // head and a light steel body.
+  w270: {
+    len: 7.2, r: 0.267, nose: 'ogive', head: 0.24, flask: 0.36, cone: 3.8, fin: 0.98,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x4a4d45, flask: 0x9da2a3, after: 0x8f9495, tail: 0x777c7d, joint: 0x2c2e2b, screw: 0xae8a54 },
+  },
   // The Surcouf's 55 cm 1924V: long, a round head and an olive warhead.
   l3: {
     len: 8.28, r: 0.275, nose: 'round', head: 0.25, flask: 0.38, cone: 4.0, fin: 0.98,
