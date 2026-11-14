@@ -300,6 +300,10 @@ import { Audio as AudioClass, audio as theAudio } from '../client/js/audio.js';
 import { RECIPES as SFX_RECIPES, rng as sfxRng, sfxKit } from '../client/js/sfx.js';
 import { Input } from '../client/js/input.js';
 import { pixelRadius } from '../client/js/render/pixelcull.js';
+import { pickLod, buildLodsNow, lodInfo, LOD_PX, setLods } from '../client/js/render/lod.js';
+import { shipClass } from '../shared/sim.js';
+import { addCrater as digCrater } from '../shared/world.js';
+import { seaSample as sampleSea, waveTerms as seaTerms } from '../shared/sea.js';
 import { Battle, airArsenal, poseBetween, recoilKick, blastScale, floatBetween, standInTown } from '../client/js/game.js';
 import { readSettings } from '../client/js/settings.js';
 import { ordnanceSheet } from '../client/js/battery.js';
@@ -32482,6 +32486,95 @@ check('an eighty-eight hurts only what its rounds burst near, not every aeroplan
   assert.ok(far.left >= none.left,
     `an eighty-eight five kilometres off their track shot down ${none.left - far.left} more than no gun at all`);
 }));
+
+// ------------------------------------------------------------- performance --
+
+check('a coarser copy of a mesh is drawn only where nobody could tell it from the mesh', () => {
+  // A hull's worth of fittings: a few thousand small boxes welded into one buffer.
+  const parts = [];
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 700; i++) {
+    const b = new THREE.BoxGeometry(0.5 + rnd() * 3, 0.5 + rnd() * 3, 0.5 + rnd() * 3, 2, 2, 2);
+    b.translate(rnd() * 200 - 100, rnd() * 20, rnd() * 24 - 12);
+    parts.push(b);
+  }
+  const pos = [], nrm = [], idx = [];
+  let off = 0;
+  for (const b of parts) {
+    pos.push(...b.attributes.position.array);
+    nrm.push(...b.attributes.normal.array);
+    for (const k of b.index.array) idx.push(k + off);
+    off += b.attributes.position.count;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  geo.setIndex(idx);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial());
+  const root = new THREE.Group();
+  root.add(mesh);
+  buildLodsNow(root);
+  const info = lodInfo(geo);
+  assert.ok(info && info.levels && info.levels.length >= 2, 'no coarser copies were made');
+  const full = idx.length / 3;
+  for (const [tris, err] of info.levels) assert.ok(tris < full && err > 0, `a copy of ${tris} triangles, ${err} m out`);
+  const k = 600;   // pixels a metre at a metre: a 1200-line buffer
+  // Close aboard: the whole of her.
+  assert.equal(pickLod(mesh, geo, 50, k, 1), geo, 'a mesh fifty metres off was drawn coarse');
+  // A long way off: a copy, and one that is out by under the limit there.
+  const far = pickLod(mesh, geo, 20000, k, 1);
+  assert.notEqual(far, geo, 'a mesh twenty kilometres off was drawn in full');
+  const errOf = (g) => info.levels.find(([t]) => t === (g.index.count / 3))[1];
+  assert.ok(errOf(far) * k / 20000 <= LOD_PX, 'the copy drawn is out by more than the limit');
+  // And never a copy out by more than half a pixel, at any range.
+  for (const d of [200, 800, 3000, 9000]) {
+    const g = pickLod(mesh, geo, d, k, 1);
+    if (g !== geo) assert.ok(errOf(g) * k / d <= LOD_PX, `at ${d} m the copy is out by ${(errOf(g) * k / d).toFixed(2)} px`);
+  }
+  // Switched off, everything is drawn in full.
+  setLods(false);
+  try { assert.equal(pickLod(mesh, geo, 20000, k, 1), geo, 'switched off, a copy was still drawn'); } finally { setLods(true); }
+  // Hit, and her buffer changed: she is drawn in full until fresh copies are made.
+  geo.attributes.position.needsUpdate = true;
+  assert.equal(pickLod(mesh, geo, 20000, k, 1), geo, 'a changed mesh was drawn with copies of what it used to be');
+});
+
+check("a ship's datasheet kept to hand is nothing anybody copying or sending her can see", () => {
+  const st = createState(generateWorld(11, 'open_ocean'), { mode: 'deathmatch' });
+  const s = addShip(st, { name: 'A', classId: 'iowa', team: 0, index: 0 });
+  const before = JSON.stringify(s);
+  assert.equal(shipClass(s), SHIP_CLASSES.iowa);
+  assert.equal(JSON.stringify(s), before, 'the datasheet went on the wire with her');
+  assert.ok(!('_cls' in structuredClone(s)), 'a copy of her carries the datasheet');
+  // And she is asked again under her own class if that ever changes.
+  s.classId = 'fletcher';
+  assert.equal(shipClass(s), SHIP_CLASSES.fletcher, 'the datasheet kept was for another class');
+});
+
+check('the drawn ground kept between ticks moves when a crater is dug in it', () => {
+  const w = generateWorld(2025, 'solomon_narrows');
+  const isle = (w.islands || [])[0];
+  assert.ok(isle, 'there is no island to dig into');
+  const x = isle.x, z = isle.z + isle.r * 0.4;
+  const was = drawnGround(w, x, z);
+  assert.equal(drawnGround(w, x, z), was);
+  digCrater(w, x, z, 40, 8);
+  // Asked again, the ground is the cratered ground, as a world that never
+  // kept anything would have it.
+  const fresh = generateWorld(2025, 'solomon_narrows');
+  digCrater(fresh, x, z, 40, 8);
+  assert.ok(drawnGround(fresh, x, z) < was - 0.5, 'the crater took nothing out of the ground');
+  assert.equal(drawnGround(w, x, z), drawnGround(fresh, x, z), 'the ground kept was the ground before the crater');
+});
+
+check('the height of the sea alone is the height the full sample gives', () => {
+  const W = seaTerms(1.6, 1, 0.3);
+  for (let i = 0; i < 500; i++) {
+    const x = Math.sin(i) * 9000, z = Math.cos(i * 1.3) * 9000, t = i * 0.77;
+    assert.equal(sampleSea(W, x, z, t, false).y, sampleSea(W, x, z, t, true).y);
+  }
+});
 
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

@@ -108,9 +108,25 @@ export function waveTerms(amp, steep = 1, short = 0) {
  */
 const BS = { y: 0, gx: 0, gz: 0 };
 
+// Each wave's sideways throw along x and z, multiplied out once: the same
+// products, taken in the same order, as the loops below used to take them on
+// every call, so the answer is the same to the last bit.
+function throwOf(W) {
+  if (W.qadx && W.qadx.length === W.n) return W;
+  const n = W.n;
+  W.qadx = new Float64Array(n);
+  W.qadz = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    W.qadx[i] = W.q[i] * W.a[i] * W.dirx[i];
+    W.qadz[i] = W.q[i] * W.a[i] * W.dirz[i];
+  }
+  return W;
+}
+
 export function seaSample(W, x, z, time, tilt = true) {
   const n = W.n;
   const DX = W.dirx, DZ = W.dirz, K = W.k, A = W.a, OM = W.om, Q = W.q;
+  const { qadx: QX, qadz: QZ } = throwOf(W);
   let px = x;
   let pz = z;
   for (let pass = 0; pass < 2; pass++) {
@@ -119,8 +135,8 @@ export function seaSample(W, x, z, time, tilt = true) {
     for (let i = 0; i < n; i++) {
       const ph = K[i] * (DX[i] * px + DZ[i] * pz) - OM[i] * time;
       const c = Math.cos(ph);
-      dx += Q[i] * A[i] * DX[i] * c;
-      dz += Q[i] * A[i] * DZ[i] * c;
+      dx += QX[i] * c;
+      dz += QZ[i] * c;
     }
     px = x - dx;
     pz = z - dz;
@@ -132,9 +148,9 @@ export function seaSample(W, x, z, time, tilt = true) {
     const ph = k * (dirx * px + dirz * pz) - OM[i] * time;
     const c = Math.cos(ph);
     const s = Math.sin(ph);
-    dx += q * a * dirx * c;
+    dx += QX[i] * c;
     dy += a * s;
-    dz += q * a * dirz * c;
+    dz += QZ[i] * c;
     if (!tilt) continue;
     const wa = k * a;
     ddxx += -q * wa * dirx * dirx * s;

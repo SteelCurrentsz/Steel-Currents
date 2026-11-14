@@ -1,12 +1,13 @@
-// Pooled sprite effects: shell splashes, explosions, fires, funnel smoke and
-// smoke screens. One shared canvas texture, two materials. A gun's flash and
-// smoke are handed on to muzzleblast.js.
+// Pooled effects: shell splashes, explosions, fires, funnel smoke and smoke
+// screens. The puffs are drawn as one instanced batch (see puffs.js). A gun's
+// flash and smoke are handed on to muzzleblast.js.
 
 import * as THREE from '../../../vendor/three.module.js';
 import { Splashes } from './splash.js';
 import { MuzzleBlasts, blastSize } from './muzzleblast.js';
 import { SmokeTrails } from './trails.js';
 import { Shards } from './shards.js';
+import { PuffBatches } from './puffs.js';
 
 function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
   const size = 128;
@@ -101,6 +102,7 @@ export function drift(p, dt) {
 }
 
 const POOL_SIZE = 900;
+const TMP_COLOR = new THREE.Color();
 const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const MUZZLE_DIR = new THREE.Vector3();
 
@@ -114,17 +116,12 @@ export class Effects {
     this.billowTex = billowTexture('rgba(255,255,255,0.95)');
     this.emberTex = billowTexture('rgba(255,240,205,1)');
 
-    this.smokeMat = new THREE.SpriteMaterial({ map: this.puffTex, transparent: true, depthWrite: false, opacity: 0.8 });
-    this.glowMat = new THREE.SpriteMaterial({ map: this.glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-
-    this.pool = [];
+    // The puffs themselves: as many as there ever were room for, drawn in
+    // one draw call however many are up (see puffs.js).
+    this.puffs = new PuffBatches(scene, POOL_SIZE, {
+      puff: this.puffTex, glow: this.glowTex, billow: this.billowTex, ember: this.emberTex,
+    });
     this.active = [];
-    for (let i = 0; i < POOL_SIZE; i++) {
-      const s = new THREE.Sprite(this.smokeMat.clone());
-      s.visible = false;
-      scene.add(s);
-      this.pool.push(s);
-    }
 
     // The water a round throws up is meshes, not sprites -- see splash.js.
     this.splashes = new Splashes(scene, intensity);
@@ -156,18 +153,12 @@ export class Effects {
     this.lightCursor = 0;
   }
 
-  take() {
-    const s = this.pool.pop();
-    if (!s) return null;
-    s.visible = true;
-    return s;
-  }
-
   spawn(opts) {
-    const s = this.take();
-    if (!s) return null;
+    // No more at once than the pool ever held.
+    if (this.active.length >= POOL_SIZE) return null;
+    const color = TMP_COLOR.set(opts.color ?? 0xffffff);
     const p = {
-      sprite: s, life: 0, ttl: opts.ttl ?? 1.2,
+      life: 0, ttl: opts.ttl ?? 1.2,
       vx: opts.vx ?? 0, vy: opts.vy ?? 0, vz: opts.vz ?? 0,
       grow: opts.grow ?? 12, size: opts.size ?? 12,
       fade: opts.fade ?? 1,
@@ -179,27 +170,26 @@ export class Effects {
       // smoke, which is buoyant for as long as it is hot.
       lift: opts.lift ?? -6,
     };
-    s.position.set(opts.x, opts.y, opts.z);
-    s.scale.setScalar(p.size);
-    s.material.map = opts.billow
-      ? (opts.glow ? this.emberTex : this.billowTex)
-      : (opts.glow ? this.glowTex : this.puffTex);
-    s.material.blending = opts.glow ? THREE.AdditiveBlending : THREE.NormalBlending;
+    p.x = opts.x; p.y = opts.y; p.z = opts.z;
+    p.scale = p.size;
+    // Which of the four pictures it is: the soft one or the lumpy one, and
+    // lit (added to the scene) or not (laid over it).
+    p.glow = !!opts.glow;
+    p.which = opts.billow ? 1 : 0;
     // Every puff hangs at its own angle and turns as it rises. Sprites all
     // sharing one rotation is the tell that a cloud is a handful of copies of
     // one picture, and it is the first thing the eye picks up.
-    s.material.rotation = opts.spin0 ?? Math.random() * Math.PI * 2;
+    p.rotation = opts.spin0 ?? Math.random() * Math.PI * 2;
     p.spin = opts.spin ?? (Math.random() - 0.5) * 0.5;
-    s.material.color.set(opts.color ?? 0xffffff);
-    s.material.opacity = opts.opacity ?? 0.85;
-    p.opacity0 = s.material.opacity;
+    p.r = color.r; p.g = color.g; p.b = color.b;
+    p.opacity = opts.opacity ?? 0.85;
+    p.opacity0 = p.opacity;
     // A colour to cool towards, if it is something burning rather than
     // something drifting.
     if (opts.cool != null) {
       p.cool = true;
-      const a = s.material.color;
-      p.r0 = a.r; p.g0 = a.g; p.b0 = a.b;
-      const b = new THREE.Color(opts.cool);
+      p.r0 = p.r; p.g0 = p.g; p.b0 = p.b;
+      const b = TMP_COLOR.set(opts.cool);
       p.r1 = b.r; p.g1 = b.g; p.b1 = b.b;
     }
     this.active.push(p);
@@ -1057,32 +1047,32 @@ export class Effects {
       p.life += dt;
       const k = p.life / p.ttl;
       if (k >= 1) {
-        p.sprite.visible = false;
-        this.pool.push(p.sprite);
-        this.active.splice(i, 1);
+        // Out of order: which one fills the gap does not matter, and a splice
+        // in the middle of nine hundred does.
+        const last = this.active.pop();
+        if (last !== p) this.active[i] = last;
         continue;
       }
       drift(p, dt);
-      p.sprite.position.x += p.vx * dt;
-      p.sprite.position.y = Math.max(0.5, p.sprite.position.y + p.vy * dt);
-      p.sprite.position.z += p.vz * dt;
-      p.sprite.scale.setScalar(p.size + p.grow * p.life);
-      p.sprite.material.rotation += p.spin * dt;
+      p.x += p.vx * dt;
+      p.y = Math.max(0.5, p.y + p.vy * dt);
+      p.z += p.vz * dt;
+      p.scale = p.size + p.grow * p.life;
+      p.rotation += p.spin * dt;
       // How it goes out. A puff of smoke thins evenly; a lump of burning fuel
       // is at its brightest immediately and cools through orange to black,
       // which is the whole difference between a fireball and a fog bank.
       if (p.cool) {
-        const c = p.sprite.material.color;
-        c.setRGB(
-          p.r0 + (p.r1 - p.r0) * k,
-          p.g0 + (p.g1 - p.g0) * k,
-          p.b0 + (p.b1 - p.b0) * k,
-        );
-        p.sprite.material.opacity = p.opacity0 * Math.min(1, (1 - k) * 2.2);
+        p.r = p.r0 + (p.r1 - p.r0) * k;
+        p.g = p.g0 + (p.g1 - p.g0) * k;
+        p.b = p.b0 + (p.b1 - p.b0) * k;
+        p.opacity = p.opacity0 * Math.min(1, (1 - k) * 2.2);
       } else {
-        p.sprite.material.opacity = p.opacity0 * (1 - k * k);
+        p.opacity = p.opacity0 * (1 - k * k);
       }
     }
+    for (const p of this.active) this.puffs.add(p);
+    this.puffs.write(camera);
     this.stepLights(dt);
   }
 

@@ -10,27 +10,6 @@ import * as THREE from '../../../vendor/three.module.js';
 import { NOISE } from './fire.js';
 import { SmokeTrails } from './trails.js';
 
-// A full billboard — these face the camera squarely rather than turning only
-// about the vertical, because a fireball has no up.
-const BILLBOARD_VERT = /* glsl */`
-uniform float uSize;
-uniform float uRise;
-uniform float uFogDensity;
-varying vec2 vUv;
-varying float vFog;
-
-void main() {
-  vUv = uv;
-  vec4 centre = modelViewMatrix * vec4(0.0, uRise, 0.0, 1.0);
-  centre.xy += position.xy * uSize;
-  // Drawn through the same haze as everything else at that range, or a blast
-  // two kilometres off is the only sharp thing in the frame.
-  float fd = uFogDensity * length(centre.xyz);
-  vFog = 1.0 - exp(-fd * fd);
-  gl_Position = projectionMatrix * centre;
-}
-`;
-
 // Value noise in three dimensions. A fireball has to be sampled on the ball it
 // is, not on the disc it is drawn as: sampling in polar coordinates makes the
 // lobes run out along the radius and turns the whole thing into a catherine
@@ -353,6 +332,163 @@ void main() {
 }
 `;
 
+// Every blast's cards of one kind, drawn in one go.
+//
+// A slot used to be nine meshes of its own -- the ball, five heads, the glare,
+// the flash, the column -- and the shockwave on the ground, each a draw call
+// with its own handful of uniforms; forty slots in a battle, and a fleet action
+// with magazines going up kept most of them busy at once. Now each kind of card
+// is one instanced draw for every blast in the sky, and what were uniforms are
+// carried on each instance: the same numbers, read by the same shaders.
+//
+// The order they are laid down in is the order the renderer used to sort the
+// meshes into: kind by kind (the column, the ring, the balls, the glare, the
+// flash -- their render orders), and within a kind the furthest first.
+
+// What each card carries for itself, and where in the two vectors it is.
+const PER_CARD = { uSize: 'iA.x', uRise: 'iA.y', uAge: 'iA.z', uKeep: 'iA.w',
+  uTau: 'iB.x', uSeed: 'iB.y', uPower: 'iB.z', uLife: 'iB.w' };
+const CARD_VARY = ['uAge', 'uKeep', 'uTau', 'uSeed', 'uPower', 'uLife'];
+
+const CARD_VERT = /* glsl */`
+attribute vec3 iPos;
+attribute vec4 iA;
+attribute vec4 iB;
+uniform float uFogDensity;
+varying vec2 vUv;
+varying float vFog;
+${CARD_VARY.map((n) => `varying float v_${n};`).join('\n')}
+
+void main() {
+  vUv = uv;
+  ${CARD_VARY.map((n) => `v_${n} = ${PER_CARD[n]};`).join('\n  ')}
+  vec4 centre = viewMatrix * vec4(iPos + vec3(0.0, iA.y, 0.0), 1.0);
+  centre.xy += position.xy * iA.x;
+  // Drawn through the same haze as everything else at that range, or a blast
+  // two kilometres off is the only sharp thing in the frame.
+  float fd = uFogDensity * length(centre.xyz);
+  vFog = 1.0 - exp(-fd * fd);
+  gl_Position = projectionMatrix * centre;
+}
+`;
+
+// The shockwave's card lies on the ground, at its own size, rather than
+// facing the eye.
+const RING_VERT = /* glsl */`
+attribute vec3 iPos;
+attribute vec4 iA;
+attribute vec4 iB;
+varying vec2 vUv;
+${CARD_VARY.map((n) => `varying float v_${n};`).join('\n')}
+void main() {
+  vUv = uv;
+  ${CARD_VARY.map((n) => `v_${n} = ${PER_CARD[n]};`).join('\n  ')}
+  gl_Position = projectionMatrix * viewMatrix * vec4(iPos + position * iA.x, 1.0);
+}
+`;
+
+/** A fragment shader as it was, with its per-card uniforms read off the card instead. */
+function perCard(frag) {
+  let out = frag;
+  for (const n of CARD_VARY) {
+    out = out.replace(new RegExp(`uniform float ${n};[^\\n]*`), `varying float v_${n};\n#define ${n} v_${n}`);
+  }
+  return out;
+}
+
+/**
+ * A stand-in for one card of one slot: what the slot's own code sets on it --
+ * whether it shows, where, how big, and its uniforms -- and nothing else. The
+ * layer it belongs to draws every one that is showing.
+ */
+function card(layer, names) {
+  const uniforms = {};
+  for (const n of names) uniforms[n] = { value: n === 'uLife' ? 2 : n === 'uAge' ? 99 : n === 'uKeep' || n === 'uTau' || n === 'uSize' ? 1 : 0 };
+  const c = { visible: false, position: new THREE.Vector3(), scale: new THREE.Vector3(1, 1, 1),
+    material: { uniforms }, seq: layer.cards.length };
+  layer.cards.push(c);
+  return c;
+}
+
+/** One kind of card, every blast's, in one instanced draw. */
+class CardLayer {
+  constructor(scene, { geo, vert, frag, uniforms, blending, order, max, ground = false }) {
+    this.max = max;
+    this.ground = ground;
+    this.cards = [];
+    const g = new THREE.InstancedBufferGeometry();
+    g.index = geo.index;
+    g.setAttribute('position', geo.attributes.position);
+    g.setAttribute('uv', geo.attributes.uv);
+    this.iPos = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);
+    this.iA = new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4);
+    this.iB = new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4);
+    for (const a of [this.iPos, this.iA, this.iB]) { a.setUsage(THREE.DynamicDrawUsage); }
+    g.setAttribute('iPos', this.iPos);
+    g.setAttribute('iA', this.iA);
+    g.setAttribute('iB', this.iB);
+    g.instanceCount = 0;
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: vert, fragmentShader: perCard(frag), uniforms,
+      transparent: true, depthWrite: false, blending, side: THREE.DoubleSide,
+    });
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.matrixAutoUpdate = false;
+    this.mesh.renderOrder = order;
+    this.mesh.visible = false;
+    scene.add(this.mesh);
+    this.live = [];
+  }
+
+  /** Every card that is showing, into the buffers, furthest from the eye first. */
+  write(camera) {
+    const live = this.live;
+    live.length = 0;
+    for (const c of this.cards) if (c.visible) live.push(c);
+    const n = Math.min(live.length, this.max);
+    if (camera && n > 1) {
+      // Along the line of sight, which is what the renderer sorted the
+      // meshes by: the depth of each card's own centre.
+      const e = camera.matrixWorldInverse.elements;
+      for (const c of live) {
+        const p = c.position;
+        c.depth = e[2] * p.x + e[6] * p.y + e[10] * p.z + e[14];
+      }
+      // Most negative is furthest; ties as they were made.
+      live.sort((a, b) => (a.depth - b.depth) || (a.seq - b.seq));
+    }
+    const P = this.iPos.array, A = this.iA.array, B = this.iB.array;
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < n; i++) {
+      const c = live[i];
+      const u = c.material.uniforms;
+      P[i * 3] = c.position.x; P[i * 3 + 1] = c.position.y; P[i * 3 + 2] = c.position.z;
+      A[i * 4] = this.ground ? c.scale.x : (u.uSize ? u.uSize.value : 1);
+      A[i * 4 + 1] = u.uRise ? u.uRise.value : 0;
+      A[i * 4 + 2] = u.uAge ? u.uAge.value : 0;
+      A[i * 4 + 3] = u.uKeep ? u.uKeep.value : 1;
+      B[i * 4] = u.uTau ? u.uTau.value : 1;
+      B[i * 4 + 1] = u.uSeed ? u.uSeed.value : 0;
+      B[i * 4 + 2] = u.uPower ? u.uPower.value : 0;
+      B[i * 4 + 3] = u.uLife ? u.uLife.value : 0;
+      cx += c.position.x; cy += c.position.y; cz += c.position.z;
+    }
+    this.geo.instanceCount = n;
+    this.mesh.visible = n > 0;
+    if (n) {
+      this.geo.boundingSphere.center.set(cx / n, cy / n, cz / n);
+      for (const a of [this.iPos, this.iA, this.iB]) {
+        a.clearUpdateRanges();
+        a.addUpdateRange(0, n * a.itemSize);
+        a.needsUpdate = true;
+      }
+    }
+  }
+}
+
 // Debris: everything thrown out by every blast at once, in one buffer. Each
 // point carries where it started, how fast, and when — the arc is worked out in
 // the vertex stage so the CPU never touches a particle.
@@ -442,6 +578,23 @@ export class ExplosionSystem {
     this.fogDensity = scene.fog ? (scene.fog.density || 0) : 0;
     this.slots = [];
 
+    // The cards, a layer for each kind, with room for every slot's.
+    const fogU = () => ({ uFogColor: { value: this.fogColor }, uFogDensity: { value: this.fogDensity } });
+    const ringGeo = new THREE.PlaneGeometry(1, 1, 1, 1);
+    ringGeo.rotateX(-Math.PI / 2);
+    this.layers = {
+      plume: new CardLayer(scene, { geo: QUAD, vert: CARD_VERT, frag: PLUME_FRAG, blending: THREE.NormalBlending,
+        order: 9, max: slots, uniforms: { ...fogU(), uLit: { value: new THREE.Color(0.7, 0.28, 0.07) } } }),
+      ring: new CardLayer(scene, { geo: ringGeo, vert: RING_VERT, frag: RING_FRAG, blending: THREE.NormalBlending,
+        order: 10, max: slots, uniforms: {}, ground: true }),
+      ball: new CardLayer(scene, { geo: QUAD, vert: CARD_VERT, frag: FIREBALL_FRAG, blending: THREE.NormalBlending,
+        order: 11, max: slots * (1 + LOBES), uniforms: { ...fogU(), uLit: { value: new THREE.Color(0.42, 0.16, 0.05) } } }),
+      glare: new CardLayer(scene, { geo: QUAD, vert: CARD_VERT, frag: GLARE_FRAG, blending: THREE.AdditiveBlending,
+        order: 12, max: slots, uniforms: { ...fogU() } }),
+      flash: new CardLayer(scene, { geo: QUAD, vert: CARD_VERT, frag: FLASH_FRAG, blending: THREE.AdditiveBlending,
+        order: 13, max: slots, uniforms: { ...fogU() } }),
+    };
+
     for (let i = 0; i < slots; i++) this.slots.push(this.makeSlot());
 
     // Debris for every blast, in one draw.
@@ -472,63 +625,20 @@ export class ExplosionSystem {
   }
 
   makeSlot() {
-    const mk = (frag, extra, blending, order) => {
-      const mat = new THREE.ShaderMaterial({
-        vertexShader: BILLBOARD_VERT,
-        fragmentShader: frag,
-        uniforms: {
-          uLife: { value: 2 }, uAge: { value: 99 }, uTau: { value: 1 },
-          uSeed: { value: 0 },
-          uPower: { value: 0 }, uSize: { value: 1 }, uRise: { value: 0 }, uKeep: { value: 1 },
-          uFogColor: { value: this.fogColor }, uFogDensity: { value: this.fogDensity },
-          ...extra,
-        },
-        transparent: true,
-        depthWrite: false,
-        blending,
-        side: THREE.DoubleSide,
-      });
-      const m = new THREE.Mesh(QUAD, mat);
-      m.frustumCulled = false;
-      m.renderOrder = order;
-      m.visible = false;
-      this.scene.add(m);
-      return m;
-    };
-
-    // The ball is drawn solid: soot that cannot darken what is behind it is not
-    // soot, and an additive fireball is a lamp. The glare over it carries the
-    // light instead.
-    const ball = mk(FIREBALL_FRAG, { uLit: { value: new THREE.Color(0.42, 0.16, 0.05) } },
-      THREE.NormalBlending, 11);
-    const glare = mk(GLARE_FRAG, {}, THREE.AdditiveBlending, 12);
-    const flash = mk(FLASH_FRAG, {}, THREE.AdditiveBlending, 13);
+    const L = this.layers;
+    const all = ['uLife', 'uAge', 'uTau', 'uSeed', 'uPower', 'uSize', 'uRise', 'uKeep'];
+    const ball = card(L.ball, all);
+    const glare = card(L.glare, all);
+    const flash = card(L.flash, all);
     // Heads of her own, boiling out of her sides and top. One ball, however
     // lumpy, is still one ball -- an egg from far enough off. A real blast is
     // a cluster of them, each burning and cooling on its own, and it is the
     // cluster that gives the cauliflower outline.
     const lobes = [];
-    for (let k = 0; k < LOBES; k++) {
-      lobes.push(mk(FIREBALL_FRAG, { uLit: { value: new THREE.Color(0.42, 0.16, 0.05) } },
-        THREE.NormalBlending, 11));
-    }
-    const plume = mk(PLUME_FRAG, { uLit: { value: new THREE.Color(0.7, 0.28, 0.07) } },
-      THREE.NormalBlending, 9);
-
+    for (let k = 0; k < LOBES; k++) lobes.push(card(L.ball, all));
+    const plume = card(L.plume, all);
     // The shockwave lies on the ground rather than facing the camera.
-    const ringGeo = new THREE.PlaneGeometry(1, 1, 1, 1);
-    ringGeo.rotateX(-Math.PI / 2);
-    const ring = new THREE.Mesh(ringGeo, new THREE.ShaderMaterial({
-      vertexShader: `varying vec2 vUv; void main(){ vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-      fragmentShader: RING_FRAG,
-      uniforms: { uLife: { value: 2 } },
-      transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    }));
-    ring.frustumCulled = false;
-    ring.renderOrder = 10;
-    ring.visible = false;
-    this.scene.add(ring);
+    const ring = card(L.ring, ['uLife']);
 
     // Stood in for by a plain object where there are to be no lights, so
     // nothing below has to ask.
@@ -692,7 +802,7 @@ export class ExplosionSystem {
       viewportHeight / (2 * Math.tan((fovDeg * Math.PI) / 360));
   }
 
-  update(dt) {
+  update(dt, camera = null) {
     this.time += dt;
     this.debrisMat.uniforms.uTime.value = this.time;
     this.trails.update(dt);
@@ -779,5 +889,8 @@ export class ExplosionSystem {
         s.flash.visible = s.glare.visible = false;
       }
     }
+    // And every card that is showing, into its layer's draw.
+    if (camera) camera.updateMatrixWorld();
+    for (const k in this.layers) this.layers[k].write(camera);
   }
 }

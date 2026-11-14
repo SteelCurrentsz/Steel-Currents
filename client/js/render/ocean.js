@@ -1289,7 +1289,10 @@ export class Ocean {
 
   /** Wave height at a world point. */
   heightAt(x, z, time = this.material.uniforms.uTime.value) {
-    return this.sample(x, z, time).y;
+    // The height alone: the same number, without the slope worked out to go
+    // with it and thrown away. Thousands of these are asked for a frame.
+    const u = this.material.uniforms;
+    return seaSample(this.waveTerms(u.uAmp.value, u.uSteep.value), x, z, time, false).y;
   }
 
   /**

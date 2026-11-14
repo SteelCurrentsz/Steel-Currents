@@ -389,7 +389,27 @@ export function addShip(state, {
   return ship;
 }
 
-export function shipClass(ship) { return getClass(ship.classId); }
+/**
+ * Her class's datasheet. Asked for many thousands of times a tick -- every
+ * pair of hulls, every shell against every ship -- so each ship keeps hers to
+ * hand, on a property nothing that copies or sends a ship can see, against the
+ * class she was asked for under.
+ */
+export function shipClass(ship) {
+  const c = ship._cls;
+  if (c !== undefined && ship._clsOf === ship.classId) return c;
+  const cls = getClass(ship.classId);
+  if (Object.isExtensible(ship)) {
+    if (c === undefined) {
+      Object.defineProperty(ship, '_cls', { value: cls, writable: true, enumerable: false, configurable: true });
+      Object.defineProperty(ship, '_clsOf', { value: ship.classId, writable: true, enumerable: false, configurable: true });
+    } else {
+      ship._cls = cls;
+      ship._clsOf = ship.classId;
+    }
+  }
+  return cls;
+}
 
 /** Muzzle-speed compression: shells fly faster than life so battles stay readable. */
 function effVelocity(gunSpec) { return gunSpec.shells.ap.velocity * 1.5; }
@@ -1001,6 +1021,23 @@ export function keelContact(world, ship, cls, x, z, heading) {
   return out;
 }
 
+// Where she was at the end of her last step is where she starts this one, so
+// the contact she ended on is the one she starts from: asked for twice a
+// tick, it was worked out twice. Kept against everything it is worked out
+// from, so anything that moves her, changes her draft or changes the ground
+// works it out afresh.
+const KEEL_SEEN = new WeakMap();
+function keelAt(world, ship, cls, x, z, heading) {
+  const T = keelDepth(ship, cls);
+  const rev = world.groundRev || 0;
+  const c = KEEL_SEEN.get(ship);
+  if (c && c.x === x && c.z === z && c.h === heading && c.T === T && c.cls === cls
+    && c.rev === rev && c.cr === world.craters) return c.out;
+  const out = keelContact(world, ship, cls, x, z, heading);
+  KEEL_SEEN.set(ship, { x, z, h: heading, T, cls, rev, cr: world.craters, out });
+  return out;
+}
+
 /** How far into the ground her bottom is pressed at the worst place, for a given contact. */
 function groundDig(c, T) {
   return Math.min(c.max, T * 0.6, c.max * 0.4 + 0.3);
@@ -1142,8 +1179,8 @@ function scoreGround(state, ship, cls) {
  * false when she is free to go where she was going.
  */
 function touchBottom(state, ship, cls, h0, nx, nz, dt) {
-  const was = keelContact(state.world, ship, cls, ship.x, ship.z, h0);
-  const now = keelContact(state.world, ship, cls, nx, nz, ship.heading);
+  const was = keelAt(state.world, ship, cls, ship.x, ship.z, h0);
+  const now = keelAt(state.world, ship, cls, nx, nz, ship.heading);
   const T = keelDepth(ship, cls);
   const v = Math.abs(ship.speed);
   const where = (k) => sectionAt(k, 'belt');
@@ -3227,7 +3264,7 @@ function deliverOrdnance(state, p, best, P) {
   // It is sent instead at where she will be, and at the part of her the
   // pilot had in his sight: the point of her nearest where the dive was
   // pointing, kept inside her decks.
-  const cls = getClass(best.classId);
+  const cls = shipClass(best);
   const drop = bombFall(p, best);
   const v = velocityOf(best);
   const sx = best.x + v.x * drop, sz = best.z + v.z * drop;
@@ -3670,7 +3707,7 @@ function stepBullets(state, dt) {
     // Ships. Her box and her air draft, in four steps along the segment.
     for (const s of state.ships) {
       if (!s.alive || !mayHurt(state, b.team, s)) continue;
-      const cls = getClass(s.classId);
+      const cls = shipClass(s);
       if (dist2(b.x, b.z, s.x, s.z) > 9e6) continue;
       const halfLen = cls.hull.length * 0.5;
       const halfBeam = cls.hull.beam * 0.5;
@@ -4134,7 +4171,7 @@ export function dropOrdnance(state, ship, id) {
   if ((p.asw ?? 0) > 0 && torp <= 0 && bomb <= 0) {
     let sub = null, sd = ASW_SONAR;
     for (const s of state.ships) {
-      if (!s.alive || !mayHurt(state, p.team, s) || !getClass(s.classId).dive) continue;
+      if (!s.alive || !mayHurt(state, p.team, s) || !shipClass(s).dive) continue;
       const d = dist(p.x, p.z, s.x, s.z);
       if (d < sd) { sd = d; sub = s; }
     }
@@ -4409,6 +4446,32 @@ export function mountBears(ship, spec, worldBearing) {
 }
 
 /**
+ * The enemy ships her side has in sight, nearest first, with the range and
+ * bearing to each from where she is. Every one of her secondary and
+ * dual-purpose mountings looks through the same list for something it can
+ * bear on, and a battleship has a dozen of them: it is drawn up once for all
+ * of them, and drawn up again the moment she, or the tick, has moved on.
+ * Ships later in the list than her have not had their step yet this tick,
+ * and nothing between her secondaries and her dual-purpose guns moves anyone.
+ */
+const FOES_SEEN = new WeakMap();
+function foesInSight(state, ship) {
+  const c = FOES_SEEN.get(ship);
+  if (c && c.tick === state.tick && c.st === state && c.x === ship.x && c.z === ship.z) return c.list;
+  const list = [];
+  for (const foe of state.ships) {
+    if (!foe.alive || foe.team === ship.team) continue;
+    if (!foe.spottedBy[ship.team]) continue;
+    list.push({ foe, d: dist(ship.x, ship.z, foe.x, foe.z), b: headingTo(ship.x, ship.z, foe.x, foe.z) });
+  }
+  // Stable, so of two at the same range the one first in the list is first,
+  // as it was.
+  list.sort((p, q) => p.d - q.d);
+  FOES_SEEN.set(ship, { tick: state.tick, st: state, x: ship.x, z: ship.z, list });
+  return list;
+}
+
+/**
  * What a secondary mounting shoots at: the nearest enemy she can see, inside
  * her own range, on a bearing she can actually train to.
  */
@@ -4426,19 +4489,19 @@ function secondaryTarget(state, ship, spec, S, m = null) {
   }
   let best = null;
   let bestD = Infinity;
-  for (const foe of state.ships) {
-    if (!foe.alive || foe.team === ship.team) continue;
-    if (!foe.spottedBy[ship.team]) continue;
-    const d = dist(ship.x, ship.z, foe.x, foe.z);
-    if (d > S.range || d >= bestD) continue;
-    const b = headingTo(ship.x, ship.z, foe.x, foe.z);
-    if (!mountBears(ship, spec, b)) continue;
+  // Nearest first, so the first that will do is the one: the same ship the
+  // nearest-wins search over the whole list would have found.
+  for (const c of foesInSight(state, ship)) {
+    const d = c.d;
+    if (d > S.range) break;
+    if (!c.foe.alive || !mountBears(ship, spec, c.b)) continue;
     // Nor one it would have to shoot through her to hit: her gun captain
     // picks something he can fire at.
     if (spec.mask && solveBallistic(S, clamp(d, 400, S.range), 10).elev
-      < layFloor(spec.mask, wrapAngle(b - ship.heading))) continue;
-    best = foe;
+      < layFloor(spec.mask, wrapAngle(c.b - ship.heading))) continue;
+    best = c.foe;
     bestD = d;
+    break;
   }
   if (best) return best;
   // Nothing afloat in reach: a gun ashore that is, which is what a cruiser's
@@ -5065,7 +5128,7 @@ export const TANK_LANDING_RUN = 60;
  */
 export function embarkTank(state, bat, ship, slot = 0) {
   if (!bat || !bat.tank || !ship) return false;
-  const cls = getClass(ship.classId);
+  const cls = shipClass(ship);
   const room = tankRoom(cls, bat.batteryId);
   if (!(slot >= 0 && slot < room)) return false;
   if (state.batteries.some((o) => o !== bat && o.alive && o.aboard === ship.id && o.slot === slot)) return false;
@@ -5176,7 +5239,7 @@ function stepTank(state, bat, b, dt) {
       state.events.push({ e: 'batterySilenced', x: bat.x, y: bat.y, z: bat.z, id: bat.id });
       return;
     }
-    const cls = getClass(ship.classId);
+    const cls = shipClass(ship);
     // Her ramp down: driven off by a player who puts his foot down, and by
     // its own crew one after another, front rank first -- the one behind
     // waiting until the one in front of it is well down the ramp.
@@ -6161,7 +6224,7 @@ function batteryWants(state, bat, ship, d, gun) {
   // Laid on this position by her own gunnery officer (see bots.js).
   if (ship.firingBat === bat.id) v += 2;
   v += (1 - ship.hp / Math.max(1, ship.maxHp)) * 4;
-  const cls = getClass(ship.classId);
+  const cls = shipClass(ship);
   if (cls.type === 'DD' && d < gun.range * 0.5) v += 1.5;
   if (cls.type === 'CV') v += 1;
   if (ship.id === bat.targetId) v += 1.5;
@@ -6730,7 +6793,7 @@ function mortarMiss(state, sh) {
   const reach = 40;
   for (const q of state.ships) {
     if (!q.alive || !mayHurt(state, sh.team, q)) continue;
-    const cls = getClass(q.classId);
+    const cls = shipClass(q);
     const l = worldToLocal(sh.x - q.x, sh.z - q.z, q.heading);
     // Distance to her side or her ends, not to her middle.
     const dx = Math.max(0, Math.abs(l.x) - cls.hull.beam / 2);
@@ -7108,7 +7171,7 @@ function batteryShell(gun, target) {
   // A point in the chart, a town or a wall: high explosive, which is what
   // knocks down what is built.
   if (target && (target.point || target.kind === 'town' || target.kind === 'wall')) return he;
-  const cls = target && target.classId ? getClass(target.classId) : null;
+  const cls = target && target.classId ? shipClass(target) : null;
   if (cls && (cls.type === 'DD' || cls.type === 'CV' || cls.type === 'SS')) return he;
   return ap;
 }
@@ -7544,7 +7607,7 @@ function stepShells(state, dt) {
       if (!target.alive || !mayHurt(state, sh.team, target)) continue;
       // Never the ship that fired it: it leaves her muzzles inside her own box.
       if (target.id === sh.owner && !sh.fromBattery && !sh.bomb) continue;
-      const cls = getClass(target.classId);
+      const cls = shipClass(target);
       const halfLen = cls.hull.length * 0.5;
       const halfBeam = cls.hull.beam * 0.5 + 2;
       const deck = 9 + cls.hull.superstructure * 14;
@@ -7726,7 +7789,7 @@ function atomicArrives(state, sh, px, py, pz) {
     const cx = lerp(px, sh.x, f), cz = lerp(pz, sh.z, f), cy = lerp(py, sh.y, f);
     for (const target of state.ships) {
       if (!target.alive) continue;
-      const cls = getClass(target.classId);
+      const cls = shipClass(target);
       const deck = 9 + cls.hull.superstructure * 14;
       if (cy > deck) continue;
       if (!pointInBox(cx, cz, target.x, target.z, target.heading, cls.hull.length * 0.5, cls.hull.beam * 0.5 + 2)) continue;
@@ -7836,7 +7899,7 @@ function stepNukes(state, dt) {
     const crossed = (d) => d <= r1 && (d > r0 || (r0 === 0 && d >= 0));
     for (const s of state.ships) {
       if (!s.alive) continue;
-      const cls = getClass(s.classId);
+      const cls = shipClass(s);
       const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
       if (!crossed(d)) continue;
       // A boat deep under is spared a little of it by the water over her;
@@ -7919,7 +7982,7 @@ function stepNukes(state, dt) {
     if (w1 > w0) {
       for (const s of state.ships) {
         if (!s.alive || (s.depth || 0) > 8) continue;
-        const cls = getClass(s.classId);
+        const cls = shipClass(s);
         const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
         if (d <= w0 || d > w1) continue;
         const h = waveHeight(d, k);
@@ -8681,7 +8744,7 @@ function deckHole(kind, bore) {
 }
 
 export function resolveShellHit(state, sh, target, cx, cz, cy) {
-  const cls = getClass(target.classId);
+  const cls = shipClass(target);
   const spec = sh.spec;
   const l = worldToLocal(cx - target.x, cz - target.z, target.heading);
   const speed = Math.hypot(sh.vx, sh.vz);
@@ -9263,7 +9326,7 @@ function stepTorpedoes(state, dt) {
         if (!target.alive || !mayHurt(state, tp.team, target)) continue;
         // Not the ship that fired it while it is still getting clear of her.
         if (target.id === tp.owner && tp.age < 10) continue;
-        const cls = getClass(target.classId);
+        const cls = shipClass(target);
         // Swept along the run it made this tick, not only where it ended up,
         // so a fish fired into a ship from close aboard cannot step over her.
         const px = tp.x - Math.sin(tp.heading) * tp.speed * dt;
@@ -10167,7 +10230,7 @@ function missileFlak(state, m, dt) {
   let down = false;
   for (const s of state.ships) {
     if (!s.alive || s.team === m.team || gunsDrowned(s) || s.blown) continue;
-    const scls = getClass(s.classId);
+    const scls = shipClass(s);
     if (!scls.aa) continue;
     const d = dist(m.x, m.z, s.x, s.z);
     if (d >= scls.aa.range) continue;
@@ -10244,7 +10307,7 @@ function stepGroundMissile(state, m, K, dt) {
     if (near <= (K.nuclear ? K.fuze || 45 : sh ? 14 : 9)) {
       if (K.nuclear) return !missileNuke(state, m, m.x, m.y, m.z);
       const victim = sh ? sh.id : 0, bat = b && b.alive ? b.id : undefined;
-      if (sh) missileHit(state, m, K, sh, getClass(sh.classId));
+      if (sh) missileHit(state, m, K, sh, shipClass(sh));
       else {
         if (b && b.alive) hurtBattery(state, b, K.damage);
         landStrike(state, m.gx, m.gz, 0.3, 'bomb', 1.2);
@@ -10393,7 +10456,7 @@ function stepMissiles(state, dt) {
     let hit = false;
     for (const s of state.ships) {
       if (!s.alive || s.team === m.team || submerged(s)) continue;
-      const scls = getClass(s.classId);
+      const scls = shipClass(s);
       const top = (scls.hull.superstructure || 1.3) * 14;
       for (let k = 1; k <= 3 && !hit; k++) {
         const qx = px + (m.x - px) * (k / 3), qz = pz + (m.z - pz) * (k / 3), qy = py + (m.y - py) * (k / 3);
@@ -10546,12 +10609,12 @@ function rbuTarget(state, ship, cls, spec) {
   // A boat under the water, on her sonar: deaf at speed, as every hull set is.
   if (!(R.sonarSpeed && Math.abs(ship.speed) > R.sonarSpeed)) {
     for (const boat of state.ships) {
-      if (!boat.alive || boat.team === ship.team || !getClass(boat.classId).dive || !submerged(boat)) continue;
+      if (!boat.alive || boat.team === ship.team || !shipClass(boat).dive || !submerged(boat)) continue;
       const d = dist(ship.x, ship.z, boat.x, boat.z);
       if (d > R.sonar || d >= bd) continue;
       const aim = led(boat.x, boat.z, boat.heading, boat.speed);
       if (!reach(aim.x, aim.z)) { hold('sub', boat.id, aim, d); continue; }
-      best = { kind: 'sub', id: boat.id, x: aim.x, z: aim.z, set: Math.max(6, boat.depth + getClass(boat.classId).hull.draft * 0.5) };
+      best = { kind: 'sub', id: boat.id, x: aim.x, z: aim.z, set: Math.max(6, boat.depth + shipClass(boat).hull.draft * 0.5) };
       bd = d;
     }
     if (best) return best;
@@ -10559,7 +10622,7 @@ function rbuTarget(state, ship, cls, spec) {
   if (held) return held;
   // A ship she can see, close aboard: thrown at her like a mortar.
   for (const foe of state.ships) {
-    if (!foe.alive || foe.team === ship.team || (getClass(foe.classId).dive && submerged(foe))) continue;
+    if (!foe.alive || foe.team === ship.team || (shipClass(foe).dive && submerged(foe))) continue;
     if (foe.spottedBy && !foe.spottedBy[ship.team]) continue;
     const d = dist(ship.x, ship.z, foe.x, foe.z);
     if (d >= bd) continue;
@@ -10663,11 +10726,11 @@ function rbuPin(state, ship, R, spec) {
   }
   let set = 8, near = R.spread * 4;
   for (const boat of state.ships) {
-    if (!boat.alive || boat.team === ship.team || !getClass(boat.classId).dive || !submerged(boat)) continue;
+    if (!boat.alive || boat.team === ship.team || !shipClass(boat).dive || !submerged(boat)) continue;
     const off = dist(x, z, boat.x, boat.z);
     if (off >= near) continue;
     near = off;
-    set = Math.max(6, boat.depth + getClass(boat.classId).hull.draft * 0.5);
+    set = Math.max(6, boat.depth + shipClass(boat).hull.draft * 0.5);
   }
   return { kind: 'pin', x, z, set };
 }
@@ -10874,7 +10937,7 @@ export function sonarContact(state, ship) {
   let best = null;
   for (const boat of state.ships) {
     if (!boat.alive || boat.team === ship.team) continue;
-    if (!getClass(boat.classId).dive || !submerged(boat)) continue;
+    if (!shipClass(boat).dive || !submerged(boat)) continue;
     const range = dist(ship.x, ship.z, boat.x, boat.z);
     if (range > D.sonar) continue;
     // And the near limit: the beam will not depress far enough to follow her
@@ -11104,7 +11167,7 @@ function burstCharge(state, c) {
     // making way goes off under her own quarterdeck -- but another ship of
     // her side only with friendly fire on.
     if (target.id !== c.owner && !mayHurt(state, c.team ?? (owner && owner.team), target)) continue;
-    const cls = getClass(target.classId);
+    const cls = shipClass(target);
     // How far it is from the burst to the nearest piece of her. Her hull is a
     // box: her length and beam in plan, and in the vertical from her keel to
     // her deck -- which for a boat that is down is the whole of her, thirty
@@ -11210,7 +11273,7 @@ function stepMines(state, dt) {
     for (const target of state.ships) {
       if (!target.alive) continue;
       if (target.id !== m.owner && !mayHurt(state, m.team, target)) continue;
-      const cls = getClass(target.classId);
+      const cls = shipClass(target);
       // Her hull, top to keel, against the depth the horns ride at. A boat
       // that draws less than the mooring goes over it; a submarine running
       // deep goes under.
@@ -11238,7 +11301,7 @@ function stepMines(state, dt) {
  * is the sea's way into her.
  */
 function burstMine(state, m, target) {
-  const cls = getClass(target.classId);
+  const cls = shipClass(target);
   const owner = state.ships.find((s) => s.id === m.owner);
   const lt = worldToLocal(m.x - target.x, m.z - target.z, target.heading);
   const hole = sectionAt(clamp(lt.z / (cls.hull.length * 0.5), -1, 1), 'belt');
@@ -13301,7 +13364,7 @@ function aaBite(d, range) {
 }
 
 /** How big a hull is, for the purpose of deciding who goes after her. */
-function bulk(s) { return getClass(s.classId).hull.length; }
+function bulk(s) { return shipClass(s).hull.length; }
 
 /**
  * A strike flight of her own side to go in in front of, and the ship it is
@@ -13432,7 +13495,7 @@ export function pickAirTarget(state, p) {
     // is worth a few miles more of flying: a carrier's deck is the enemy's
     // whole air group, and a ship already burning is one bomb from the bottom.
     else {
-      v = d * 0.02 - (getClass(s2.classId).type === 'CV' ? 110 : 0)
+      v = d * 0.02 - (shipClass(s2).type === 'CV' ? 110 : 0)
         - (1 - s2.hp / Math.max(1, s2.maxHp)) * 70;
     }
     if (v < score) { best = s2; score = v; bestD = d; }
@@ -13626,7 +13689,7 @@ function sweepIntoShip(state, p, was) {
   const n = Math.min(80, Math.ceil(len / 3));
   for (const s of state.ships) {
     if (!s.alive || !mayHurt(state, p.team, s)) continue;
-    const cls = getClass(s.classId);
+    const cls = shipClass(s);
     if (dist2(to.x, to.z, s.x, s.z) > (cls.hull.length + len) ** 2) continue;
     for (let i = 1; i <= n; i++) {
       const f = i / n;
@@ -14109,7 +14172,7 @@ function fallInto(state, f, x0, y0, z0, air) {
   // A ship.
   for (const s of state.ships) {
     if (!s.alive || !mayHurt(state, f.team, s)) continue;
-    const cls = getClass(s.classId);
+    const cls = shipClass(s);
     if (dist2(f.x, f.z, s.x, s.z) > (cls.hull.length * 0.6 + 30) ** 2) continue;
     for (let i = 1; i <= 4; i++) {
       const k = i / 4;
@@ -14169,7 +14232,7 @@ function stepHeavyRam(state, bm) {
   if (!lead) return;
   for (const s of state.ships) {
     if (!s.alive || !mayHurt(state, bm.team, s)) continue;
-    const cls = getClass(s.classId);
+    const cls = shipClass(s);
     if (!planeInShip(bm, s, cls)) continue;
     const L = heavyLoad(bm);
     const sp = Math.max(40, bm.speed || 80);
@@ -14349,7 +14412,7 @@ function stepRam(state, p) {
     if (!s.alive || !mayHurt(state, p.team, s)) continue;
     // A helicopter coming down onto her own ship's deck is landing on it.
     if (s.id === p.owner && p.land && p.land.leg === 'hover') continue;
-    const cls = getClass(s.classId);
+    const cls = shipClass(s);
     if (!planeInShip(p, s, cls)) continue;
     return ramShip(state, p, s, cls);
   }
@@ -14893,7 +14956,7 @@ function stepAirJobs(state, p, carrier) {
     if (p.ax === undefined) { p.ax = p.tx; p.az = p.tz; }
     let best = null, bd = ASW_SONAR;
     for (const s of state.ships) {
-      if (!s.alive || s.team === p.team || !getClass(s.classId).dive) continue;
+      if (!s.alive || s.team === p.team || !shipClass(s).dive) continue;
       const d = dist(p.x, p.z, s.x, s.z);
       if (d < bd) { bd = d; best = s; }
     }
@@ -14910,7 +14973,7 @@ function stepAirJobs(state, p, carrier) {
     // used to hover over the ship she was sent at with both still on her.
     let ship = null, sd = Infinity;
     for (const s of state.ships) {
-      if (!s.alive || s.team === p.team || !mayHurt(state, p.team, s) || getClass(s.classId).dive) continue;
+      if (!s.alive || s.team === p.team || !mayHurt(state, p.team, s) || shipClass(s).dive) continue;
       if (dist(s.x, s.z, p.ax, p.az) > ASW_SHIP_NEAR) continue;
       const d = dist(p.x, p.z, s.x, s.z);
       if (d < sd) { sd = d; ship = s; }
@@ -15349,7 +15412,7 @@ function stepPlanes(state, dt) {
     // find her, and she is dropped here rather than counted again.
     if (p.dead) continue;
     const carrier = state.ships.find((s) => s.id === p.owner);
-    const cls = carrier ? getClass(carrier.classId) : null;
+    const cls = carrier ? shipClass(carrier) : null;
     const P = cls && cls.planes ? cls.planes : null;
     if (!P) continue;
     p.life += dt;
@@ -15369,7 +15432,7 @@ function stepPlanes(state, dt) {
       // A boat that is down has her flak under water with everything else, and
       // an aeroplane overhead has nothing whatever to fear from her.
       if (gunsDrowned(s) || s.blown) continue;
-      const scls = getClass(s.classId);
+      const scls = shipClass(s);
       if (!scls.aa) continue;
       const d = dist(p.x, p.z, s.x, s.z);
       if (d >= scls.aa.range) continue;
@@ -16544,7 +16607,7 @@ function killFlight(state, p, why) {
 function sweepSquadrons(state) {
   for (const ship of state.ships) {
     if (!ship.squadrons.length) continue;
-    const cls = getClass(ship.classId);
+    const cls = shipClass(ship);
     if (!cls.planes) continue;
     for (const sq of ship.squadrons) {
       if (sq.state !== 'flying') continue;
@@ -16783,7 +16846,7 @@ function heavyPicksTarget(state, bm) {
   let score = -Infinity;
   for (const s of state.ships) {
     if (!s.alive || s.team === bm.team) continue;
-    const cls = getClass(s.classId);
+    const cls = shipClass(s);
     const v = (cls.type === 'CV' ? 260 : cls.hull.length)
       - dist(bm.x, bm.z, s.x, s.z) * 0.004;
     if (v > score) { score = v; best = { x: s.x, z: s.z, id: s.id }; }
@@ -16925,7 +16988,7 @@ function heavyFlak(state, bm, dt) {
   let taken = 0;
   for (const s of state.ships) {
     if (!s.alive || s.team === bm.team || s.blown) continue;
-    const cls = getClass(s.classId);
+    const cls = shipClass(s);
     if (!cls.aa) continue;
     const d = dist(bm.x, bm.z, s.x, s.z);
     // Slant range, and only the long-range mountings reach this high.
@@ -17453,7 +17516,7 @@ function alcmPick(state, bm, reach) {
   let best = null, score = -Infinity;
   for (const s of state.ships) {
     if (!missileMark(state, bm.team, s) || alcmBusy(state, bm, s.id)) continue;
-    const cls = getClass(s.classId);
+    const cls = shipClass(s);
     const d = dist(bm.x, bm.z, s.x, s.z);
     const v = (cls.type === 'CV' ? 320 : cls.hull.length) - d * 0.006 - (d > reach ? 400 : 0);
     if (v > score) { score = v; best = s; }
@@ -18824,8 +18887,7 @@ export function integrityParts(ship) {
  *   internal -- what is inside her and working: her guns and their mountings,
  *   her machinery, her steering, and her magazines, burning or gone.
  */
-export function integrityCategories(ship) {
-  const p = integrityParts(ship);
+export function integrityCategories(ship, p = integrityParts(ship)) {
   const structural = clamp(1 - (p.structure + p.fire * 0.25), 0, 1);
   const flooding = p.flooding;
   const rate = ship.reserveRate || 0;
@@ -18841,8 +18903,7 @@ export function integrityCategories(ship) {
 }
 
 /** Her integrity as it stands, before the scar of what she has had done to her. */
-export function rawIntegrity(ship) {
-  const p = integrityParts(ship);
+export function rawIntegrity(ship, p = integrityParts(ship)) {
   const W = INTEGRITY_WEIGHTS;
   const loss = p.structure * W.structure + p.flooding * W.flooding + p.fire * W.fire + p.weapons * W.weapons;
   return clamp(1 - loss, 0, 1);
@@ -18867,14 +18928,18 @@ function stepIntegrity(state, ship, dt) {
     ship.reserveRate = (ship.reserveRate || 0) + ((reserve - ship.reserveWas) / dt - (ship.reserveRate || 0)) * k;
   }
   ship.reserveWas = reserve;
-  const raw = rawIntegrity(ship);
+  // Her parts once, for both questions asked of them here.
+  const parts = integrityParts(ship);
+  const raw = rawIntegrity(ship, parts);
   if (ship.igCap == null) ship.igCap = 1;
   const loss = 1 - raw;
   if (loss > 0.002) ship.igCap = Math.min(ship.igCap, 1 - Math.max(0.01, loss * INTEGRITY_SCAR));
   ship.integrity = Math.min(raw, ship.igCap);
   // Two of her three bars gone -- structural, flooding, internal -- and she
   // is going down. Any one of them on its own she can live through.
-  if (ship.alive && !ship.sinking && barsDestroyed(ship) >= 2) startSinking(state, ship, 'integrity');
+  if (ship.alive && !ship.sinking && barsDestroyed(ship, 0, integrityCategories(ship, parts)) >= 2) {
+    startSinking(state, ship, 'integrity');
+  }
 }
 
 /** A fresh set of compartments, all sound. */
@@ -19466,7 +19531,16 @@ function stepParties(state, ship, dt) {
   // a second portable pump in the same flat shares the same sump and does
   // less than the first.
   const onPump = {};
-  ship.parties.forEach((p, i) => {
+  // A sound ship -- which most of them are, most of the time -- has nothing
+  // for any party to do under any job, and a party with nothing to do does
+  // nothing to her. Found out once for all of them, rather than four jobs
+  // over for every party she has.
+  if (!partyWork(ship, cls, 'engine') && !partyWork(ship, cls, 'pump')
+    && !partyWork(ship, cls, 'repair') && !partyWork(ship, cls, 'guns')) {
+    for (const p of ship.parties) {
+      if (p.job === 'auto') { p.lag = 0; p.on = null; } else { p.spin = 0; p.on = null; }
+    }
+  } else ship.parties.forEach((p, i) => {
     const job = p.job === 'auto' ? autoJob(ship, cls, i) : p.job;
     const w = job ? partyWork(ship, cls, job) : null;
     // A party left to its own devices has to find out there is something
@@ -19747,7 +19821,7 @@ function stepDetection(state) {
   if (state.world?.arcade) {
     for (const target of state.ships) {
       if (!target.alive) continue;
-      const tc = getClass(target.classId);
+      const tc = shipClass(target);
       if (tc.dive && submerged(target)) continue;
       target.spottedBy = [true, true];
     }
@@ -19755,7 +19829,7 @@ function stepDetection(state) {
   }
   for (const target of state.ships) {
     if (!target.alive) continue;
-    const tc = getClass(target.classId);
+    const tc = shipClass(target);
     let conceal = tc.concealment;
     if (state.t - target.lastFiredAt < 12) conceal += tc.fireDetectPenalty;
     // A boat that is down is a periscope feather at best, and below periscope
@@ -19776,7 +19850,9 @@ function stepDetection(state) {
 
     for (const observer of state.ships) {
       if (!observer.alive || observer.team === target.team) continue;
-      const oc = getClass(observer.classId);
+      // His side has her already: nobody else on it need look.
+      if (target.spottedBy[observer.team]) continue;
+      const oc = shipClass(observer);
       const d = dist(observer.x, observer.z, target.x, target.z);
       // Smoke lying between them, or over either of them, hides her from his
       // lookouts until she is close aboard -- and from his set, which in this
@@ -19814,7 +19890,7 @@ function stepDetection(state) {
       if (!target.alive || target.team === bm.team) continue;
       // From above, a ship in a smoke bank is the bank.
       if (inSmoke(state, target.x, target.z)) continue;
-      const tc = getClass(target.classId);
+      const tc = shipClass(target);
       if (tc.dive && submerged(target)) continue;
       if (dist(bm.x, bm.z, target.x, target.z) < reach) {
         target.spottedBy[bm.team] = true;
@@ -19942,7 +20018,7 @@ function harborSite(state, i) {
 function freeQuay(state, c, ship, cls, u) {
   const len = cls.hull.length;
   const lying = state.ships.filter((o) => o !== ship && o.alive && o.dock && o.dock.h === c.index)
-    .map((o) => ({ u: o.dock.u, len: getClass(o.classId).hull.length }));
+    .map((o) => ({ u: o.dock.u, len: shipClass(o).hull.length }));
   const room = Math.max(0, c.W / 2 - len / 2 - 4);
   let best = null;
   for (let k = -60; k <= 60; k++) {

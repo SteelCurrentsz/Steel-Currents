@@ -27,7 +27,7 @@ import {
   fireGuns, fireTorpedoes, fireMissile, launchStrike, leadPoint, solveBallistic, useRepair,
   useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged, layMine,
   torpedoVisible, assignMount, mountBears, manGun, layGun, lightMounts, aaBattery,
-  applyInput, gunsDrowned, directParties,
+  applyInput, gunsDrowned, directParties, shipClass,
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
 import { setLamp } from '../shared/searchlights.js';
@@ -227,7 +227,7 @@ function fireAssigned(state, ship, brain, cls, what) {
 
 export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   if (!ship.alive) return;
-  const cls = getClass(ship.classId);
+  const cls = shipClass(ship);
   brain.retarget -= dt;
   brain.fireTimer -= dt;
   brain.torpTimer -= dt;
@@ -380,7 +380,7 @@ export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   if (canSee && clear && d < cls.gun.range * 0.95 && brain.fireTimer <= 0 && canFire(ship)) {
     // Unless her captain has said what she is loaded with, in which case
     // that is what she fires.
-    if (!ship.shellSet) ship.shellType = pickShell(cls, getClass(target.classId), d);
+    if (!ship.shellSet) ship.shellType = pickShell(cls, shipClass(target), d);
     if (fireGuns(state, ship) > 0) brain.fireTimer = 0.6 + (1 - brain.skill) * 2.5;
   } else {
     fireAssigned(state, ship, brain, cls, 'guns');
@@ -539,6 +539,9 @@ function keepStation(state, ship, brain, staff, dt) {
  */
 const LOOK_AHEAD = 70;
 const WATCH_RANGE = 3200;
+// A little over the watch range, squared: anything past it is past the watch
+// range whichever way the square root rounds.
+const WATCH_FAR2 = (WATCH_RANGE * 1.001) ** 2;
 function avoidCollision(state, ship, cls, brain) {
   const h = ship.heading;
   const v = Math.max(0, ship.speed || 0);
@@ -549,12 +552,14 @@ function avoidCollision(state, ship, cls, brain) {
   for (const o of state.ships) {
     if (o === ship) continue;
     if (!o.alive && !(o.sinking && !o.sinking.under)) continue;
-    const ocls = getClass(o.classId);
-    if ((ocls.dive && submerged(o)) || (cls.dive && submerged(ship))) continue;
+    // Range first: most of the fleet is nowhere near her.
     const dx = o.x - ship.x;
     const dz = o.z - ship.z;
+    if (dx * dx + dz * dz > WATCH_FAR2) continue;
     const d = Math.hypot(dx, dz);
     if (d > WATCH_RANGE) continue;
+    const ocls = shipClass(o);
+    if ((ocls.dive && submerged(o)) || (cls.dive && submerged(ship))) continue;
     const ov = o.alive ? Math.max(0, o.speed || 0) : 0;
     const rvx = Math.sin(o.heading) * ov - vx;
     const rvz = Math.cos(o.heading) * ov - vz;
@@ -635,12 +640,12 @@ function isValidTarget(state, ship, id) {
 
 function pickTarget(state, ship) {
   let best = 0, bestScore = -Infinity;
-  const cls = getClass(ship.classId);
+  const cls = shipClass(ship);
   for (const s of state.ships) {
     if (!s.alive || s.team === ship.team || !s.spottedBy[ship.team]) continue;
     const d = dist(ship.x, ship.z, s.x, s.z);
     if (d > cls.gun.range * 1.1) continue;
-    const sc = getClass(s.classId);
+    const sc = shipClass(s);
     // Prefer close, hurt, and squishy.
     let score = -d / 1000 + (1 - s.hp / s.maxHp) * 4 + (sc.type === 'CV' ? 5 : 0);
     // The ship shooting at her is the one she answers: that is the duel the
@@ -904,7 +909,7 @@ function workDive(state, ship, cls, brain, target, conned) {
     if (!s.alive || s.team === ship.team) continue;
     const d = dist(ship.x, ship.z, s.x, s.z);
     near = Math.min(near, d);
-    if (getClass(s.classId).depthCharges) asw = Math.min(asw, d);
+    if (shipClass(s).depthCharges) asw = Math.min(asw, d);
   }
   let air = Infinity;
   for (const p of state.planes || []) {

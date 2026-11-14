@@ -1916,18 +1916,34 @@ net.on('joined', (m) => {
       try {
         b.scene.warmCuts([...b.scene.shipViews.values(), ...(b.scene.parked?.values() || [])]);
       } catch { /* compiled when each is first seen instead */ }
+      // The ships not yet sighted are kept out of the picture, and a compile
+      // only looks at what is in it: they are put in it for as long as it
+      // takes to hand their materials over, which is no time at all.
+      let compiled = null;
+      const parked = [...(b.scene.parked?.values() || [])].filter((v) => !v.group.visible);
       try {
-        const done = renderer.compileAsync
+        for (const v of parked) v.group.visible = true;
+        compiled = renderer.compileAsync
           ? renderer.compileAsync(b.scene.scene, b.scene.camera)
           : renderer.compile(b.scene.scene, b.scene.camera);
-        done?.catch?.(() => {});
-      } catch { /* compiled as each is first drawn instead */ }
+      } catch { /* compiled as each is first drawn instead */ } finally {
+        for (const v of parked) v.group.visible = false;
+      }
+      // And the screen kept up until the graphics card has finished them.
+      // Handed over and not waited for, the compiling went on behind the
+      // first seconds of the battle, and the first time each material was
+      // drawn the frame stopped dead until its program was ready -- a hitch
+      // for every new thing that came into view. Not waited for for ever: a
+      // driver that never says it is done costs a few seconds, no more.
+      const ready = compiled && typeof compiled.then === 'function'
+        ? Promise.race([compiled.catch(() => {}), new Promise((ok) => setTimeout(ok, 8000))])
+        : Promise.resolve();
       // And two frames of it drawn behind the screen before it comes down:
       // the first frame of a battle is the one that hands every hull in
       // sight to the graphics card, and that is a stall worth hiding too.
-      return new Promise((resolve) => {
+      return ready.then(() => new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)));
-      });
+      }));
     });
   });
 });

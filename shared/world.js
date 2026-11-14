@@ -1432,8 +1432,46 @@ export function isleSpokes(isle) {
   return Math.max(48, Math.min(120, Math.round(isle.r / 8)));
 }
 
+// The mesh's vertices, kept once they have been worked out. Each is the true
+// ground at a fixed point, so it only changes when the ground does -- a
+// crater, a breach, a crater flooding -- and every one of those moves
+// `groundRev` (a battlefield's craters put down at once replace the list
+// itself). A ship's keel is tested against the drawn mesh at a dozen points
+// along her every tick, and each of those points is a triangle of vertices:
+// worked out fresh, that was a tenth of the whole simulation in a fleet
+// action. Held off the world in a WeakMap so it never goes down the wire.
+const VERTS = new WeakMap();
+function vertStore(world) {
+  const rev = world.groundRev || 0;
+  const w = world.works;
+  // The works too, as they stand: they are raised a site at a time.
+  const sites = w ? w.cities.length : -1;
+  const walls = w ? w.walls : null;
+  let c = VERTS.get(world);
+  if (!c || c.rev !== rev || c.craters !== world.craters || c.works !== w || c.ruin !== world.ruin
+    || c.sites !== sites || c.walls !== walls) {
+    c = { rev, craters: world.craters, works: w, ruin: world.ruin, sites, walls, isles: new Map(), coast: new Map() };
+    VERTS.set(world, c);
+  }
+  return c;
+}
+
 /** A vertex of an island's mesh: spoke `i`, ring `j`. */
 export function isleVertex(world, isle, spokes, i, j) {
+  // While the works are being read as built the ground is not the ground
+  // the battle has, and nothing read then is kept.
+  if (pristine()) return makeIsleVertex(world, isle, spokes, i, j);
+  const c = vertStore(world);
+  let row = c.isles.get(isle);
+  if (!row || row.spokes !== spokes) {
+    row = { spokes, v: new Array(spokes * isleRings(isle).length) };
+    c.isles.set(isle, row);
+  }
+  const k = j * spokes + i;
+  return row.v[k] || (row.v[k] = makeIsleVertex(world, isle, spokes, i, j));
+}
+
+function makeIsleVertex(world, isle, spokes, i, j) {
   const a = (i / spokes) * TAU;
   const R = islandRadius(isle, a);
   const f = isleRings(isle)[j];
@@ -1506,7 +1544,14 @@ function coastDrawn(world, x, z) {
   const fj = (z - g.o) / g.cell;
   const i = Math.floor(fi);
   const j = Math.floor(fj);
-  const at = (a, b) => keelGround(world, g.o + a * g.cell, g.o + b * g.cell);
+  const store = pristine() ? null : vertStore(world).coast;
+  const at = (a, b) => {
+    if (!store) return keelGround(world, g.o + a * g.cell, g.o + b * g.cell);
+    const k = a * 131072 + b;
+    let h = store.get(k);
+    if (h === undefined) { h = keelGround(world, g.o + a * g.cell, g.o + b * g.cell); store.set(k, h); }
+    return h;
+  };
   return coastLerp(at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1), fi - i, fj - j);
 }
 
