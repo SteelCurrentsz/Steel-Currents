@@ -45,7 +45,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildFord, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
+  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildFord, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildBorgia, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
 /**
  * The ships put together by krissShip.js off the owner's whole-ship models,
  * each builder by class once its module has loaded: every one of them is
@@ -116,6 +116,7 @@ const SCULPTED = {
   alaska: () => import('./alaska.js').then((m) => { buildAlaska = m.buildAlaska; }),
   desmoines: () => import('./desmoines.js').then((m) => { buildDesMoines = m.buildDesMoines; }),
   ajax: () => import('./ajax.js').then((m) => { buildAjax = m.buildAjax; }),
+  borgia: () => import('./borgia.js').then((m) => { buildBorgia = m.buildBorgia; }),
   brooklyn: () => import('./brooklyn.js').then((m) => { buildBrooklyn = m.buildBrooklyn; }),
   ticonderoga: () => import('./ticonderoga.js').then((m) => { buildTiconderoga = m.buildTiconderoga; }),
   guangzhou: () => import('./guangzhou.js').then((m) => { buildGuangzhou = m.buildGuangzhou; }),
@@ -1260,6 +1261,21 @@ function buildModel(classId) {
   // every gun she carried.
   if (cls.id === 'leviathan') {
     const built = buildLeviathan();
+    Object.assign(built.group.userData, {
+      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+    });
+    return {
+      group: built.group, turrets: built.turrets,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
+      torpMounts: built.torpMounts || [],
+    };
+  }
+
+  // And the Cesare Borgia: the owner's model of her hull, her bridge, her
+  // funnels and every gun and tube she carries.
+  if (cls.id === 'borgia') {
+    const built = buildBorgia();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });

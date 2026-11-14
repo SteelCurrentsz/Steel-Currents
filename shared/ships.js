@@ -3147,6 +3147,169 @@ export const SHIP_CLASSES = {
     },
   },
 
+  borgia: {
+    // RN Cesare Borgia, a big light cruiser of the Regia Marina's last design
+    // studies -- "Plan B" -- here completed as the owner asked: twelve
+    // 152 mm/55 in four triple turrets, A and B forward with B superfiring, X
+    // superfiring over Y aft; twenty 75 mm dual-purpose guns down her sides,
+    // twelve in round shields and eight in open-backed ones on pedestals;
+    // fourteen 37 mm Breda twins; and two quadruple banks of 533 mm tubes.
+    // She wears the red and white stripes Italian ships wore on their
+    // forecastles and quarterdecks, for their own aircraft to know them by.
+    //
+    // She is drawn from the owner's model of her (see borgia.js and
+    // build/prepare-borgia-hull.mjs) -- "Italian Light Cruiser Cesare
+    // Borgia(Plan B) -T10" by 全斗焕, under Creative Commons Attribution 4.0,
+    // credited on the Credits screen -- brought up to 229 m over all, the
+    // length at which the model's boats are their own sizes, which makes her
+    // 24.3 m across, floated at 6.6 m.
+    id: 'borgia',
+    name: 'Cesare Borgia',
+    fullName: 'RN Cesare Borgia',
+    className: 'Cesare Borgia',
+    type: 'CL',
+    typeName: 'Light Cruiser',
+    nation: 'ita',
+    blurb: 'Twelve long-ranged 152 mm in four triple turrets, twenty 75 mm dual-purpose guns and thirty-four knots: the last word in Italian cruisers.',
+    hull: {
+      // Where her two funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 9.5, 22.5], [0, -8.5, 22.4]], length: 229, beam: 24.3, draft: 6.6, superstructure: 1.25 },
+    hp: 31500,
+    // Thirty-four knots out of four shafts: a long, fine Italian hull, quick
+    // in a straight line and wide in the turn.
+    maxSpeed: 34 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.8,
+    turnRate: 0.08,
+    rudderShift: 7.0,
+    speedLossInTurn: 0.2,
+    concealment: 11800,
+    fireDetectPenalty: 4400,
+    // The EC 3 ter "Gufo" set on her foretop.
+    radarRange: 11000,
+    repairCooldown: 80,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // A hundred millimetres of belt over her machinery and magazines, from
+    // A's barbette to Y's, and fifty of armour deck behind it.
+    armor: { belt: 100, deck: 50, citadel: 100, bow: 20, superstructure: 15 },
+    turrets: [
+      // A on her forecastle, B superfiring over it, X superfiring over Y on
+      // her quarterdeck, both facing astern, each where the model stood it
+      // (see build/prepare-borgia-hull.mjs).
+      { id: 0, name: 'A', x: -0.001, z: 50.758, angle: 0, arc: 2.6, rest: 0.0002, guns: 3, my: 10.04 },
+      { id: 1, name: 'B', x: -0.001, z: 36.636, angle: 0, arc: 2.6, rest: -0.0017, guns: 3, my: 12.34 },
+      { id: 2, name: 'X', x: -0.001, z: -44.204, angle: 3.14, arc: 2.55, rest: 3.1415, guns: 3, my: 10.14 },
+      { id: 3, name: 'Y', x: -0.203, z: -56.857, angle: -3.14, arc: 2.55, rest: -3.1414, guns: 3, my: 7.59 },
+    ],
+    gun: {
+      name: '152 mm/55 Ansaldo 1934', role: 'surface',
+      // Five below the horizontal to forty-five up.
+      elev: { min: -0.087, max: 0.785 },
+      // Pivot to muzzle on the model's turret.
+      reach: 9.85,
+      // A fifty-kilogram shell at a thousand metres a second: the longest
+      // reach of any six-inch gun afloat, and a wide pattern with it.
+      caliber: 152, reload: 7.0, traverse: 0.26, range: 16800, sigma: 1.7,
+      shells: shells(152, 3200, 2400, 165, 1000, 0.11),
+    },
+    // Her two quadruple banks of 533 mm tubes, one a side on her upper deck
+    // abreast her mainmast, stowed fore and aft with their muzzles forward and
+    // trained out about their turntables to fire on the beam -- from
+    // forty-seven degrees off her bow to forty-two abaft her beam, which is as
+    // far round as a bank's breeches clear her (see build/prepare-borgia-
+    // hull.mjs).
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 9.84, z: -13.85, angle: 1.57, arc: 0.74, rest: 0, tubes: 4, my: 6.71,
+          launch: { eject: 12, stagger: 0.4, lanes: [-1.196, -0.399, 0.398, 1.195], lie: 0.6, muzzle: 5.07, height: 6.71,
+            fish: { len: 7.2, r: 0.267, kind: 'g7a' } } },
+        { id: 1, x: -9.84, z: -13.85, angle: -1.57, arc: 0.74, rest: 0, tubes: 4, my: 6.71,
+          launch: { eject: 12, stagger: 0.4, lanes: [-1.195, -0.399, 0.398, 1.195], lie: 0.6, muzzle: 5.07, height: 6.71,
+            fish: { len: 7.2, r: 0.267, kind: 'g7a' } } },
+      ],
+      name: '533 mm SI 270 torpedo', role: 'surface', caliber: 533, kind: 'g7a',
+      tubeLabel: '533 mm',
+      reach: 5.07,
+      traverse: 0.22,
+      reload: 90, damage: 13200, speed: 40 * KNOTS, range: 8000,
+      detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
+    },
+    // Her twenty 75 mm dual-purpose guns: twelve in round shields down her
+    // upper deck, six a side abreast her bridge and her funnels, the forward
+    // three of each side laid ahead and the after three astern; and eight in
+    // open-backed shields on pedestals -- a pair abreast B, a pair on her
+    // after deckhouse and two pairs abreast X -- each laid out on its beam.
+    secondary: {
+      name: '75 mm/50 Ansaldo 1939', role: 'dp',
+      // Ten below the horizontal to eighty up.
+      elev: { min: -0.175, max: 1.396 },
+      reach: 3.0,
+      caliber: 75, reload: 2.6, traverse: 0.5, range: 7000, sigma: 1.15,
+      shells: shells(75, 900, 750, 32, 850, 0.04),
+      mounts: [
+        { x: -5.906, z: 25.446, angle: -1.57, arc: 1.45, rest: -0.0005, guns: 1, my: 10.64 },
+        { x: 5.906, z: 25.446, angle: 1.57, arc: 1.45, rest: 0.0026, guns: 1, my: 10.64 },
+        { x: -7.227, z: 19.176, angle: -1.57, arc: 1.45, rest: 0.0002, guns: 1, my: 10.64 },
+        { x: 7.227, z: 19.176, angle: 1.57, arc: 1.45, rest: 0.0001, guns: 1, my: 10.64 },
+        { x: -9.194, z: 12.922, angle: -1.57, arc: 1.45, rest: 0.0003, guns: 1, my: 10.64 },
+        { x: 9.194, z: 12.922, angle: 1.57, arc: 1.45, rest: -0.0008, guns: 1, my: 10.64 },
+        { x: -9.194, z: 6.642, angle: -1.57, arc: 1.45, rest: 3.1403, guns: 1, my: 10.64 },
+        { x: 9.194, z: 6.642, angle: 1.57, arc: 1.45, rest: 3.141, guns: 1, my: 10.64 },
+        { x: -7.225, z: 0.389, angle: -1.57, arc: 1.45, rest: 3.1416, guns: 1, my: 10.64 },
+        { x: 7.225, z: 0.389, angle: 1.57, arc: 1.45, rest: -3.1416, guns: 1, my: 10.64 },
+        { x: -5.908, z: -5.875, angle: -1.57, arc: 1.45, rest: 3.1412, guns: 1, my: 10.64 },
+        { x: 5.908, z: -5.875, angle: 1.57, arc: 1.45, rest: -3.1414, guns: 1, my: 10.64 },
+        { x: -7.621, z: 34.281, angle: -1.57, arc: 1.45, rest: -1.3737, guns: 1, my: 11.62, piece: 'dp2' },
+        { x: 7.621, z: 34.281, angle: 1.57, arc: 1.45, rest: 1.3737, guns: 1, my: 11.62, piece: 'dp2' },
+        { x: -3.675, z: -13.826, angle: -1.57, arc: 1.6, rest: -1.7643, guns: 1, my: 13.89, piece: 'dp2' },
+        { x: 3.675, z: -13.826, angle: 1.57, arc: 1.6, rest: 1.765, guns: 1, my: 13.89, piece: 'dp2' },
+        { x: -8.278, z: -31.657, angle: -1.57, arc: 1.45, rest: -1.7647, guns: 1, my: 9.32, piece: 'dp2' },
+        { x: 8.278, z: -31.657, angle: 1.57, arc: 1.45, rest: 1.7662, guns: 1, my: 9.32, piece: 'dp2' },
+        { x: -6.959, z: -39.718, angle: -1.57, arc: 1.45, rest: -1.7657, guns: 1, my: 9.37, piece: 'dp2' },
+        { x: 6.959, z: -39.718, angle: 1.57, arc: 1.45, rest: 1.7665, guns: 1, my: 9.37, piece: 'dp2' },
+      ],
+    },
+    aa: {
+      range: 3800, dps: 64,
+      guns: [
+        // Her fourteen 37 mm/54 Breda twins: a pair at the eyes of her
+        // forecastle, five pairs about her bridge, her funnels and her after
+        // deckhouse, and a pair on her quarterdeck.
+        { name: '37 mm/54 Breda 1932', caliber: 37, role: 'aa', reload: 0.4, range: 3500,
+          elev: { min: -0.17, max: 1.4 },
+          mounts: [
+            { x: -7.018, z: 63.571, angle: -1.2, arc: 1.75, rest: -0.8018, guns: 2, my: 10.54 },
+            { x: 7.056, z: 63.538, angle: 1.2, arc: 1.75, rest: 0.772, guns: 2, my: 10.54 },
+            { x: 4.067, z: 30.52, angle: 1.57, arc: 1.6, rest: 1.4613, guns: 2, my: 12.63 },
+            { x: -4.067, z: 30.52, angle: -1.57, arc: 1.6, rest: -1.4525, guns: 2, my: 12.63 },
+            { x: 4.398, z: 15.753, angle: 1.57, arc: 1.6, rest: 1.4662, guns: 2, my: 12.63 },
+            { x: -4.398, z: 15.748, angle: -1.57, arc: 1.6, rest: -1.461, guns: 2, my: 12.63 },
+            { x: 5.509, z: 10.411, angle: 1.57, arc: 1.6, rest: 1.4596, guns: 2, my: 14.74 },
+            { x: -5.509, z: 10.411, angle: -1.57, arc: 1.6, rest: -1.4584, guns: 2, my: 14.74 },
+            { x: 4.398, z: -0.687, angle: 1.57, arc: 1.6, rest: 1.6416, guns: 2, my: 14.73 },
+            { x: -4.398, z: -0.662, angle: -1.57, arc: 1.6, rest: -1.6701, guns: 2, my: 14.73 },
+            { x: 4.398, z: -35.548, angle: 1.57, arc: 1.6, rest: 1.6841, guns: 2, my: 10.59 },
+            { x: -4.398, z: -35.54, angle: -1.57, arc: 1.6, rest: -1.6944, guns: 2, my: 10.59 },
+            { x: -7.379, z: -69.828, angle: -1.95, arc: 1.75, rest: -2.4032, guns: 2, my: 8.11 },
+            { x: 7.346, z: -69.861, angle: 1.95, arc: 1.75, rest: 2.3087, guns: 2, my: 8.11 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 15200,
+      aircraft: 0,
+      mainRounds: 1800,
+      torpedoesCarried: 8,
+      secondary: { caliber: 75, label: '75mm', barrels: 20, rounds: 6000 },
+      tertiary: [
+        { caliber: 37, label: '37mm', barrels: 28, rounds: 28000 },
+      ],
+    },
+  },
+
   hipper: {
     // Four twin 8" turrets. Heavier than a light cruiser's and correspondingly
     // slower and narrower in their training.
@@ -15287,7 +15450,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
   'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'missouri', 'nimitz', 'ford', 'kongo', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'shokaku', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 

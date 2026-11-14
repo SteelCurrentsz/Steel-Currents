@@ -135,6 +135,25 @@ const HULLS = {
     <rect x="63" y="23.5" width="3.5" height="2.5"/>
     <rect x="69" y="23.5" width="3.5" height="2.5"/>
     <rect x="75" y="23.5" width="3.5" height="2.5"/>`,
+  // The Cesare Borgia: a long cruiser hull, her forecastle deck carried aft
+  // to abreast her fore funnel, two triple turrets at each end -- B and X
+  // superfiring -- a tall round bridge tower with its mast, two funnels, her
+  // dual-purpose guns' shields down her side between them, and a tower
+  // mainmast aft.
+  borgia: `
+    <path d="M2 27 L45 27 L46 29 L98 29 L95 37 L6 37 Z"/>
+    <rect x="26.5" y="24" width="5" height="3"/>
+    <rect x="32.5" y="21" width="5" height="4"/>
+    <rect x="38" y="15" width="5.5" height="12"/>
+    <rect x="39" y="12" width="3.5" height="3"/>
+    <rect x="40.2" y="4" width="1.4" height="8"/>
+    <rect x="38.5" y="25" width="14" height="4"/>
+    <rect x="44.5" y="19" width="3.3" height="8"/>
+    <rect x="52" y="19.5" width="3.2" height="9.5"/>
+    <rect x="57" y="19" width="3.5" height="10"/>
+    <rect x="58.1" y="9" width="1.4" height="10"/>
+    <rect x="66" y="22" width="5" height="4"/>
+    <rect x="71.5" y="25.5" width="5" height="3.5"/>`,
   // The Ajax: a Leander, a low cruiser hull with two twin turrets at each
   // end, the inner ones superfiring, a tall bridge forward, one great
   // trunked funnel amidships and a tripod mast at each end of her.

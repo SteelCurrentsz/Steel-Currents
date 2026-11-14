@@ -204,6 +204,11 @@ import {
 } from '../client/js/render/ajax.js';
 import { ajaxSurfaceY, MOUNT_SEATS as AJAX_SEATS } from '../client/js/render/ajaxHull.js';
 import {
+  buildBorgia, shellAt as borgiaShellAt, keelY as borgiaKeel, deckOver as borgiaSheer, zAt as borgiaZAt,
+} from '../client/js/render/borgia.js';
+import { borgiaSurfaceY, MOUNT_SEATS as BORGIA_SEATS } from '../client/js/render/borgiaHull.js';
+import { BORGIA_GUNS } from '../client/js/render/borgiaHull.data.js';
+import {
   buildBrooklyn, shellAt as brooklynShellAt, keelY as brooklynKeel, deckOver as brooklynSheer, zAt as brooklynZAt,
   CAT_X as BROOKLYN_CAT_X, CAT_Z as BROOKLYN_CAT_Z,
 } from '../client/js/render/brooklyn.js';
@@ -4353,10 +4358,10 @@ check('the Credits screen credits the model the County is drawn from', () => {
     'the credit is not as its licence asks');
 });
 
-check('the USS Indianapolis is commissioned just before the KMS Admiral Hipper, armed as she was in 1945', () => {
+check('the USS Indianapolis is commissioned just before the RN Cesare Borgia, armed as she was in 1945', () => {
   const i = SHIP_ORDER.indexOf('indianapolis');
   assert.ok(i >= 0, 'the Indianapolis is not in the yard');
-  assert.equal(SHIP_ORDER[i + 1], 'hipper', `after the Indianapolis comes ${SHIP_ORDER[i + 1]}`);
+  assert.equal(SHIP_ORDER[i + 1], 'borgia', `after the Indianapolis comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.indianapolis;
   assert.equal(cls.fullName, 'USS Indianapolis');
   assert.equal(cls.type, 'CA', 'she is not a heavy cruiser');
@@ -4792,6 +4797,128 @@ check('the Credits screen credits the model the Ajax is drawn from', () => {
   assert.ok(at >= 0, 'the model is not credited');
   const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
   assert.ok(credit.includes('https://skfb.ly/ptKuX') && credit.includes('kriss50')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
+    'the credit is not as its licence asks');
+});
+
+check('the RN Cesare Borgia is commissioned just before the KMS Admiral Hipper, armed as the owner asked', () => {
+  const i = SHIP_ORDER.indexOf('borgia');
+  assert.ok(i >= 0, 'the Borgia is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'hipper', `after the Borgia comes ${SHIP_ORDER[i + 1]}`);
+  assert.ok(WWII_ORDER.indexOf('borgia') === WWII_ORDER.indexOf('hipper') - 1, 'she is not next to the Hipper in the yard');
+  const cls = SHIP_CLASSES.borgia;
+  assert.equal(cls.fullName, 'RN Cesare Borgia');
+  assert.equal(cls.type, 'CL', 'she is not a light cruiser');
+  assert.equal(cls.nation, 'ita');
+  // Twelve 152 mm in four triple turrets, A and B forward, X and Y aft.
+  assert.equal(cls.gun.caliber, 152);
+  assert.ok(cls.turrets.every((t) => t.guns === 3), 'her turrets are not triples');
+  assert.deepEqual(cls.turrets.map((t) => t.name), ['A', 'B', 'X', 'Y']);
+  // Twenty 75 mm dual-purpose: twelve in round shields and eight on pedestals.
+  assert.equal(cls.secondary.caliber, 75);
+  assert.equal(cls.secondary.role, 'dp');
+  assert.equal(cls.secondary.mounts.length, 20);
+  assert.equal(cls.secondary.mounts.filter((m) => m.piece === 'dp2').length, 8);
+  // Her 37 mm Breda twins, and nothing else in her light battery.
+  assert.deepEqual([...new Set(cls.aa.guns.map((g) => g.caliber))], [37]);
+  assert.equal(lightMounts(cls).length, 14);
+  assert.ok(lightMounts(cls).every((m) => m.guns === 2), 'her Bredas are not twins');
+  // Her two quadruple banks of 533 mm tubes, one a side.
+  assert.ok(cls.torpedoes, 'she has no torpedoes');
+  assert.equal(cls.torpedoes.caliber, 533);
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => m.tubes), [4, 4]);
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => Math.sign(m.x)).sort(), [-1, 1]);
+  const built = buildBorgia();
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.torpMounts.length, 2);
+  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+  // Every one of her mountings stands on her deck, not in the air over it.
+  for (const [kind, list] of Object.entries(BORGIA_SEATS)) {
+    for (const st of list) {
+      const top = borgiaSurfaceY(st.x, st.z);
+      assert.ok(Math.abs(top - st.y) < 1.5 || top < st.y + 0.05,
+        `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${top}`);
+    }
+  }
+  // And every barrel that elevates is laid level on its cradle, its muzzles
+  // out ahead of its trunnions: none of them is a breech pointed at the enemy.
+  for (const kind of ['main', 'dp', 'dp2', 'aa']) {
+    const p = BORGIA_GUNS[kind];
+    assert.ok(Number.isFinite(p.pitch), `her ${kind} has no elevation`);
+    for (const [, y, z] of p.muzzles) {
+      assert.ok(z > 0.5 && Math.abs(y) < 0.05, `her ${kind}'s muzzle stands at ${y}, ${z} off its trunnions`);
+    }
+  }
+});
+
+check("the Borgia's 152 mm land on a stationary target", () => {
+  const { state, a, b } = duel('borgia', 'hipper', 9000);
+  let hits = 0, salvos = 0;
+  for (let i = 0; i < 60 * 30; i++) {
+    a.aimX = b.x; a.aimZ = b.z;
+    if (i > 90 && salvos < 8 && fireGuns(state, a) > 0) salvos++;
+    for (const ev of step(state, DT)) if (ev.e === 'hit' && ev.victim === b.id) hits++;
+  }
+  assert.ok(salvos >= 6, `expected salvos, got ${salvos}`);
+  assert.ok(hits > salvos * 2, `expected hits from ${salvos} salvos, got ${hits}`);
+});
+
+check("the Borgia's banks fire on the beam, and their fish go over her side and run on the bearing", () => {
+  const state = createState(generateWorld(2020, 'open_ocean'), { mode: 'deathmatch' });
+  state.world.islands = [];
+  const cl = addShip(state, { name: 'CL', classId: 'borgia', team: 0, index: 0 });
+  cl.x = 0; cl.z = 0; cl.heading = 0;
+  // Right abeam to starboard, three kilometres off.
+  cl.aimX = 3000; cl.aimZ = 0;
+  let launched = 0;
+  for (let i = 0; i < 30 * 20 && !launched; i++) { step(state, DT); launched = fireTorpedoes(state, cl); }
+  assert.equal(launched, 4, `her starboard bank put ${launched} fish in the water`);
+  for (let i = 0; i < 30 * 8; i++) step(state, DT);
+  const fish = state.torps.filter((t) => t.owner === cl.id);
+  assert.equal(fish.length, 4);
+  for (const t of fish) {
+    assert.ok(!t.aboard, 'a fish is still aboard her');
+    assert.ok(Math.abs(angleDelta(t.heading, Math.PI / 2)) < 0.15, `a fish runs on ${t.heading.toFixed(2)}, not the bearing`);
+    assert.ok(t.x > 12, `a fish is in the water ${t.x.toFixed(1)} m off her centreline`);
+  }
+});
+
+check("the Borgia's shell has no holes in it", () => {
+  const built = buildBorgia();
+  built.group.updateMatrixWorld(true);
+  const meshes = [];
+  built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+  const ray = new THREE.Raycaster();
+  let tested = 0;
+  const holes = [];
+  for (let t = -0.95; t <= 0.95; t += 0.01) {
+    const top = borgiaSheer(t);
+    for (let y = borgiaKeel(t) + 0.3; y <= top - 0.4; y += 0.5) {
+      const w = borgiaShellAt(t, y);
+      if (w < 0.35) continue;
+      // Her shafts, their bossings and their brackets under her quarter, which
+      // her lines read as her side.
+      if (borgiaZAt(t) < -68 && y < -2) continue;
+      tested++;
+      for (const side of [-1, 1]) {
+        ray.set(new THREE.Vector3(side * 60, y, borgiaZAt(t)), new THREE.Vector3(-side, 0, 0));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || (y > borgiaKeel(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+      }
+    }
+  }
+  assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+});
+
+check('the Credits screen credits the model the Cesare Borgia is drawn from', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('Cesare Borgia(Plan B) –T10</a>');
+  assert.ok(at >= 0, 'the model is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/prA87') && credit.includes('全斗焕')
     && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
     'the credit is not as its licence asks');
 });
