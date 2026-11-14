@@ -334,7 +334,7 @@ const PLANE_PATIENCE = 45000;
   const send = net.send.bind(net);
   net.send = (m) => {
     if (!(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom'))) return send(m);
-    const go = () => send({ ...m, ff: getSettings().friendlyFire === true });
+    const go = () => send({ ...m, ff: getSettings().friendlyFire === true, ur: getSettings().ultraRealism === true });
     const need = fleetOf(m);
     if (fleetReady(need)) return go();
     boot.show('Bringing up the fleet');
@@ -403,9 +403,12 @@ const governor = {
   // Never fewer than three drawn pixels for every four on the screen.
   floor: 0.75,
 };
+// Screens that draw nothing of their own over a 3D scene: the title's battle
+// is drawn behind every one not listed here, and is governed like a battle.
+const FLAT = new Set(['map', 'lay', 'yard', 'guns', 'bombers', 'custom']);
 function govern(interval) {
   const g = governor;
-  if (current !== 'battle') {
+  if (current !== 'battle' && FLAT.has(current)) {
     if (g.scale !== 1) setRenderScale(1);
     g.ema = 1 / 60;
     return;
@@ -1835,6 +1838,7 @@ const optShadows = document.getElementById('opt-shadows');
 const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
 const optFF = document.getElementById('opt-ff');
+const optUR = document.getElementById('opt-ur');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -1845,6 +1849,7 @@ optShadows.checked = settings.shadows;
 optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
 if (optFF) optFF.checked = settings.friendlyFire === true;
+if (optUR) optUR.checked = settings.ultraRealism === true;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -1864,6 +1869,7 @@ optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQ
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
+if (optUR) optUR.onchange = () => { setSettings({ ultraRealism: optUR.checked }); toast(optUR.checked ? 'Ultra-Realism Mechanics on from the next battle.' : 'Ultra-Realism Mechanics off from the next battle.'); };
 if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked }); toast(optFF.checked ? 'Friendly fire on from the next battle.' : 'Friendly fire off from the next battle.'); };
 
 // ------------------------------------------------------------------- net --
@@ -2117,7 +2123,7 @@ window.addEventListener('pointerdown', () => audio.resume(), { once: true });
 applyQuality();
 
 // Who is at the wheel. An account already on this device goes straight to the
-// menu; nobody signed in gets the gate, once, over the burning harbour.
+// menu; nobody signed in gets the gate, once, over the strike on the Yamatos.
 const signedIn = account.current();
 if (signedIn?.name) setSettings({ name: signedIn.name });
 gateNote();
@@ -2190,10 +2196,10 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !wind
 }
 requestAnimationFrame(frame);
 
-// The harbour, built behind the loading screen. Two frames of waiting first,
+// The title's battle, built behind the loading screen. Two frames of waiting first,
 // so the screen the player is looking at is one the browser has actually
 // painted rather than one it has merely been told about.
-boot.say('Raising the harbour', 0.35);
+boot.say('Putting to sea', 0.35);
 requestAnimationFrame(() => requestAnimationFrame(() => {
   try {
     title = new TitleScene(renderer);
@@ -2203,8 +2209,8 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
     // console is what found the sky.
     window.__title = title;
     resize();
-    boot.say('Lighting the fires', 0.8);
-    // One more frame so the harbour is drawn under the screen before it lifts,
+    boot.say('Flying off the strike', 0.8);
+    // One more frame so the sea is drawn under the screen before it lifts,
     // rather than the player watching it appear.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       boot.done();
@@ -2214,8 +2220,8 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
       setTimeout(() => preloadShips(), 300);
     }));
   } catch (e) {
-    console.error('Steel Currents: the harbour would not build', e);
+    console.error('Steel Currents: the title battle would not build', e);
     boot.el?.classList.add('stuck');
-    boot.say('Could not raise the harbour — reload to try again', 1);
+    boot.say('Could not put to sea — reload to try again', 1);
   }
 }));

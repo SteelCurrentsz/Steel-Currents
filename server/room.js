@@ -69,6 +69,7 @@ export class Room {
     this.state = createState(this.world, {
       mode: this.mode, timeLimit: opts.timeLimit || (this.staged ? 1800 : 900),
       friendlyFire: !!opts.friendlyFire,
+      ultraRealism: !!opts.ultraRealism,
     });
     // Every weapon opens on an officer's word, a beat before it fires (see
     // orderGiven) -- and what a captain asked for himself is carried out

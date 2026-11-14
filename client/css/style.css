@@ -39,6 +39,16 @@ html, body {
 
 /* ----------------------------- title ----------------------------- */
 
+/* The battle behind the title is fought in daylight (see menu.js): a grade
+   over it, darkest at the edges and under the words, keeps the menu readable
+   against a pale sky without hiding what is going on behind it. */
+#screen-title::before, #screen-gate::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1;
+  background:
+    linear-gradient(180deg, rgba(5, 9, 14, 0.38) 0%, rgba(5, 9, 14, 0.06) 38%, rgba(5, 9, 14, 0.08) 62%, rgba(5, 9, 14, 0.5) 100%),
+    radial-gradient(ellipse at 50% 42%, rgba(5, 9, 14, 0.26), rgba(5, 9, 14, 0) 55%);
+}
+
 .game-title {
   position: absolute; top: 7vh; left: 7vw; margin: 0;
   line-height: 0;
@@ -2518,7 +2528,7 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .boot.stuck .boot-say { color: var(--enemy); }
 
 /* ---------------------------------------------------------------- gate --
-   The first screen of all: the burning harbour behind, and three ships to
+   The first screen of all: the strike on the Yamatos behind, and three ships to
    press. A hull reads as a choice faster than a row of words does, and this
    is the one screen in the game where the player has not yet seen a ship. */
 .gate-screen { display: none; }

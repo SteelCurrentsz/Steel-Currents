@@ -526,7 +526,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
   // that whatever got her can still find her, and is not an aeroplane.
   const planes = state.planes
     .filter((p) => !p.dead)
-    .filter((p) => all || p.team === team || state.ships.some((s) => s.team === team && s.alive))
+    // Once the battle is over every aeroplane still up stays on the wire, both
+    // sides: they used to vanish the tick a side lost its last ship.
+    .filter((p) => ended || p.team === team || state.ships.some((s) => s.team === team && s.alive))
     // `o` is the carrier she flew off and `a` is how long she has been up:
     // between them the client can put the aeroplane it watched leave the deck
     // on the squadron the simulation is flying, and climb her out rather than

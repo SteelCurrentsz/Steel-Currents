@@ -115,7 +115,8 @@ function surveyAll() {
 
   const every = [...built.turrets, ...built.secMounts, ...built.torpMounts, ...built.aaMounts].filter(Boolean);
   const allMeshes = [];
-  g.traverse((o) => { if (o.isMesh && o.userData.mergeKey !== 'in' && o.visible !== false) allMeshes.push(o); });
+  // Not her cut-out cards: a railing or an aerial wire does not stop a gun.
+  g.traverse((o) => { if (o.isMesh && o.userData.mergeKey !== 'in' && o.visible !== false && o.name !== 'cards') allMeshes.push(o); });
   const owner = new Map();
   for (const m of every) m.traverse((o) => { if (o.isMesh) owner.set(o, m); });
   const barrel = new Set();

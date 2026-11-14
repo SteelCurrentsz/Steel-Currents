@@ -2183,7 +2183,8 @@ export class Battle {
     // rigging a metre off, not a sprite of smoke, not a boat that has gone.
     const walk = (o) => {
       if (o === own || o.visible === false) return;
-      if (o.isMesh) {
+      // Nor her railings, nets and wires, which are seen through (krissShip.js).
+      if (o.isMesh && o.name !== 'cards') {
         EYE_HITS.length = 0;
         o.raycast(EYE_RAY, EYE_HITS);
         for (const h of EYE_HITS) if (h.distance < best) best = h.distance;
