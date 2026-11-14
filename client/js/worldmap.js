@@ -111,6 +111,195 @@ function keepBase(canvas, key) {
   kept.key = key;
 }
 
+// ---- the chart's look ---------------------------------------------------------
+// One palette for every chart in the game -- the deployment chart, the
+// briefing's -- so they read as sheets off the same plotting table.
+export const CHART = {
+  sea: '#4d6a70',
+  land: '#cbb68a',
+  strand: '#a88f60',
+  snow: '#ece3cc',
+  coast: '#2e2214',
+  shelf: 'rgba(30, 46, 52, 0.55)',
+  lining: '30, 44, 50',
+  grid: 'rgba(38, 28, 16, 0.30)',
+  equator: 'rgba(132, 30, 20, 0.55)',
+  margin: '#2b2218',
+  ink: 'rgba(36, 26, 14, 0.92)',
+  capital: '#23170b',
+  base: '#8c1d12',
+  pencil: '#8f1d14',
+  waterName: 'rgba(18, 30, 36, 0.62)',
+  seaName: 'rgba(18, 30, 36, 0.72)',
+  halo: 'rgba(236, 224, 196, 0.78)',
+};
+const SNOW_RGB = '236, 227, 204';
+
+/** Text in ink, with a breath of paper round it so it reads over a coast or a rule. */
+function inked(ctx, text, x, y, colour) {
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = CHART.halo;
+  ctx.lineWidth = 3;
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = colour;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+/** A small seeded generator, so the stains on the sheet are the same stains every time. */
+function seeded(n) {
+  let a = n >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+let GRAIN = null;
+/** The paper's grain: a tile of speckle and fibre, made once. */
+function grainTile() {
+  if (GRAIN || typeof document === 'undefined') return GRAIN;
+  const n = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = n;
+  const g = c.getContext('2d');
+  const img = g.createImageData(n, n);
+  const r = seeded(1942);
+  for (let i = 0; i < n * n; i++) {
+    // Mostly paper; a fleck of darker pulp here and there.
+    const v = 200 + r() * 55 - (r() < 0.035 ? 70 * r() : 0);
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v * 0.96; img.data[i * 4 + 2] = v * 0.88;
+    img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  // Fibres: short pale and dark hairs laid every which way.
+  for (let i = 0; i < 260; i++) {
+    const x = r() * n, y = r() * n, a = r() * Math.PI, l = 3 + r() * 9;
+    g.strokeStyle = r() < 0.5 ? 'rgba(120, 96, 60, 0.35)' : 'rgba(255, 248, 230, 0.4)';
+    g.lineWidth = 0.6;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  GRAIN = c;
+  return GRAIN;
+}
+
+/**
+ * The paper's grain over a part of a chart drawn elsewhere -- the order of
+ * battle's sheet, the plotting table's -- softly, so whatever is printed on it
+ * keeps its own colours.
+ */
+export function chartGrain(ctx, x, y, w, h, alpha = 0.32) {
+  const tile = grainTile();
+  if (!tile) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'soft-light';
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = ctx.createPattern(tile, 'repeat');
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+}
+
+/**
+ * Age the sheet: multiply its grain over the whole chart, lay a few stains on
+ * it, darken it towards the edges, and crease it where it was folded -- in
+ * four across and three down, the way a chart went into a case.
+ */
+function paperOver(ctx, w, h) {
+  const tile = grainTile();
+  ctx.save();
+  if (tile) {
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = ctx.createPattern(tile, 'repeat');
+    ctx.globalAlpha = 0.55;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
+  }
+  // Stains: a ring or two from a mug, and broad tide marks of foxing.
+  ctx.globalCompositeOperation = 'multiply';
+  const r = seeded(Math.round(w) * 7 + Math.round(h));
+  for (let i = 0; i < 7; i++) {
+    const x = r() * w, y = r() * h, rad = (0.06 + r() * 0.16) * Math.max(w, h);
+    const g = ctx.createRadialGradient(x, y, rad * 0.2, x, y, rad);
+    g.addColorStop(0, 'rgba(150, 110, 60, 0.10)');
+    g.addColorStop(0.85, 'rgba(140, 100, 50, 0.16)');
+    g.addColorStop(1, 'rgba(140, 100, 50, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  for (let i = 0; i < 2; i++) {
+    const x = (0.15 + r() * 0.7) * w, y = (0.15 + r() * 0.7) * h, rad = 26 + r() * 22;
+    ctx.strokeStyle = 'rgba(110, 72, 34, 0.22)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(x, y, rad, r() * 2, r() * 2 + Math.PI * 1.6); ctx.stroke();
+  }
+  // Darker towards the edges, the way a sheet handled for years browns.
+  const v = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.hypot(w, h) * 0.62);
+  v.addColorStop(0, 'rgba(120, 90, 50, 0)');
+  v.addColorStop(1, 'rgba(90, 60, 28, 0.42)');
+  ctx.fillStyle = v;
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
+  // The folds: a shadow down one side of each crease and a highlight up the other.
+  for (const [n, across] of [[4, true], [3, false]]) {
+    for (let k = 1; k < n; k++) {
+      const at = (across ? w : h) * k / n;
+      const g = across
+        ? ctx.createLinearGradient(at - 6, 0, at + 6, 0)
+        : ctx.createLinearGradient(0, at - 6, 0, at + 6);
+      g.addColorStop(0, 'rgba(40, 26, 10, 0)');
+      g.addColorStop(0.45, 'rgba(40, 26, 10, 0.20)');
+      g.addColorStop(0.55, 'rgba(255, 246, 220, 0.16)');
+      g.addColorStop(1, 'rgba(255, 246, 220, 0)');
+      ctx.fillStyle = g;
+      if (across) ctx.fillRect(at - 6, 0, 12, h); else ctx.fillRect(0, at - 6, w, 12);
+    }
+  }
+  ctx.restore();
+}
+
+/** A compass rose in the chart's open sea, low on its left: thirty-two points and a ring of degrees. */
+function compassRose(ctx, w, h) {
+  const R = Math.max(26, Math.min(66, Math.min(w, h) * 0.075));
+  const cx = Math.max(R + 22, w * 0.075), cy = Math.min(h - R - 30, h * 0.70);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.globalAlpha = 0.82;
+  ctx.strokeStyle = CHART.ink;
+  ctx.fillStyle = CHART.ink;
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, R * 0.86, 0, Math.PI * 2); ctx.stroke();
+  for (let d = 0; d < 360; d += 5) {
+    const a = (d * Math.PI) / 180, l = d % 45 === 0 ? 0.78 : d % 15 === 0 ? 0.82 : 0.84;
+    ctx.beginPath(); ctx.moveTo(Math.sin(a) * R * l, -Math.cos(a) * R * l);
+    ctx.lineTo(Math.sin(a) * R * 0.86, -Math.cos(a) * R * 0.86); ctx.stroke();
+  }
+  // The points: the cardinals long, the half-cardinals shorter, each in two
+  // halves, one inked and one left as paper.
+  for (const [n, len, wid] of [[8, 0.5, 0.07], [4, 0.78, 0.12]]) {
+    for (let k = 0; k < n; k++) {
+      const ang = (k / n) * Math.PI * 2;
+      const tip = [Math.sin(ang) * R * len, -Math.cos(ang) * R * len];
+      const l = [Math.sin(ang - Math.PI / 2) * R * wid, -Math.cos(ang - Math.PI / 2) * R * wid];
+      ctx.fillStyle = CHART.ink;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(...tip); ctx.lineTo(l[0], l[1]); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(236, 224, 196, 0.9)';
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(...tip); ctx.lineTo(-l[0], -l[1]); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(...tip); ctx.lineTo(-l[0], -l[1]); ctx.closePath(); ctx.stroke();
+    }
+  }
+  ctx.fillStyle = CHART.pencil;
+  ctx.font = `700 ${Math.round(R * 0.3)}px Georgia, "Times New Roman", serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('N', 0, -R - 3);
+  ctx.restore();
+}
+
 /**
  * Paint the chart. `focus` is [lon, lat] at the centre and `zoom` scales the
  * projection — 1 fits all 360 degrees of longitude across the canvas width.
@@ -121,15 +310,18 @@ function keepBase(canvas, key) {
 export function drawWorld(canvas, opts = {}) {
   const {
     focus = [0, 8], zoom = 1,
-    sea = '#0a1826',
-    // Land is painted the way land is: a strand of sand round every coast, the
-    // green of everything that grows behind it, and snow where nothing does.
-    land = '#3f7042', sand = '#c9b083', snow = '#eef4f7',
-    coast = '#8aa9b8',
-    shelf = 'rgba(90, 140, 175, 0.5)',
-    capital = '#e6cf9c', base = '#c98b8b', showPlaces = true,
+    // A chart off a 1940s plotting table: the sea a worn slate blue, the land
+    // the buff of the paper it was printed on, the coasts inked in, and the
+    // whole sheet aged -- grained, stained, creased where it was folded into
+    // a navigator's case. See paperOver().
+    sea = CHART.sea,
+    land = CHART.land, sand = CHART.strand, snow = CHART.snow,
+    coast = CHART.coast,
+    shelf = CHART.shelf,
+    capital = CHART.capital, base = CHART.base, showPlaces = true,
     marker = null, markerName = '',
-    graticule = false, showWaters = false, frame = true,
+    graticule = false, showWaters = false, frame = true, rose = true,
+    paper = true, lining = true,
   } = opts;
 
   // A canvas on a screen that is not up yet has no box to paint into. Painting
@@ -160,7 +352,7 @@ export function drawWorld(canvas, opts = {}) {
   // deployment chart at once, rather than tracing the world again for the
   // sake of moving a ring across it.
   const key = [canvas.width, canvas.height, focus[0], focus[1], zoom,
-    sea, land, sand, snow, coast, shelf, graticule].join('|');
+    sea, land, sand, snow, coast, shelf, graticule, paper, lining].join('|');
   const kept = KEPT.get(canvas);
   const hit = !!kept && kept.key === key;
   if (hit) {
@@ -174,7 +366,7 @@ export function drawWorld(canvas, opts = {}) {
     // Meridians and parallels at a spacing that stays legible as the chart is
     // opened out: ten degrees across the world, down to one degree close in.
     const step = zoom > 24 ? 1 : zoom > 8 ? 5 : zoom > 3 ? 10 : 15;
-    ctx.strokeStyle = 'rgba(120, 168, 200, 0.13)';
+    ctx.strokeStyle = CHART.grid;
     ctx.lineWidth = 1;
     ctx.beginPath();
     const lon0 = Math.ceil((focus[0] - (w / 2) / scale) / step) * step;
@@ -191,7 +383,8 @@ export function drawWorld(canvas, opts = {}) {
     ctx.stroke();
     // The equator carries a little more weight than the rest.
     if (Math.abs(focus[1]) < (h / 2) / scale) {
-      ctx.strokeStyle = 'rgba(140, 190, 220, 0.26)';
+      ctx.strokeStyle = CHART.equator;
+      ctx.lineWidth = 1.4;
       ctx.beginPath(); ctx.moveTo(0, py(0)); ctx.lineTo(w, py(0)); ctx.stroke();
     }
   }
@@ -225,8 +418,8 @@ export function drawWorld(canvas, opts = {}) {
       const y1 = py(toLat);
       if ((y0 < 0 && y1 < 0) || (y0 > h && y1 > h)) return;
       const g = ctx.createLinearGradient(0, y0, 0, y1);
-      g.addColorStop(0, 'rgba(238, 244, 247, 0)');
-      g.addColorStop(0.55, 'rgba(238, 244, 247, 0.55)');
+      g.addColorStop(0, `rgba(${SNOW_RGB}, 0)`);
+      g.addColorStop(0.55, `rgba(${SNOW_RGB}, 0.55)`);
       g.addColorStop(1, snow);
       ctx.fillStyle = g;
       ctx.fillRect(0, Math.min(y0, y1) - 2, w, Math.abs(y1 - y0) + 4);
@@ -245,9 +438,9 @@ export function drawWorld(canvas, opts = {}) {
       const r = deg * scale;
       if (r < 1.5 || cx + r < 0 || cx - r > w || cy + r < 0 || cy - r > h) continue;
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(0, `rgba(238, 244, 247, ${strength})`);
-      g.addColorStop(0.5, `rgba(238, 244, 247, ${strength * 0.55})`);
-      g.addColorStop(1, 'rgba(238, 244, 247, 0)');
+      g.addColorStop(0, `rgba(${SNOW_RGB}, ${strength})`);
+      g.addColorStop(0.5, `rgba(${SNOW_RGB}, ${strength * 0.55})`);
+      g.addColorStop(1, `rgba(${SNOW_RGB}, 0)`);
       ctx.fillStyle = g;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     }
@@ -313,6 +506,24 @@ export function drawWorld(canvas, opts = {}) {
       all.addPath(path);
     }
 
+    // Water-lining: the rings a draughtsman ruled off every coast, closer and
+    // closer in to the shore, the way the charts of the day showed the sea
+    // meeting the land. Each is a wide stroke in ink with a narrower one in
+    // sea over it, which leaves a hairline at half the width out from the coast.
+    if (lining) {
+    ctx.save();
+    ctx.lineJoin = 'round';
+    for (const [wide, alpha] of [[26, 0.16], [17, 0.24], [9, 0.34]]) {
+      ctx.strokeStyle = `rgba(${CHART.lining}, ${alpha})`;
+      ctx.lineWidth = wide;
+      ctx.stroke(all);
+      ctx.strokeStyle = sea;
+      ctx.lineWidth = wide - 1.3;
+      ctx.stroke(all);
+    }
+    ctx.restore();
+    }
+
     // A soft shelf under each coast, the way a chart shades shallow water. The
     // shape under it is filled sand, so the shelf reads as shallows running up
     // onto a beach rather than as a halo round a green blot.
@@ -368,7 +579,7 @@ export function drawWorld(canvas, opts = {}) {
     ctx.restore();
 
     ctx.strokeStyle = coast;
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = 1.1;
     for (const path of paths) ctx.stroke(path);
   }
 
@@ -378,10 +589,10 @@ export function drawWorld(canvas, opts = {}) {
   const yTop = py(90);
   const yBot = py(-90);
   if (!hit && (yTop > 0 || yBot < h)) {
-    ctx.fillStyle = '#04090f';
+    ctx.fillStyle = CHART.margin;
     if (yTop > 0) ctx.fillRect(0, 0, w, yTop);
     if (yBot < h) ctx.fillRect(0, yBot, w, h - yBot);
-    ctx.strokeStyle = 'rgba(110, 154, 180, 0.35)';
+    ctx.strokeStyle = CHART.ink;
     ctx.lineWidth = 1;
     ctx.beginPath();
     if (yTop > 0) { ctx.moveTo(0, yTop); ctx.lineTo(w, yTop); }
@@ -389,14 +600,18 @@ export function drawWorld(canvas, opts = {}) {
     ctx.stroke();
   }
 
+  // The sheet itself, over everything printed on it: its grain, the stains
+  // of a war's worth of coffee and salt, and the creases it was folded on.
+  if (!hit && paper) paperOver(ctx, w, h);
+
   if (!hit) keepBase(canvas, key);
 
   // The theatre this briefing is set in, ringed on the chart.
   if (marker) {
     const mx = px(marker[0]);
     const my = py(marker[1]);
-    ctx.strokeStyle = '#e6cf9c';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = CHART.pencil;
+    ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(mx, my, 16, 0, Math.PI * 2); ctx.stroke();
     ctx.globalAlpha = 0.55;
     ctx.beginPath(); ctx.arc(mx, my, 27, 0, Math.PI * 2); ctx.stroke();
@@ -408,11 +623,10 @@ export function drawWorld(canvas, opts = {}) {
     ctx.moveTo(mx, my + 8); ctx.lineTo(mx, my + 24);
     ctx.stroke();
     if (markerName) {
-      ctx.font = '600 13px "Barlow Condensed", "Arial Narrow", sans-serif';
-      ctx.fillStyle = '#e6cf9c';
+      ctx.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText(markerName.toUpperCase(), mx, my + 32);
+      inked(ctx, markerName.toUpperCase(), mx, my + 32, CHART.pencil);
       ctx.textAlign = 'start';
     }
   }
@@ -446,7 +660,8 @@ export function drawWorld(canvas, opts = {}) {
       const size = m.kind === 'ocean'
         ? Math.min(26, Math.max(13, m.rpx / 22))
         : Math.min(17, Math.max(10, m.rpx / 9));
-      ctx.font = `${m.kind === 'ocean' ? 500 : 400} ${size}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      // Water is named in italic, as every hydrographer's chart names it.
+      ctx.font = `italic ${m.kind === 'ocean' ? 600 : 500} ${size}px Georgia, "Times New Roman", serif`;
       const label = m.kind === 'ocean' ? m.name.toUpperCase() : m.name;
       const bw = ctx.measureText(label).width + 10;
       const bh = size + 4;
@@ -454,8 +669,7 @@ export function drawWorld(canvas, opts = {}) {
       if (used.some((r) => box.x < r.x + r.w && box.x + box.w > r.x
         && box.y < r.y + r.h && box.y + box.h > r.y)) continue;
       used.push(box);
-      ctx.fillStyle = m.kind === 'ocean'
-        ? 'rgba(150, 196, 224, 0.42)' : 'rgba(150, 196, 224, 0.62)';
+      ctx.fillStyle = m.kind === 'ocean' ? CHART.waterName : CHART.seaName;
       if (m.kind === 'ocean') ctx.letterSpacing = '0.24em';
       ctx.fillText(label, m.x, m.y);
       ctx.letterSpacing = '0px';
@@ -474,20 +688,47 @@ export function drawWorld(canvas, opts = {}) {
     ctx.lineJoin = 'miter';
     // A breath of shadow inside the border, so the chart sits in the frame.
     const vig = ctx.createLinearGradient(0, 0, 0, 22);
-    vig.addColorStop(0, 'rgba(3, 8, 14, 0.55)');
-    vig.addColorStop(1, 'rgba(3, 8, 14, 0)');
+    vig.addColorStop(0, 'rgba(40, 26, 12, 0.45)');
+    vig.addColorStop(1, 'rgba(40, 26, 12, 0)');
     ctx.fillStyle = vig;
     ctx.fillRect(0, 0, w, 22);
 
-    ctx.strokeStyle = 'rgba(230, 207, 156, 0.62)';
+    // The degree border a survey sheet is printed with: a band between the
+    // two rules, chequered black and paper every ten degrees of the chart's
+    // own longitude and latitude, so the frame is a scale as well as a frame.
+    const b0 = 4, b1 = 10;
+    ctx.fillStyle = 'rgba(236, 224, 196, 0.92)';
+    ctx.fillRect(b0, b0, w - 2 * b0, b1 - b0);
+    ctx.fillRect(b0, h - b1, w - 2 * b0, b1 - b0);
+    ctx.fillRect(b0, b0, b1 - b0, h - 2 * b0);
+    ctx.fillRect(w - b1, b0, b1 - b0, h - 2 * b0);
+    const deg = zoom > 24 ? 1 : zoom > 8 ? 2 : zoom > 3 ? 5 : 10;
+    ctx.fillStyle = CHART.ink;
+    const lonA = Math.floor((focus[0] - (w / 2) / scale) / deg) * deg;
+    for (let lon = lonA; px(lon) < w; lon += deg) {
+      if (Math.round(lon / deg) % 2) continue;
+      const xa = Math.max(b1, px(lon)), xb = Math.min(w - b1, px(lon + deg));
+      if (xb <= xa) continue;
+      ctx.fillRect(xa, b0, xb - xa, b1 - b0);
+      ctx.fillRect(xa, h - b1, xb - xa, b1 - b0);
+    }
+    const latA = Math.floor((focus[1] - (h / 2) / scale) / deg) * deg;
+    for (let lat = latA; py(lat) > 0; lat += deg) {
+      if (Math.round(lat / deg) % 2) continue;
+      const ya = Math.max(b1, py(lat + deg)), yb = Math.min(h - b1, py(lat));
+      if (yb <= ya) continue;
+      ctx.fillRect(b0, ya, b1 - b0, yb - ya);
+      ctx.fillRect(w - b1, ya, b1 - b0, yb - ya);
+    }
+
+    ctx.strokeStyle = CHART.ink;
     ctx.lineWidth = 2;
-    ctx.strokeRect(4, 4, w - 8, h - 8);
-    ctx.strokeStyle = 'rgba(230, 207, 156, 0.30)';
+    ctx.strokeRect(b0, b0, w - 2 * b0, h - 2 * b0);
     ctx.lineWidth = 1;
-    ctx.strokeRect(9.5, 9.5, w - 19, h - 19);
+    ctx.strokeRect(b1 + 0.5, b1 + 0.5, w - 2 * b1 - 1, h - 2 * b1 - 1);
 
     // Corner ticks, in from each corner along both edges.
-    ctx.strokeStyle = 'rgba(230, 207, 156, 0.72)';
+    ctx.strokeStyle = CHART.ink;
     ctx.lineWidth = 2;
     const t = 18;
     ctx.beginPath();
@@ -498,6 +739,8 @@ export function drawWorld(canvas, opts = {}) {
     ctx.stroke();
     ctx.restore();
   };
+
+  if (rose) compassRose(ctx, w, h);
 
   if (!showPlaces) { if (frame) drawFrame(); return true; }
 
@@ -535,6 +778,7 @@ export function drawWorld(canvas, opts = {}) {
       // A capital gets a ringed square; a base a plain dot.
       ctx.fillRect(s.x - 2.5, s.y - 2.5, 5, 5);
       ctx.strokeStyle = capital;
+      ctx.lineWidth = 1;
       ctx.globalAlpha = 0.5;
       ctx.lineWidth = 1;
       ctx.strokeRect(s.x - 5, s.y - 5, 10, 10);
@@ -570,10 +814,43 @@ export function drawWorld(canvas, opts = {}) {
     ].find(([lx, ly]) => clear(lx, ly, tw, th));
     if (!spot) continue;
     taken.push({ x: spot[0] - 2, y: spot[1], w: tw + 4, h: th });
-    ctx.fillStyle = isCapital ? capital : base;
-    ctx.fillText(s.name, spot[0], spot[1]);
+    inked(ctx, s.name, spot[0], spot[1], isCapital ? capital : base);
   }
 
   if (frame) drawFrame();
+  return true;
+}
+
+/**
+ * Lay the chart into the title's wordmark: the North Atlantic and Europe off
+ * the same plotting sheet as the deployment chart, drawn once into a canvas
+ * the size of the mark and handed to the pattern its letters are filled with
+ * (see #mark-chart in index.html). Until it is drawn -- or if there is no
+ * canvas -- the letters keep the plain ruled chart the pattern starts with.
+ */
+export function paintTitleChart() {
+  const img = typeof document !== 'undefined' && document.getElementById('mark-chart-img');
+  if (!img) return false;
+  const c = document.createElement('canvas');
+  // Laid out off the screen: drawWorld wants a box to paint into.
+  c.style.cssText = 'position:fixed;left:-4000px;top:0;width:1050px;height:362px;visibility:hidden;';
+  document.body.appendChild(c);
+  // Kept in memory rather than on the graphics card: reading a picture back
+  // off the card is a stall of seconds on a slow one, and this is read once.
+  c.getContext('2d', { willReadFrequently: true });
+  const drawn = drawWorld(c, {
+    focus: [12, 47], zoom: 5.2,
+    graticule: true, showPlaces: false, showWaters: false, rose: false, frame: false,
+    // Drawn on the processor, where the ruled water-lines, the blurred shelf
+    // and the aged paper are seconds of work; at the size of a letter none of
+    // them is seen, and the mark lays its own grain over the chart.
+    lining: false, paper: false, shelf: 'rgba(0, 0, 0, 0)',
+  });
+  c.remove();
+  if (!drawn) return false;
+  // Encoded off the main thread, and handed to the mark when it is ready.
+  c.toBlob((blob) => {
+    if (blob) img.setAttribute('href', URL.createObjectURL(blob));
+  }, 'image/jpeg', 0.86);
   return true;
 }

@@ -3268,3 +3268,200 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
   .lo-slot { flex-direction: column; align-items: stretch; }
   .lo-acts .btn { flex: 1; }
 }
+
+
+/* =====================================================================
+   THE CHART ROOM
+   Every panel, plate and key in the game is cut from a sheet of 1940s
+   chart: the dark ones from a plotting sheet under a red night lamp --
+   grained, mottled, ruled in map squares and contoured -- and the buttons
+   from the buff paper the charts were printed on, inked in brown-black.
+   Laid over the rest of the sheet as one layer, so a state a rule above
+   gives a key (on, held, fired) still wins: they carry two classes, these
+   carry one.
+   ===================================================================== */
+:root {
+  --tx-grain-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E %3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' seed='7' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 0.86 0 0 0 0 0.78 0 0 0 0 0.66 0 0 0 0.22 -0.075'/%3E%3C/filter%3E %3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --tx-grain-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E %3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' seed='19' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 0.24 0 0 0 0 0.16 0 0 0 0 0.07 0 0 0 0.48 -0.16'/%3E%3C/filter%3E %3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --tx-mottle-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='420'%3E %3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.006 0.009' numOctaves='3' seed='3' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 0.05 0 0 0 0 0.03 0 0 0 0 0.0 0 0 0 1.08 -0.32'/%3E%3C/filter%3E %3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E");
+  --tx-mottle-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='420'%3E %3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.006 0.009' numOctaves='3' seed='5' stitchTiles='stitch'/%3E %3CfeColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.4 0 0 0 0 0.2 0 0 0 0.72 -0.21'/%3E%3C/filter%3E %3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E");
+  --tx-grid-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E %3Cg fill='none' stroke='%23d9c69a'%3E %3Cpath stroke-opacity='0.1' stroke-width='0.6' d='M24 0V120M48 0V120M72 0V120M96 0V120M0 24H120M0 48H120M0 72H120M0 96H120'/%3E %3Cpath stroke-opacity='0.2' stroke-width='1' d='M0.5 0V120M0 0.5H120'/%3E%3C/g%3E%3C/svg%3E");
+  --tx-grid-ink: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E %3Cg fill='none' stroke='%233a2a16'%3E %3Cpath stroke-opacity='0.14' stroke-width='0.6' d='M24 0V120M48 0V120M72 0V120M96 0V120M0 24H120M0 48H120M0 72H120M0 96H120'/%3E %3Cpath stroke-opacity='0.26' stroke-width='1' d='M0.5 0V120M0 0.5H120'/%3E%3C/g%3E%3C/svg%3E");
+  --tx-contour-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='420'%3E %3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.02' numOctaves='2' seed='11'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='26'/%3E%3C/filter%3E %3Cg fill='none' stroke='%23d9c69a' stroke-opacity='0.13' stroke-width='0.9' filter='url(%23w)'%3E%3Cellipse cx='90' cy='80' rx='14.0' ry='7.7' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='90' cy='80' rx='28.0' ry='15.8' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='90' cy='80' rx='42.0' ry='24.2' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='90' cy='80' rx='56.0' ry='32.9' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='90' cy='80' rx='70.0' ry='42.0' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='330' cy='210' rx='15.8' ry='9.2' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='31.7' ry='18.7' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='47.5' ry='28.5' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='63.3' ry='38.7' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='79.2' ry='49.2' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='95.0' ry='60.0' transform='rotate(25 330 210)'/%3E%3Cellipse cx='520' cy='70' rx='15.0' ry='8.8' transform='rotate(8 520 70)'/%3E%3Cellipse cx='520' cy='70' rx='30.0' ry='18.1' transform='rotate(8 520 70)'/%3E%3Cellipse cx='520' cy='70' rx='45.0' ry='27.8' transform='rotate(8 520 70)'/%3E%3Cellipse cx='520' cy='70' rx='60.0' ry='38.0' transform='rotate(8 520 70)'/%3E%3Cellipse cx='200' cy='330' rx='20.0' ry='10.4' transform='rotate(-30 200 330)'/%3E%3Cellipse cx='200' cy='330' rx='40.0' ry='21.4' transform='rotate(-30 200 330)'/%3E%3Cellipse cx='200' cy='330' rx='60.0' ry='32.9' transform='rotate(-30 200 330)'/%3E%3Cellipse cx='200' cy='330' rx='80.0' ry='45.0' transform='rotate(-30 200 330)'/%3E%3Cellipse cx='470' cy='350' rx='18.3' ry='10.6' transform='rotate(12 470 350)'/%3E%3Cellipse cx='470' cy='350' rx='36.7' ry='21.9' transform='rotate(12 470 350)'/%3E%3Cellipse cx='470' cy='350' rx='55.0' ry='34.0' transform='rotate(12 470 350)'/%3E%3C/g%3E%3C/svg%3E");
+  --tx-contour-ink: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='420'%3E %3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.02' numOctaves='2' seed='11'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='26'/%3E%3C/filter%3E %3Cg fill='none' stroke='%235a3f1e' stroke-opacity='0.16' stroke-width='0.9' filter='url(%23w)'%3E%3Cellipse cx='90' cy='80' rx='14.0' ry='7.7' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='90' cy='80' rx='28.0' ry='15.8' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='90' cy='80' rx='42.0' ry='24.2' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='90' cy='80' rx='56.0' ry='32.9' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='90' cy='80' rx='70.0' ry='42.0' transform='rotate(-18 90 80)'/%3E%3Cellipse cx='330' cy='210' rx='15.8' ry='9.2' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='31.7' ry='18.7' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='47.5' ry='28.5' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='63.3' ry='38.7' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='79.2' ry='49.2' transform='rotate(25 330 210)'/%3E%3Cellipse cx='330' cy='210' rx='95.0' ry='60.0' transform='rotate(25 330 210)'/%3E%3Cellipse cx='520' cy='70' rx='15.0' ry='8.8' transform='rotate(8 520 70)'/%3E%3Cellipse cx='520' cy='70' rx='30.0' ry='18.1' transform='rotate(8 520 70)'/%3E%3Cellipse cx='520' cy='70' rx='45.0' ry='27.8' transform='rotate(8 520 70)'/%3E%3Cellipse cx='520' cy='70' rx='60.0' ry='38.0' transform='rotate(8 520 70)'/%3E%3Cellipse cx='200' cy='330' rx='20.0' ry='10.4' transform='rotate(-30 200 330)'/%3E%3Cellipse cx='200' cy='330' rx='40.0' ry='21.4' transform='rotate(-30 200 330)'/%3E%3Cellipse cx='200' cy='330' rx='60.0' ry='32.9' transform='rotate(-30 200 330)'/%3E%3Cellipse cx='200' cy='330' rx='80.0' ry='45.0' transform='rotate(-30 200 330)'/%3E%3Cellipse cx='470' cy='350' rx='18.3' ry='10.6' transform='rotate(12 470 350)'/%3E%3Cellipse cx='470' cy='350' rx='36.7' ry='21.9' transform='rotate(12 470 350)'/%3E%3Cellipse cx='470' cy='350' rx='55.0' ry='34.0' transform='rotate(12 470 350)'/%3E%3C/g%3E%3C/svg%3E");
+  --chart-ink: #24180c;
+  --chart-ink-soft: rgba(36, 24, 12, 0.72);
+  --chart-buff: #d8c597;
+  --chart-buff-hi: #e8dab4;
+  --chart-rule: rgba(214, 192, 140, 0.34);
+  --chart-rule-hi: rgba(214, 192, 140, 0.6);
+  --chart-pencil: #9a2117;
+  /* The dark sheet: a plotting chart, browned and ruled. */
+  --chart-dark:
+    var(--tx-grain-light),
+    var(--tx-contour-light),
+    var(--tx-grid-light),
+    var(--tx-mottle-dark),
+    radial-gradient(120% 90% at 18% 0%, rgba(120, 92, 52, 0.20), rgba(120, 92, 52, 0) 60%),
+    linear-gradient(165deg, rgba(44, 38, 28, 0.95) 0%, rgba(30, 27, 21, 0.96) 55%, rgba(38, 32, 24, 0.96) 100%);
+  /* The same sheet thinner, for a plate that has to let the sea show through. */
+  --chart-dark-thin:
+    var(--tx-grain-light),
+    var(--tx-grid-light),
+    linear-gradient(165deg, rgba(44, 38, 28, 0.80), rgba(30, 27, 21, 0.78));
+  /* Buff paper: a label pasted on the chart. */
+  --chart-paper:
+    var(--tx-grain-dark),
+    var(--tx-grid-ink),
+    var(--tx-mottle-light),
+    radial-gradient(140% 120% at 30% 20%, rgba(255, 248, 226, 0.45), rgba(255, 248, 226, 0) 60%),
+    linear-gradient(170deg, #e2d2a8 0%, #d3bf8f 60%, #c4ad7b 100%);
+  --chart-edge: inset 0 0 0 1px rgba(20, 14, 8, 0.55), inset 0 0 0 4px rgba(214, 192, 140, 0.10), inset 0 0 28px rgba(10, 6, 2, 0.45);
+  --chart-paper-edge: inset 0 0 0 1px rgba(36, 24, 12, 0.55), inset 0 0 0 3px rgba(255, 246, 220, 0.35), inset 0 0 14px rgba(110, 76, 34, 0.35);
+}
+
+/* ---- the dark sheet: panels and plates ---------------------------------- */
+.panel, .conn-panel, .scoreboard, .sink-overlay, .toast, .group-bar,
+.director-bar, .script-panel, .airgroup, .era-box, .yard-search-list,
+.watch-banner, .port-key, .msl-radar, .plot-table-box, .o2-gauge,
+.gate-ship {
+  background: var(--chart-dark);
+  border-color: var(--chart-rule);
+  box-shadow: var(--chart-edge), 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+.panel { border-top-color: var(--chart-pencil); backdrop-filter: none; }
+.panel-head, .panel-foot { border-color: var(--chart-rule); }
+.panel-head {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0)),
+    repeating-linear-gradient(90deg, rgba(214, 192, 140, 0.18) 0 14px, transparent 14px 28px) left bottom / 100% 3px no-repeat;
+}
+.panel-head h2 { text-shadow: 2px 2px 0 rgba(10, 6, 2, 0.7); }
+.panel-body h3 { color: #c8473a; }
+
+.ship-plate, .spec-plate, .target-plate, .kill-row, .arms-row, .party-row,
+.sp-row, .free-cam-key, .minimap-wrap, .yard-search-input, .lamp-switch {
+  background: var(--chart-dark-thin);
+  border-color: var(--chart-rule);
+}
+
+/* Fields on the sheet: a box ruled in ink, the paper showing through. */
+input[type="text"], input:not([type]), select {
+  background: var(--tx-grain-light), rgba(20, 15, 9, 0.55);
+  border: 1px solid var(--chart-rule);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
+  color: #efe4c8;
+}
+select option { background: #2a241b; color: #efe4c8; }
+
+/* ---- the buff paper: buttons --------------------------------------------- */
+.btn {
+  background: var(--chart-paper);
+  color: var(--chart-ink);
+  border: 1px solid rgba(36, 24, 12, 0.7);
+  box-shadow: var(--chart-paper-edge), 2px 3px 0 rgba(8, 5, 2, 0.55);
+  text-shadow: 0 1px 0 rgba(255, 246, 220, 0.45);
+  position: relative;
+}
+/* The red one -- the order to sail -- is stamped, not printed: a buff label
+   with a red border and red ink. */
+.btn:not(.ghost) {
+  color: var(--chart-pencil);
+  border: 2px solid var(--chart-pencil);
+  box-shadow: var(--chart-paper-edge), inset 0 0 0 4px rgba(154, 33, 23, 0.22), 2px 3px 0 rgba(8, 5, 2, 0.55);
+}
+.btn:hover { filter: brightness(1.06) contrast(1.05); }
+.btn.ghost {
+  background: var(--chart-dark);
+  color: var(--sand);
+  border: 1px solid var(--chart-rule-hi);
+  box-shadow: var(--chart-edge), 2px 3px 0 rgba(8, 5, 2, 0.55);
+  text-shadow: none;
+}
+.btn:disabled {
+  background: var(--tx-grain-dark), linear-gradient(170deg, #9c8f74, #857a62);
+  color: rgba(36, 24, 12, 0.5);
+  border-color: rgba(36, 24, 12, 0.4);
+  box-shadow: var(--chart-paper-edge);
+  text-shadow: none;
+}
+
+/* ---- the title's menu: labels pasted down the margin of the chart ------- */
+.menu { gap: 0.75rem; }
+.menu-item {
+  background: var(--chart-paper);
+  color: var(--chart-ink);
+  padding: 0.28em 0.85em 0.22em;
+  border: 1px solid rgba(36, 24, 12, 0.6);
+  box-shadow: var(--chart-paper-edge), 3px 4px 0 rgba(6, 4, 2, 0.6), 0 10px 24px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 0 rgba(255, 246, 220, 0.5);
+  font-size: clamp(1.05rem, 1.9vw, 1.85rem);
+  /* A deckled edge: torn off the sheet, not guillotined. */
+  clip-path: polygon(0 3%, 6% 0, 18% 2%, 31% 0, 47% 3%, 62% 0, 79% 2%, 93% 0, 100% 4%,
+    99% 50%, 100% 96%, 88% 100%, 72% 97%, 55% 100%, 38% 98%, 22% 100%, 8% 97%, 0 100%, 1% 52%);
+  transition: transform 0.14s ease, filter 0.14s ease, color 0.14s ease;
+}
+.menu-left .menu-item:nth-child(odd) { transform: rotate(-0.6deg); }
+.menu-left .menu-item:nth-child(even) { transform: rotate(0.5deg); }
+.menu-right .menu-item:nth-child(odd) { transform: rotate(0.6deg); }
+.menu-right .menu-item:nth-child(even) { transform: rotate(-0.5deg); }
+.menu-item:hover, .menu-item:focus-visible {
+  color: var(--chart-pencil);
+  text-shadow: 0 1px 0 rgba(255, 246, 220, 0.5);
+  filter: brightness(1.07);
+}
+.menu-left .menu-item:hover, .menu-left .menu-item:focus-visible { transform: translateX(10px) rotate(0deg); }
+.menu-right .menu-item:hover, .menu-right .menu-item:focus-visible { transform: translateX(-10px) rotate(0deg); }
+@media (max-width: 700px) {
+  .menu-left .menu-item, .menu-right .menu-item,
+  .menu-left .menu-item:hover, .menu-right .menu-item:hover { transform: none; }
+  .menu-item { width: min(22rem, 86vw); }
+}
+
+/* ---- the title: STEEL CURRENTS cut out of a chart ------------------------ */
+.mark-face { fill: url(#mark-chart); stroke: var(--mark-red); stroke-width: 2.4; paint-order: stroke; }
+.mark-shadow { fill: #0b0703; }
+.title-mark { filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.55)); }
+
+/* ---- keys and switches on the bridge ------------------------------------- */
+.conn-key, .conn-act, .dir-key, .dir-speed, .arms-shell button, .arms-dc-set,
+.arms-dc-fire, .arms-dc-auto, .party-job, .sp-nudge button, .sp-tabs button,
+.sp-chip, .sp-cue, .sp-t, .sp-x, .sp-clear, .deploy-zoom button, .deploy-close,
+.lay-x, .fs-toggle, .leave-key, .gun-leave, .fly-leave, .msl-target button,
+.msl-fire button, .msl-air button, .sol-key, .human-jump, .lamp-key,
+.target-gun, .lo-slot, .plot-zoom-key, .watch-back, .ag-step, .ag-pick,
+.premium-cat, .ship-card, .human-deploy {
+  background-image: var(--tx-grain-light), var(--tx-grid-light);
+  background-color: rgba(38, 32, 23, 0.86);
+  border-color: var(--chart-rule);
+  box-shadow: inset 0 0 0 1px rgba(14, 9, 4, 0.5), inset 0 0 12px rgba(10, 6, 2, 0.35);
+}
+
+/* ---- the briefing and deployment sheets, over the chart ------------------ */
+.briefing-veil {
+  background:
+    linear-gradient(180deg,
+      rgba(22, 16, 9, 0.84) 0%, rgba(22, 16, 9, 0.66) 4%, rgba(22, 16, 9, 0.40) 9%,
+      rgba(22, 16, 9, 0.18) 14%, rgba(22, 16, 9, 0.05) 21%, rgba(22, 16, 9, 0) 28%,
+      rgba(22, 16, 9, 0) 70%, rgba(22, 16, 9, 0.05) 76%, rgba(22, 16, 9, 0.18) 82%,
+      rgba(22, 16, 9, 0.42) 88%, rgba(22, 16, 9, 0.70) 94%, rgba(22, 16, 9, 0.88) 100%);
+}
+.briefing-head, .deploy-head {
+  background: var(--tx-grain-light), linear-gradient(180deg, rgba(30, 24, 16, 0.86), rgba(30, 24, 16, 0));
+}
+.briefing-foot {
+  background: var(--tx-grain-light), linear-gradient(0deg, rgba(30, 24, 16, 0.9), rgba(30, 24, 16, 0));
+}
+.screen.map-screen { background: #2b2218; }
+/* Ships, guns and aircraft on the chart are counters laid on the paper:
+   each with an inked edge so it reads over land as well as sea. */
+.force-cell .sil, .turret-btn .turret-art, .bomber-btn .bomber-art, .force-arrow {
+  filter: drop-shadow(1px 0 0 #24180c) drop-shadow(-1px 0 0 #24180c) drop-shadow(0 1px 0 #24180c)
+    drop-shadow(0 -1px 0 #24180c) drop-shadow(1px 3px 2px rgba(20, 12, 4, 0.6));
+}
+.force-cell .count, .turret-btn .count, .bomber-btn .count {
+  text-shadow: 1px 0 0 #24180c, -1px 0 0 #24180c, 0 1px 0 #24180c, 0 -1px 0 #24180c, 0 2px 4px rgba(20, 12, 4, 0.8);
+}
+
+/* ---- the boot sheet ------------------------------------------------------- */
+.boot { background: var(--chart-dark), #1d1912; }

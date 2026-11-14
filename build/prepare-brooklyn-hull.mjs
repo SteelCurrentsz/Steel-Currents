@@ -306,15 +306,29 @@ for (let t = 0; t < model.T.length / 3; t++) {
   }
 }
 const hbAt = (z) => HB[Math.max(0, Math.min(HB.length - 1, Math.round(z + LOA / 2)))];
+// Plates the model hangs on her side as pieces of their own -- the doubler
+// plates abreast her after turrets, either side, and the boom stowed along her
+// starboard side -- are her side, and are painted and cut along her paint lines
+// with it: left out, they were a haze grey stripe down her navy blue with a
+// sawtooth for a foot.
+const SIDE_PIECES = new Set([671, 691, 189]);
 function isShell(t) {
-  if (!SHELL_MATS.has(model.M[t]) || !HULL_PIECES.has(pieceOf(t))) return false;
+  if (!SHELL_MATS.has(model.M[t]) || !(HULL_PIECES.has(pieceOf(t)) || SIDE_PIECES.has(pieceOf(t)))) return false;
   const [a, b, c] = [model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]];
   const P = model.P;
   const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
   const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
   const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-  if (ny > 0.5 * Math.hypot(nx, ny, nz)) return false;
   const cx = (P[a * 3] + P[b * 3] + P[c * 3]) / 3, cy = (P[a * 3 + 1] + P[b * 3 + 1] + P[c * 3 + 1]) / 3, cz = (P[a * 3 + 2] + P[b * 3 + 2] + P[c * 3 + 2]) / 3;
+  // A flat that looks up is a deck -- unless it is a ledge low on her side,
+  // which is painted as her side is.
+  if (ny > 0.5 * Math.hypot(nx, ny, nz) && cy > M22 - 0.5) return false;
+  // Her half-breadth is read off her points, and her propeller guards stand a
+  // metre and a half out of her side abaft her after turrets: there it read
+  // wider than her plating, and a run of her side was painted haze grey down
+  // to her boot topping. A plate under her Measure 22 line that faces
+  // athwartships is her side, wherever her half-breadth puts it.
+  if (cy < M22 && Math.abs(nx) > 0.7 * Math.hypot(nx, ny, nz)) return true;
   return cy < WATERLINE + 0.5 || Math.abs(cx) > hbAt(cz) - 1.2 || (cz < -0.84 * LOA / 2 && cy < 3);
 }
 // Cut along her waterline, her boot topping and her Measure 22 line: every
@@ -340,7 +354,10 @@ for (const LEVEL of PAINT_LINES) {
   for (let t = 0; t < nf; t++) {
     const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
     const sd = v.map((i) => Math.sign(P[i * 3 + 1] - LEVEL));
-    if (!isShell(t) || !(sd.includes(1) && sd.includes(-1))) {
+    // Every face of her plating that crosses the line is cut along it, shell or
+    // not: one left whole is painted by its middle, and a wedge of bottom red
+    // stood up out of her waterline, or of grey down into her navy blue.
+    if (!(HULL_PIECES.has(pieceOf(t)) || SIDE_PIECES.has(pieceOf(t))) || !(sd.includes(1) && sd.includes(-1))) {
       T2.push(...v); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]);
       continue;
     }
@@ -477,10 +494,10 @@ for (let t = 0; t < nTri; t++) {
   // hull's are turned the right way up and looked at again once they are
   // (see below).
   const up = Math.abs(ny) > 0.9 * Math.hypot(nx, ny, nz);
-  if (HULL_PIECES.has(model.L[t]) && isShell(t)) {
+  if (isShell(t)) {
     if (cy < WATERLINE) { lab[t] = PI.bottom; continue; }
     if (cy < BOOT) { lab[t] = PI.boot; continue; }
-    if (cy < M22 && !up) { lab[t] = PI.navy; continue; }
+    if (cy < M22 && (!up || cy < M22 - 0.5)) { lab[t] = PI.navy; continue; }
   }
   // Every deck and every flat that looks at the sky over her side.
   if (up && cy > 4) { lab[t] = PI.deck; continue; }
@@ -806,8 +823,8 @@ hullRaw.S0 = orient(hullRaw);
 // paints and so two edges, and the decimator, free to slide an edge along
 // itself, slid her side's off a metre of her starboard bow and left a notch
 // open to her insides.
-let hull = creaseNormals(reduce(hullRaw, +(process.env.HULL_TRIS || 60000), +(process.env.HULL_ERROR || 0.002),
-  (process.env.HULL_FLAGS ?? 'Prune').split(',').filter(Boolean),
+let hull = creaseNormals(reduce(hullRaw, +(process.env.HULL_TRIS || Infinity), +(process.env.HULL_ERROR || 0.002),
+  (process.env.HULL_FLAGS ?? '').split(',').filter(Boolean),
   (x, y) => PAINT_LINES.some((l) => Math.abs(y - l) < 1e-3)));
 console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points');
 
@@ -882,7 +899,9 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
   }
   const at = (v) => [P[rep[v] * 3], P[rep[v] * 3 + 1], P[rep[v] * 3 + 2]];
   // Her open edges up to two metres over her waterline.
-  const MAXY = +(process.env.CRACK_Y ?? 2), TOL = 0.3, CELL = 1;
+  // Off unless she is decimated (HULL_TRIS): drawn whole she has no such cracks,
+  // and the slivers it laid then lay across her own plates as dark wedges.
+  const MAXY = +(process.env.CRACK_Y ?? (process.env.HULL_TRIS ? 2 : -100)), TOL = 0.3, CELL = 1;
   const open = [], ends = new Set();
   for (const [e, { n, t }] of edges) {
     if (n !== 1) continue;
@@ -938,7 +957,7 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
 // sees from behind -- daylight through her bridge, her deckhouses, her side --
 // is drawn from both sides (see build/seal.mjs).
 {
-  const m = mirrorSides(hull, { loa: LOA });
+  const m = process.env.MIRROR === '1' ? mirrorSides(hull, { loa: LOA }) : { copied: 0, cells: 0 };
   const s = sealFromOutside(hull);
   console.log(`sealed: ${m.copied} faces copied across her centreline into ${m.cells} cells, ${s.made} seen from behind drawn from both sides`);
 }
@@ -986,6 +1005,22 @@ const LINES = measureLines(hull, st, { z0: -94, dz: 1, nz: 189, y0: -7.5, dy: 0.
     mended++;
   }
   console.log(`lines: ${mended} stations mended`);
+}
+// A plate the model hangs on her side -- a doubler, a boom, a ladder -- reads
+// as her side standing out a hand's breadth at the one station it is at, and
+// her belt, fitted to her lines, stood out through her plating there: a grey
+// stripe down her side with a sawtooth foot. Each of her half-breadths is the
+// median of it and the stations either side of it.
+{
+  const { half, ny, nz } = LINES;
+  const was = Float32Array.from(half);
+  let eased = 0;
+  for (let k = 1; k + 1 < nz; k++) for (let j = 0; j < ny; j++) {
+    const a = was[(k - 1) * ny + j], b = was[k * ny + j], c = was[(k + 1) * ny + j];
+    const m = Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+    if (b > m + 0.05) { half[k * ny + j] = +m.toFixed(2); eased++; }
+  }
+  console.log(`lines: ${eased} half-breadths standing out of her side eased`);
 }
 // Where a deckhouse stands open underneath, the first thing over her insides
 // can be a flat inside it rather than her deck, and her deck reads metres low
@@ -1187,6 +1222,8 @@ function boresOf(bar, guns, face) {
  * barrels on their cradle -- the trunnions just inside the face, the bore
  * along +Z -- with their muzzles. Painted as the model painted it.
  */
+// Every mounting kept as the model draws it, triangle for triangle (GUN_TRIS caps it).
+const FULL = +(process.env.GUN_TRIS || Infinity);
 function gunKind(kind, { guns, minLen, tris, barrelTris, inside = 0.6, test = null, barrelPaint = null, whole = false, error = 0.003, flags = [], ahead = false, cull = 0 }) {
   const g0 = KINDS[kind][0];
   const raw = groupMesh(g0);
@@ -1293,10 +1330,10 @@ function facing(kind, s) {
 }
 const GUNS = {
   // Her 6 in triples: three barrels out of a gunhouse.
-  main: gunKind('main', { guns: 3, minLen: 2.5, tris: 2400, barrelTris: 700 }),
+  main: gunKind('main', { guns: 3, minLen: 2.5, tris: FULL, barrelTris: FULL }),
   // Her quad Bofors and her Oerlikons, which train whole.
-  quad: gunKind('quad', { whole: true, tris: 1400, error: 0.01 }),
-  oer: gunKind('oer', { whole: true, tris: 260 }),
+  quad: gunKind('quad', { whole: true, tris: FULL, error: 0.01 }),
+  oer: gunKind('oer', { whole: true, tris: FULL }),
 };
 
 /**
@@ -1336,7 +1373,7 @@ const SCREWS = KINDS.screw.map((gi) => {
   const c = [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2];
   const P = raw.P.slice();
   for (let i = 0; i < P.length; i += 3) for (let k = 0; k < 3; k++) P[i + k] -= c[k];
-  const m = creaseNormals(reduce({ P, T: raw.T, C: raw.C }, 400, 0.001));
+  const m = creaseNormals(reduce({ P, T: raw.T, C: raw.C }, FULL, 0.001));
   const byV = new Uint8Array(m.P.length / 3);
   for (let t = 0; t < m.T.length / 3; t++) for (let k = 0; k < 3; k++) byV[m.T[t * 3 + k]] = m.C[t];
   return {

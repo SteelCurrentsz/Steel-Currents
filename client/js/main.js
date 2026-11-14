@@ -22,6 +22,7 @@ import { LayoutMap } from './layout.js';
 import { LoadoutPanel } from './loadouts.js';
 import { ScriptEditor } from './scripteditor.js';
 import { DeployMap } from './deploy.js';
+import { paintTitleChart } from './worldmap.js';
 import { audio } from './audio.js';
 import * as account from './account.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
@@ -79,6 +80,13 @@ const boot = {
     }));
   },
 };
+
+// The title's wordmark is filled with a chart of the North Atlantic; it is
+// drawn once, off the critical path, and the ruled chart the letters start
+// with stands in until it is.
+setTimeout(() => {
+  try { paintTitleChart(); } catch (e) { console.warn('title chart', e); }
+}, 0);
 
 // A context the browser has already taken back answers every question about
 // itself with null, and three.js's first question -- how precise its shaders

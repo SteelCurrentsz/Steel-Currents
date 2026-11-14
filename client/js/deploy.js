@@ -581,8 +581,6 @@ export class DeployMap {
     drawWorld(this.canvas, {
       focus: [this.view.lon, this.view.lat],
       zoom: this.view.zoom,
-      sea: '#071320',
-      coast: '#93b0bf',
       graticule: true,
       showWaters: true,
       showPlaces: this.view.zoom < 40,
@@ -591,8 +589,9 @@ export class DeployMap {
     const ctx = this.canvas.getContext('2d');
     const pts = this.pins.map((q) => this.toScreen(q.lon, q.lat));
     const ok = this.valid;
-    const line = ok ? 'rgba(230, 207, 156, 0.90)' : 'rgba(226, 86, 79, 0.90)';
-    const wash = ok ? 'rgba(230, 207, 156, 0.07)' : 'rgba(226, 86, 79, 0.10)';
+    // Plotted in grease pencil: navy blue for a good box, red for one that is not.
+    const line = ok ? 'rgba(22, 34, 82, 0.92)' : 'rgba(170, 30, 22, 0.92)';
+    const wash = ok ? 'rgba(22, 34, 82, 0.10)' : 'rgba(170, 30, 22, 0.12)';
 
     // The battlefield: the water inside the four corners, hatched so it reads
     // as a claimed area rather than as an empty frame drawn on the chart.
@@ -618,7 +617,7 @@ export class DeployMap {
       if (q.y < y0) y0 = q.y;
       if (q.y > y1) y1 = q.y;
     }
-    ctx.strokeStyle = ok ? 'rgba(230, 207, 156, 0.30)' : 'rgba(226, 86, 79, 0.34)';
+    ctx.strokeStyle = ok ? 'rgba(22, 34, 82, 0.30)' : 'rgba(170, 30, 22, 0.34)';
     ctx.lineWidth = 1;
     const step = 14;
     ctx.beginPath();
@@ -693,7 +692,7 @@ export class DeployMap {
     // The corners. Each is a teardrop standing on the point it marks, with a
     // ring on the water under it so the exact spot is not hidden by the pin.
     pts.forEach((q, i) => {
-      const col = this.bad[i] ? '#e2564f' : '#e6cf9c';
+      const col = this.bad[i] ? '#aa1e16' : '#16224f';
       ctx.save();
       ctx.translate(q.x, q.y);
       ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';

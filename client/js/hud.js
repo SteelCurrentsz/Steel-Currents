@@ -3,6 +3,7 @@
 // here; what a captain works is her speed, her aircraft and her damage control,
 // and he lays her course off on the plot.
 
+import { chartGrain } from './worldmap.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MAP_HALF, islandRing, CHART_X } from '../../shared/world.js';
 import { BATTERIES } from '../../shared/batteries.js';
@@ -3146,13 +3147,16 @@ class HudBase {
   paintChart(ctx, store, size, toX, toY, H, scale) {
     ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
     ctx.clearRect(0, 0, size, size);
-    ctx.fillStyle = 'rgba(8,24,42,0.75)';
+    // The same sheet as the deployment chart, in the slate of a plotting
+    // table's sea (see CHART in worldmap.js), kept deep so the plots on it read.
+    ctx.fillStyle = 'rgba(40, 62, 68, 0.86)';
     ctx.fillRect(0, 0, size, size);
+    chartGrain(ctx, 0, 0, size, size, 0.4);
 
     // The grid is laid on the battlefield, not on the canvas, so it stays put
     // under the chart when it is panned and gives a captain something to judge
     // a range by when he has zoomed in.
-    ctx.strokeStyle = 'rgba(154,166,178,0.14)';
+    ctx.strokeStyle = 'rgba(214, 192, 140, 0.18)';
     ctx.lineWidth = 1;
     const step = (H * 2) / 8;
     for (let i = -8; i <= 8; i++) {
@@ -3163,12 +3167,12 @@ class HudBase {
     }
     // The border of the battlefield: past it there is nothing to fight over,
     // and when the chart is zoomed in it is the only thing that says so.
-    ctx.strokeStyle = 'rgba(154,166,178,0.4)';
+    ctx.strokeStyle = 'rgba(214, 192, 140, 0.5)';
     ctx.strokeRect(Math.min(toX(-H), toX(H)), toY(H), H * 2 * scale, H * 2 * scale);
 
     // The islands, in the shape the hulls run aground on rather than as the
     // circles they used to be plotted as.
-    ctx.fillStyle = 'rgba(56,64,47,0.9)';
+    ctx.fillStyle = 'rgba(179, 159, 114, 0.95)';
     for (const isle of this.world.islands) {
       const ring = islandRing(isle);
       ctx.beginPath();
@@ -3191,6 +3195,10 @@ class HudBase {
         ctx.closePath();
       }
       ctx.fill('evenodd');
+      // Its coast inked in, as the chart's is.
+      ctx.strokeStyle = 'rgba(46, 34, 20, 0.9)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
   }
 
