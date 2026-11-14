@@ -44,6 +44,12 @@ await prepare({
       { x: [1.9, 4.5], y: [4.7, 6.7], z: [-11.9, -10.2] },
       { x: [-4.5, -1.9], y: [4.7, 6.7], z: [-11.9, -10.2] },
     ], gun: { whole: true, tris: 900, error: 0.01 } },
+    // Her Hedgehog, on its bed on the 01 level forward of her bridge: the
+    // cradle and its twenty-four spigots in six rows of four, fixed, laid
+    // ahead -- it throws where she is pointing.
+    hedgehog: { nodes: [71, 73, 75, 77, 79, 81, 83, 85, 87, 89, 91, 93, 95, 97, 99, 101, 103, 105, 107, 109, 111, 113, 115, 117, 119], boxes: [
+      { x: [-1.4, 1.3], y: [5.8, 8.4], z: [24.2, 27.8] },
+    ], gun: { whole: true, tris: 3000, error: 0.004, rest: 0 } },
     // Her two screws, under her quarter.
     screw: { nodes: [45, 47], boxes: [
       { x: [0, 3.5], y: [-2.4, -0.2], z: [-37.6, -36.1] },

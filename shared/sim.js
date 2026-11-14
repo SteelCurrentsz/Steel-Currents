@@ -307,7 +307,7 @@ export function addShip(state, {
     torpMounts: cls.torpedoes ? cls.torpedoes.mounts.map((m) => ({ id: m.id, angle: m.angle, cooldown: 0 })) : [],
     // Her RBU-1200 launchers, if she has them: where each is trained, its
     // reload, and the ripple it is firing, if any. See stepRbu.
-    rbuMounts: cls.rbu ? cls.rbu.mounts.map((m) => ({ id: m.id, angle: m.rest ?? m.angle, elev: 0, cooldown: 0, ripple: null })) : [],
+    rbuMounts: cls.rbu ? cls.rbu.mounts.map((m) => ({ id: m.id, angle: m.rest ?? m.angle, elev: cls.rbu.fixed ? rbuFlight(cls.rbu, cls.rbu.range).elev : 0, cooldown: 0, ripple: null })) : [],
     // The depth charge gear. `dcLeft` is how many charges are still in the
     // stowage, `dcMounts` is a reload clock per rack and per thrower, `dcSet`
     // is what the pistols are wound to, and `dcAuto` is whether her own
@@ -7608,6 +7608,11 @@ function stepShells(state, dt) {
       // Never the ship that fired it: it leaves her muzzles inside her own box.
       if (target.id === sh.owner && !sh.fromBattery && !sh.bomb) continue;
       const cls = shipClass(target);
+      // A boat down past her tower is under the sea, and a shell or a bomb
+      // coming down over her goes into the water, not into her: the sea
+      // between is what she dived for. (A thrown anti-submarine bomb goes on
+      // down after her from the splash -- see rbuSplash.)
+      if (cls.dive && target.depth > 2) continue;
       const halfLen = cls.hull.length * 0.5;
       const halfBeam = cls.hull.beam * 0.5 + 2;
       const deck = 9 + cls.hull.superstructure * 14;
@@ -10558,6 +10563,7 @@ function stepCiws(state, ship, dt) {
  */
 function rbuTarget(state, ship, cls, spec) {
   const R = cls.rbu;
+  if (R.fixed) return hedgehogTarget(state, ship, cls, spec);
   const at = mountWorldPos(ship, spec);
   const reach = (x, z) => {
     const d = dist(at.x, at.z, x, z);
@@ -10658,6 +10664,23 @@ function stepRbu(state, ship, dt) {
     const spec = R.mounts[m.id];
     if (m.cooldown > 0) m.cooldown -= dt;
     if (m.ripple) { stepRbuRipple(state, ship, cls, spec, m, i, dt); return; }
+    // A fixed launcher -- a Hedgehog -- is laid by the ship: it lies on her
+    // centreline at its one elevation and throws where she is pointing.
+    if (R.fixed) {
+      m.angle = spec.rest ?? spec.angle;
+      m.elev = rbuFlight(R, R.range).elev;
+      m.want = null;
+      if (isManned(ship, 'rbu', i) || offForDirector(ship, 'rbu', i)) return;
+      m.look = (m.look || 0) - dt;
+      if (m.look > 0) return;
+      m.look = 0.5;
+      if (m.cooldown > 0) return;
+      const want = hedgehogTarget(state, ship, cls, spec);
+      if (!want) return;
+      m.ripple = { left: R.tubes, next: 0, aim: want };
+      m.cooldown = R.reload;
+      return;
+    }
     // Taken over: laid where its layer is holding, and fired when he says so
     // (see fireRbuManned) -- her fire control leaves it alone.
     if (isManned(ship, 'rbu', i)) {
@@ -10715,6 +10738,7 @@ function stepRbu(state, ship, dt) {
  * a ship or a torpedo on the surface if not.
  */
 function rbuPin(state, ship, R, spec) {
+  if (R.fixed) return hedgehogAim(ship, R, spec, 'pin');
   const at = mountWorldPos(ship, spec);
   let x = Number.isFinite(ship.manX) ? ship.manX : at.x;
   let z = Number.isFinite(ship.manZ) ? ship.manZ : at.z;
@@ -10749,6 +10773,11 @@ export function fireRbuManned(state, ship, i) {
   if (gunsDrowned(ship)) return 0;
   const spec = R.mounts[m.id];
   const aim = rbuPin(state, ship, R, spec);
+  if (R.fixed) {
+    m.ripple = { left: R.tubes, next: 0, aim };
+    m.cooldown = R.reload;
+    return R.tubes;
+  }
   const at = mountWorldPos(ship, spec);
   const local = wrapAngle(headingTo(at.x, at.z, aim.x, aim.z) - ship.heading);
   // Not on a bearing it can be trained to, or not round onto it yet.
@@ -10778,6 +10807,7 @@ function stepRbuRipple(state, ship, cls, spec, m, i, dt) {
  * launcher came round onto it.
  */
 function rbuReaim(state, ship, R, spec, aim) {
+  if (R.fixed) return hedgehogAim(ship, R, spec, aim.kind, aim.set);
   const body = aim.kind === 'torp' ? state.torps.find((tp) => tp.id === aim.id && !tp.dead)
     : state.ships.find((s) => s.id === aim.id && s.alive);
   if (!body) return aim;
@@ -10799,23 +10829,36 @@ function fireRbuBomb(state, ship, cls, spec, m, i, aim0, k) {
   const y0 = spec.my ?? 6;
   // The five bombs fall in a ring round the aim point, as the five tubes are
   // splayed to put them there, a little off where each was meant to go.
-  const a = (k / R.tubes) * TAU + state.rng() * 0.6;
-  const rad = k === 0 ? 0 : R.spread * (0.75 + state.rng() * 0.5);
-  const tx = aim.x + Math.sin(a) * rad + gauss(state.rng) * 4;
-  const tz = aim.z + Math.cos(a) * rad + gauss(state.rng) * 4;
+  let tx, tz;
+  if (R.ring) {
+    // A Hedgehog's spigots are angled so that its twenty-four bombs come down
+    // spaced round an ellipse ahead of her, a little wider than it is long,
+    // a metre or two off where each was meant to go.
+    const a = (k / R.tubes) * TAU;
+    const w = localToWorld(Math.sin(a) * R.ring[0], Math.cos(a) * R.ring[1], ship.heading);
+    tx = aim.x + w.x + gauss(state.rng) * 1.5;
+    tz = aim.z + w.z + gauss(state.rng) * 1.5;
+  } else {
+    const a = (k / R.tubes) * TAU + state.rng() * 0.6;
+    const rad = k === 0 ? 0 : R.spread * (0.75 + state.rng() * 0.5);
+    tx = aim.x + Math.sin(a) * rad + gauss(state.rng) * 4;
+    tz = aim.z + Math.cos(a) * rad + gauss(state.rng) * 4;
+  }
   const d = clamp(dist(at.x, at.z, tx, tz), R.minRange * 0.8, R.range * 1.05);
   const b = headingTo(at.x, at.z, tx, tz);
   const f = rbuFlight(R, d);
   // Thrown from her deck, and going her way as well as its own.
   const vh = R.speed * Math.cos(f.elev);
   fireShell(state, {
-    id: eid(), owner: ship.id, team: ship.team, rocket: true,
+    // A Hedgehog's bombs are thrown off their spigots, not driven by a
+    // motor: drawn as what they are, not as rockets.
+    id: eid(), owner: ship.id, team: ship.team, rocket: !R.ring,
     x: at.x + Math.sin(b) * 1.2, z: at.z + Math.cos(b) * 1.2, y: y0,
     vx: Math.sin(b) * vh, vz: Math.cos(b) * vh, vy: R.speed * Math.sin(f.elev),
     g: G, spec: R.shells.he, caliber: R.caliber, classId: cls.id, life: 0,
     asw: {
       set: aim.set, sink: R.sink, arming: R.arming, damage: R.damage,
-      lethal: R.lethal, hurt: R.hurt, kill: R.kill,
+      lethal: R.lethal, hurt: R.hurt, kill: R.kill, contact: !!R.contact,
     },
   });
   if (k === 0) {
@@ -10835,6 +10878,7 @@ function fireRbuBomb(state, ship, cls, spec, m, i, aim0, k) {
 function rbuSplash(state, sh) {
   const A = sh.asw;
   for (const tp of state.torps) {
+    if (!A.kill) break;
     if (tp.dead || tp.aboard || tp.air > 0 || tp.team === sh.team) continue;
     if (dist(tp.x, tp.z, sh.x, sh.z) > A.kill) continue;
     tp.dead = true;
@@ -10844,9 +10888,65 @@ function rbuSplash(state, sh) {
     id: eid(), owner: sh.owner, team: sh.team,
     x: sh.x, z: sh.z, y: 0,
     set: A.set, sink: A.sink, arming: A.arming,
-    damage: A.damage, lethal: A.lethal, hurt: A.hurt,
+    damage: A.damage, lethal: A.lethal, hurt: A.hurt, contact: A.contact,
     age: 0,
   });
+}
+
+// ---------------------------------------------------------------------------
+// The Hedgehog
+// ---------------------------------------------------------------------------
+//
+// The Royal Navy's answer, and then the US Navy's, to the blind last minute of
+// a depth charge attack: twenty-four bombs thrown from spigots fixed on her
+// forecastle, all at once, to come down in an ellipse two hundred metres
+// ahead of her -- where her sonar still holds the boat, instead of over a boat
+// it lost a minute ago under her forefoot. It does not train. She points it,
+// with her rudder, and it throws where her bow is.
+//
+// Each bomb is thirty pounds of Torpex with a contact fuze and nothing else:
+// it sinks, and if it meets a boat on the way down it goes off against her
+// hull, and one is enough; if it does not, it goes down to the bottom without
+// a sound. Which is what made it so much better than the depth charge -- one
+// bomb in four hits from a good attack, against one charge in fifteen -- and
+// why captains distrusted it at first: a pattern that missed told them nothing.
+
+/**
+ * Where a fixed launcher's pattern comes down: dead ahead of her at its range,
+ * the bombs led by nothing -- they go where she points -- and set to go off
+ * on nothing but a hull.
+ */
+function hedgehogAim(ship, R, spec, kind = 'pin', set = 0) {
+  const at = mountWorldPos(ship, spec);
+  const b = ship.heading + (spec.rest ?? spec.angle);
+  return { kind, x: at.x + Math.sin(b) * R.range, z: at.z + Math.cos(b) * R.range, set };
+}
+
+/**
+ * Her own fire control's word to fire the Hedgehog: a submerged boat her sonar
+ * holds, where she will be when the bombs have come down on the pattern and
+ * sunk to her depth, inside the ellipse the pattern is thrown on. Nothing on
+ * the surface: a contact bomb is not thrown at a ship.
+ */
+function hedgehogTarget(state, ship, cls, spec) {
+  const R = cls.rbu;
+  if (R.sonarSpeed && Math.abs(ship.speed) > R.sonarSpeed) return null;
+  const aim = hedgehogAim(ship, R, spec, 'sub');
+  const tof = rbuFlight(R, R.range).tof;
+  for (const boat of state.ships) {
+    if (!boat.alive || boat.team === ship.team || !shipClass(boat).dive || !submerged(boat)) continue;
+    if (dist(ship.x, ship.z, boat.x, boat.z) > R.sonar) continue;
+    const t = tof + Math.max(0, boat.depth) / R.sink;
+    const px = boat.x + Math.sin(boat.heading) * boat.speed * t;
+    const pz = boat.z + Math.cos(boat.heading) * boat.speed * t;
+    // Her hull, laid across the ellipse: somewhere along her a bomb of the
+    // ring falls, if her middle is within the ring and half her length.
+    const l = worldToLocal(px - aim.x, pz - aim.z, ship.heading);
+    const half = shipClass(boat).hull.length * 0.35;
+    if (Math.abs(l.x) > R.ring[0] + half * 0.6 || Math.abs(l.z) > R.ring[1] + half * 0.6) continue;
+    return { ...aim, id: boat.id };
+  }
+  return null;
 }
 
 /**
@@ -11128,6 +11228,15 @@ function stepCharges(state, dt) {
   for (const c of state.charges) {
     c.age += dt;
     c.y -= c.sink * dt;
+    if (c.contact) {
+      // A contact bomb goes off against a hull and against nothing else: on
+      // the way down through a boat it bursts on her, and past the depth any
+      // boat can be it is gone, with no sound at all.
+      const hit = -c.y >= c.arming && contactHull(state, c);
+      if (hit) { burstCharge(state, c); continue; }
+      if (-c.y < 260 && c.age < 90) out.push(c);
+      continue;
+    }
     // The sea has a bottom, and a charge that reaches it goes off against it.
     const floor = -Math.max(30, c.set + 25);
     if (-c.y < c.set && c.y > floor && c.age < 90) { out.push(c); continue; }
@@ -11147,6 +11256,24 @@ function stepCharges(state, dt) {
  * gland -- which is most of what depth charging actually achieved, and is why
  * it worked: a boat does not have to be sunk, only made to come up.
  */
+/** The boat a sinking contact bomb is touching, if any: inside her hull's box, a hand off her plating. */
+function contactHull(state, c) {
+  for (const boat of state.ships) {
+    if (!boat.alive || c.team === boat.team) continue;
+    const cls = shipClass(boat);
+    if (!cls.dive || !submerged(boat)) continue;
+    const l = worldToLocal(c.x - boat.x, c.z - boat.z, boat.heading);
+    const top = -boat.depth, keel = top - cls.hull.draft;
+    // Her pressure hull is round, not a box: narrower at her ends.
+    const along = Math.abs(l.z) / (cls.hull.length * 0.5);
+    if (along > 1) continue;
+    const half = cls.hull.beam * 0.5 * Math.sqrt(Math.max(0, 1 - along * along)) + 0.3;
+    if (Math.abs(l.x) > half || c.y > top + 0.3 || c.y < keel - 0.3) continue;
+    return boat;
+  }
+  return null;
+}
+
 function burstCharge(state, c) {
   state.events.push({ e: 'dcBurst', x: c.x, y: c.y, z: c.z, owner: c.owner });
   // Against the foot of a sea wall, the shock goes into the concrete.

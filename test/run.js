@@ -6164,6 +6164,66 @@ check("the Sovremenny's homing torpedoes run down a submarine as well as a ship"
   }
 });
 
+check("the Evarts' Hedgehog throws twenty-four bombs ahead of her, where she points, and they go off only on a hull", () => {
+  const H = SHIP_CLASSES.evarts.rbu;
+  assert.equal(H.name, 'Hedgehog');
+  assert.equal(H.tubes, 24);
+  assert.ok(H.fixed && H.contact, 'it is not a fixed launcher of contact bombs');
+  assert.ok(H.mounts.every((m) => m.arc === 0), 'its bed trains');
+  // A boat lying still at thirty metres, two hundred metres dead ahead of her
+  // launcher, and another off her beam that the pattern cannot reach.
+  const run = (heading, ahead) => {
+    const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
+    const e = addShip(state, { name: 'E', classId: 'evarts', team: 0, index: 0 });
+    const u = addShip(state, { name: 'U', classId: 'u48', team: 1, index: 0 });
+    e.x = 0; e.z = 0; e.heading = heading; e.speed = 0;
+    const spec = H.mounts[0];
+    const b = heading + (ahead ? 0 : Math.PI / 2);
+    u.x = Math.sin(heading) * spec.z + Math.sin(b) * H.range;
+    u.z = Math.cos(heading) * spec.z + Math.cos(b) * H.range;
+    u.heading = heading + Math.PI / 2;
+    const hp0 = u.hp;
+    const out = { fired: 0, bearings: [], bursts: 0, hp0, u, e, state };
+    for (let t = 0; t < 40 * 30; t++) {
+      u.depth = 30; u.speed = 0; e.speed = 0; e.heading = heading;
+      for (const ev of step(state, 1 / 30)) {
+        if (ev.e === 'rbu' && ev.ship === e.id) { out.fired++; out.bearings.push(ev.b); }
+        if (ev.e === 'dcBurst' && ev.owner === e.id) out.bursts++;
+      }
+      // Never trained off her centreline.
+      assert.equal(e.rbuMounts[0].angle, 0, 'the Hedgehog trained');
+      if (!u.alive) break;
+    }
+    return out;
+  };
+  // Dead ahead, on two headings: her fire control throws on her sonar's
+  // contact, and the pattern comes down on the boat.
+  for (const heading of [0, 2.2]) {
+    const r = run(heading, true);
+    assert.ok(r.fired >= 1, `on ${heading} she never fired her Hedgehog at a boat under its pattern`);
+    assert.ok(Math.abs(angleDelta(r.bearings[0], heading)) < 0.2, 'the pattern went somewhere other than ahead of her');
+    assert.ok(r.bursts > 0 && r.bursts < 24, `${r.bursts} bombs went off: a contact bomb that misses goes down without a sound`);
+    assert.ok(!r.u.alive || r.u.hp < r.hp0, 'the bombs that struck her did the boat no harm');
+  }
+  // On her beam the bed cannot be brought to bear without her turning: it
+  // is not fired, and a bomb thrown blind ahead of her bursts on nothing.
+  const beam = run(0, false);
+  assert.equal(beam.fired, 0, 'she fired the Hedgehog at a boat on her beam');
+  const state = beam.state, e = beam.e;
+  manGun(e, { k: 'rbu', i: 0 });
+  assert.ok(shootGun(state, e) === 24, 'twenty-four bombs did not go on the word');
+  let bursts = 0, splashes = 0;
+  // Six seconds in the air and seven metres a second down to the bottom.
+  for (let t = 0; t < 50 * 30; t++) {
+    e.speed = 0; beam.u.speed = 0; beam.u.depth = 30;
+    for (const ev of step(state, 1 / 30)) if (ev.e === 'dcBurst' && ev.owner === e.id) bursts++;
+    splashes = Math.max(splashes, state.charges.filter((c) => c.owner === e.id && c.contact).length);
+  }
+  assert.ok(splashes > 12, 'the bombs never went into the water');
+  assert.equal(bursts, 0, 'a contact bomb went off on nothing');
+  assert.equal(state.charges.filter((c) => c.owner === e.id).length, 0, 'the bombs never reached the bottom');
+});
+
 check("the Sovremenny's RBU-1000s break up torpedoes running at her", () => {
   const state = createState(generateWorld(9, 'open_ocean'), { mode: 'deathmatch' });
   const a = addShip(state, { name: 'A', classId: 'fletcher', team: 0, index: 0 });
@@ -6209,7 +6269,10 @@ check('every ship with rocket launchers can have one taken over, laid by hand an
       const before = [];
       for (let t = 0; t < 10 * 30; t++) for (const e of step(state, 1 / 30)) if (e.e === 'rbu' && e.m === i) before.push(e);
       assert.equal(before.length, 0, `the ${cls.name}'s manned RBU fired on its own`);
-      assert.ok(Math.abs(angleDelta(s.rbuMounts[i].angle, Math.atan2(at.x - spec.x, at.z - spec.z))) < 0.1,
+      // A fixed launcher -- a Hedgehog -- does not train at all, wherever it
+      // is laid: it throws where she points.
+      if (cls.rbu.fixed) assert.equal(s.rbuMounts[i].angle, spec.rest ?? spec.angle, `the ${cls.name}'s ${cls.rbu.name} trained`);
+      else assert.ok(Math.abs(angleDelta(s.rbuMounts[i].angle, Math.atan2(at.x - spec.x, at.z - spec.z))) < 0.1,
         `the ${cls.name}'s RBU ${i + 1} did not train onto where it was laid`);
       assert.ok(shootGun(state, s) > 0, `the ${cls.name}'s RBU ${i + 1} did not fire on the trigger`);
       step(state, 1 / 30);

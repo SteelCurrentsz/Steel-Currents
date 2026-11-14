@@ -229,7 +229,7 @@ export function arsenal(cls) {
       role: 'sub',
       pen: null,
       band: 'ASW rockets',
-      note: 'Fired by her own fire control, or laid by hand: torpedoes, submarines, ships',
+      note: R.note || 'Fired by her own fire control, or laid by hand: torpedoes, submarines, ships',
       specs: R.mounts.map((m) => ({ ...m, guns: R.tubes })),
     });
   }

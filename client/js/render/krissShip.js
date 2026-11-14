@@ -234,10 +234,22 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
       g.add(m);
       return m;
     }) : [];
+    // Her anti-submarine launchers, where her model draws them: a Hedgehog's
+    // bed is fixed on her deck and is never trained (`laid` false), it is
+    // pointed by her helm.
+    const R = CLS.rbu;
+    const rbu = R && R.piece ? R.mounts.map((spec, i) => {
+      const s = seatFor(R.piece, spec.x, spec.z, R.name);
+      const m = sculpted(g, R.piece, s.x, s.y, s.z, stowed(spec), R.traverse, `${R.name} ${i + 1}`, s.ix);
+      m.userData.sector = { angle: spec.angle, arc: spec.arc, stow: stowed(spec) };
+      if (R.fixed) m.userData.laid = false;
+      return m;
+    }) : [];
     g.userData.secMounts = sec;
     g.userData.aaMounts = aa;
     g.userData.torpMounts = torp;
-    return { sec, aa, torp };
+    g.userData.rbuMounts = rbu;
+    return { sec, aa, torp, rbu };
   }
 
   // -------------------------------------------------- depth charges ----
@@ -401,6 +413,7 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     return {
       group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
       secMounts: g.userData.secMounts || [], aaMounts: g.userData.aaMounts || [], torpMounts: g.userData.torpMounts || [],
+      rbuMounts: g.userData.rbuMounts || [],
       cards: cardMeshes,
     };
   }

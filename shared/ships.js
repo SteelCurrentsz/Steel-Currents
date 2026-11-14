@@ -778,7 +778,7 @@ export const SHIP_CLASSES = {
     type: 'DD',
     typeName: 'Destroyer Escort',
     nation: 'usa',
-    blurb: 'A convoy escort built by the dozen: three 3-inch guns, a Hedgehog and eight K-guns, twenty-one knots and a turning circle that keeps a U-boat under her.',
+    blurb: 'A convoy escort built by the dozen: three 3-inch guns, a Hedgehog that throws twenty-four bombs ahead of her, eight K-guns, and a turning circle that keeps a U-boat under her bow.',
     hull: {
       funnels: [[0, 1.0, 11.8]], length: 88.2, beam: 10.7, draft: 2.61, superstructure: 0.8, heavePeriod: 3.2 },
     hp: 8800,
@@ -856,6 +856,35 @@ export const SHIP_CLASSES = {
         { id: 7, x: 3.35, z: -33.0, my: 3.9, angle: Math.PI / 2, arc: 0.45, throw: 34 },
       ],
     },
+    // Her Hedgehog: twenty-four spigots on a fixed bed on her 01 level
+    // forward of her bridge, each throwing a sixty-five-pound bomb with thirty
+    // pounds of Torpex in it, all twenty-four at once, to come down in an
+    // ellipse some two hundred metres ahead of her. It does not train: she
+    // lays it with her rudder, and it throws where her bow points. Each bomb
+    // has a contact fuze and nothing else -- it sinks, and goes off only if it
+    // meets a boat's hull on the way down; one hit is enough (see hedgehogTarget
+    // and contactHull). Her own fire control fires it on a boat her sonar
+    // holds under the pattern, or her captain does, on his word.
+    rbu: {
+      name: 'Hedgehog', caliber: 178, tubes: 24,
+      fixed: true, contact: true,
+      // Loaded a spigot at a time by hand.
+      reload: 75, traverse: 0, range: 210, minRange: 210,
+      // Thrown at forty-six metres a second, the twenty-four together in a
+      // second and a half, onto an ellipse 42 m across and 36 m along.
+      speed: 46, spread: 20, ripple: 0.065, ring: [21, 18],
+      // Against a ship: thirty pounds of Torpex going off on her deck.
+      shells: shells(178, 700, 700, 12, 46, 0.04),
+      // In the water: seven metres a second down, and against a hull it
+      // opens her.
+      sink: 7, damage: 11000, lethal: 4, hurt: 9, arming: 0, kill: 0,
+      sonar: 2600, sonarSpeed: 18 * KNOTS,
+      note: 'Fixed ahead: aimed with her rudder. Contact-fuzed bombs, submarines only',
+      piece: 'hedgehog',
+      mounts: [
+        { id: 0, x: -0.04, z: 26.138, angle: 0, arc: 0, rest: 0, my: 7.1 },
+      ],
+    },
     planes: null,
     datasheet: {
       displacement: 1360,
@@ -865,6 +894,7 @@ export const SHIP_CLASSES = {
       secondary: null,
       tertiary: [
         { caliber: 20, label: '20mm', barrels: 9, rounds: 21600 },
+        { caliber: 178, label: 'Hedgehog', barrels: 24, mounts: 1, rounds: 144 },
       ],
     },
   },

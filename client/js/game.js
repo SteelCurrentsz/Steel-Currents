@@ -3510,6 +3510,14 @@ export class Battle {
             const p = view.rbuMounts?.[ev.m]?.getWorldPosition(new THREE.Vector3());
             if (p) { at.x = p.x; at.y = p.y + 1; at.z = p.z; }
           }
+          // A Hedgehog's twenty-four spigots going off together: a cough of
+          // smoke off her forecastle and the bombs arcing away ahead of her,
+          // with no rocket motor to light them up.
+          if (view?.cls?.rbu?.ring) {
+            fx.muzzle(at.x, at.y, at.z, ev.b, 70);
+            audio.gun(76, at, 2);
+            break;
+          }
           fx.muzzle(at.x, at.y, at.z, ev.b, 120);
           this.scene.rockets.origin(at.x, at.y, at.z);
           audio.rocket(at);
