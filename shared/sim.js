@@ -14781,7 +14781,9 @@ function stepAirJobs(state, p, carrier) {
     p.targetId = 0; p.targetAir = 0; p.targetHeavy = 0; p.targetBat = 0;
     return;
   }
-  if (p.asw > 0 && p.phase === 'outbound') {
+  // Outbound, or already run in on a ship by the strike's own logic: either
+  // way her torpedoes are still aboard and this is where she lets them go.
+  if (p.asw > 0 && (p.phase === 'outbound' || p.phase === 'ram')) {
     if (p.ax === undefined) { p.ax = p.tx; p.az = p.tz; }
     let best = null, bd = ASW_SONAR;
     for (const s of state.ships) {
@@ -14808,7 +14810,9 @@ function stepAirJobs(state, p, carrier) {
       if (d < sd) { sd = d; ship = s; }
     }
     if (ship) {
-      p.targetId = ship.id;
+      // Steered for her, not marked as a strike on her: a strike's target
+      // draws the fighters launched after it to escort it, and a Hornet
+      // formed on a Seahawk still climbing off her deck turned for home.
       const v = velocityOf(ship);
       p.tx = ship.x + v.x * 20; p.tz = ship.z + v.z * 20;
       if (sd < ASW_SHIP_DROP) dropAsw(state, p, ship);
