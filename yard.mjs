@@ -45,7 +45,7 @@ const ERA = /Liberty|Higgins/.test(SHIP) ? 'civil'
   : /Missouri|Nimitz|Ticonderoga|Guangzhou|Leviathan|Arleigh Burke|Sovremenny|Slava|USS|CNS|RF /.test(SHIP) ? 'modern' : 'wwii';
 await page.evaluate((era) => document.querySelector(`#era-pick [data-era="${era}"]`).click(), ERA);
 await page.waitForTimeout(1800);
-for (let i = 0; i < 40; i++) {
+for (let i = 0; i < 120; i++) {
   if (await page.$eval('#yard-name', (e) => e.textContent.trim()) === SHIP) break;
   await page.evaluate(() => document.getElementById('yard-next').click());
   await page.waitForTimeout(420);

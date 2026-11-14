@@ -10146,9 +10146,8 @@ export const SHIP_CLASSES = {
     // Creative Commons Attribution 4.0, credited on the Credits screen (see
     // ise.js and build/prepare-ise-hull.mjs) -- at her 215.8 m over all and
     // floated at 9.2 m, armed as she was before her conversion and as the
-    // model arms her: her twelve 35.6 cm, four twin 12.7 cm high-angle guns
-    // and ten twin 25 mm. Her 14 cm casemate guns are not drawn on the model,
-    // and she does not carry them here.
+    // model arms her: her twelve 35.6 cm, sixteen 14 cm in the battery under
+    // her upper deck, four twin 12.7 cm high-angle guns and ten twin 25 mm.
     id: 'ise',
     name: 'Ise',
     fullName: 'IJN Ise',
@@ -10156,7 +10155,7 @@ export const SHIP_CLASSES = {
     type: 'BB',
     typeName: 'Battleship',
     nation: 'jpn',
-    blurb: 'Six twin 35.6 cm turrets, two of them back to back amidships, and a pagoda of a bridge: the Fusos as they should have been built.',
+    blurb: 'Six twin 35.6 cm turrets, two of them back to back amidships, sixteen casemate 14 cm, and a pagoda of a bridge: the Fusos as they should have been built.',
     hull: {
       funnels: [[0, 3.4, 25.2]], length: 215.8, beam: 33.8, draft: 9.2, superstructure: 1.45 },
     hp: 70000,
@@ -10194,7 +10193,38 @@ export const SHIP_CLASSES = {
       shells: shells(356, 10200, 4800, 480, 770, 0.24),
     },
     torpedoes: null,
-    secondary: null,
+    // Sixteen 14 cm/50 3rd Year Type singles, eight a side, the model's own,
+    // in the battery under her upper deck from abaft her funnel to No.2's
+    // barbette, each behind its round shield. The model draws them trained
+    // along her side, the after two of a side aft and the rest forward, and
+    // that is how they stow; each trains from there out past her beam, a
+    // hundred and nine degrees, before its breech would meet the inner wall
+    // of the battery (see ise.js).
+    secondary: {
+      name: '14 cm/50 3rd Year Type', role: 'surface', piece: 'sec',
+      elev: { min: -0.122, max: 0.35 },
+      reach: 6.16,
+      caliber: 140, reload: 7.5, traverse: 0.14, range: 11000, sigma: 1.5,
+      shells: shells(140, 2300, 1900, 125, 850, 0.10),
+      mounts: [
+        { x: 11.18, z: 4.8, angle: 2.112, arc: 0.95, rest: 3.062, guns: 1, my: 6.12 },
+        { x: 12.6, z: 10.02, angle: 2.105, arc: 0.95, rest: 3.055, guns: 1, my: 6.07 },
+        { x: 12.54, z: 19.2, angle: 1.213, arc: 0.95, rest: 0.263, guns: 1, my: 6.14 },
+        { x: 12.37, z: 26.48, angle: 1.109, arc: 0.95, rest: 0.159, guns: 1, my: 6.07 },
+        { x: 11.99, z: 34.21, angle: 1.107, arc: 0.95, rest: 0.157, guns: 1, my: 6.14 },
+        { x: 11.38, z: 41.16, angle: 1.107, arc: 0.95, rest: 0.157, guns: 1, my: 6.14 },
+        { x: 10.37, z: 49.02, angle: 0.987, arc: 0.95, rest: 0.037, guns: 1, my: 6.14 },
+        { x: 8.72, z: 54.8, angle: 0.95, arc: 0.95, rest: 0, guns: 1, my: 6.14 },
+        { x: -11.18, z: 4.8, angle: -2.112, arc: 0.95, rest: -3.062, guns: 1, my: 6.12 },
+        { x: -12.6, z: 10.02, angle: -2.105, arc: 0.95, rest: -3.055, guns: 1, my: 6.07 },
+        { x: -12.54, z: 19.2, angle: -1.213, arc: 0.95, rest: -0.263, guns: 1, my: 6.14 },
+        { x: -12.37, z: 26.48, angle: -1.109, arc: 0.95, rest: -0.159, guns: 1, my: 6.07 },
+        { x: -11.99, z: 34.21, angle: -1.107, arc: 0.95, rest: -0.157, guns: 1, my: 6.14 },
+        { x: -11.38, z: 41.16, angle: -1.107, arc: 0.95, rest: -0.157, guns: 1, my: 6.14 },
+        { x: -10.37, z: 49.02, angle: -0.987, arc: 0.95, rest: -0.037, guns: 1, my: 6.14 },
+        { x: -8.72, z: 54.8, angle: -0.95, arc: 0.95, rest: 0, guns: 1, my: 6.14 },
+      ],
+    },
     aa: {
       range: 6200, dps: 60,
       guns: [
@@ -10230,7 +10260,7 @@ export const SHIP_CLASSES = {
       displacement: 40169,
       aircraft: 0,
       mainRounds: 1200,
-      secondary: null,
+      secondary: { caliber: 140, label: '14cm', barrels: 16, rounds: 1920 },
       tertiary: [
         { caliber: 127, label: '12.7cm', barrels: 8, rounds: 4000 },
         { caliber: 25, label: '25mm', barrels: 20, rounds: 60000 },
