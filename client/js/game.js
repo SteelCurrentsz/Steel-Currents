@@ -4085,8 +4085,7 @@ export class Battle {
         case 'deckCrash': {
           // An aeroplane at eighty knots on a flight deck with a hole in it.
           // She goes into it, and there is a fire on the deck where she went.
-          fx.explosion(ev.x, 20, ev.z, 1.6);
-          fx.debris(ev.x, 20, ev.z, 20);
+          fx.impact(ev.x, 20, ev.z, { heading: ev.h, speed: 45, scale: 0.9, dive: 0 });
           audio.explosion(1.2, { x: ev.x, y: 20, z: ev.z });
           if (ev.ship === this.shipId) this.hud.alert('Crash on deck — flight deck out');
           break;
@@ -4094,9 +4093,9 @@ export class Battle {
         case 'ram': {
           // An aeroplane into a ship. A bigger event than a bomb, because it
           // is an aeroplane and everything in her tanks arriving at once.
+          // It has a direction: see Effects.impact.
           const big = ev.armed ? 2.4 : 1.5;
-          fx.explosion(ev.x, ev.y, ev.z, big);
-          fx.debris(ev.x, ev.y, ev.z, ev.armed ? 34 : 22);
+          fx.impact(ev.x, ev.y, ev.z, { heading: ev.h, speed: ev.v, armed: !!ev.armed });
           audio.explosion(big, { x: ev.x, y: ev.y, z: ev.z });
           if (ev.ship === this.shipId) {
             this.hud.alert(ev.armed ? 'Aircraft into the ship — she was carrying'
@@ -4154,8 +4153,7 @@ export class Battle {
           break;
         case 'planeCrash':
           this.crashSeen.add(ev.i);
-          fx.explosion(ev.x, ev.y + 3, ev.z, 1.5);
-          fx.debris(ev.x, ev.y + 3, ev.z, 20);
+          fx.impact(ev.x, ev.y + 1, ev.z, { heading: ev.h, speed: ev.v, armed: !!ev.armed, scale: 0.9 });
           audio.explosion(1.3, { x: ev.x, y: ev.y + 3, z: ev.z });
           break;
         case 'airHit':
@@ -4263,8 +4261,14 @@ export class Battle {
           // another aeroplane on the way down.
           this.endWreck(ev.f);
           const big = (ev.heavy ? 2.2 : 1.2) + (ev.armed ? 0.8 : 0);
-          fx.explosion(ev.x, ev.y, ev.z, big);
-          fx.debris(ev.x, ev.y, ev.z, ev.heavy ? 34 : 18);
+          if (ev.ship) {
+            fx.impact(ev.x, ev.y, ev.z, {
+              heading: ev.h, speed: ev.v ?? 70, armed: !!ev.armed, scale: ev.heavy ? 1.6 : 1,
+            });
+          } else {
+            fx.explosion(ev.x, ev.y, ev.z, big);
+            fx.debris(ev.x, ev.y, ev.z, ev.heavy ? 34 : 18);
+          }
           audio.explosion(big, { x: ev.x, y: ev.y, z: ev.z });
           if (ev.ship === this.shipId) {
             this.hud.alert(ev.heavy ? 'A burning bomber has come down on us'

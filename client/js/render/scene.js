@@ -2380,7 +2380,7 @@ export class BattleScene {
     // What a round that gets into a ship does that can be seen: it goes off
     // inside her, fireball and soot and the pieces it throws. No lights of its
     // own -- see ExplosionSystem.
-    this.bursts = new ExplosionSystem(this.scene, { slots: 28, lights: false });
+    this.bursts = new ExplosionSystem(this.scene, { slots: 40, lights: false });
     // And lent to the effects, so an aeroplane going up is the same boiling
     // fireball as a shell going off inside a ship, not a glowing disc.
     this.effects.bursts = this.bursts;

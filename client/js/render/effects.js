@@ -101,6 +101,7 @@ export function drift(p, dt) {
 }
 
 const POOL_SIZE = 900;
+const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const MUZZLE_DIR = new THREE.Vector3();
 
 export class Effects {
@@ -327,6 +328,21 @@ export class Effects {
         light: false, plume: false, ring: false, linger: 2.2,
         power: Math.min(1, scale / 2),
       });
+      // And two more, off to the side of it and a beat behind. One ball,
+      // however it boils, is still a ball; a real blast is a cluster of heads
+      // going off one after another, and the lopsided outline that gives it
+      // is what keeps it from reading as a drawn circle.
+      for (let i = 0; i < 2; i++) {
+        const d = this.sphere(0.35);
+        const off = (2.5 + Math.random() * 3) * scale;
+        const bx = x + d.x * off + vx * 0.08, by = y + 2 * scale + Math.abs(d.y) * off, bz = z + d.z * off + vz * 0.08;
+        this.later(0.04 + Math.random() * 0.1, () => this.bursts?.blast(bx, by, bz, {
+          size: (2.4 + 3.6 * scale) * (0.6 + Math.random() * 0.25),
+          duration: 0.45 + 0.3 * scale,
+          debris: 0, light: false, plume: false, ring: false, linger: 2.2,
+          power: Math.min(1, scale / 3),
+        }));
+      }
     }
     // Heads of burning fuel, each going out to soot as it climbs and slows:
     // the flash is light, but what stands there afterwards is burning gas
@@ -369,6 +385,180 @@ export class Effects {
           burnFor: 0.6 + Math.random() * 1.2, tone: 0.25 + Math.random() * 0.4,
         });
     }
+  }
+
+  /**
+   * An aeroplane flown into something: a ship's side, a deck, a hillside.
+   *
+   * Not explosion() made bigger. What every film of a kamikaze hit shows is
+   * that it has a direction. The machine is doing two hundred knots and so is
+   * everything in her tanks: the fuel goes on down her track as a sheet of
+   * flame that rolls along the deck and over the side, the fireball is a
+   * smear rather than a ball, the wreckage sprays forward in a fan, and what
+   * stands over the place a second later is the thick black smoke of burning
+   * petrol, not a grey puff. If she was still carrying her bomb, a hard white
+   * flash and a real detonation come up out of the middle of all that.
+   *
+   * `heading` is the way she was flying (radians, the sim's convention),
+   * `speed` how fast, `armed` whether her bomb or fish went with her.
+   */
+  impact(x, y, z, { heading = null, speed = 110, armed = false, scale = 1, dive = 0.35 } = {}) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    const s = scale;
+    const k = Math.min(1.5, this.intensity);
+    const h = Number.isFinite(heading) ? heading : Math.random() * Math.PI * 2;
+    // Her track, and the two directions across it.
+    const fx = Math.sin(h), fz = Math.cos(h);
+    const sx = fz, sz = -fx;
+    const v = clampN(speed || 110, 50, 260);
+    const run = v / 110;
+    const floor = this.groundAt ? Math.max(0, this.groundAt(x, z)) : 0;
+
+    this.flash(x, y + 3, z, (armed ? 4.5 : 2.6) * s);
+
+    // The first of it: where she struck, small and hot.
+    if (this.bursts) {
+      this.bursts.blast(x, y + 1, z, {
+        size: (armed ? 11 : 9) * s, duration: armed ? 1.3 : 1.1,
+        debris: Math.round((armed ? 26 : 14) * k),
+        light: false, plume: false, ring: false, linger: 2.6, power: armed ? 0.55 : 0.2,
+      });
+    }
+
+    // The fuel, carried on down her track: a run of fireballs, each a little
+    // further on, a little later and a little lower, so the whole thing reads
+    // as one sheet of flame rolling along the deck and spilling off it.
+    const heads = armed ? 4 : 3;
+    for (let i = 1; i <= heads; i++) {
+      const f = i / heads;
+      const d = (7 + 26 * f) * run * s * (0.8 + Math.random() * 0.4);
+      const off = (Math.random() - 0.5) * 9 * s;
+      const bx = x + fx * d + sx * off, bz = z + fz * d + sz * off;
+      const by = Math.max(floor + 1, y - dive * d * 0.5) + Math.random() * 2;
+      this.later(0.035 + f * 0.13 + Math.random() * 0.04, () => {
+        if (!this.bursts) return;
+        this.bursts.blast(bx, by, bz, {
+          size: (armed ? 9 : 7.5) * s * (1.05 - f * 0.4) * (0.85 + Math.random() * 0.3),
+          duration: 0.95 + Math.random() * 0.35,
+          debris: Math.round(5 * k), light: false, plume: false, ring: false,
+          linger: 2.4, power: 0.15,
+        });
+      });
+    }
+
+    // Burning petrol thrown on ahead of her: lumps of fire flung down her
+    // track and spread across it, each cooling through orange to soot as it
+    // slows. These are what turn the fireballs into a smear.
+    const sheet = Math.round((armed ? 34 : 26) * k);
+    for (let i = 0; i < sheet; i++) {
+      const fwd = (0.25 + Math.random() * 0.75) * v * 0.32;
+      const lat = (Math.random() - 0.5) * 2 * (6 + fwd * 0.45);
+      const up = 2 + Math.random() * 9;
+      const hot = Math.random();
+      this.spawn({
+        x: x + fx * Math.random() * 6 * s, y: y + 1 + Math.random() * 3, z: z + fz * Math.random() * 6 * s,
+        vx: fx * fwd + sx * lat, vy: up, vz: fz * fwd + sz * lat,
+        size: (3.5 + Math.random() * 4.5) * s, grow: (7 + Math.random() * 9) * s,
+        ttl: 0.7 + Math.random() * 1.0, drag: 0.82, lift: 1.2,
+        billow: true, glow: hot > 0.55,
+        color: hot > 0.75 ? 0xffd28a : hot > 0.4 ? 0xf2862c : 0xb6461a,
+        cool: hot > 0.55 ? 0x2a1408 : 0x16110d,
+        opacity: hot > 0.55 ? 0.55 : 0.9,
+      });
+    }
+
+    // The smoke of it: petrol burns black and thick, and it is what you see
+    // of a hit from the next ship in the line -- a dark mass boiling up out
+    // of the flame and leaning off down the track she came in on.
+    const smoke = Math.round((armed ? 18 : 13) * k);
+    for (let i = 0; i < smoke; i++) {
+      const f = Math.random();
+      const d = f * 30 * run * s;
+      const lat = (Math.random() - 0.5) * 12 * s;
+      this.air.puff(
+        x + fx * d + sx * lat, y + 2 + Math.random() * 5 * s, z + fz * d + sz * lat,
+        fx * v * 0.05 + (Math.random() - 0.5) * 4, 5 + Math.random() * 7, fz * v * 0.05 + (Math.random() - 0.5) * 4, {
+          delay: 0.35 + f * 0.3 + Math.random() * 0.5,
+          life: 7 + Math.random() * 6,
+          size: (4.5 + Math.random() * 4) * s, grow: (8 + Math.random() * 6) * s,
+          burn: Math.random() < 0.35 ? 0.12 + Math.random() * 0.1 : 0.02,
+          tone: 0.02 + Math.random() * 0.06,
+        });
+    }
+    // ...and standing over the place, climbing, after the flame is gone.
+    for (let i = 0; i < Math.round(6 * k); i++) {
+      const up = i / 6;
+      this.later(0.7 + up * 0.8 + Math.random() * 0.3, () => this.spawn({
+        x: x + fx * 8 * s + (Math.random() - 0.5) * 10 * s,
+        y: y + 6 + up * 22 * s,
+        z: z + fz * 8 * s + (Math.random() - 0.5) * 10 * s,
+        vx: (Math.random() - 0.5) * 3, vy: 6 + Math.random() * 5, vz: (Math.random() - 0.5) * 3,
+        size: (10 + up * 10) * s, grow: (9 + Math.random() * 5) * s,
+        ttl: 9 + Math.random() * 6, drag: 0.3, billow: true, lift: 2.2,
+        color: 0x161311, opacity: 0.82 - up * 0.2,
+        spin: (Math.random() - 0.5) * 0.25,
+      }));
+    }
+
+    // The wreckage: a fan thrown on ahead of her, low and fast, with a few
+    // heavy pieces tumbling end over end and a scatter of sparks.
+    const pieces = Math.round((armed ? 42 : 30) * this.intensity);
+    for (let i = 0; i < pieces; i++) {
+      const fwd = (0.25 + Math.random() * 0.85) * v * 0.45;
+      const lat = (Math.random() - 0.5) * 2 * fwd * 0.55;
+      const up = (0.05 + Math.pow(Math.random(), 1.6) * 0.55) * fwd + 3;
+      this.shards.throw(x, y + 1, z,
+        fx * fwd + sx * lat, up, fz * fwd + sz * lat, {
+          life: 2.5 + Math.random() * 3.5,
+          size: (0.3 + Math.pow(Math.random(), 2.4) * 1.5) * s,
+          hot: i % 3 === 0 ? 1 : 0,
+          floor,
+        });
+    }
+    // Burning pieces on trails. Mostly forward, a couple thrown high.
+    for (let i = 0; i < Math.round((armed ? 9 : 5) * k); i++) {
+      const fwd = (0.2 + Math.random() * 0.6) * v * 0.35;
+      const lat = (Math.random() - 0.5) * fwd * 1.1;
+      const up = 8 + Math.random() * (armed ? 40 : 22);
+      this.trails.arc(x, y + 2, z, fx * fwd + sx * lat, up, fz * fwd + sz * lat, {
+        flight: 1.6 + Math.random() * 2.2, floor: floor + 0.5, spacing: 0.025, limit: 44,
+        size: 1.2 * s, grow: 2.6 * s, life: 2.2 + Math.random() * 1.6,
+        burnFor: 0.5 + Math.random() * 0.8, tone: 0.06 + Math.random() * 0.12,
+      });
+    }
+
+    // What she was carrying. A hard white flash and a real detonation come up
+    // through the fire a beat after she hits, with plating and a column of
+    // smoke going up out of the ship.
+    if (armed) {
+      this.later(0.06, () => {
+        this.flash(x, y + 8, z, 5 * s);
+        if (this.bursts) {
+          this.bursts.blast(x + fx * 4 * s, y + 3, z + fz * 4 * s, {
+            size: 12 * s, duration: 1.7, debris: Math.round(46 * k),
+            light: false, plume: true, ring: false, linger: 3, power: 0.75,
+          });
+        }
+        for (let i = 0; i < Math.round(6 * k); i++) {
+          const a = Math.random() * Math.PI * 2, up = 0.3 + Math.random() * 0.45;
+          const sp = (35 + Math.random() * 45) * Math.sqrt(s);
+          this.trails.arc(x, y + 5, z, Math.cos(a) * sp * (1 - up * 0.6), sp * up * 1.3,
+            Math.sin(a) * sp * (1 - up * 0.6), {
+              flight: 2 + Math.random() * 3, floor: floor + 0.5, spacing: 0.03, limit: 50,
+              size: 1.8 * s, grow: 3.2 * s, life: 3 + Math.random() * 2,
+              burnFor: 0.5 + Math.random() * 0.9, tone: 0.06 + Math.random() * 0.14,
+            });
+        }
+      });
+    }
+
+    // Low enough to be in the water: she throws the sea up as well.
+    if (y < floor + 4 && floor <= 0.5) this.splash(x + fx * 10, z + fz * 10, armed ? 380 : 240);
+  }
+
+  /** Something to set off a moment from now. See update. */
+  later(t, fn) {
+    (this.pending || (this.pending = [])).push({ t, fn });
   }
 
   /** A random direction, flattened towards the horizontal by `flat` (0..1). */
@@ -852,6 +1042,11 @@ export class Effects {
 
   /** `camera` is what the gun smoke is sorted against; see muzzleblast.js. */
   update(dt, camera) {
+    if (this.pending && this.pending.length) {
+      const due = [];
+      this.pending = this.pending.filter((q) => ((q.t -= dt) > 0 ? true : (due.push(q), false)));
+      for (const q of due) q.fn();
+    }
     this.splashes.update(dt);
     this.blasts.update(dt, camera);
     this.trails.update(dt);

@@ -12298,7 +12298,9 @@ function stepLaunch(state, ship, dt) {
     sq.state = 'deck';
     sq.cooldown = Math.max(sq.cooldown, 30);
     releaseStrike(state, ship, L.sqId);
-    state.events.push({ e: 'deckCrash', ship: ship.id, x: r(ship.x), z: r(ship.z) });
+    state.events.push({
+      e: 'deckCrash', ship: ship.id, x: r(ship.x), z: r(ship.z), h: Math.round(ship.heading * 100) / 100,
+    });
     damageShip(state, ship, null, cls.hp * 0.02, 'fire', 'works');
     startFire(state, ship);
     return;
@@ -13653,16 +13655,117 @@ function sweepIntoSolid(state, p, was) {
 /**
  * Is this flight inside that ship?
  *
- * Her box, and her air draft -- from a little under the waterline, so a machine
- * that goes in at wave height hits her side rather than passing under her, up
- * to the top of her upperworks.
+ * Not her box. A box the whole length of her and as tall as her mast is a
+ * wall of air round a destroyer that an aeroplane hits twenty metres over her
+ * quarterdeck, and the explosion goes off in the sky. So it is her shape, as
+ * near as the class data will give it: a hull that comes to a point at the
+ * stem and narrows to a transom aft, standing her freeboard out of the water;
+ * on it, her upperworks amidships and her bridge tower, narrower than her
+ * beam; her turrets where they stand; and, in a carrier, a flight deck over
+ * all of it with her island to starboard. A machine is in her when it is
+ * inside one of those, with a metre or two for its wings.
  */
 function planeInShip(p, s, cls) {
-  const halfLen = cls.hull.length * 0.5;
-  const halfBeam = cls.hull.beam * 0.5;
-  if (!pointInBox(p.x, p.z, s.x, s.z, s.heading, halfLen + 6, halfBeam + 5)) return false;
-  const top = 16 + cls.hull.superstructure * 14;
-  return (p.y ?? 220) <= top && (p.y ?? 220) >= -3;
+  const y = (p.y ?? 220) + (s.depth || 0);
+  if (y < -3) return false;
+  const H = hullShape(cls);
+  if (y > H.top) return false;
+  const l = worldToLocal(p.x - s.x, p.z - s.z, s.heading);
+  return shipTopAt(H, l.x, l.z) >= y;
+}
+
+/** How near a machine's centre has to come to steel, for her wings to meet it. */
+const WING_PAD = 2.5;
+/** And how near above it, for her belly to: about half a fuselage. */
+const VPAD = 0.6;
+
+/** Each class's shape, worked out once. See planeInShip. */
+const HULL_SHAPES = new Map();
+
+function hullShape(cls) {
+  let H = HULL_SHAPES.get(cls.id);
+  if (H) return H;
+  const L = cls.hull.length;
+  const half = L * 0.5;
+  const hb = cls.hull.beam * 0.5;
+  const ss = cls.hull.superstructure || 1;
+  const fb = freeboardOf(cls);
+  const carrier = !!cls.hull.flightDeck;
+  // A carrier's flight deck is a storey or two over her hangar, not her
+  // freeboard: about seventeen metres in an Essex, twenty-odd in a Nimitz.
+  const deck = carrier ? clamp(L * 0.066, 14, 23) : fb;
+  const blocks = [];
+  if (carrier) {
+    // The island, to starboard, a little forward of amidships.
+    blocks.push({ z0: -0.12 * half, z1: 0.2 * half, x0: hb * 0.45, x1: hb * 1.05, top: deck + 10 + 14 * ss });
+  } else if (cls.type !== 'SS') {
+    // Her upperworks: from just ahead of her bridge to abaft her last funnel,
+    // or a third of her if she has none on record.
+    const br = bridgeStation(cls) * half;
+    const fz = (cls.hull.funnels || []).map((f) => f[1]);
+    const aft = fz.length ? Math.min(...fz) - 0.06 * half : br - 0.35 * half;
+    const fwd = br + 0.06 * half;
+    const works = Math.max(fb + 3 + 4 * ss, ...(cls.hull.funnels || []).map((f) => f[2]));
+    blocks.push({ z0: Math.min(aft, fwd - 4), z1: fwd, x0: -hb * 0.62, x1: hb * 0.62, top: works });
+    // And the tower she is conned from.
+    blocks.push({ z0: br - 0.05 * half, z1: br + 0.05 * half, x0: -hb * 0.32, x1: hb * 0.32, top: standsAbove(cls) });
+  } else {
+    // A submarine's sail.
+    blocks.push({ z0: 0.05 * half, z1: 0.22 * half, x0: -hb * 0.3, x1: hb * 0.3, top: fb + 4 });
+  }
+  const mounts = (cls.turrets || []).map((t) => ({
+    x: t.x || 0, z: t.z || 0,
+    r: clamp(cls.hull.beam * 0.2, 2.5, 7.5),
+    top: (t.my != null ? t.my : fb + 2) + 1.8,
+  }));
+  let top = deck * 1.3;
+  for (const b of blocks) top = Math.max(top, b.top);
+  for (const m of mounts) top = Math.max(top, m.top);
+  H = { half, hb, deck, carrier, blocks, mounts, top: top + WING_PAD };
+  HULL_SHAPES.set(cls.id, H);
+  return H;
+}
+
+/** Her half-breadth at a station along her (-1 stern .. 1 stem). */
+function halfBreadth(H, u) {
+  if (H.carrier) {
+    // The flight deck overhangs the hull and runs nearly square to its ends.
+    const w = H.hb * 1.12;
+    return Math.abs(u) < 0.8 ? w : w * (1 - 0.45 * ((Math.abs(u) - 0.8) / 0.2) ** 2);
+  }
+  // The bow: an entry that runs fine to nothing at the stem.
+  if (u > 0.25) return H.hb * Math.sqrt(Math.max(0, 1 - ((u - 0.25) / 0.75) ** 2));
+  // The stern: a little fuller, out to a transom two-thirds of her beam.
+  if (u < -0.6) return H.hb * (1 - 0.35 * ((-u - 0.6) / 0.4) ** 2);
+  return H.hb;
+}
+
+/**
+ * How high she stands at this point in her own frame (metres across, along),
+ * or -Infinity if the point is off her.
+ */
+function shipTopAt(H, lx, lz) {
+  const pad = WING_PAD;
+  const u = lz / H.half;
+  if (Math.abs(lz) > H.half + pad) return -Infinity;
+  const hw = halfBreadth(H, clamp(u, -1, 1));
+  if (Math.abs(lx) > hw + pad) return -Infinity;
+  // Her deck, with a little sheer forward.
+  let top = H.carrier ? H.deck : H.deck * (1 + 0.22 * Math.max(0, u - 0.4) / 0.6);
+  // Up, only as far as a fuselage is deep: the hull is drawn a metre lower
+  // than her freeboard puts it, and a machine skimming her deck has to be on
+  // it to have hit it.
+  top += VPAD;
+  for (const b of H.blocks) {
+    if (lz < b.z0 - pad || lz > b.z1 + pad || lx < b.x0 - pad || lx > b.x1 + pad) continue;
+    top = Math.max(top, b.top + VPAD);
+  }
+  for (const m of H.mounts) {
+    const rr = m.r + pad;
+    if ((lx - m.x) ** 2 + (lz - m.z) ** 2 > rr * rr) continue;
+    top = Math.max(top, m.top + VPAD);
+  }
+  return top;
 }
 
 /**
@@ -13729,7 +13832,7 @@ function ramShip(state, p, s, cls) {
 
   state.events.push({
     e: 'ram', ship: s.id, team: p.team, i: p.id,
-    x: r(p.x), y: r(y), z: r(p.z), h: r(p.heading),
+    x: r(p.x), y: r(y), z: r(p.z), h: Math.round(p.heading * 100) / 100, v: Math.round(speed),
     armed: armed ? 1 : 0, dmg: Math.round(dmg), tk: state.tick,
   });
 
@@ -13784,7 +13887,7 @@ function ramBattery(state, p, bat) {
   crashInto(state, p.x, p.z, { mass, speed, load: crashLoad(state, p) });
   state.events.push({
     e: 'ram', bat: bat.id, team: p.team, i: p.id,
-    x: r(p.x), y: r(bat.y + 2), z: r(p.z), h: r(p.heading),
+    x: r(p.x), y: r(bat.y + 2), z: r(p.z), h: Math.round(p.heading * 100) / 100, v: Math.round(speed),
     armed: armed ? 1 : 0, dmg: Math.round(dmg), tk: state.tick,
   });
   const live = (p.machines || []).filter((a) => a.alive && !a.left);
@@ -13833,6 +13936,7 @@ function wreckIntoShip(state, f, s, cls) {
   state.events.push({
     e: 'wreckHit', ship: s.id, f: f.id, i: f.from, team: f.team, heavy: f.heavy ? 1 : 0,
     x: r(f.x), y: r(y), z: r(f.z), armed: armed ? 1 : 0, dmg: Math.round(dmg), tk: state.tick,
+    h: Math.round(Math.atan2(f.vx || 0, f.vz || 0) * 100) / 100, v: Math.round(speed),
   });
 }
 
@@ -14088,6 +14192,7 @@ function stepHeavyRam(state, bm) {
     state.events.push({
       e: 'planeCrash', i: bm.id, team: bm.team, heavy: 1,
       x: r(bm.x), z: r(bm.z), y: r(Math.max(0, g)), tk: state.tick,
+      h: Math.round((bm.heading || 0) * 100) / 100, v: Math.round(bm.speed || 80),
     });
     loseMachine(state, bm, lead, true, 'crashed');
   }
@@ -14272,7 +14377,8 @@ function stepRam(state, p) {
     else crashInto(state, p.x, p.z, hit);
     state.events.push({
       e: 'planeCrash', i: p.id, team: p.team, x: r(p.x), z: r(p.z), y: r(Math.max(0, g)),
-      tk: state.tick,
+      tk: state.tick, h: Math.round((p.heading || 0) * 100) / 100, v: Math.round(p.speed || 100),
+      armed: crashLoad(state, p) > 0 ? 1 : 0,
     });
     const live = (p.machines || []).filter((a) => a.alive && !a.left);
     if (live.length) losePlane(state, p, live[0], 'crashed');
