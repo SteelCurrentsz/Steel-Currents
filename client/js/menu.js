@@ -1,12 +1,11 @@
-// The title screen: an American carrier strike on the Yamato and the Musashi,
-// filmed.
+// The title screen: the American carrier strikes on the Yamato, filmed.
 //
-// The battle itself is the script in render/strike.js -- the two Yamatos
-// steaming north and turning to comb the attacks, the Essexes far to the east
-// flying off their air groups, and wave after wave of Hellcats, Dauntlesses
-// and Avengers coming in over the cloud at them -- and this is the camera
-// that films it: a list of shots, each a way of looking at one moment of it,
-// cut or glided between, the whole thing a little under five minutes long and
+// The battle itself is the script in render/strike.js -- four Essexes far to
+// the east flying off their deck loads, the Yamato in her ring of destroyers
+// turning to comb the attacks, and wave after wave of Hellcats, Dauntlesses
+// and Avengers coming in over the cloud at her until she rolls over and blows
+// up -- and this is the camera that films it: a list of shots, each a way of
+// looking at one moment of it, cut or glided between, five minutes long and
 // then round again behind a fade.
 //
 // The ships it needs are fetched behind it (see loadShips). Until they are in,
@@ -90,6 +89,7 @@ void main() {
 /** The colour of the air low down: the sky at the horizon, the fog, the sea at its edge. */
 const HAZE = 0xaebbc4;
 
+const UPV = new THREE.Vector3(0, 1, 0);
 const ease = (k) => { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 * c); };
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -174,14 +174,14 @@ export class TitleScene {
     this.prev = null;
 
     // The fleet, fetched behind the title: the battle starts when it is in.
-    loadShips(['yamato', 'musashi', 'yukikaze', 'essex']).then(() => {
+    loadShips(['yamato', 'yukikaze', 'yugumo', 'essex']).then(() => {
       try { this.begin(); } catch (e) { console.error('Steel Currents: the strike would not stage', e); }
     }).catch(() => { /* the sea alone, until they can be fetched */ });
   }
 
   begin() {
     this.strike = new Strike(this.scene, this.ocean, this.wakes, {
-      effects: this.effects, flak: this.flak, bombs: this.bombs, flames: this.flames,
+      effects: this.effects, flak: this.flak, bombs: this.bombs, flames: this.flames, bursts: this.bursts,
     });
     this.shots = this.writeShots();
     this.clock = 0;
@@ -197,9 +197,12 @@ export class TitleScene {
    */
   writeShots() {
     const S = this.strike;
-    const Y = S.yamatoTrack, M = S.musashiTrack, C = S.cvTrack;
-    const deck = S.deckY;
-    const _f = new THREE.Vector3(), _r = new THREE.Vector3();
+    const Y = S.yamatoTrack, C = S.cvTrack;
+    const Ya = S.yamato, CV = S.carriers[0];
+    const FD = S.deckY;
+    const cast = S.cast;
+    const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _t = new THREE.Vector3();
+    const _q = new THREE.Quaternion();
     // The way an aeroplane is facing, and her right.
     const frame = (f) => {
       _f.set(0, 0, 1).applyQuaternion(f.quat);
@@ -212,110 +215,195 @@ export class TitleScene {
       c.pos.y += up;
       c.look.copy(f.pos).addScaledVector(fw, ahead);
     };
+    // Eased onto a moving thing from wherever the camera was looking.
+    const follow = (c, p, k = 0.08) => { c.look.lerp(p, k); };
     return [
-      // The deck of the Essex, low on her quarter: her air group running up
-      // the deck past the lens and lifting off her bow.
-      { t0: 0, t1: 13, at: (t, u, c) => {
-        C.local(t, 20, deck + 4.5, -135 + 30 * u, c.pos);
-        C.local(t, -4, deck + 3, 140, c.look);
-        c.fov = 52;
-      } },
-      // From the sea, abeam of her: aircraft climbing away, her sister astern.
-      { t0: 13, t1: 24, at: (t, u, c) => {
-        C.local(t, -520, 14, -260 + 260 * u, c.pos);
-        C.local(t, 0, 30 + 60 * u, 120 + 200 * u, c.look);
-        c.fov = 40;
-      } },
-      // The strike on its way, over the cloud.
-      { t0: 24, t1: 38, at: chase(S.cast.torpA, 70, 16, 30, 600) },
-      // The Japanese force from high on its beam, steaming north in line of
-      // bearing, the strike's escort sweeping in over the lens.
-      { t0: 38, t1: 51, at: (t, u, c) => {
-        M.local(t, 420 - 60 * u, 95 - 30 * u, -560 + 160 * u, c.pos);
-        Y.local(t, 0, 20, 150, c.look);
-        c.fov = 44;
-      } },
-      // The Yamato from low on her quarter, as her main battery trains out and fires.
-      { t0: 51, t1: 62, at: (t, u, c) => {
-        Y.local(t, -190 - 30 * u, 9, -250 + 70 * u, c.pos);
-        Y.local(t, 0, 30, 110, c.look);
+      // ---- the carriers.
+      // From high on the Essex's island, over her deck load spotted aft with
+      // wings folded: the first Hellcat taxies up, spreads her wings, runs up
+      // and goes away down the deck under the lens and off the bow.
+      { t0: 0, t1: 10, at: (t, u, c) => {
+        CV.world(-15, FD + 17, -24 + 4 * u, c.pos);
+        const aft = CV.world(3, FD, -72, _t);
+        if (u < 0.02) c.look.copy(aft);
+        const f = cast.launch;
+        follow(c, t > 3.8 ? f.pos : aft, 0.035);
         c.fov = 50;
       } },
-      // Her Type 3 shell bursting in among the dive bombers.
-      { t0: 62, t1: 74, at: (t, u, c) => {
-        const f = S.cast.diveA;
-        const [fw, rt] = frame(f);
-        c.pos.copy(f.pos).addScaledVector(rt, 260 - 60 * u).addScaledVector(fw, -240 + 80 * u);
-        c.pos.y += 40;
-        c.look.copy(f.pos).addScaledVector(fw, 330);
+      // From among the deck load aft, the next one away up the deck and off.
+      { t0: 10, t1: 20, at: (t, u, c) => {
+        CV.world(10.5, FD + 2.0, -40 + 6 * u, c.pos);
+        CV.world(-2, FD + 6 + 20 * ease((u - 0.5) * 2), 140, c.look);
+        c.fov = 56;
+      } },
+      // The task group from above: the carriers in their box, each flying off.
+      { t0: 20, t1: 31, at: (t, u, c) => {
+        C.local(t, -900 + 150 * u, 300 - 80 * u, -1300 + 200 * u, c.pos);
+        C.local(t, 600, 0, 900, c.look);
+        c.fov = 40;
+      } },
+      // ---- the strike.
+      // Out over the cloud with the formation.
+      { t0: 31, t1: 41, at: chase(cast.lead, 60, 14, 26, 700) },
+      // And the whole of it going over the lens.
+      { t0: 41, t1: 51, at: (t, u, c) => {
+        if (!c.fix) c.fix = cast.lead.path.at(47, new THREE.Vector3()).add(_t.set(-40, -90, -60));
+        c.pos.copy(c.fix);
+        if (u < 0.02) c.look.copy(cast.lead.pos);
+        follow(c, cast.lead.pos, 0.06);
         c.fov = 52;
       } },
-      // Down on the water behind an Avenger making her run on the Musashi.
-      { t0: 74, t1: 92, at: chase(S.cast.torpA, 34, 5, 11, 400) },
-      // The fish running: from the sea off her beam.
-      { t0: 92, t1: 111, at: (t, u, c) => {
-        M.local(t, 520, 5, -240 + 80 * u, c.pos);
-        M.local(t, 0, 16, 20, c.look);
-        c.fov = 40;
-      } },
-      // Over the nose of a Dauntless as she rolls into her dive.
-      { t0: 111, t1: 123, at: chase(S.cast.diveA, 30, 7, 0, 600) },
-      // Round the Musashi, burning, every gun she has firing.
-      { t0: 123, t1: 146, glide: 1.5, at: (t, u, c) => {
-        const a = 2.2 + u * 1.8;
-        M.local(t, Math.sin(a) * 820, 120 - 40 * u, Math.cos(a) * 820, c.pos);
-        M.local(t, 0, 24, 0, c.look);
-        c.fov = 40;
-      } },
-      // A Hellcat strafing the Yamato.
-      { t0: 146, t1: 160, at: chase(S.cast.strafeB, 26, 4, 5, 500) },
-      // Both of them, wide, under the whole of it.
-      { t0: 160, t1: 176, at: (t, u, c) => {
-        Y.local(t, -760 + 120 * u, 110 + 30 * u, -820 + 200 * u, c.pos);
-        Y.local(t, 0, 40, 150, c.look);
+      // ---- the Yamato.
+      // From high on her quarter, her ring of destroyers about her.
+      { t0: 51, t1: 60, at: (t, u, c) => {
+        Y.local(t, -560 + 160 * u, 260 - 120 * u, -820 + 260 * u, c.pos);
+        Y.local(t, 0, 20, 160, c.look);
         c.fov = 46;
       } },
-      // From her own upperworks, looking up at the dive bombers coming down.
-      { t0: 176, t1: 196, at: (t, u, c) => {
-        Y.local(t, 9, 31, -46, c.pos);
-        const f = S.cast.diveB;
-        const fore = Y.local(t, 0, 160, 900);
-        c.look.copy(fore).lerp(f.live ? f.pos : fore, ease((u - 0.05) * 3) * (1 - ease((u - 0.75) * 5)));
-        c.fov = 62;
+      // Down on the water off her bow, her turrets training round and up.
+      { t0: 60, t1: 67.5, at: (t, u, c) => {
+        Y.local(t, 58 + 6 * u, 9, 118 - 10 * u, c.pos);
+        Ya.world(0, 22, 18, c.look);
+        c.fov = 52;
       } },
-      // High astern of her as she turns away and combs the tracks.
-      { t0: 196, t1: 212, at: (t, u, c) => {
-        Y.local(t, -120, 380 - 60 * u, -980 + 120 * u, c.pos);
+      // Over the back of No.2 turret, along her barrels, as the main battery fires.
+      { t0: 67.5, t1: 74, at: (t, u, c) => {
+        const m = Ya.turrets[1];
+        m.getWorldPosition(_t);
+        m.getWorldQuaternion(_q);
+        _f.set(0, 0, 1).applyQuaternion(_q).setY(0).normalize();
+        c.pos.copy(_t).addScaledVector(_f, -30 + 4 * u);
+        c.pos.y += 9;
+        c.pos.x += -_f.z * 7;
+        c.pos.z += _f.x * 7;
+        c.look.copy(_t).addScaledVector(_f, 300);
+        c.look.y += 110;
+        c.fov = 60;
+      } },
+      // Her Type 3 shell bursting in among the dive bombers.
+      { t0: 74, t1: 84, at: (t, u, c) => {
+        const f = cast.diveA;
+        const [fw, rt] = frame(f);
+        c.pos.copy(f.pos).addScaledVector(rt, 240 - 60 * u).addScaledVector(fw, -220 + 80 * u);
+        c.pos.y += 40;
+        c.look.copy(f.pos).addScaledVector(fw, 330);
+        c.fov = 54;
+      } },
+      // A Hellcat going in ahead of them, guns going.
+      { t0: 84, t1: 92, at: chase(cast.strafeA, 24, 4, 5, 500) },
+      // Over the shoulder of a Dauntless, seventy degrees down, the Yamato
+      // filling the windscreen.
+      { t0: 92, t1: 103.6, at: chase(cast.diveA, 20, 4.5, 1.5, 500) },
+      // And down with her bomb.
+      { t0: 103.6, t1: 110, at: (t, u, c) => {
+        const B = cast.bomb;
+        if (!B) { chase(cast.diveA, 20, 4.5, 1.5, 500)(t, u, c); return; }
+        const b = B.b;
+        // Where it is going in, and the camera riding down the line to it.
+        _t.set(b.x1, 14, b.z1);
+        if (!B.landed) {
+          _f.set(b.x, b.y, b.z).sub(_t);
+          if (_f.lengthSq() > 400) B.dir = _f.normalize().clone();
+        }
+        _f.copy(B.dir || UPV);
+        if (!B.landed) {
+          c.pos.set(b.x, b.y, b.z).addScaledVector(_f, 10);
+          c.pos.y += 1.5;
+          c.look.copy(_t);
+        } else {
+          // It is in: the camera thrown back and up off the blast, looking at the fire.
+          if (!c.fix) c.fix = _t.clone().addScaledVector(_f, 170).add(new THREE.Vector3(0, 50, 0));
+          c.pos.lerp(c.fix, 0.12);
+          follow(c, _t, 0.1);
+        }
+        c.fov = 58;
+      } },
+      // From her own upperworks, the next ones coming down out of the sun.
+      { t0: 110, t1: 122, at: (t, u, c) => {
+        Ya.world(11, 30, -36, c.pos);
+        const f = cast.diveA2;
+        const aft = Ya.world(0, 700, -900, _t);
+        if (u < 0.02) c.look.copy(aft);
+        follow(c, f.live && !f.down ? f.pos : aft, 0.06);
+        c.fov = 64;
+      } },
+      // Down on the sea behind an Avenger making her run.
+      { t0: 122, t1: 138, at: chase(cast.torpA, 32, 5, 11, 400) },
+      // The fish running in, from the sea off her port beam.
+      { t0: 138, t1: 154, at: (t, u, c) => {
+        Y.local(t, 560, 5, -220 + 80 * u, c.pos);
+        Y.local(t, 0, 16, 30, c.look);
+        c.fov = 40;
+      } },
+      // Round her, burning, every gun she has firing.
+      { t0: 154, t1: 168, glide: 1.5, at: (t, u, c) => {
+        const a = 2.4 + u * 1.6;
+        Y.local(t, Math.sin(a) * 520, 90 - 40 * u, Math.cos(a) * 520, c.pos);
+        Y.local(t, 0, 24, 0, c.look);
+        c.fov = 40;
+      } },
+      // One of her destroyers going past at thirty knots, a Hellcat on her.
+      { t0: 168, t1: 179, at: (t, u, c) => {
+        const E = S.escorts[3];
+        if (!c.fix) c.fix = E.track.local(173.5, 46, 5, 0, new THREE.Vector3());
+        c.pos.copy(c.fix);
+        E.world(0, 6, 0, _t);
+        if (u < 0.02) c.look.copy(_t);
+        follow(c, _t, 0.15);
+        c.fov = 48;
+      } },
+      // The main battery again, from low on her quarter.
+      { t0: 179, t1: 190, at: (t, u, c) => {
+        Y.local(t, -230 - 20 * u, 8, -270 + 60 * u, c.pos);
+        Y.local(t, 0, 34, 90, c.look);
+        c.fov = 48;
+      } },
+      // A second dive, and the bombs going in, from overhead.
+      { t0: 190, t1: 197, at: chase(cast.diveB, 22, 5, -2, 500) },
+      { t0: 197, t1: 208, at: (t, u, c) => {
+        Y.local(t, 180, 760 - 160 * u, -260, c.pos);
+        Y.local(t, 0, 0, 10, c.look);
+        c.fov = 42;
+      } },
+      // The Avengers again, from high astern, as she turns to comb them.
+      { t0: 208, t1: 222, at: (t, u, c) => {
+        Y.local(t, -140, 380 - 60 * u, -980 + 140 * u, c.pos);
         Y.local(t, 0, 0, 380, c.look);
         c.fov = 42;
       } },
-      // The tracks going past her, from low on her bow.
-      { t0: 212, t1: 226, at: (t, u, c) => {
-        Y.local(t, 380, 48 - 20 * u, 520 - 60 * u, c.pos);
-        Y.local(t, 0, 14, -60, c.look);
-        c.fov = 42;
-      } },
-      // An Avenger shot up over her, going in: from the sea off her quarter,
-      // the camera following her down.
-      { t0: 226, t1: 240, at: (t, u, c) => {
-        const f = S.cast.downed;
-        Y.local(t, 560, 16, -520 + 60 * u, c.pos);
+      // An Avenger shot up over her, going in.
+      { t0: 222, t1: 234, at: (t, u, c) => {
+        const f = cast.downed;
+        Y.local(t, 560, 14, -520 + 60 * u, c.pos);
         if (f.live && !(f.down && f.down.gone)) c.hold = f.pos.clone();
-        c.look.copy(c.hold || Y.local(t, 0, 30, 0));
+        follow(c, c.hold || Y.local(t, 0, 30, 0, _t), 0.2);
         c.fov = 40;
       } },
-      // The Musashi, listing and burning, low on the water off her bow.
-      { t0: 240, t1: 258, at: (t, u, c) => {
-        M.local(t, -420 + 80 * u, 6, 640 - 60 * u, c.pos);
-        M.local(t, 0, 20, -40, c.look);
+      // Listing, burning, low on the water off her port bow.
+      { t0: 234, t1: 248, at: (t, u, c) => {
+        Y.local(t, 520 - 60 * u, 9, 330 - 40 * u, c.pos);
+        Y.local(t, 0, 12, -20, c.look);
         c.fov = 38;
       } },
-      // And up and away astern of the Yamato as the last of them go home.
-      { t0: 258, t1: LOOP, at: (t, u, c) => {
+      // From her starboard side as she stops and rolls over.
+      { t0: 248, t1: 263, at: (t, u, c) => {
+        Y.local(t, -470 + 40 * u, 7, 120 - 40 * u, c.pos);
+        Y.local(t, 0, 12 + 10 * u, 0, c.look);
+        c.fov = 40;
+      } },
+      // Her magazines, from two miles off.
+      { t0: 263, t1: 284, at: (t, u, c) => {
+        if (!c.fix) c.fix = Y.local(263, 1500, 16, 950, new THREE.Vector3());
+        c.pos.copy(c.fix);
+        Y.local(263, 0, 60 + 160 * ease((u - 0.35) / 0.65), 0, c.look);
+        c.fov = 38;
+      } },
+      // And up and away over the column as the last of them go home.
+      { t0: 284, t1: LOOP, at: (t, u, c) => {
         const e = ease(u);
-        Y.local(t, -80, 10 + 900 * e, -320 - 1400 * e, c.pos);
-        Y.local(t, 0, 20, 500 * (1 - e), c.look);
-        c.fov = 44 - 6 * e;
+        Y.local(263, 1500 - 200 * e, 16 + 600 * e, 950 + 700 * e, c.pos);
+        Y.local(263, 0, 220 - 120 * e, 0, c.look);
+        c.fov = 36 + 6 * e;
       } },
     ];
   }
@@ -354,7 +442,7 @@ export class TitleScene {
         this.shotIx = -1;
       }
       const t = this.clock;
-      this.strike.update(dt);
+      this.strike.update(dt, c.pos);
       let ix = this.shots.findIndex((s) => t >= s.t0 && t < s.t1);
       if (ix < 0) ix = this.shots.length - 1;
       const shot = this.shots[ix];
@@ -363,6 +451,7 @@ export class TitleScene {
         this.prev = shot.glide ? { pos: c.pos.clone(), look: c.look.clone(), fov: c.fov } : null;
         this.shotIx = ix;
         c.hold = null;
+        c.fix = null;
       }
       const u = (t - shot.t0) / (shot.t1 - shot.t0);
       shot.at(t, u, c);

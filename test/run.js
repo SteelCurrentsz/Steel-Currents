@@ -8479,6 +8479,55 @@ check('the Credits screen credits the Yamato and the Musashi as their licences a
   }
 });
 
+check('the title\'s battle: the Yamato alone in her destroyers, and four carriers flying off from their decks', async () => {
+  // Behind the title the carriers fly their strikes off and they go in on
+  // the Yamato. She is alone in it -- her sister is not there -- with her
+  // destroyer screen round her, and every aeroplane that starts on a deck is
+  // spotted on it, taxied up and run off it on its wheels, not conjured in
+  // the air over it.
+  const { Strike, LOOP } = await import('../client/js/render/strike.js');
+  const ESSEX = await import('../client/js/render/essex.js');
+  await loadShips(['yamato', 'yukikaze', 'yugumo', 'essex']);
+  const ocean = { attitude: () => ({ heave: 0, pitch: 0, roll: 0 }), heightAt: () => 0 };
+  const nop = new Proxy({}, { get: (o, k) => (k === 'air' || k === 'bursts' ? nop : k === 'live' ? [] : () => {}) });
+  const scene = new THREE.Scene();
+  const strike = new Strike(scene, ocean, null, { effects: nop, flak: nop, bombs: nop, flames: nop, bursts: nop });
+  const classes = strike.ships.map((h) => h.cls);
+  assert.ok(!classes.includes('musashi'), 'the Musashi is in the title\'s battle');
+  assert.equal(classes.filter((c) => c === 'yamato').length, 1, 'the Yamato is not there, or not alone');
+  assert.ok(strike.escorts.length >= 4, `only ${strike.escorts.length} destroyers screen her`);
+  assert.ok(strike.carriers.length >= 3, `only ${strike.carriers.length} carriers launch the strike`);
+  const deck = strike.flights.filter((f) => f.deck);
+  for (const cv of strike.carriers) {
+    assert.ok(deck.filter((f) => f.deck.hull === cv).length >= 6, `${cv.id} flies off fewer than six aeroplanes`);
+  }
+  // Played through the launch: each one is on her deck at deck height until
+  // she lifts off, and leaves it before her bow.
+  const seen = new Map();
+  for (let t = 0; t < 80; t += 0.05) {
+    strike.update(0.05, new THREE.Vector3(...[strike.carriers[0].pose.x || 0, 30, strike.carriers[0].pose.z || 0]));
+    for (const f of deck) {
+      if (strike.t > f.deck.endT) continue;
+      const local = strike.carriers.find((c) => c === f.deck.hull).group.worldToLocal(f.pos.clone());
+      const was = seen.get(f) || { onDeck: 0, off: null };
+      if (strike.t < f.deck.liftAt - 0.1) {
+        assert.ok(Math.abs(local.y - ESSEX.FD) < 0.3, `${f.kind} is ${(local.y - ESSEX.FD).toFixed(2)} m off the deck before she lifts`);
+        assert.ok(local.z < ESSEX.FD_FWD, `${f.kind} runs off the bow on her wheels`);
+        was.onDeck++;
+      } else if (was.off === null) was.off = local.z;
+      seen.set(f, was);
+    }
+  }
+  const launched = [...seen.entries()].filter(([, w]) => w.off !== null);
+  assert.ok(launched.length >= 20, `only ${launched.length} aeroplanes flew off in the first eighty seconds`);
+  for (const [f, w] of launched) {
+    assert.ok(w.onDeck > 20, `a ${f.kind} was never on the deck`);
+    assert.ok(w.off < ESSEX.FD_FWD, `a ${f.kind} lifted off ${w.off.toFixed(0)} m forward, past the bow`);
+  }
+  assert.ok(LOOP >= 240, 'the battle is too short');
+  strike.dispose();
+});
+
 check('a smoke screen is a bank on the sea, not an aura round the ship that laid it', () => {
   // She makes smoke and she is hidden -- while she is in it. Steam out of the
   // end of it and she is in plain sight again; and when it has thinned out,

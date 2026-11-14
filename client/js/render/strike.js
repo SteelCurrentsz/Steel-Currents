@@ -1,18 +1,28 @@
-// The title screen's battle: an American carrier strike on the Yamato and the
-// Musashi, played out as a film rather than fought.
+// The title screen's battle: the last sortie of the Yamato, 7 April 1945 --
+// the carriers of Task Force 58 flying off their strikes, and wave after wave
+// of Hellcats, Dauntlesses and Avengers going in on her and the destroyers
+// screening her, until she rolls over and her magazines go.
 //
 // Nothing here is simulated. Every ship sails a track laid down before the
 // first frame (Track), every aeroplane flies a path through points in time
-// (Flight), and every bomb, torpedo and burst of flak is set off by the
-// script at the moment it is due -- so the battle is the same battle every
-// time round, the camera (see menu.js) always finds what it was sent to look
-// at, and a loop of it costs no more than the effects it draws. What is drawn
-// is the game's own: the two Yamatos and the Essexes off their models, the
-// Hellcats, Dauntlesses and Avengers off theirs, and the splashes, flak,
-// bombs, fire and smoke a battle draws (effects.js, ordnance.js, flames.js).
+// (Flight) -- or, on a carrier's deck, is spotted, taxied, run up and flown
+// off down it on the game's own integrated take-off run (deckplane.js) --
+// and every bomb, torpedo and burst of flak is set off by the script at the
+// moment it is due. So the battle is the same battle every time round, the
+// camera (see menu.js) always finds what it was sent to look at, and a loop
+// of it costs no more than the effects it draws. What is drawn is the
+// game's own: the Yamato, her destroyers and the Essexes off their models,
+// the aeroplanes off theirs, and the splashes, flak, bombs, fire and smoke a
+// battle draws (effects.js, ordnance.js, flames.js).
+//
+// Most of it is a long way from the camera at any moment, and is drawn
+// accordingly: a ship far off is swapped for a welded, simplified stand-in of
+// herself (proxy.js), one out of sight is not drawn at all, and nothing far
+// off lays its guns.
 //
 // World frame as everywhere else: +Y up, a heading of 0 runs up +Z, and an
-// object turned to heading h has its bow along (sin h, 0, cos h).
+// object turned to heading h has its bow along (sin h, 0, cos h). A ship's own
+// frame has +x to port.
 
 import * as THREE from '../../../vendor/three.module.js';
 import { buildShip } from './ships.js';
@@ -21,16 +31,23 @@ import { Wake } from './wakefield.js';
 import { hellcatModel } from './hellcatModel.js';
 import { dauntlessModel } from './dauntlessModel.js';
 import { avengerModel } from './avengerModel.js';
+import { AERO, launchProfile } from './aero.js';
+import { standIn } from './proxy.js';
+import * as ESSEX from './essex.js';
 
 /** How long the battle runs before it goes round again, seconds. */
-export const LOOP = 284;
+export const LOOP = 300;
 
 const G = 9.81;
 const KN = 0.5144;
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _u = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const _m = new THREE.Matrix4();
+const UP = new THREE.Vector3(0, 1, 0);
 const smooth = (k) => { const c = Math.max(0, Math.min(1, k)); return c * c * (3 - 2 * c); };
 const rnd = (a, b) => a + Math.random() * (b - a);
 // A fixed sequence, so the battle's choices -- which gun fires at whom, how
@@ -38,6 +55,12 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 let seed = 1;
 const srand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 const sr = (a, b) => a + srand() * (b - a);
+
+/** How far off anything is drawn at all, and how far an aeroplane is. */
+const SHIP_FAR = 17000;
+const PLANE_FAR = 6500;
+/** How far off a ship's guns are laid and fired: beyond it nobody can see them. */
+const GUNS_FAR = 9000;
 
 // ------------------------------------------------------------------ ships --
 
@@ -52,7 +75,7 @@ const sr = (a, b) => a + srand() * (b - a);
 class Track {
   constructor({ x, z, heading, knots, turns = [], speeds = [] }) {
     this.dt = 0.1;
-    const n = Math.ceil((LOOP + 20) / this.dt);
+    const n = Math.ceil((LOOP + 200) / this.dt);
     this.x = new Float64Array(n); this.z = new Float64Array(n);
     this.h = new Float64Array(n); this.r = new Float64Array(n); this.s = new Float64Array(n);
     let px = x, pz = z, ph = heading, sp = knots * KN;
@@ -94,11 +117,14 @@ Track._p = {};
 
 /**
  * One of the ships: her model, her wake, and what has been done to her -- the
- * fires burning in her, how far she lists, how far down she is.
+ * fires burning in her, how far she lists, how far down she is. A ship given
+ * a `lod` has a welded stand-in of herself (proxy.js) drawn instead whenever
+ * the camera is further off than `lodAt`.
  */
 class Hull {
-  constructor(id, track, ocean, wakes) {
-    this.id = id;
+  constructor(id, track, ocean, wakes, { lod = 0, lodAt = 900, name = id } = {}) {
+    this.id = name;
+    this.cls = id;
     this.track = track;
     this.ocean = ocean;
     const built = buildShip(id);
@@ -107,38 +133,54 @@ class Hull {
     this.length = built.length;
     this.beam = built.beam;
     this.group.rotation.order = 'YXZ';
+    this.proxy = null;
+    this.lodAt = lodAt;
+    if (lod) {
+      this.proxy = standIn(this.group, { minSize: 2.5, cell: lod, key: `${id}:${lod}` });
+      this.proxy.rotation.order = 'YXZ';
+      this.proxy.visible = false;
+    }
     this.wake = new Wake({ length: this.length, beam: this.beam });
     wakes?.add(this.wake);
     this.wakes = wakes;
     this.fires = [];
-    this.list = 0;
-    this.listTo = 0;
-    this.trim = 0;
-    this.trimTo = 0;
     this.pose = {};
     // Every gun she has that can be laid on an aeroplane, and when each fires next.
     this.aa = [...(built.secMounts || []), ...(built.aaMounts || [])].map((m) => ({
-      m, next: srand() * 2, target: null,
+      m, next: srand() * 2, target: null, cal: built.secMounts?.includes(m) ? 155 : (m.userData.muzzles && m.userData.muzzles.length === 2 ? 127 : 25),
     }));
+    // A destroyer's main guns are dual-purpose: they go up at aeroplanes too.
+    if (id !== 'yamato') for (const t of built.turrets || []) this.aa.push({ m: t, next: srand() * 3, target: null, cal: 127 });
     this.turrets = built.turrets || [];
     // Where each turret stood when she was built: trained fore and aft.
     this.stowed = this.turrets.map((t) => t.rotation.y);
-    // What her main battery is laid on, a function of time, and which turrets.
-    this.mainTarget = null;
-    this.mainTurrets = [];
+    this.near = true;
+    this.reset();
+  }
+
+  addTo(scene) {
+    scene.add(this.group);
+    if (this.proxy) scene.add(this.proxy);
   }
 
   reset() {
     this.fires.length = 0;
     this.list = this.listTo = 0;
+    this.listRate = 0;
     this.trim = this.trimTo = 0;
+    this.sink = this.sinkTo = 0;
+    this.sinkRate = 0;
+    this.gone = false;
+    this.silent = false;
     this.mainTarget = null;
+    this.mainTurrets = [];
     this.turrets.forEach((t, i) => {
       t.rotation.y = this.stowed[i];
       const gn = t.userData.gunNode;
       if (gn && gn !== t) gn.rotation.x = t.userData.elevRest || 0;
     });
     for (const g of this.aa) g.target = null;
+    this.group.visible = true;
   }
 
   /**
@@ -167,29 +209,50 @@ class Hull {
     this.fires.push({ lx, ly, lz, heat, span, key: `${this.id}:${this.fires.length}` });
   }
 
-  update(t, dt, flames, effects) {
+  /** Which of her is drawn, from where the camera is. */
+  cull(eye) {
+    const d = Math.hypot(this.pose.x - eye.x, this.pose.z - eye.z);
+    const shown = d < SHIP_FAR && !this.gone;
+    const far = !!this.proxy && d > this.lodAt;
+    this.group.visible = shown && !far;
+    if (this.proxy) this.proxy.visible = shown && far;
+    this.near = d < GUNS_FAR && !this.gone;
+    this.dist = d;
+  }
+
+  update(t, dt, flames) {
     const p = this.track.at(t, this.pose);
     const g = this.group;
-    this.list += (this.listTo - this.list) * Math.min(1, dt / 12);
-    this.trim += (this.trimTo - this.trim) * Math.min(1, dt / 12);
+    const ease = (v, to, rate, tau) => (rate ? v + Math.max(-rate * dt, Math.min(rate * dt, to - v)) : v + (to - v) * Math.min(1, dt / tau));
+    this.list = ease(this.list, this.listTo, this.listRate, 12);
+    this.trim = ease(this.trim, this.trimTo, 0, 12);
+    this.sink = ease(this.sink, this.sinkTo, this.sinkRate, 10);
     const att = this.ocean.attitude(p.x, p.z, p.h, this.length, this.beam);
-    g.position.set(p.x, att.heave * 0.6 - this.trim * 0.2, p.z);
-    g.rotation.set(att.pitch * 0.6 + this.trim * 0.01, p.h, att.roll * 0.5 + this.list - p.rate * 2.2);
-    g.updateMatrixWorld(true);
-    this.wake.update(dt, p.x, p.z, p.h, p.speed);
-    if (this.mainTarget) {
+    const settle = 1 - smooth(Math.abs(this.list) / 0.6);
+    g.position.set(p.x, att.heave * 0.6 * settle - this.trim * 0.2 - this.sink, p.z);
+    g.rotation.set(att.pitch * 0.6 * settle + this.trim * 0.01, p.h, att.roll * 0.5 * settle + this.list - p.rate * 2.2);
+    if (g.visible || this.near) g.updateMatrixWorld(true);
+    else g.updateMatrix();
+    if (this.proxy?.visible) {
+      this.proxy.position.copy(g.position);
+      this.proxy.rotation.copy(g.rotation);
+    }
+    this.wake.update(dt, p.x, p.z, p.h, this.gone ? 0 : p.speed);
+    if (this.mainTarget && g.visible) {
       const at = this.mainTarget(t + 6);
       for (const i of this.mainTurrets) if (this.turrets[i]) this.layOn(this.turrets[i], at, dt, 0.11, 0.12);
     }
-    for (const f of this.fires) {
-      _v.set(f.lx, f.ly, f.lz).applyMatrix4(g.matrixWorld);
-      flames.at(f.key, _v.x, _v.y, _v.z, f.heat, f.span);
+    if (!this.gone) {
+      for (const f of this.fires) {
+        _v.set(f.lx, f.ly, f.lz).applyMatrix4(g.matrix);
+        flames.at(f.key, _v.x, _v.y, _v.z, f.heat, f.span);
+      }
     }
   }
 
   /** A point of her own frame, where it is now. */
   world(lx, ly, lz, out = new THREE.Vector3()) {
-    return out.set(lx, ly, lz).applyMatrix4(this.group.matrixWorld);
+    return out.set(lx, ly, lz).applyMatrix4(this.group.matrix);
   }
 
   dispose() {
@@ -206,13 +269,15 @@ const MODELS = { hellcat: hellcatModel, dauntless: dauntlessModel, avenger: aven
  * An aeroplane's path: points in time, joined so her speed and her heading
  * both run on smoothly through every one of them (a cubic Hermite through
  * each point, its tangents taken off its neighbours by time -- not by index,
- * or a short leg after a long one would kick).
+ * or a short leg after a long one would kick). A point may carry its own
+ * velocity `v`, which then is its tangent.
  */
 class Path {
   constructor(pts) {
     this.pts = pts.slice().sort((a, b) => a.t - b.t);
     const P = this.pts;
     this.m = P.map((p, i) => {
+      if (p.v) return p.v.clone();
       const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)];
       const d = Math.max(1e-3, b.t - a.t);
       return new THREE.Vector3().subVectors(b.p, a.p).divideScalar(d);
@@ -254,12 +319,19 @@ class Path {
  * asks of her wings (her lift has to hold her up and pull her round, so it
  * leans the way she is being pulled), her airscrew turning. Shot down, she
  * comes off her path and falls burning into the sea.
+ *
+ * One that starts on a carrier's deck (`deck`) is spotted there with her
+ * wings folded from the first frame, taxied up to the launching position when
+ * her turn comes, spreads her wings and runs up, and flies off down the deck
+ * on the take-off run integrated for her type off that deck -- then is handed
+ * to her path at the speed and height the run left her at.
  */
 class Flight {
-  constructor(kind, pts, { kill = null, events = [] } = {}) {
+  constructor(kind, pts, { kill = null, events = [], deck = null } = {}) {
     this.kind = kind;
     this.path = new Path(pts);
     this.kill = kill;
+    this.deck = deck;
     this.events = events.sort((a, b) => a.t - b.t);
     this.model = null;
     this.pos = new THREE.Vector3();
@@ -274,26 +346,28 @@ class Flight {
     if (this.model) return;
     this.model = MODELS[this.kind]();
     this.model.traverse((o) => { if (o.isMesh) o.frustumCulled = true; });
-    // Wheels down only for those that start on a deck; the strike is in the air.
-    this.model.userData.gear?.(this.events.some((e) => e.k === 'gearUp') ? 1 : 0);
     this.model.visible = false;
     scene.add(this.model);
+    this.reset();
   }
 
   reset() {
     this.down = null;
     this.next = 0;
     this.live = false;
-    this.gearAt = undefined;
     this.gunsTill = 0;
     this.quat.identity();
+    this.fresh = true;
     if (this.model) {
+      const u = this.model.userData;
       this.model.visible = false;
       this.model.rotation.set(0, 0, 0);
-      this.model.userData.bay?.(0);
-      this.model.userData.gear?.(this.events.some((e) => e.k === 'gearUp') ? 1 : 0);
-      if (this.model.userData.store) this.model.userData.store.visible = true;
-      for (const s of this.model.userData.wingStores || []) s.visible = true;
+      u.bay?.(0);
+      // Wheels down and wings folded on a deck; up and spread in the air.
+      u.gear?.(this.deck ? 0 : 1);
+      u.fold?.(this.deck ? 1 : 0);
+      if (u.store) u.store.visible = true;
+      for (const s of u.wingStores || []) s.visible = true;
     }
   }
 
@@ -303,17 +377,62 @@ class Flight {
     if (fwd.lengthSq() < 1) return;
     fwd.normalize();
     // Her lift: what holds her up and what turns her.
-    const up = _w.copy(this.acc).add(new THREE.Vector3(0, G, 0));
+    const up = _w.copy(this.acc).add(_u.set(0, G, 0));
     up.addScaledVector(fwd, -up.dot(fwd));
     if (up.lengthSq() < 1e-4) up.set(0, 1, 0);
     up.normalize();
-    const side = new THREE.Vector3().crossVectors(up, fwd).normalize();
+    const side = _u.crossVectors(up, fwd).normalize();
     up.crossVectors(fwd, side);
     _m.makeBasis(side, up, fwd);
     _q.setFromRotationMatrix(_m);
     // Eased onto it, so a sharp corner in the path is a roll, not a snap.
-    this.quat.slerp(_q, this.quat.lengthSq() ? Math.min(1, dt * 4) : 1);
+    this.quat.slerp(_q, this.fresh ? 1 : Math.min(1, dt * 4));
+    this.fresh = false;
   }
+}
+
+/**
+ * Her place on the deck at time t: in the carrier's own frame, `{ x, y, z,
+ * yaw, pitch, fold, prop, airborne }` -- parked, taxiing, running up, or on
+ * her take-off run.
+ */
+function deckPose(d, t, out) {
+  const { x0, z0, L0, taxiAt, arriveAt, rollAt, pr } = d;
+  out.airborne = false;
+  out.y = 0;
+  out.pitch = 0;
+  if (t < taxiAt) {
+    out.x = x0; out.z = z0; out.yaw = 0; out.fold = 1; out.prop = 9;
+    return out;
+  }
+  if (t < arriveAt) {
+    // Up the deck in her own column, swinging onto the centreline for the
+    // last of it; the plane handlers walk her, so it is a slow, even pace.
+    const u = (t - taxiAt) / (arriveAt - taxiAt);
+    const at = (k) => [x0 * (1 - smooth((k - 0.5) / 0.5)), z0 + (L0 - z0) * smooth(k)];
+    const [x, z] = at(u);
+    const [x2, z2] = at(Math.min(1, u + 0.02));
+    out.x = x; out.z = z;
+    out.yaw = Math.hypot(x2 - x, z2 - z) > 1e-4 ? Math.atan2(x2 - x, z2 - z) : 0;
+    out.fold = 1;
+    out.prop = 20;
+    return out;
+  }
+  if (t < rollAt) {
+    // On the spot: wings spreading and locking, the engine run up against the brakes.
+    const u = (t - arriveAt) / (rollAt - arriveAt);
+    out.x = 0; out.z = L0; out.yaw = 0;
+    out.fold = 1 - smooth(u / 0.7);
+    out.prop = 20 + 50 * smooth((u - 0.6) / 0.4);
+    return out;
+  }
+  const i = Math.min(pr.rows.length - 1, Math.max(0, Math.round((t - rollAt) / pr.dt)));
+  const [s, h, th, up] = pr.rows[i];
+  out.x = 0; out.z = L0 + s; out.y = h; out.yaw = 0; out.pitch = th;
+  out.fold = 0;
+  out.prop = 75;
+  out.airborne = !!up;
+  return out;
 }
 
 // --------------------------------------------------------------- torpedoes --
@@ -394,12 +513,28 @@ class TorpTracks {
 
 /** A formation's slots, metres right, up and astern of its leader, in his frame. */
 const VIC = [[0, 0, 0], [-28, -4, -26], [28, -4, -26], [-56, -8, -52], [56, -8, -52], [0, -10, -60]];
+/** And vics of them: a strike is several, stepped down and back from the lead. */
+const slotOf = (i) => {
+  const v = VIC[i % VIC.length];
+  const g = Math.floor(i / VIC.length);
+  const off = [[0, 0, 0], [-170, -40, -150], [170, -40, -150], [0, -70, -300], [-340, -80, -300], [340, -80, -300]][g % 6];
+  return [v[0] + off[0], v[1] + off[1], v[2] + off[2]];
+};
+
+/** Where the carriers' aeroplanes are spotted: metres to port and ahead of midships, her own frame. */
+const PARK = [[-6.5, -46], [6.5, -46], [-6.5, -60], [6.5, -60], [-6.5, -74], [6.5, -74], [-6.5, -88], [6.5, -88], [0, -102]];
+/** The deck load, in the order it goes off: fighters first, then the bombers. */
+const DECKLOAD = ['hellcat', 'hellcat', 'hellcat', 'dauntless', 'dauntless', 'dauntless', 'avenger', 'avenger', 'avenger'];
+/** Where each goes from: the launching position, abaft the island. */
+const LAUNCH_Z = -30;
+/** Seconds between one aeroplane leaving the deck and the next. */
+const LAUNCH_EVERY = 5.5;
 
 export class Strike {
   /**
    * `scene` the title scene's, `ocean` its sea (ships ride its waves), `wakes`
    * the map their wakes are drawn into; `fx` is { effects, flak, bombs,
-   * flames }, the battle's own effects systems.
+   * flames, bursts }, the battle's own effects systems.
    */
   constructor(scene, ocean, wakes, fx) {
     this.scene = scene;
@@ -407,46 +542,52 @@ export class Strike {
     this.wakes = wakes;
     this.fx = fx;
     this.t = 0;
-    this.fired = new Set();
+    this.eye = new THREE.Vector3();
     seed = 1;
 
-    // The Japanese force: the Yamato leading, her sister on her port quarter,
-    // steaming north at twenty-five knots and turning to comb the attacks.
+    // The Yamato, steaming south-west at twenty-two knots in the middle of her
+    // ring of destroyers, turning hard to comb each attack as it comes.
+    const yTurns = [[86, -0.024, 24], [130, 0.03, 24], [178, -0.026, 26], [212, 0.02, 20]];
     this.yamatoTrack = new Track({
-      x: 0, z: 0, heading: 0, knots: 25,
-      turns: [[66, -0.022, 26], [150, 0.026, 30], [195, -0.03, 30], [238, 0.018, 24]],
+      x: 0, z: 0, heading: 0, knots: 24, turns: yTurns,
+      // Holed, she slows; then she stops.
+      speeds: [[150, 20], [222, 14], [248, 6], [262, 0]],
     });
-    this.musashiTrack = new Track({
-      x: 1300, z: -1500, heading: 0, knots: 25,
-      turns: [[70, 0.02, 24], [124, -0.016, 26], [176, 0.012, 30]],
-      // She is hit, and slows.
-      speeds: [[106, 20], [118, 16], [205, 13]],
-    });
-    // And the carriers, a long way east: two Essexes into the wind, launching.
-    this.cvTrack = new Track({ x: 26000, z: -4000, heading: Math.PI * 0.5, knots: 28 });
-    this.cv2Track = new Track({ x: 25300, z: -2600, heading: Math.PI * 0.5, knots: 28 });
-
     this.yamato = new Hull('yamato', this.yamatoTrack, ocean, wakes);
-    this.musashi = new Hull('musashi', this.musashiTrack, ocean, wakes);
-    // Their screen: destroyers of the Yukikaze's class ahead and on either
-    // beam, turning with the flagship.
-    const yTurns = [[66, -0.022, 26], [150, 0.026, 30], [195, -0.03, 30], [238, 0.018, 24]];
-    this.escorts = [[-1500, 1700], [2700, 900], [-1700, -1300]].map(([x, z], i) => {
-      const h = new Hull('yukikaze', new Track({ x, z, heading: 0, knots: 25, turns: yTurns.map(([t, r, d]) => [t + 1.5 * i, r * 1.1, d]) }), ocean, wakes);
-      h.id = `yukikaze${i}`;
-      return h;
+
+    // Her screen: six destroyers in a ring a mile and a half out -- Yukikaze
+    // and her sisters, and two Yugumos -- turning with her.
+    const ring = [['yukikaze', 0], ['yugumo', 60], ['yukikaze', 120], ['yukikaze', 180], ['yugumo', 240], ['yukikaze', 300]];
+    this.escorts = ring.map(([cls, deg], i) => {
+      const a = (deg * Math.PI) / 180;
+      const r = 1500 + (i % 2) * 250;
+      const track = new Track({
+        x: Math.sin(a) * r, z: Math.cos(a) * r, heading: 0, knots: 26,
+        turns: yTurns.map(([t, rr, d]) => [t + 1 + i * 0.4, rr * 1.15, d]),
+        speeds: [[230, 22]],
+      });
+      return new Hull(cls, track, ocean, wakes, { lod: 0.4, lodAt: 650, name: `${cls}${i}` });
     });
-    this.essex = new Hull('essex', this.cvTrack, ocean, wakes);
-    this.essex2 = new Hull('essex', this.cv2Track, ocean, wakes);
-    this.essex2.id = 'essex2';
-    this.ships = [this.yamato, this.musashi, ...this.escorts, this.essex, this.essex2];
-    for (const s of this.ships) scene.add(s.group);
-    // The flight deck: how high it stands, and how far it runs.
-    this.deckY = this.essex.built.flightDeckY || this.essex.group.userData.flightDeckY || 17.5;
+
+    // And far to the east, four Essexes in a box, into the wind and launching.
+    const CX = 26000, CZ = -3000, CH = -0.75;
+    const box = [[0, 0], [1500, -400], [-200, -1600], [1400, -2100]];
+    this.carriers = box.map(([port, aft], i) => {
+      const c = Math.cos(CH), s = Math.sin(CH);
+      const lz = -aft;
+      const track = new Track({ x: CX + port * c + lz * s, z: CZ - port * s + lz * c, heading: CH, knots: 28 });
+      return new Hull('essex', track, ocean, wakes, { lod: 0.5, lodAt: 700, name: `essex${i}` });
+    });
+    this.carrierTracks = this.carriers.map((c) => c.track);
+    this.cvTrack = this.carrierTracks[0];
+
+    this.ships = [this.yamato, ...this.escorts, ...this.carriers];
+    for (const s of this.ships) s.addTo(scene);
+    this.deckY = ESSEX.FD;
 
     this.tracks = new TorpTracks(scene, ocean);
     this.flights = [];
-    // The aeroplanes the camera is sent after, by part.
+    // The aeroplanes and moments the camera is sent after, by part.
     this.cast = {};
     this.torps = [];
     this.events = [];
@@ -458,50 +599,73 @@ export class Strike {
   // --- the script -------------------------------------------------------
 
   writeScript() {
-    const Y = this.yamatoTrack, M = this.musashiTrack;
+    const Y = this.yamatoTrack;
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
-    const at = (t, p) => ({ t, p });
+    const at = (t, p, v) => ({ t, p, v });
 
-    // ---- the launch: eight off each deck, a few seconds apart.
-    const launch = (track, t0, kind, i) => {
-      const deck = this.deckY + 2.6;
-      const p = [];
-      // Spotted aft, run up the deck, off the bow and climbing away to
-      // starboard to form up.
-      p.push(at(t0 - 2, track.local(t0 - 2, 0, deck, -90)));
-      p.push(at(t0, track.local(t0, 0, deck, -88)));
-      p.push(at(t0 + 4.2, track.local(t0 + 4.2, 0, deck + 0.6, 40)));
-      p.push(at(t0 + 6.5, track.local(t0 + 6.5, -4, deck + 14, 160)));
-      p.push(at(t0 + 12, track.local(t0 + 12, -60, deck + 90, 520)));
-      p.push(at(t0 + 22, track.local(t0 + 22, -500, 420, 1300)));
-      p.push(at(t0 + 40, track.local(t0 + 40, -1800 - i * 60, 1100, 2200)));
-      return new Flight(kind, p, { events: [{ t: t0 + 9, k: 'gearUp' }] });
-    };
-    const order = ['hellcat', 'hellcat', 'dauntless', 'dauntless', 'avenger', 'avenger', 'dauntless', 'hellcat'];
-    order.forEach((k, i) => this.flights.push(launch(this.cvTrack, 1.5 + i * 3.1, k, i)));
-    this.cast.launch = this.flights[0];
-    order.forEach((k, i) => this.flights.push(launch(this.cv2Track, 2.6 + i * 3.4, k, i)));
+    // ---- the launch: a deck load off each carrier, one every few seconds.
+    const profiles = {};
+    for (const k of ['hellcat', 'dauntless', 'avenger']) profiles[k] = launchProfile(AERO[k], ESSEX.FD_FWD - LAUNCH_Z);
+    this.carriers.forEach((cv, c) => {
+      const T = cv.track;
+      const first = 3.5 + c * 1.3;
+      DECKLOAD.forEach((kind, i) => {
+        const pr = profiles[kind];
+        const [x0, z0] = PARK[i];
+        const rollAt = first + i * LAUNCH_EVERY;
+        // She waits for the aeroplane ahead of her in her column to go.
+        const taxiAt = i < 2 ? -10 : first + (i - 2) * LAUNCH_EVERY + 0.5;
+        const arriveAt = rollAt - 2.6;
+        const endT = rollAt + pr.rows.length * pr.dt;
+        const last = pr.rows[pr.rows.length - 1];
+        const prev = pr.rows[Math.max(0, pr.rows.length - 13)];
+        const climb = (last[1] - prev[1]) / (12 * pr.dt);
+        const lift = pr.rows.findIndex((r) => r[3]);
+        // Off her bow, and handed over to a path: on out ahead and climbing,
+        // round to port onto the rendezvous over the force, and away west.
+        const p0 = T.local(endT, 0, this.deckY + last[1], LAUNCH_Z + last[0]);
+        const h = T.at(endT).h;
+        const vf = T.at(endT).speed + last[4];
+        const v0 = V(Math.sin(h) * vf, climb, Math.cos(h) * vf);
+        const pts = [
+          at(endT, p0, v0),
+          at(endT + 8, T.local(endT + 8, 0, this.deckY + last[1] + 60, LAUNCH_Z + last[0] + last[4] * 8)),
+          at(endT + 24, T.local(endT + 24, 700 + i * 30, 380, 1900)),
+          at(endT + 44, T.local(endT + 44, 1500 + i * 40, 800, 900)),
+          at(endT + 70, T.local(endT + 70, 900 + c * 300, 1300 + i * 20, -2600)),
+          at(endT + 200, V(T.at(0).x - 18000 - i * 60, 2600, T.at(0).z + c * 400 + i * 50)),
+        ];
+        const f = new Flight(kind, pts, {
+          deck: { track: T, hull: cv, x0, z0, L0: LAUNCH_Z, taxiAt, arriveAt, rollAt, endT, pr, liftAt: rollAt + lift * pr.dt },
+        });
+        this.flights.push(f);
+        if (c === 0 && i === 0) this.cast.launch = f;
+        if (c === 0 && i === 1) this.cast.launch2 = f;
+        if (c === 0 && i === 2) this.cast.launch3 = f;
+        if (c === 1 && i === 3) this.cast.launch4 = f;
+      });
+    });
 
-    // ---- the first wave, on the Musashi.
-    // The formation comes in from the east at ten thousand feet, over the
-    // cloud, and breaks up over the Japanese force.
+    // ---- the first wave. Over the cloud from the east at ten thousand
+    // feet, breaking up over her.
     const leadA = (t) => {
       const k = (t - 20) / 50;
-      return V(14000 - 10500 * k, 2700 - 250 * k, 900 + 400 * k);
+      return V(13500 - 10000 * k, 2700 - 250 * k, 1200 + 300 * k);
     };
     const formation = (lead, t0, t1, slot, ox = 0, oz = 0) => {
       const out = [];
+      const s = slotOf(slot);
       for (let t = t0; t <= t1; t += 10) {
         const p = lead(t);
-        const s = VIC[slot % VIC.length];
         // Flying west: her right is +z, astern is +x.
         out.push(at(t, V(p.x - s[2] + ox, p.y + s[1], p.z + s[0] + oz)));
       }
       return out;
     };
+    this.leadA = leadA;
 
-    // Four Avengers in an anvil: two from either bow.
-    const torpRun = (track, t0, side, lz, hit, slot) => {
+    // Avengers in an anvil: from either bow, low, dropping inside a mile.
+    const torpRun = (track, t0, side, lz, slot) => {
       const L = (dt, lx, ly, z) => at(t0 + dt, track.local(t0 + dt, side * lx, ly, z));
       return [
         L(-26, 4200, 900, lz + 1500),
@@ -512,40 +676,26 @@ export class Strike {
         L(7.5, -60, 70, lz - 60),
         L(12, -700, 120, lz - 260),
         L(26, -2800, 650, lz - 1400),
-      ].concat([at(t0 + 60, V(16000, 2400, 3000 + slot * 120))]);
+        L(60, -7000, 1800, lz - 5000 + slot * 100),
+      ];
     };
-    const anvil = [[1, 30, true], [1, -20, true], [-1, 40, false], [-1, -10, true]];
-    anvil.forEach(([side, lz, hit], i) => {
-      const t0 = 78 + i * 2;
-      const pts = [...formation(leadA, 20, 50, i, 0, -140), ...torpRun(M, t0, side, lz, hit, i)];
-      this.flights.push(new Flight('avenger', pts, { events: [{ t: t0, k: 'torp', track: M, ship: 'musashi', side, lz, hit }] }));
-      if (i === 0) this.cast.torpA = this.flights[this.flights.length - 1];
-    });
-
-    // Six Dauntlesses, rolling in from astern one after another.
-    const dive = (track, t0, lx, lz, hit, slot) => {
+    // Dauntlesses rolling in from astern one after another, seventy degrees down.
+    const dive = (track, t0, lx, lz, slot) => {
       const L = (dt, x, y, z) => at(t0 + dt, track.local(t0 + dt, x, y, z));
       return [
         L(-34, 900 + slot * 40, 2900, -5200),
         L(-20, 300, 2800, -1500),
         L(-15, 120, 2700, -1050),
         L(-7, 40, 1500, -420),
-        L(0, lx * 0.4, 600, lz - 150),
-        L(2.2, lx * 0.2, 330, lz - 30),
-        L(5, 0, 160, lz + 280),
+        L(0, lx * 0.4, 480, lz - 130),
+        L(2.2, lx * 0.2, 240, lz - 10),
+        L(5, 0, 130, lz + 280),
         L(14, -600, 220, lz + 1700),
         L(30, -2500, 900, lz + 4200),
-      ].concat([at(t0 + 70, V(16000, 2600, 3400 + slot * 100))]);
+        L(70, -6000, 2400, lz + 9000 + slot * 100),
+      ];
     };
-    const divesA = [[118, 2, 10, true], [120.5, -4, -40, true], [123, 8, 70, false], [125.5, 0, -70, true], [128, 6, 30, false]];
-    divesA.forEach(([t0, lx, lz, hit], i) => {
-      const pts = [...formation(leadA, 20, 60, i + 1, -400, 300), ...dive(M, t0, lx, lz, hit, i)];
-      this.flights.push(new Flight('dauntless', pts, { events: [{ t: t0, k: 'bomb', track: M, ship: 'musashi', lx, lz, hit }] }));
-      if (i === 0) this.cast.diveA = this.flights[this.flights.length - 1];
-      if (i === 2) this.cast.escortA = this.flights[this.flights.length - 1];
-    });
-
-    // Hellcats, ahead of the bombers, strafing her gun crews.
+    // Hellcats ahead of the bombers, strafing the gun crews.
     const strafe = (track, t0, side, lz, slot) => {
       const L = (dt, x, y, z) => at(t0 + dt, track.local(t0 + dt, x, y, z));
       return [
@@ -556,68 +706,127 @@ export class Strike {
         L(2, -side * 120, 55, lz - 120),
         L(8, -side * 1000, 260, lz - 700),
         L(24, -side * 3200, 1500, lz - 1800),
-      ].concat([at(t0 + 60, V(16000, 2800, 2600 + slot * 150))]);
+        L(60, -side * 7000, 2600, lz - 4000 - slot * 120),
+      ];
     };
-    [[134, 1, 20], [136, -1, -30]].forEach(([t0, side, lz], i) => {
-      const pts = [...formation(leadA, 20, 50, i + 3, 300, 200), ...strafe(M, t0, side, lz, i)];
-      this.flights.push(new Flight('hellcat', pts, { events: [{ t: t0 - 3, k: 'guns', dur: 3.2 }] }));
-    });
-    // One of them does not come back off his run.
-    {
-      const t0 = 139;
-      const pts = [...formation(leadA, 20, 50, 5, 500, 260), ...strafe(M, t0, 1, 60, 3)];
-      this.flights.push(new Flight('hellcat', pts, { kill: { t: t0 + 1.2 }, events: [{ t: t0 - 3, k: 'guns', dur: 3 }] }));
-    }
+    // A Hellcat's run on one of the destroyers.
+    const strafeShip = (hull, t0, slot) => {
+      const tr = hull.track;
+      const L = (dt, x, y, z) => at(t0 + dt, tr.local(t0 + dt, x, y, z));
+      return [
+        L(-20, 2400, 2000, 2600), L(-8, 900, 500, 900), L(-2, 160, 70, 200),
+        L(0, 30, 40, 40), L(2, -120, 45, -160), L(8, -900, 300, -900), L(40, -5000, 2400, -3000 - slot * 100),
+      ];
+    };
 
-    // ---- the second wave, on the Yamato.
+    // Strafers first: two on the Yamato, one on a destroyer.
+    [[86, 1, 30], [89, -1, -40]].forEach(([t0, side, lz], i) => {
+      const pts = [...formation(leadA, 20, 50, 1 + i, 300, 200), ...strafe(Y, t0, side, lz, i)];
+      this.flights.push(new Flight('hellcat', pts, { events: [{ t: t0 - 3, k: 'guns', dur: 3.4 }] }));
+      if (i === 0) this.cast.strafeA = this.flights[this.flights.length - 1];
+    });
+    {
+      const t0 = 84;
+      const pts = [...formation(leadA, 20, 50, 3, 300, 200), ...strafeShip(this.escorts[1], t0, 2)];
+      this.flights.push(new Flight('hellcat', pts, { events: [{ t: t0 - 2.5, k: 'guns', dur: 3 }] }));
+    }
+    // The dive bombers. The first is the one the camera rides down.
+    const divesA = [[103.5, 2, 20, true], [107.5, -4, -50, true], [111, 8, 70, false], [114.5, 0, -80, true], [118, 6, 40, false]];
+    divesA.forEach(([t0, lx, lz, hit], i) => {
+      const pts = [...formation(leadA, 20, 60, 6 + i, -300, 300), ...dive(Y, t0, lx, lz, i)];
+      // The third does not come out of his dive.
+      const kill = i === 2 ? { t: t0 - 6 } : null;
+      this.flights.push(new Flight('dauntless', pts, { kill, events: [{ t: t0, k: 'bomb', track: Y, lx, lz, hit, hero: i === 0 }] }));
+      if (i === 0) this.cast.diveA = this.flights[this.flights.length - 1];
+      if (i === 1) this.cast.diveA2 = this.flights[this.flights.length - 1];
+    });
+    // And the Avengers: six, both bows, three fish into her port side.
+    const anvilA = [[1, 40, true], [1, -20, true], [1, 90, false], [-1, 30, false], [-1, -40, false], [1, 0, true]];
+    anvilA.forEach(([side, lz, hit], i) => {
+      const t0 = 132 + i * 1.3;
+      const pts = [...formation(leadA, 20, 60, 12 + i, 0, -200), ...torpRun(Y, t0, side, lz, i)];
+      this.flights.push(new Flight('avenger', pts, { events: [{ t: t0, k: 'torp', track: Y, side, lz, hit }] }));
+      if (i === 0) this.cast.torpA = this.flights[this.flights.length - 1];
+    });
+    // The lead aeroplane of the formation, for the camera to fly with.
+    this.cast.lead = this.flights[this.flights.length - 6];
+
+    // ---- the second wave.
     const leadB = (t) => {
-      const k = (t - 110) / 50;
-      return V(15000 - 10500 * k, 2800 - 200 * k, 3400 + 300 * k);
+      const k = (t - 120) / 50;
+      return V(14500 - 10500 * k, 2800 - 200 * k, 3600 + 300 * k);
     };
-    [[152, 1, 40], [155, -1, -10], [158, 1, -60]].forEach(([t0, side, lz], i) => {
-      const pts = [...formation(leadB, 110, 130, i, 200, 0), ...strafe(Y, t0, side, lz, i)];
+    this.leadB = leadB;
+    [[168, 1, 50], [171, -1, -20]].forEach(([t0, side, lz], i) => {
+      const pts = [...formation(leadB, 120, 140, i, 200, 0), ...strafe(Y, t0, side, lz, 4 + i)];
       this.flights.push(new Flight('hellcat', pts, { events: [{ t: t0 - 3, k: 'guns', dur: 3.2 }] }));
-      if (i === 0) this.cast.strafeB = this.flights[this.flights.length - 1];
     });
-    const divesB = [[184, 4, 40, false], [187, -2, -20, true], [190, 6, -60, false], [193, -6, 70, false]];
+    {
+      const t0 = 176;
+      const pts = [...formation(leadB, 120, 140, 2, 200, 0), ...strafeShip(this.escorts[3], t0, 5)];
+      this.flights.push(new Flight('hellcat', pts, { events: [{ t: t0 - 2.5, k: 'guns', dur: 3 }] }));
+      this.cast.strafeB = this.flights[this.flights.length - 1];
+    }
+    const divesB = [[194, 4, 40, true], [197, -2, -30, true], [200, 6, -70, false], [203, -6, 75, true]];
     divesB.forEach(([t0, lx, lz, hit], i) => {
-      const pts = [...formation(leadB, 110, 150, i + 1, -300, 400), ...dive(Y, t0, lx, lz, hit, i)];
-      this.flights.push(new Flight('dauntless', pts, { events: [{ t: t0, k: 'bomb', track: Y, ship: 'yamato', lx, lz, hit }] }));
-      if (i === 1) this.cast.diveB = this.flights[this.flights.length - 1];
+      const pts = [...formation(leadB, 120, 150, 3 + i, -300, 400), ...dive(Y, t0, lx, lz, 5 + i)];
+      this.flights.push(new Flight('dauntless', pts, { events: [{ t: t0, k: 'bomb', track: Y, lx, lz, hit }] }));
+      if (i === 0) this.cast.diveB = this.flights[this.flights.length - 1];
+      if (i === 1) this.cast.diveB2 = this.flights[this.flights.length - 1];
     });
-    // The Avengers go for her, and she combs their tracks: every fish misses.
-    const anvilB = [[1, 140], [1, 60], [-1, 120], [-1, 30]];
-    anvilB.forEach(([side, lz], i) => {
-      const t0 = 198 + i * 1.6;
-      const kill = i === 2 ? { t: 228 } : null;
-      const pts = [...formation(leadB, 110, 150, i + 2, 0, -300), ...torpRun(Y, t0, side, lz, false, i)];
-      this.flights.push(new Flight('avenger', pts, { kill, events: [{ t: t0, k: 'torp', track: Y, ship: 'yamato', side, lz, hit: false }] }));
+    const anvilB = [[1, 60, true], [1, -10, true], [-1, 40, true], [1, 120, false], [-1, -30, false]];
+    anvilB.forEach(([side, lz, hit], i) => {
+      const t0 = 207 + i * 1.4;
+      const pts = [...formation(leadB, 120, 150, 8 + i, 0, -300), ...torpRun(Y, t0, side, lz, 6 + i)];
+      this.flights.push(new Flight('avenger', pts, { events: [{ t: t0, k: 'torp', track: Y, side, lz, hit }] }));
+      if (i === 0) this.cast.torpB = this.flights[this.flights.length - 1];
     });
-    // And one of the Avengers off the first wave, holed, goes down astern of her.
+    // And one Avenger, holed, going in astern of her.
     {
       const pts = [at(214, Y.local(214, 3600, 700, -2600)), at(222, Y.local(222, 1500, 320, -900)),
         at(228, Y.local(228, 600, 220, -250)), at(236, Y.local(236, -800, 200, 600))];
-      this.flights.push(new Flight('avenger', pts, { kill: { t: 226.5 } }));
+      this.flights.push(new Flight('avenger', pts, { kill: { t: 225 } }));
       this.cast.downed = this.flights[this.flights.length - 1];
     }
+    // The last of them: two Avengers on her starboard side as she slows, and
+    // aeroplanes circling over her to watch her go.
+    [[1, 20, true], [-1, -20, true]].forEach(([side, lz, hit], i) => {
+      const t0 = 244 + i * 2;
+      const pts = torpRun(Y, t0, -1, lz, 11 + i);
+      this.flights.push(new Flight('avenger', pts, { events: [{ t: t0, k: 'torp', track: Y, side: -1, lz, hit }] }));
+      if (i === 0) this.cast.torpC = this.flights[this.flights.length - 1];
+    });
+    for (let i = 0; i < 6; i++) {
+      const pts = [];
+      const r = 1600 + i * 180, y = 900 + i * 90, w = 0.05 * (i % 2 ? 1 : -1);
+      for (let t = 236; t <= LOOP + 4; t += 8) {
+        const a = i + (t - 236) * w;
+        pts.push(at(t, Y.local(t, Math.sin(a) * r, y, Math.cos(a) * r)));
+      }
+      this.flights.push(new Flight(i % 3 === 0 ? 'hellcat' : i % 3 === 1 ? 'dauntless' : 'avenger', pts));
+    }
 
-    // ---- what the ships do back.
-    // The Yamato's main battery, firing Type 3 shell into the formation as it
-    // comes in: two salvoes, the bursts a few seconds after each.
-    // Laid on the dive bombers, where they will be when the shell gets there.
+    // ---- what she does back.
+    // Her main battery, firing Type 3 shell into the formation as it comes
+    // in, laid where the bombers will be when the shell gets there.
     const on = (f) => (t) => f.path.at(t, new THREE.Vector3());
-    this.events.push({ t: 53, k: 'salvo', ship: 'yamato', turrets: [0, 1], target: on(this.cast.diveA) });
-    this.events.push({ t: 58, k: 'salvo', ship: 'yamato', turrets: [0, 1, 2], target: on(this.cast.diveA) });
-    this.events.push({ t: 61, k: 'salvo', ship: 'musashi', turrets: [0, 1], target: on(this.cast.diveA) });
-    this.events.push({ t: 64.5, k: 'salvo', ship: 'yamato', turrets: [0, 1], target: on(this.cast.diveA) });
-    this.events.push({ t: 142, k: 'salvo', ship: 'yamato', turrets: [0, 1], target: on(this.cast.diveB) });
-    // Each ship trains her turrets round onto them well before she fires.
-    this.events.push({ t: 41, k: 'train', ship: 'yamato', turrets: [0, 1, 2], target: on(this.cast.diveA) });
-    this.events.push({ t: 49, k: 'train', ship: 'musashi', turrets: [0, 1, 2], target: on(this.cast.diveA) });
-    this.events.push({ t: 130, k: 'train', ship: 'yamato', turrets: [0, 1, 2], target: on(this.cast.diveB) });
+    const tgtA = on(this.cast.diveA), tgtB = on(this.cast.diveB);
+    this.events.push({ t: 46, k: 'train', turrets: [0, 1, 2], target: tgtA });
+    this.events.push({ t: 63.5, k: 'salvo', turrets: [0, 1], target: tgtA });
+    this.events.push({ t: 68.5, k: 'salvo', turrets: [0, 1, 2], target: tgtA });
+    this.events.push({ t: 74.5, k: 'salvo', turrets: [0, 1], target: tgtA });
+    this.events.push({ t: 168, k: 'train', turrets: [0, 1, 2], target: tgtB });
+    this.events.push({ t: 182.5, k: 'salvo', turrets: [0, 1, 2], target: tgtB });
+    this.events.push({ t: 187.5, k: 'salvo', turrets: [0, 1], target: tgtB });
+    // Her end: she goes over to port, stops, and rolls over, and as she goes
+    // her forward magazines explode.
+    this.events.push({ t: 236, k: 'list', to: -0.32, rate: 0.012 });
+    this.events.push({ t: 252, k: 'list', to: -1.35, rate: 0.055 });
+    this.events.push({ t: 256, k: 'silent' });
+    this.events.push({ t: 270.5, k: 'magazine' });
+    this.events.push({ t: 271, k: 'sink', to: 40, rate: 5 });
+    this.events.push({ t: 279, k: 'gone' });
     this.events.sort((a, b) => a.t - b.t);
-    this.leadA = leadA;
-    this.leadB = leadB;
   }
 
   reset() {
@@ -627,11 +836,13 @@ export class Strike {
     for (const f of this.flights) f.reset();
     this.torps.length = 0;
     this.ev = 0;
+    // Spent one-off moments from the last time round go.
+    this.events = this.events.filter((e) => !e.once);
+    this.cast.bomb = null;
+    this.cast.magazine = null;
   }
 
   // --- what happens ------------------------------------------------------
-
-  ship(id) { return id === 'yamato' ? this.yamato : this.musashi; }
 
   /** A torpedo off an Avenger's bay: it runs at the ship and hits her or passes. */
   dropTorpedo(f, e) {
@@ -649,10 +860,13 @@ export class Strike {
     const dir = new THREE.Vector3(tgt.x - p.x, 0, tgt.z - p.z).normalize();
     // The fish goes in nose first: a short white burst and it is running.
     effects.splash(p.x + dir.x * 40, p.z + dir.z * 40, 140, { kind: 'drop' });
-    this.torps.push({
+    const tp = {
       x: p.x + dir.x * 40, z: p.z + dir.z * 40, dir, t0: this.t + 1.2, tHit: e.hit ? tHit : tHit + 30, hit: e.hit,
-      ship: this.ship(e.ship), side: e.side, lz: e.lz, trail: [], done: false, gone: 0,
-    });
+      ship: this.yamato, side: e.side, lz: e.lz, trail: [], done: false, gone: 0,
+    };
+    this.torps.push(tp);
+    if (f === this.cast.torpA) this.cast.fishA = tp;
+    if (f === this.cast.torpB) this.cast.fishB = tp;
     f.model?.userData.bay?.(1);
     if (f.model?.userData.store) f.model.userData.store.visible = false;
   }
@@ -660,36 +874,43 @@ export class Strike {
   torpedoHit(tp) {
     const { effects } = this.fx;
     const s = tp.ship;
+    if (s.gone) return;
     const hp = s.world(tp.side * (s.beam / 2 + 2), 0, tp.lz, new THREE.Vector3());
-    effects.splash(hp.x, hp.z, 620, { kind: 'torp' });
-    this.later(0.25, () => effects.splash(hp.x + rnd(-6, 6), hp.z + rnd(-6, 6), 520, { kind: 'torp', child: true }));
-    effects.explosion(hp.x, 4, hp.z, 1.1);
+    effects.splash(hp.x, hp.z, 640, { kind: 'torp' });
+    this.later(0.25, () => effects.splash(hp.x + rnd(-6, 6), hp.z + rnd(-6, 6), 540, { kind: 'torp', child: true }));
+    effects.explosion(hp.x, 4, hp.z, 1.2);
     // She takes water on that side, and goes over towards it.
-    s.listTo += -tp.side * 0.035;
+    if (!s.listRate) s.listTo += -tp.side * 0.04;
     s.trimTo += tp.lz > 0 ? 1 : -0.5;
     s.burn(tp.side * (s.beam / 2 - 3), 9, tp.lz, 0.55, 10);
   }
 
   dropBomb(f, e) {
-    const { effects, bombs } = this.fx;
+    const { effects, bombs, bursts } = this.fx;
     const p = f.pos, v = f.vel;
     const y1 = e.hit ? 14 : 0;
     const a = 0.5 * G, b = -v.y, c = -(p.y - y1);
-    const T = (b + Math.sqrt(Math.max(0, b * b - 4 * a * c))) / (2 * a);
+    const T = (-b + Math.sqrt(Math.max(0, b * b - 4 * a * c))) / (2 * a);
     const land = e.track.local(this.t + T, e.lx + (e.hit ? 0 : sr(-1, 1) > 0 ? 34 : -34), 0, e.lz + (e.hit ? 0 : sr(-30, 30)), new THREE.Vector3());
-    const s = this.ship(e.ship);
+    const s = this.yamato;
+    const hero = e.hero;
     bombs.drop(p.x, p.y, p.z, land.x, land.z, e.hit, effects, 1.6, v.length(), {
       p: p.clone(), v: v.clone(), len: 1.6, r: 0.18,
       land: (x, z) => {
+        if (s.gone) return;
         if (e.hit) {
-          effects.explosion(x, 14, z, 1.6);
-          effects.debris?.(x, 14, z, 14, 1);
-          s.burn(e.lx, 12, e.lz, 0.8, 14);
+          const y = 14;
+          effects.explosion(x, y, z, 1.8);
+          effects.debris?.(x, y, z, 16, 1.2);
+          bursts?.blast(x, y + 4, z, { size: 34, duration: 1.6, debris: 60, light: false, plume: true, ring: false, linger: 2 });
+          s.burn(e.lx, 12, e.lz, 0.85, 14);
         } else {
-          effects.splash(x, z, 330, { kind: 'bomb' });
+          effects.splash(x, z, 340, { kind: 'bomb' });
         }
+        if (hero && this.cast.bomb) this.cast.bomb.landed = this.t;
       },
     });
+    if (hero && bombs.live.length) this.cast.bomb = { b: bombs.live[bombs.live.length - 1], t0: this.t, T, landed: 0 };
     for (const st of f.model?.userData.wingStores || []) st.visible = false;
     if (f.model?.userData.store) f.model.userData.store.visible = false;
   }
@@ -697,7 +918,8 @@ export class Strike {
   /** A salvo of Type 3 shell, and its bursts in among the formation. */
   salvo(e) {
     const { effects } = this.fx;
-    const s = this.ship(e.ship);
+    const s = this.yamato;
+    if (s.silent) return;
     const tgt = e.target(this.t + 6);
     for (const i of e.turrets) {
       const m = s.turrets[i];
@@ -707,7 +929,11 @@ export class Strike {
         const aim = new THREE.Vector3().subVectors(tgt, mp).normalize();
         effects.muzzle(mp.x, mp.y, mp.z, Math.atan2(aim.x, aim.z), 460, aim);
       }
+      // The blast flattening the sea alongside her.
+      const mp = muzzleWorld(m, 1, new THREE.Vector3());
+      effects.flash(mp.x, mp.y, mp.z, 5);
     }
+    this.cast.salvoAt = this.t;
     // The bursts: ahead of and about the formation, a pattern a few hundred
     // metres across, which is what the shell was for.
     for (let k = 0; k < e.turrets.length * 3; k++) {
@@ -726,32 +952,62 @@ export class Strike {
    * thrown forward and down out of it, and the smoke that hangs afterwards.
    */
   sanshiki(x, y, z) {
-    const { effects } = this.fx;
-    effects.bursts?.blast(x, y, z, { size: 70, duration: 1.4, debris: 160, light: false, plume: false, ring: false, linger: 6 });
+    const { effects, bursts } = this.fx;
+    bursts?.blast(x, y, z, { size: 70, duration: 1.4, debris: 160, light: false, plume: false, ring: false, linger: 6 });
     effects.flakBurst(x, y, z, 460);
     effects.flash(x, y, z, 4);
   }
 
-  later(d, fn) { this.events.push({ t: this.t + d, fn, once: true }); this.events.sort((a, b) => a.t - b.t); }
+  /** Her forward magazines going up as she rolls over. */
+  magazine() {
+    const { effects, bursts } = this.fx;
+    const s = this.yamato;
+    const p = s.world(0, 6, 40, new THREE.Vector3());
+    effects.flash(p.x, 40, p.z, 8);
+    effects.explosion(p.x, 20, p.z, 4);
+    effects.debris?.(p.x, 20, p.z, 40, 3);
+    // And what is left burning on the water where she was, putting up the
+    // column (see update).
+  }
+
+  later(d, fn) {
+    const e = { t: this.t + d, fn, once: true };
+    // Into its place among those still to come.
+    let i = this.ev;
+    while (i < this.events.length && this.events[i].t <= e.t) i++;
+    this.events.splice(i, 0, e);
+  }
 
   // --- every frame --------------------------------------------------------
 
-  update(dt) {
+  /** `eye` is where the camera is: what is far from it is drawn cheaply or not at all. */
+  update(dt, eye = null) {
     this.t += dt;
     const t = this.t;
-    const { effects, flames } = this.fx;
+    if (eye) this.eye.copy(eye);
+    const { flames } = this.fx;
 
-    for (const s of this.ships) s.update(t, dt, flames, effects);
+    for (const s of this.ships) { s.cull(this.eye); s.update(t, dt, flames); }
 
     // The script's own moments.
     while (this.ev < this.events.length && this.events[this.ev].t <= t) {
       const e = this.events[this.ev++];
+      const Y = this.yamato;
       if (e.fn) e.fn();
       else if (e.k === 'salvo') this.salvo(e);
-      else if (e.k === 'train') { const s = this.ship(e.ship); s.mainTarget = e.target; s.mainTurrets = e.turrets; }
+      else if (e.k === 'train') { Y.mainTarget = e.target; Y.mainTurrets = e.turrets; }
+      else if (e.k === 'list') { Y.listTo = e.to; Y.listRate = e.rate; }
+      else if (e.k === 'silent') { Y.silent = true; Y.mainTarget = null; }
+      else if (e.k === 'magazine') this.magazine();
+      else if (e.k === 'sink') { Y.sinkTo = e.to; Y.sinkRate = e.rate; }
+      else if (e.k === 'gone') Y.gone = true;
     }
     // Spent one-off moments come off, so the list does not grow round the loop.
-    if (this.ev > 64) { this.events.splice(0, this.ev); this.ev = 0; }
+    if (this.ev > 64) {
+      const keep = this.events.slice(0, this.ev).filter((e) => !e.once);
+      this.events.splice(0, this.ev, ...keep);
+      this.ev = keep.length;
+    }
 
     // The aircraft.
     const live = [];
@@ -759,26 +1015,28 @@ export class Strike {
       const m = f.model;
       if (!m) continue;
       if (f.down) { this.fall(f, dt); if (!f.down.gone) live.push(f); continue; }
+      if (f.deck && t < f.deck.endT) { this.onDeck(f, t, dt); continue; }
       const inAir = t >= f.path.t0 && t <= f.path.t1;
-      m.visible = inAir;
       f.live = inAir;
-      if (!inAir) continue;
+      if (!inAir) { m.visible = false; continue; }
       const v0 = f.vel.clone();
       f.path.at(t, f.pos, f.vel);
       f.acc.subVectors(f.vel, v0).divideScalar(Math.max(1e-3, dt));
       f.acc.clampLength(0, 60);
       f.orient(dt);
-      m.position.copy(f.pos);
-      m.quaternion.copy(f.quat);
-      if (m.userData.prop) m.userData.prop.rotation.z += dt * 60;
+      m.visible = f.pos.distanceToSquared(this.eye) < PLANE_FAR * PLANE_FAR;
+      if (m.visible) {
+        m.position.copy(f.pos);
+        m.quaternion.copy(f.quat);
+        if (m.userData.prop) m.userData.prop.rotation.z += dt * 60;
+      }
       while (f.next < f.events.length && f.events[f.next].t <= t) {
         const e = f.events[f.next++];
-        if (e.k === 'gearUp') f.gearAt = t;
-        else if (e.k === 'torp') this.dropTorpedo(f, e);
+        if (e.k === 'torp') this.dropTorpedo(f, e);
         else if (e.k === 'bomb') this.dropBomb(f, e);
         else if (e.k === 'guns') f.gunsTill = t + e.dur;
       }
-      if (f.gearAt !== undefined) m.userData.gear?.(1 - (t - f.gearAt) / 3);
+      if (f.deck) m.userData.gear?.(Math.min(1, (t - f.deck.liftAt - 1.2) / 2.5));
       if (f.gunsTill && t < f.gunsTill) this.strafeBurst(f, dt);
       if (f.kill && t >= f.kill.t) this.shoot(f);
       live.push(f);
@@ -802,10 +1060,49 @@ export class Strike {
     for (let i = this.torps.length - 1; i >= 0; i--) if (this.torps[i].done && t - this.torps[i].gone > 7) this.torps.splice(i, 1);
     this.tracks.update(this.torps.filter((tp) => t >= tp.t0), t);
 
-    // The guns of both ships at whatever is in reach of them.
-    this.antiAircraft(this.yamato, live, dt);
-    this.antiAircraft(this.musashi, live, dt);
-    for (const e of this.escorts) this.antiAircraft(e, live, dt);
+    // Where she went: oil and wreckage burning on the sea, and the column of
+    // smoke standing over it.
+    const mg = this.cast.magazine;
+    if (mg && t - mg.t < 40) {
+      const k = Math.min(1, (t - mg.t) / 2) * (1 - smooth((t - mg.t - 28) / 12));
+      flames.at('magazine0', mg.p.x, 6, mg.p.z, 1.0 * k, 70);
+      flames.at('magazine1', mg.p.x + 50, 4, mg.p.z - 30, 0.8 * k, 50);
+      flames.at('magazine2', mg.p.x - 45, 4, mg.p.z + 35, 0.8 * k, 50);
+    }
+
+    // Every gun in reach of the camera at whatever is in reach of it.
+    for (const s of [this.yamato, ...this.escorts]) if (s.near && !s.silent) this.antiAircraft(s, live, dt);
+  }
+
+  /** An aeroplane on a carrier's deck, from her spot to the end of her take-off run. */
+  onDeck(f, t, dt) {
+    const d = f.deck, m = f.model, u = m.userData;
+    const hull = d.hull;
+    const pose = deckPose(d, t, f.deckPose || (f.deckPose = {}));
+    // Drawn only when her carrier is drawn in full: from further off she is
+    // a speck on a stand-in.
+    m.visible = hull.group.visible && t >= 0;
+    f.live = pose.airborne;
+    if (!m.visible && !pose.airborne) return;
+    const g = hull.group;
+    // On her carrier's deck, riding with her; once off it, on the line the
+    // carrier is steaming, clear of her pitching.
+    const y = this.deckY + pose.y;
+    const prev = f.pos.clone();
+    if (pose.airborne) d.track.local(t, pose.x, y, pose.z, f.pos);
+    else f.pos.set(pose.x, y, pose.z).applyMatrix4(g.matrix);
+    f.vel.subVectors(f.pos, prev).divideScalar(Math.max(1e-3, dt));
+    _e.set(-pose.pitch, pose.yaw, 0, 'YXZ');
+    _q.setFromEuler(_e);
+    if (pose.airborne) { _e.set(0, d.track.at(t).h, 0, 'YXZ'); _q2.setFromEuler(_e); }
+    else _q2.copy(g.quaternion);
+    f.quat.multiplyQuaternions(_q2, _q);
+    f.fresh = false;
+    m.position.copy(f.pos);
+    m.quaternion.copy(f.quat);
+    u.fold?.(pose.fold);
+    u.gear?.(t > d.liftAt + 1.2 ? Math.min(1, (t - d.liftAt - 1.2) / 2.5) : 0);
+    if (u.prop) u.prop.rotation.z += dt * pose.prop;
   }
 
   /** A fighter's six fifties: the flicker on her wings and the sea torn up ahead of her. */
@@ -823,8 +1120,8 @@ export class Strike {
       const k = -f.pos.y / fwd.y;
       const x = f.pos.x + fwd.x * k + sr(-8, 8), z = f.pos.z + fwd.z * k + sr(-8, 8);
       effects.spout(x, z, 12.7);
-      for (const s of [this.yamato, this.musashi]) {
-        if (Math.hypot(s.pose.x - x, s.pose.z - z) < s.length / 2) effects.strike(x, 12, z, 12.7);
+      for (const s of [this.yamato, ...this.escorts]) {
+        if (Math.hypot(s.pose.x - x, s.pose.z - z) < s.length / 2) effects.strike(x, 10, z, 12.7);
       }
     }
   }
@@ -845,13 +1142,17 @@ export class Strike {
     d.vel.y -= G * dt * 0.8;
     d.vel.multiplyScalar(1 - dt * 0.05);
     f.pos.addScaledVector(d.vel, dt);
+    f.vel.copy(d.vel);
     m.position.copy(f.pos);
     _q.setFromAxisAngle(_v.set(0, 0, 1), d.spin * dt);
     f.quat.multiply(_q);
     m.quaternion.copy(f.quat);
+    m.visible = f.pos.distanceToSquared(this.eye) < PLANE_FAR * PLANE_FAR;
     // Burning, and the smoke streaming back.
-    effects.air.puff(f.pos.x, f.pos.y, f.pos.z, -d.vel.x * 0.1, 1, -d.vel.z * 0.1, { life: 0.6, size: 2.2, grow: 5, burn: 0.95, tone: 0.1 });
-    effects.air.puff(f.pos.x, f.pos.y, f.pos.z, -d.vel.x * 0.05, 2, -d.vel.z * 0.05, { life: 7, size: 4, grow: 14, burn: 0, tone: 0.18 });
+    if (m.visible) {
+      effects.air.puff(f.pos.x, f.pos.y, f.pos.z, -d.vel.x * 0.1, 1, -d.vel.z * 0.1, { life: 0.6, size: 2.2, grow: 5, burn: 0.95, tone: 0.1 });
+      effects.air.puff(f.pos.x, f.pos.y, f.pos.z, -d.vel.x * 0.05, 2, -d.vel.z * 0.05, { life: 7, size: 4, grow: 14, burn: 0, tone: 0.18 });
+    }
     const sea = this.ocean.heightAt ? this.ocean.heightAt(f.pos.x, f.pos.z) : 0;
     if (f.pos.y <= sea + 1) {
       d.gone = true;
@@ -869,14 +1170,14 @@ export class Strike {
   antiAircraft(s, live, dt) {
     const { effects, flak } = this.fx;
     const sp = s.group.position;
-    const near = live.filter((f) => !f.down && f.pos.distanceToSquared(sp) < 4600 * 4600 && f.pos.y > 20 && f.pos.x < 12000);
+    const near = live.filter((f) => !f.down && !f.deck && f.pos.distanceToSquared(sp) < 4600 * 4600 && f.pos.y > 20);
+    const shown = s.group.visible;
     for (const g of s.aa) {
       const m = g.m;
-      if (g.cal === undefined) g.cal = s.built.secMounts.includes(m) ? 155 : (m.userData.muzzles && m.userData.muzzles.length === 2 ? 127 : 25);
       const cal = g.cal;
       // Every frame, laid on whatever it is engaging: round and up after her.
       if (g.target && (g.target.down || !g.target.live)) g.target = null;
-      if (g.target) {
+      if (g.target && shown) {
         const tof = g.target.pos.distanceTo(sp) / (cal < 75 ? 900 : 700);
         _v.copy(g.target.vel).multiplyScalar(tof).add(g.target.pos);
         s.layOn(m, _v, dt, cal < 75 ? 1.6 : 0.7, cal < 75 ? 1.4 : 0.6);
@@ -900,15 +1201,16 @@ export class Strike {
       flak.fire(mp.x, mp.y, mp.z,
         best.pos.x + best.vel.x * tof, best.pos.y + best.vel.y * tof, best.pos.z + best.vel.z * tof,
         cal, cal < 75 ? 9 : 6, effects, spread, 4);
-      if (cal >= 127 && srand() < 0.5) effects.muzzle(mp.x, mp.y, mp.z, s.pose.h + m.rotation.y, cal, _v.subVectors(best.pos, mp).normalize());
+      if (cal >= 127 && shown && srand() < 0.5) effects.muzzle(mp.x, mp.y, mp.z, s.pose.h + m.rotation.y, cal, _v.subVectors(best.pos, mp).normalize());
     }
   }
 
-  /** Something the camera can be sent to look at, by name. */
-  flight(i) { return this.flights[i]; }
-
   dispose() {
-    for (const s of this.ships) { this.scene.remove(s.group); s.dispose(); }
+    for (const s of this.ships) {
+      this.scene.remove(s.group);
+      if (s.proxy) this.scene.remove(s.proxy);
+      s.dispose();
+    }
     for (const f of this.flights) if (f.model) this.scene.remove(f.model);
     this.scene.remove(this.tracks.mesh);
   }

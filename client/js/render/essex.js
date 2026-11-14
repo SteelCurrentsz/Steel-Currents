@@ -28,7 +28,7 @@ const SHIP = carrier({
   citadel: { z: [-70, 76], deck: 4.0, top: 4.2, foot: -3.2 },
 });
 
-export const { LOA, BEAM, FD, HANGAR, LIFTS, zAt, keelY, shellAt, fdY, LINES, MOUNT_SEATS, ISLAND, hangarSpots, stepDeck } = SHIP;
+export const { LOA, BEAM, FD, HANGAR, FD_FWD, FD_AFT, SPOT, LIFTS, zAt, keelY, shellAt, fdY, LINES, MOUNT_SEATS, ISLAND, hangarSpots, stepDeck } = SHIP;
 export const essexSurfaceY = SHIP.surfaceY;
 export const buildEssex = () => SHIP.build();
 export const essexParts = SHIP.parts;

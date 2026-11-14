@@ -403,9 +403,12 @@ const governor = {
   // Never fewer than three drawn pixels for every four on the screen.
   floor: 0.75,
 };
+// Screens that draw nothing of their own over a 3D scene: the title's battle
+// is drawn behind every one not listed here, and is governed like a battle.
+const FLAT = new Set(['map', 'lay', 'yard', 'guns', 'bombers', 'custom']);
 function govern(interval) {
   const g = governor;
-  if (current !== 'battle') {
+  if (current !== 'battle' && FLAT.has(current)) {
     if (g.scale !== 1) setRenderScale(1);
     g.ema = 1 / 60;
     return;
