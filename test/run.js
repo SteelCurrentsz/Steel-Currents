@@ -40,6 +40,7 @@ import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_O
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { HULL_TOUGHNESS, FLOOD_CHOKE, realismSpread, realismBias, UR_SETTLE } from '../shared/sim.js';
 import { layMine, troopsFor } from '../shared/sim.js';
+import { holeDeck, seaNearMiss } from '../shared/sim.js';
 import {
   addBarracks, addSoldier, dryLand, footing, woundSoldier, blastInfantry, shootRifle, clearLine, orderSquads,
   infantryBrief, doctrineOut, doctrineIn, poolDoctrine, commandSoldier, driveSoldier, GARAND, BARRACKS_MEN,
@@ -432,7 +433,7 @@ function shellRuler(group) {
   };
 }
 import {
-  angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, KNOTS, makeRng, worldToLocal,
+  angleDelta, dist, clamp, wrapAngle, headingTo, MPS_TO_KNOTS, KNOTS, makeRng, worldToLocal, localToWorld,
 } from '../shared/math.js';
 import { batteryParts } from '../client/js/render/battery.js';
 import {
@@ -18212,6 +18213,84 @@ check('the sea comes in at the deepest hole she has, not the highest', () => {
   assert.ok(c.water > 1, 'the hole four metres under water let nothing in');
 });
 
+check('a hole in her deck is dry until the sea is on her deck, and then it floods her', () => {
+  const { state, a } = duel('fletcher', 'iowa', 40000);
+  const cls = SHIP_CLASSES.fletcher;
+  holeDeck(state, a, 'mid', 4, { x: 0, z: 0 });
+  for (let i = 0; i < 30 * 20; i++) step(state, DT);
+  assert.equal(a.sections.mid.water, 0, 'water came in through her deck with her deck clear of the sea');
+  // Hold her down with her deck a metre under, the way she lies when she has
+  // settled that far: the sea standing on it goes straight down through the
+  // hole.
+  for (let i = 0; i < 30 * 10; i++) { a.sink = freeboardOf(cls) + 1; step(state, DT); }
+  assert.ok(a.sections.mid.water > 5,
+    `her deck went under and only ${a.sections.mid.water.toFixed(1)} m3 came down through the hole in it`);
+});
+
+check('a heavy shell into the sea close alongside springs her plating, and one well off does not', () => {
+  const { state, a } = duel('cleveland', 'iowa', 40000);
+  const cls = SHIP_CLASSES.cleveland;
+  const open = () => SECTIONS.reduce((n, k) => n + a.sections[k.k].holeP + a.sections[k.k].holeS, 0);
+  // Two hundred metres off her beam: a splash, nothing more.
+  const far = localToWorld(cls.hull.beam / 2 + 200, 0, a.heading);
+  seaNearMiss(state, a.x + far.x, a.z + far.z, 0.406, true, 1);
+  assert.equal(open(), 0, 'a sixteen-inch shell two hundred metres off holed her');
+  // Five metres off her side: her plating is opened along the waterline.
+  const near = localToWorld(cls.hull.beam / 2 + 5, 0, a.heading);
+  seaNearMiss(state, a.x + near.x, a.z + near.z, 0.406, true, 1);
+  assert.ok(open() > 0.1, 'a sixteen-inch burst five metres off her side left her plating sound');
+  assert.equal(a.sections.mid.side, 1, 'the near miss holed her on the far side from it');
+  for (let i = 0; i < 30 * 30; i++) step(state, DT);
+  assert.ok(a.sections.mid.water > 0.5, 'the sprung plating let no water in');
+  // And a light round does nothing of the kind.
+  const { state: s2, a: a2 } = duel('cleveland', 'iowa', 40000);
+  const n2 = localToWorld(cls.hull.beam / 2 + 2, 0, a2.heading);
+  seaNearMiss(s2, a2.x + n2.x, a2.z + n2.z, 0.04, true, 1);
+  assert.equal(SECTIONS.reduce((n, k) => n + a2.sections[k.k].holeP + a2.sections[k.k].holeS, 0), 0,
+    'a forty-millimetre splash sprung a cruiser\'s side');
+});
+
+check('water that stands higher inside her than the sea outside runs back out through the hole', () => {
+  const { state, a } = duel('cleveland', 'iowa', 40000);
+  const cls = SHIP_CLASSES.cleveland;
+  const c = a.sections.mid;
+  // Full well above her waterline -- higher than she has settled for it --
+  // with a hole at her waterline: the water inside has more weight behind it
+  // than the sea outside.
+  c.water = sectionVolume(cls, 'mid') * 1.6;
+  c.side = 1;
+  openHull(state, a, 'mid', 0.8, 1, 0, { x: cls.hull.beam / 2, y: 1, z: 0 });
+  const was = c.water;
+  for (let i = 0; i < 30 * 10; i++) step(state, DT);
+  assert.ok(c.water < was - 1, `the water stood above the sea and none ran out: ${was.toFixed(0)} to ${c.water.toFixed(0)}`);
+  assert.ok(c.inflow < 0, 'the wire says the sea is still coming in');
+});
+
+check('a bulkhead that has been knocked about weeps into the next space; a sound one holds', () => {
+  const { state, a } = duel('cleveland', 'iowa', 40000);
+  const cls = SHIP_CLASSES.cleveland;
+  a.sections.fwd.water = sectionVolume(cls, 'fwd') * 0.6;
+  for (let i = 0; i < 30 * 30; i++) step(state, DT);
+  assert.equal(a.sections.mid.water, 0, 'a sound bulkhead let the water through');
+  a.sections.fwd.hp = a.sections.fwd.max * 0.45;
+  a.hp = hullIntegrity(a);
+  for (let i = 0; i < 30 * 60; i++) step(state, DT);
+  const mid = a.sections.mid.water;
+  assert.ok(mid > 0.5, 'the sprung bulkhead let nothing through');
+  assert.ok(mid < a.sections.fwd.water * 0.5, `a weep took ${mid.toFixed(0)} m3: that is a breach, not a seep`);
+});
+
+check('a compartment open to the sea fills past her old waterline as she settles', () => {
+  const { state, a } = duel('fletcher', 'iowa', 40000);
+  const cls = SHIP_CLASSES.fletcher;
+  a.sections.mid.holeS = 12;
+  a.sections.mid.holeY = 4;
+  a.sections.mid.side = 1;
+  for (let i = 0; i < 30 * 240; i++) step(state, DT);
+  assert.ok(a.sections.mid.water > sectionVolume(cls, 'mid'),
+    `she settled ${a.sink.toFixed(2)} m and the sea in her stopped at her old waterline`);
+});
+
 check('the water starts where she has been hit hardest', () => {
   // Two compartments open by the same area at the same depth, one of them shot
   // to pieces round the hole and one of them sound. The wrecked one fills
@@ -18223,8 +18302,12 @@ check('the water starts where she has been hit hardest', () => {
   a.sections.fwd.hp = a.sections.fwd.max * 0.1;
   a.hp = hullIntegrity(a);
   for (let i = 0; i < 30 * 90; i++) step(state, DT);
-  assert.ok(a.sections.fwd.water > a.sections.aft.water * 1.4,
-    `the wrecked space took ${a.sections.fwd.water.toFixed(0)} m3 against the sound one's ${a.sections.aft.water.toFixed(0)}`);
+  // Its bulkheads are wrecked with it, so what it takes runs on into the
+  // spaces either side until the levels stand even: the sea that came in
+  // through the wrecked space is in all three of them.
+  const wrecked = a.sections.fwd.water + a.sections.bow.water + a.sections.mid.water;
+  assert.ok(wrecked > a.sections.aft.water * 1.4,
+    `the wrecked space took ${wrecked.toFixed(0)} m3 against the sound one's ${a.sections.aft.water.toFixed(0)}`);
   // And nothing floods a compartment that has not been holed. Flooding starts
   // at the holes, wherever else she has been knocked about.
   assert.equal(a.sections.stern.water, 0, 'a compartment with no hole in it filled with water');
@@ -18749,7 +18832,7 @@ check('the wire says where the water is running, and which way', () => {
   a.sections.fwd.holeS = 2.5 / FLOOD_CHOKE;
   a.sections.fwd.holeY = 4;
   a.sections.fwd.side = 1;
-  for (let i = 0; i < 30 * 10; i++) step(state, DT);
+  for (let i = 0; i < 30 * 20; i++) step(state, DT);
   const making = shipSnapshot(a, true);
   assert.ok(making.fw[fwd] > 0,
     `she is making water forward and the wire says ${making.fw[fwd]}`);

@@ -2033,7 +2033,7 @@ export function cutHer(state, ship, at, by = 0, why = 'ram') {
       c.lost = true;
       c.hp = 0;
       c.water = 0; c.wP = 0; c.wS = 0;
-      c.holeP = 0; c.holeS = 0; c.inflow = 0; c.holes = []; c.posArea = 0; c.rent0 = 0;
+      c.holeP = 0; c.holeS = 0; c.inflow = 0; c.holes = []; c.deck = []; c.posArea = 0; c.rent0 = 0;
       c.fire = 0; c.burnt = 0;
       continue;
     }
@@ -3301,6 +3301,8 @@ function deliverOrdnance(state, p, best, P) {
       // Into the sea beside her, a couple of seconds after it left the rack,
       // which is how long it takes to get there (see the drop in ordnance.js).
       waterBlow(state, tx, tz, 320, 2.2);
+      // And close alongside, it springs her plating as surely as a hit.
+      seaNearMiss(state, tx, tz, P.bombBore ?? 0.36, true, p.team);
       continue;
     }
     const owner = state.ships.find((s) => s.id === p.owner) || null;
@@ -3373,6 +3375,13 @@ export function bombHit(state, ship, owner, cell, side, P, at) {
   // mounting's own roof, and not a second time by the burst below.
   const onMount = bombOnMount(state, ship, owner, P, at);
   wreckContents(state, ship, through >= 1 ? cell : 'works', bore, 'bomb', onMount ? null : at);
+  // Through her deck it has left a hole in it, over the compartment it burst
+  // in -- dry for as long as her deck stands clear of the sea.
+  if (through >= 1) {
+    const r0 = Math.max(0.8, bore * 3);
+    holeDeck(state, ship, cell, Math.PI * r0 * r0,
+      at || { x: 0, z: sectionMidZ(cls, SECTIONS.find((q) => q.k === cell) || SECTIONS[2]) });
+  }
   if (through >= 2.2) {
     // Out through her bottom, or bursting against it. Either way the sea is
     // inside her, and it is inside her a long way down.
@@ -7509,15 +7518,23 @@ export function stepSeaway(state, ship, W, h) {
  * `x, y, z` are in her own frame, y off her waterline.
  */
 export function seaOver(state, ship, W, x, y, z) {
+  const w = localToWorld(x, z, ship.heading);
+  return seaHeight(W, ship.x + w.x, ship.z + w.z, state.t) - hullPointY(ship, x, y, z);
+}
+
+/**
+ * How high a point on her stands above the mean sea, in metres, the way she is
+ * lying this instant. `x, y, z` are in her own frame, y off the datum seaOver
+ * uses (her waterline is at y = 1). Her own frame laid over by the sea and by
+ * what is in her, the way the renderer draws her: rolled about her keel, then
+ * pitched about her beam.
+ */
+export function hullPointY(ship, x, y, z) {
   const k = ship.seaway || { r: 0, p: 0, h: 0 };
-  // Her own frame laid over by the sea and by what is in her, the way the
-  // renderer draws her: rolled about her keel, then pitched about her beam.
   const r = k.r - (ship.heel || 0);
   const p = k.p + (ship.trim || 0);
-  const yw = k.h - 1 - (ship.sink || 0)
+  return k.h - 1 - (ship.sink || 0)
     + (x * Math.sin(r) + y * Math.cos(r)) * Math.cos(p) - z * Math.sin(p);
-  const w = localToWorld(x, z, ship.heading);
-  return seaHeight(W, ship.x + w.x, ship.z + w.z, state.t) - yw;
 }
 
 function stepSwamp(state, ship, dt) {
@@ -7729,6 +7746,12 @@ function stepShells(state, dt) {
           bomb: sh.bomb ? 1 : 0,
         });
         if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber);
+        // Close enough alongside a ship, a miss is still a hole in her.
+        if (!ashore && !sh.asw && !sh.fuse) {
+          seaNearMiss(state, sh.x, sh.z,
+            sh.bomb ? (sh.bomb.bombBore ?? 0.36) : sh.caliber / 1000,
+            sh.bomb ? true : sh.spec?.type !== 'ap', sh.team);
+        }
         if (!ashore && sh.mortar) mortarMiss(state, sh);
         if (!ashore && sh.asw) rbuSplash(state, sh);
         // Short of a sea wall, at its foot: the burst is against its face.
@@ -8724,6 +8747,7 @@ function readyUse(state, ship, cls, g, owner, depth) {
   hurt(ship.turrets, cls.turrets);
   hurt(ship.secMounts, cls.secondary ? cls.secondary.mounts : null);
   const hole = 1 + g.bore * 4;
+  if ((g.s.my ?? deckY) <= deckY + 3) holeDeck(state, ship, where, Math.PI * hole * hole * 0.25, at);
   const w = localToWorld(at.x, at.z, ship.heading);
   state.events.push({
     e: 'blast', ship: ship.id, k: g.k, i: g.i,
@@ -8922,6 +8946,11 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   // not, and that does not stay where it was. See undercut.
   if (HOLING.has(kind) && (sec.part === 'deck' || sec.part === 'superstructure') && target.alive) {
     undercut(state, target, { x: l.x, y: cy, z: l.z }, deckHole(kind, sh.caliber / 1000), owner, 0, sh.caliber);
+  }
+  // And through her deck is a way in for the sea, once the sea is on her deck.
+  if (HOLING.has(kind) && sec.part === 'deck' && target.alive) {
+    const rr = deckHole(kind, sh.caliber / 1000) || sh.caliber / 1000;
+    holeDeck(state, target, where, Math.PI * rr * rr, { x: l.x, z: l.z });
   }
   // A battery keeps no ribbon book: there is nobody aboard it to give one to.
   if (owner && owner.ribbons) {
@@ -10217,6 +10246,9 @@ function missileHit(state, m, K, t, cls) {
   if (state.rng() < K.fire * 0.6) startFire(state, t, 'works', 0.3);
   if (skims) {
     openHull(state, t, where, 6 + state.rng() * 6, lt.x >= 0 ? 1 : -1, 0.5 + state.rng());
+  } else if (where !== 'works') {
+    // Down through her deck.
+    holeDeck(state, t, where, 7, { x: lt.x, z: lt.z });
   }
   if (owner) owner.ribbons.hits++;
   state.events.push({
@@ -18142,8 +18174,19 @@ export function holeHead(state, ship, h) {
     return waveTerms(S.amp, S.steep, S.short);
   })());
   W.bursts = state.nukeSea ? state.nukeSea.bursts : null;
-  return seaOver(state, ship, W, h.x, h.y, h.z);
+  const over = seaOver(state, ship, W, h.x, h.y, h.z);
+  // A wave is felt less the deeper the hole is under it. The pressure of a
+  // passing crest dies away with depth -- by about a half every five metres
+  // for the sea a ship fights in -- so a hole near her waterline breathes in
+  // and out with every wave, and one down by her keel feels the weight of the
+  // water over it and very little of the swell.
+  const still = -hullPointY(ship, h.x, h.y, h.z);
+  if (still <= 0) return over;
+  return still + (over - still) * Math.exp(-still * WAVE_DECAY);
 }
+
+/** How fast a wave's pressure dies away with depth, per metre. */
+const WAVE_DECAY = 0.14;
 
 export function openHull(state, ship, where, area, side, depth, at = null) {
   const c = ship.sections[where];
@@ -18215,6 +18258,72 @@ export function openHull(state, ship, where, area, side, depth, at = null) {
  * else about how she sinks falls out of it.
  */
 /**
+ * A hole in her deck, over a compartment.
+ *
+ * Nothing comes in through it while her deck stands clear of the sea. Once
+ * she has settled, or lies over, or a sea comes green over her forecastle,
+ * the water standing on her deck goes straight down through it into the
+ * compartment under -- which is how a ship that has been hit from above, and
+ * never holed in her side at all, still fills when her deck goes under.
+ */
+export function holeDeck(state, ship, where, area, at) {
+  const cls = shipClass(ship);
+  if (!(area > 0)) return;
+  const half = cls.hull.length * 0.5;
+  const z = at ? at.z : 0;
+  if (!where || where === 'works' || !ship.sections[where]) where = sectionAt(clamp(z / half, -1, 1), 'deck');
+  const c = ship.sections[where];
+  if (!c || c.lost) return;
+  const B = cls.hull.beam;
+  const h = { x: clamp(at ? at.x : 0, -B * 0.5, B * 0.5), y: 1 + freeboardOf(cls), z, a: area, a0: area };
+  const holes = c.deck || (c.deck = []);
+  if (holes.length < 12) { holes.push(h); return; }
+  let best = holes[0], bd = Infinity;
+  for (const q of holes) {
+    const d = Math.hypot(q.x - h.x, q.z - h.z);
+    if (d < bd) { bd = d; best = q; }
+  }
+  best.a += area;
+  best.a0 = (best.a0 ?? best.a) + area;
+}
+
+/**
+ * A heavy round or a bomb into the sea close alongside her.
+ *
+ * It does not have to hit her to hole her. The burst under water a few yards
+ * off her side is a hammer blow on her plating: seams start, rivets shear,
+ * splinters go through her side at the waterline -- and she is making water
+ * from a shell that missed. Near misses sank ships that were never hit at all.
+ * The closer and the bigger, the worse; a light round does nothing of the kind.
+ */
+export function seaNearMiss(state, x, z, bore, he, team) {
+  if (!(bore >= 0.1)) return;
+  for (const ship of state.ships) {
+    if (!ship.alive || ship.sinking?.under || submerged(ship)) continue;
+    if (team != null && !mayHurt(state, team, ship)) continue;
+    const cls = shipClass(ship);
+    const half = cls.hull.length * 0.5;
+    const B = cls.hull.beam * 0.5;
+    const reach = 4 + bore * (he ? 40 : 18);
+    const dx = x - ship.x, dz = z - ship.z;
+    if (dx * dx + dz * dz > (half + reach) ** 2) continue;
+    const l = worldToLocal(dx, dz, ship.heading);
+    const gap = Math.max(0, Math.abs(l.x) - B, Math.abs(l.z) - half);
+    if (gap >= reach) continue;
+    const bite = (1 - gap / reach) ** 2;
+    const area = Math.PI * (bore * 1.2) ** 2 * bite * (he ? 1 : 0.4);
+    if (area < 0.03) continue;
+    const side = l.x >= 0 ? 1 : -1;
+    const zz = clamp(l.z, -half * 0.98, half * 0.98);
+    const where = sectionAt(zz / half, 'belt');
+    if (!ship.sections[where] || ship.sections[where].lost) continue;
+    // Along her side where the blow came, about the waterline and just below.
+    const deep = Math.min(cls.hull.draft * 0.4, 1 + bore * 3);
+    openHull(state, ship, where, area, side, deep, { x: side * B, y: 1 - deep, z: zz });
+  }
+}
+
+/**
  * How much of a compartment is in wing spaces, each side.
  *
  * This is what decides whether flooding puts a list on her. Water lies level:
@@ -18235,6 +18344,13 @@ const WING = 0.16;
 function splitWater(total, vol, side) {
   if (total <= 0) return [0, 0];
   if (!side || vol <= 0) return [total / 2, total / 2];
+  // Above her old waterline the compartment is one space side to side, and
+  // whatever stands there stands across the whole of it.
+  if (total > vol) {
+    const [p, q] = splitWater(vol, vol, side);
+    const over = (total - vol) / 2;
+    return [p + over, q + over];
+  }
   const wing = vol * WING;
   const near = Math.min(total, wing);
   let rest = total - near;
@@ -18243,6 +18359,100 @@ function splitWater(total, vol, side) {
   const nearTot = near + even / 2;
   const farTot = even / 2 + rest;
   return side > 0 ? [farTot, nearTot] : [nearTot, farTot];
+}
+
+/**
+ * The orifice coefficient for a ragged hole in plating, and the further choke
+ * the wreckage and the machinery behind it put on the water getting through --
+ * which is what makes a flooded compartment take a minute rather than five
+ * seconds.
+ */
+const ORIFICE = 0.62 * 0.16;
+/** The same for a bulkhead that has opened: a wide ragged gap with nothing much behind it. */
+const BREACH = 0.62;
+/** How much of a bulkhead's area a wrecked one leaves open to the next compartment. */
+const BREACH_AREA = 0.15;
+/**
+ * How much a bulkhead weeps once the structure round it has been knocked
+ * about: sprung rivets, started seams, cable glands and pipe runs pulled
+ * through. Not a breach -- a seep that turns a dry neighbour wet over minutes.
+ */
+const SEEP = 0.035;
+
+/**
+ * Water through one opening, in cubic metres a second; positive is coming into
+ * her. `out` is how deep the sea stands over the opening and `inn` how deep
+ * the water inside the compartment stands over it, both in metres (negative is
+ * below it). Torricelli on the difference: the sea comes in as hard as the
+ * weight of water behind it against the weight of water already inside, it
+ * stops when the two stand level, and it runs back out the same way when the
+ * water inside stands higher than the sea -- a hole that a roll or a wave
+ * trough lifts clear while the compartment behind it is full pours out.
+ */
+function orificeFlow(area, out, inn, k = ORIFICE) {
+  const o = Math.max(0, out);
+  const i = Math.max(0, inn);
+  const d = o - i;
+  if (Math.abs(d) < 0.02 || area <= 0) return 0;
+  return Math.sign(d) * k * FLOOD_CHOKE * area * Math.sqrt(2 * 9.81 * Math.abs(d));
+}
+
+/**
+ * How much water a compartment can hold before it is full to her deck: her
+ * underwater volume, and as much again above her waterline as her freeboard
+ * goes. A compartment open to the sea fills to the level of the sea outside
+ * it, not to the line she floated at when she was whole -- so as she settles
+ * every compartment open to the sea fills higher, and that is the feedback
+ * that takes a ship down.
+ */
+export function sectionCapacity(cls, k) {
+  const v = sectionVolume(cls, k);
+  return v * (1 + freeboardOf(cls) / Math.max(0.5, cls.hull.draft));
+}
+
+/** Where along her a compartment's middle is, in metres forward of amidships. */
+function sectionMidZ(cls, s) {
+  return ((Math.max(-1, s.from) + Math.min(1, s.to)) / 2) * cls.hull.length * 0.5;
+}
+
+/**
+ * How high the water inside a compartment stands above the sea outside, at
+ * the level of a point on her (metres): the free surface inside lies level in
+ * the world, whichever way she is lying, so a hole on her low side has more of
+ * it over it than one on her high side.
+ */
+function innerLevelY(ship, cls, c, vol, zc) {
+  const D = cls.hull.draft;
+  const L = vol > 0 ? (c.water / vol) * D : 0;
+  return hullPointY(ship, 0, 1 - D + L, zc);
+}
+
+/**
+ * Every opening in a compartment, as points on her the sea can be asked about:
+ * the shell holes where they are, the deck holes where they are, and the rents
+ * that were made with no particular place (a torpedo's, a mine's, a collision's,
+ * the ground's) at the depth they were made, on the side they were made, at
+ * the middle of the compartment. So every hole she has is laid over by her
+ * list and her trim and lifted and dropped by the waves the same way.
+ */
+function openings(ship, cls, s, c) {
+  const out = [];
+  const B = cls.hull.beam;
+  const D = cls.hull.draft;
+  const zc = sectionMidZ(cls, s);
+  for (const h of c.holes || []) if (h.a > 0) out.push(h);
+  for (const h of c.deck || []) if (h.a > 0) out.push(h);
+  const rent = Math.max(0, c.holeP + c.holeS - (c.posArea || 0));
+  if (rent > 0) {
+    const depth = c.holeY ?? 1;
+    // A hole down by her keel is in her bottom, not her side: closer in.
+    const x = depth > D * 0.75 ? B * 0.22 : B * 0.5;
+    const both = c.holeP + c.holeS;
+    const pShare = both > 0 ? c.holeP / both : 0.5;
+    if (pShare > 0) out.push({ x: -x, y: 1 - depth, z: zc, a: rent * pShare });
+    if (pShare < 1) out.push({ x, y: 1 - depth, z: zc, a: rent * (1 - pShare) });
+  }
+  return out;
 }
 
 /**
@@ -18257,7 +18467,6 @@ function splitWater(total, vol, side) {
  */
 function stepFlooding(state, ship, dt) {
   const cls = shipClass(ship);
-  const b = buoyancy(ship);
   // What the damage control party has managed to do about it. Shoring is a
   // box built over the hole and a stack of timber behind it: it cuts the sea
   // down, it does not shut it out, and it works loose again as the sea keeps
@@ -18267,47 +18476,40 @@ function stepFlooding(state, ship, dt) {
   for (const s of SECTIONS) {
     if (s.from === null) continue;
     const c = ship.sections[s.k];
+    c.inflow = 0;
+    if (c.lost) continue;
     const vol = sectionVolume(cls, s.k);
-    // What she is open to the sea by here. The holes she has actually had made
-    // in her -- nothing floods a compartment that has not been holed -- worked
-    // up by how much of the structure round them has gone. A hole in plating
-    // that has been shot to pieces is not the neat orifice it was: the metal
+    if (!(vol > 0)) continue;
+    const cap = sectionCapacity(cls, s.k);
+    // What she is open to the sea by here: every hole she has had made in her
+    // -- nothing floods a compartment that has not been holed -- worked up by
+    // how much of the structure round them has gone. A hole in plating that
+    // has been shot to pieces is not the neat orifice it was: the metal
     // between one hole and the next has gone with them, the frames behind have
     // gone, and what was three holes is one. So the compartment that has taken
     // the most damage is the one the sea gets into fastest, which is where the
     // water starts and where it stays worst.
     const wrecked = 1 - clamp(c.hp / c.max, 0, 1);
     const worse = (1 + wrecked * 1.5) * shored;
-    // The holes with no place on her, at the one depth they were made at...
-    const open = Math.max(0, c.holeP + c.holeS - (c.posArea || 0)) * worse;
-    c.inflow = 0;
-    if (vol > 0) {
-      // Torricelli, with the usual coefficient for a ragged hole in plating --
-      // and choked by the wreckage and the machinery the water has to get
-      // past, which is what makes a flooded compartment take a minute rather
-      // than five seconds.
-      let rate = 0;
-      if (open > 0) {
-        // How much sea is standing over the hole now: what it was when it
-        // was made, plus however much deeper she is sitting since.
-        const head = (c.holeY ?? 1) + b.sink;
-        if (head > 0.05) rate += 0.62 * open * Math.sqrt(2 * 9.81 * head) * 0.16 * FLOOD_CHOKE;
-      }
-      // ...and every hole that is somewhere, with the sea asked about it
-      // where it is: the waves, her roll and pitch, her list, her trim and
-      // how far down she is, all at that point. A hole above her waterline
-      // takes the sea in gulps, when a wave or a roll puts the water over it.
-      if (c.holes && c.holes.length) {
-        for (const h of c.holes) {
-          const head = holeHead(state, ship, h);
-          if (head > 0.02) rate += 0.62 * h.a * worse * Math.sqrt(2 * 9.81 * head) * 0.16 * FLOOD_CHOKE;
-        }
-      }
-      if (rate > 0) {
-        const full = c.water / vol;
-        const q = Math.min(vol - c.water, rate * (1 - full * 0.7) * dt);
-        if (q > 0) { c.water += q; took += q; c.inflow = q / dt; }
-      }
+    const zc = sectionMidZ(cls, s);
+    const inner = innerLevelY(ship, cls, c, vol, zc);
+    // Each opening asked separately, where it is: the sea over it this
+    // instant -- her settling, her list, her trim and the waves running along
+    // her all in it -- against the water already inside standing over it.
+    let rate = 0;
+    for (const h of openings(ship, cls, s, c)) {
+      const sea = holeHead(state, ship, h);
+      const own = inner - hullPointY(ship, h.x, h.y, h.z);
+      rate += orificeFlow(h.a * worse, sea, own);
+    }
+    if (rate > 0) {
+      const q = Math.min(Math.max(0, cap - c.water), rate * dt);
+      if (q > 0) { c.water += q; took += q; c.inflow = q / dt; }
+    } else if (rate < 0) {
+      // Running back out of her, where the water inside stands higher than
+      // the sea over the hole it is running out of.
+      const q = Math.min(c.water, -rate * dt);
+      if (q > 0) { c.water -= q; c.inflow = -q / dt; }
     }
     // And it puts the fire out, which is the one good thing about it. The
     // water is in the bottom of the compartment, which is where the fire is,
@@ -18316,7 +18518,7 @@ function stepFlooding(state, ship, dt) {
     // quarter full meant a fire went on burning in a flooded space, because
     // the water was draining onward through a wrecked bulkhead as fast as it
     // came in and the level never got there.
-    if (c.fire > 0 && vol > 0) {
+    if (c.fire > 0) {
       const depth = Math.min(1, c.water / (vol * 0.12));
       if (depth > 0.02) {
         c.fire = Math.max(0, c.fire - dt * 1.1 * depth);
@@ -18326,10 +18528,14 @@ function stepFlooding(state, ship, dt) {
     }
   }
 
-  // Through a bulkhead that has been wrecked, into the compartment next door.
-  // A sound bulkhead holds; one with its plating opened does not, which is why
-  // a hit that opens two compartments to each other is so much worse than two
-  // hits that do not.
+  // Through a bulkhead, into the compartment next door. A sound bulkhead
+  // holds. One that has been knocked about weeps, and one with its plating
+  // opened lets the sea straight through -- which is why a hit that opens two
+  // compartments to each other is so much worse than two hits that do not.
+  // The water runs downhill: it goes from whichever side stands higher in the
+  // world, so a ship down by the head has the sea running forward through her
+  // until the levels stand even, and the low end fills first.
+  const D = cls.hull.draft;
   for (let i = 0; i < SECTIONS.length - 1; i++) {
     const a = SECTIONS[i];
     const bb = SECTIONS[i + 1];
@@ -18338,16 +18544,29 @@ function stepFlooding(state, ship, dt) {
     const cb = ship.sections[bb.k];
     // A compartment that has been cut off her is not there to flood into.
     if (ca.lost || cb.lost) continue;
+    if (ca.water <= 0 && cb.water <= 0) continue;
     const worst = Math.min(ca.hp / ca.max, cb.hp / cb.max);
-    if (worst > 0.25) continue;
+    const gap = Math.max(worst <= 0.25 ? 1 - worst * 4 : 0,
+      SEEP * clamp((0.85 - worst) / 0.6, 0, 1));
+    if (gap <= 0) continue;
     const va = sectionVolume(cls, a.k);
     const vb = sectionVolume(cls, bb.k);
     if (!va || !vb) continue;
-    const head = ca.water / va - cb.water / vb;
+    // The bulkhead between them, and the level each side of it there.
+    const zb = (a.from + bb.to) / 2 * cls.hull.length * 0.5;
+    const ya = innerLevelY(ship, cls, ca, va, zb);
+    const yb = innerLevelY(ship, cls, cb, vb, zb);
+    // How far up the bulkhead the water stands each side of it.
+    const foot = hullPointY(ship, 0, 1 - D, zb);
+    const head = Math.max(0, ya - foot) - Math.max(0, yb - foot);
     if (Math.abs(head) < 0.02) continue;
-    const gap = Math.max(0, 1 - worst * 4);
-    const move = clamp(head * Math.min(va, vb) * 0.08 * gap * dt,
-      -cb.water, ca.water);
+    const area = gap * cls.hull.beam * D * BREACH_AREA;
+    let move = Math.sign(head) * BREACH * area * Math.sqrt(2 * 9.81 * Math.abs(head)) * dt;
+    // No further than the two standing level, and no more than there is.
+    const level = Math.abs(head) / (D / va + D / vb);
+    move = Math.sign(move) * Math.min(Math.abs(move), level);
+    move = clamp(move, -Math.min(cb.water, Math.max(0, sectionCapacity(cls, a.k) - ca.water)),
+      Math.min(ca.water, Math.max(0, sectionCapacity(cls, bb.k) - cb.water)));
     ca.water -= move;
     cb.water += move;
   }
@@ -19215,7 +19434,9 @@ export function buoyancy(ship) {
     const c = ship.sections[s.k];
     const vol = sectionVolume(cls, s.k);
     if (!vol) continue;
-    const f = (c.wP + c.wS) / vol;
+    // Pressed up to her old waterline and beyond it is pressed full as far as
+    // her stiffness goes: what stands above that is open to the sea outside.
+    const f = Math.min(1, (c.wP + c.wS) / vol);
     // The loss of metacentric height from a free surface is the second moment
     // of that surface over the volume she displaces -- length times breadth
     // cubed over twelve, and the cube is why subdivision matters so much. A
@@ -19499,6 +19720,7 @@ function holeFloor(a0) {
 function closable(c) {
   let left = 0;
   for (const h of c.holes || []) left += Math.max(0, h.a - holeFloor(h.a0 ?? h.a));
+  for (const h of c.deck || []) left += Math.max(0, h.a - holeFloor(h.a0 ?? h.a));
   const rent = Math.max(0, c.holeP + c.holeS - (c.posArea || 0));
   left += Math.max(0, rent - holeFloor(c.rent0 || rent));
   return left;
@@ -19515,6 +19737,13 @@ function patchHoles(c, amount) {
     c.posArea = Math.max(0, (c.posArea || 0) - q);
     left -= q;
     shut += q;
+  }
+  // Her side first, which is where the sea is; then her deck.
+  for (const h of c.deck || []) {
+    if (left <= 0) break;
+    const q = Math.min(left, Math.max(0, h.a - holeFloor(h.a0 ?? h.a)));
+    h.a -= q;
+    left -= q;
   }
   if (left > 0) {
     const rent = Math.max(0, c.holeP + c.holeS - (c.posArea || 0));
@@ -20291,7 +20520,21 @@ function stepDock(state, ship, dt) {
       c2.wP = (c2.wP || 0) * f;
       c2.wS = (c2.wS || 0) * f;
     }
-    if (c2.hp > c2.max * 0.5) { c2.holeP = Math.max(0, (c2.holeP || 0) - dt * 0.02); c2.holeS = Math.max(0, (c2.holeS || 0) - dt * 0.02); }
+    if (c2.hp > c2.max * 0.5) {
+      // The dockyard plates over the lot, and every hole of them: the ones
+      // the sea is asked about where they are as well as the rest.
+      const shut = dt * 0.02;
+      const sideP = Math.min(c2.holeP || 0, shut);
+      const sideS = Math.min(c2.holeS || 0, shut);
+      c2.holeP = (c2.holeP || 0) - sideP;
+      c2.holeS = (c2.holeS || 0) - sideS;
+      for (const h of c2.holes || []) {
+        const q = Math.min(h.a, shut);
+        h.a -= q;
+        c2.posArea = Math.max(0, (c2.posArea || 0) - q);
+      }
+      for (const h of c2.deck || []) h.a = Math.max(0, h.a - shut);
+    }
   }
   ship.engineDamage = Math.max(0, (ship.engineDamage || 0) - dt * 0.01);
   ship.steeringDamage = Math.max(0, (ship.steeringDamage || 0) - dt * 0.01);
