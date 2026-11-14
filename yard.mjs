@@ -41,11 +41,11 @@ await page.waitForTimeout(800);
 await page.evaluate(() => document.getElementById('ally-add-cell').click());
 await page.waitForTimeout(300);
 // The ship icon asks for an era first; the modern hulls are in a list of their own.
-const ERA = /Liberty|Higgins/.test(SHIP) ? 'civil'
-  : /Missouri|Nimitz|Gerald R. Ford|Ticonderoga|Guangzhou|Leviathan|Arleigh Burke|Sovremenny|Slava|USS|CNS|RF /.test(SHIP) ? 'modern' : 'wwii';
+const ERA = process.env.ERA || (/Liberty|Higgins/.test(SHIP) ? 'civil'
+  : /Missouri|Nimitz|Gerald R. Ford|Ticonderoga|Guangzhou|Leviathan|Arleigh Burke|Sovremenny|Slava|USS|CNS|RF /.test(SHIP) ? 'modern' : 'wwii');
 await page.evaluate((era) => document.querySelector(`#era-pick [data-era="${era}"]`).click(), ERA);
 await page.waitForTimeout(1800);
-for (let i = 0; i < 40; i++) {
+for (let i = 0; i < 120; i++) {
   if (await page.$eval('#yard-name', (e) => e.textContent.trim()) === SHIP) break;
   await page.evaluate(() => document.getElementById('yard-next').click());
   await page.waitForTimeout(420);

@@ -9,6 +9,7 @@
 // same seed, the same position, the same coastline — so what is drawn here is
 // what is there when the fleets arrive, rather than a picture of it.
 
+import { chartGrain } from './worldmap.js';
 import {
   generateWorld, islandAt, islandRing, islandRadius, shoreDistance, MAP_HALF, isOpenSea, CHART_X,
 } from '../../shared/world.js';
@@ -1611,7 +1612,8 @@ export class LayoutMap {
     // battlefield's borders is drawn darker so that the borders read as the
     // edge of the water a captain is allowed to fight over, not as the edge of
     // the screen.
-    ctx.fillStyle = '#07141f';
+    // A chart table: dark wood under the sheet.
+    ctx.fillStyle = '#1b150e';
     ctx.fillRect(0, 0, w, h);
 
     // The sea inside them.
@@ -1619,13 +1621,15 @@ export class LayoutMap {
     ctx.beginPath();
     ctx.rect(cx - half, cy - half, half * 2, half * 2);
     ctx.clip();
-    ctx.fillStyle = '#0a1b2b';
+    // Inked the way the deployment chart is (see CHART in worldmap.js), a
+    // shade deeper so the pegs and names laid on it stay clear.
+    ctx.fillStyle = '#2b4349';
     ctx.fillRect(cx - half, cy - half, half * 2, half * 2);
 
     // The land, exactly as the simulation will raise it. Clipped to the
     // borders with the sea, so an island that straddles one is cut off at it.
-    ctx.fillStyle = '#3f5a3a';
-    ctx.strokeStyle = '#9fb69a';
+    ctx.fillStyle = '#b39f72';
+    ctx.strokeStyle = '#2e2214';
     ctx.lineWidth = 1;
     if (this.world.land?.length) {
       const path = new Path2D();
@@ -1668,7 +1672,7 @@ export class LayoutMap {
     const x1 = Math.min(this.half, this.view.x + w / (2 * s));
     const z0 = Math.max(-this.half, this.view.z - h / (2 * s));
     const z1 = Math.min(this.half, this.view.z + h / (2 * s));
-    ctx.strokeStyle = 'rgba(120, 168, 200, 0.14)';
+    ctx.strokeStyle = 'rgba(214, 192, 140, 0.17)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let g = Math.ceil(x0 / gridM) * gridM; g <= x1; g += gridM) {
@@ -1680,6 +1684,7 @@ export class LayoutMap {
       ctx.moveTo(cx - half, py); ctx.lineTo(cx + half, py);
     }
     ctx.stroke();
+    chartGrain(ctx, cx - half, cy - half, half * 2, half * 2);
     ctx.restore();
 
     // The border itself, over the top of everything inside it.

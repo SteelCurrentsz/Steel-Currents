@@ -268,6 +268,9 @@ function isShell(t) {
   const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
   if (ny > 0.5 * Math.hypot(nx, ny, nz)) return false;
   const cx = (P[a * 3] + P[b * 3] + P[c * 3]) / 3, cy = (P[a * 3 + 1] + P[b * 3 + 1] + P[c * 3 + 1]) / 3, cz = (P[a * 3 + 2] + P[b * 3 + 2] + P[c * 3 + 2]) / 3;
+  // Her half-breadth is read off her points, which her flat sides have few of:
+  // a plate low on her that faces athwartships is her side, wherever it reads.
+  if (cy < 3 && Math.abs(nx) > 0.7 * Math.hypot(nx, ny, nz)) return true;
   return cy < WATERLINE + 0.5 || Math.abs(cx) > hbAt(cz) - 1.2 || (cz < -0.84 * LOA / 2 && cy < 3);
 }
 // Cut along her waterline: every shell triangle that crosses it is split, so
@@ -292,7 +295,10 @@ function isShell(t) {
   for (let t = 0; t < nf; t++) {
     const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
     const sd = v.map((i) => Math.sign(P[i * 3 + 1] - WATERLINE));
-    if (!isShell(t) || !(sd.includes(1) && sd.includes(-1))) {
+    // Every face of her plating that crosses the line is cut along it, shell or
+    // not: one left whole is painted by its middle, and a wedge of bottom red
+    // stood up out of her waterline, or of grey down into her navy blue.
+    if (!(HULL_PIECES.has(pieceOf(t)) || pieceOf(t) === 170) || !(sd.includes(1) && sd.includes(-1))) {
       T2.push(...v); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]);
       continue;
     }
@@ -820,8 +826,8 @@ hullRaw.S0 = orient(hullRaw);
 // paints and so two edges, and the decimator, free to slide an edge along
 // itself, slid her side's off a metre of her starboard bow and left a notch
 // open to her insides.
-let hull = creaseNormals(reduce(hullRaw, +(process.env.HULL_TRIS || 60000), +(process.env.HULL_ERROR || 0.002),
-  (process.env.HULL_FLAGS ?? 'Prune').split(',').filter(Boolean),
+let hull = creaseNormals(reduce(hullRaw, +(process.env.HULL_TRIS || Infinity), +(process.env.HULL_ERROR || 0.002),
+  (process.env.HULL_FLAGS ?? '').split(',').filter(Boolean),
   (x, y) => Math.abs(y - WATERLINE) < 1e-3));
 console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points');
 
@@ -897,7 +903,9 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
   const at = (v) => [P[rep[v] * 3], P[rep[v] * 3 + 1], P[rep[v] * 3 + 2]];
   // Her open edges up to two metres over her waterline, not the Hagen's none:
   // the step her belt makes along her bow leaves a crack a ray goes in by.
-  const MAXY = +(process.env.CRACK_Y ?? 2), TOL = 0.3, CELL = 1;
+  // Off unless she is decimated (HULL_TRIS): drawn whole she has no such cracks,
+  // and the slivers it laid then lay across her own plates as dark wedges.
+  const MAXY = +(process.env.CRACK_Y ?? (process.env.HULL_TRIS ? 2 : -100)), TOL = 0.3, CELL = 1;
   const open = [], ends = new Set();
   for (const [e, { n, t }] of edges) {
     if (n !== 1) continue;
@@ -953,7 +961,7 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
 // sees from behind -- daylight through her bridge, her deckhouses, her side --
 // is drawn from both sides (see build/seal.mjs).
 {
-  const m = mirrorSides(hull, { loa: LOA });
+  const m = process.env.MIRROR === '1' ? mirrorSides(hull, { loa: LOA }) : { copied: 0, cells: 0 };
   const s = sealFromOutside(hull);
   console.log(`sealed: ${m.copied} faces copied across her centreline into ${m.cells} cells, ${s.made} seen from behind drawn from both sides`);
 }
@@ -1000,6 +1008,22 @@ const LINES = measureLines(hull, st, { z0: -84, dz: 1, nz: 169, y0: -6.5, dy: 0.
     mended++;
   }
   console.log(`lines: ${mended} stations mended`);
+}
+// A plate the model hangs on her side -- a doubler, a boom, a ladder -- reads
+// as her side standing out a hand's breadth at the one station it is at, and
+// her belt, fitted to her lines, stood out through her plating there: a grey
+// stripe down her side with a sawtooth foot. Each of her half-breadths is the
+// median of it and the stations either side of it.
+{
+  const { half, ny, nz } = LINES;
+  const was = Float32Array.from(half);
+  let eased = 0;
+  for (let k = 1; k + 1 < nz; k++) for (let j = 0; j < ny; j++) {
+    const a = was[(k - 1) * ny + j], b = was[k * ny + j], c = was[(k + 1) * ny + j];
+    const m = Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+    if (b > m + 0.05) { half[k * ny + j] = +m.toFixed(2); eased++; }
+  }
+  console.log(`lines: ${eased} half-breadths standing out of her side eased`);
 }
 // Amidships, under her funnel and her boat deck, the model's deck reads two
 // metres low for ten metres of her length: the first thing over her insides
@@ -1201,6 +1225,8 @@ function boresOf(bar, guns, face) {
  * barrels on their cradle -- the trunnions just inside the face, the bore
  * along +Z -- with their muzzles. Painted as the model painted it.
  */
+// Every mounting kept as the model draws it, triangle for triangle (GUN_TRIS caps it).
+const FULL = +(process.env.GUN_TRIS || Infinity);
 function gunKind(kind, { guns, minLen, tris, barrelTris, inside = 0.6, test = null, barrelPaint = null, whole = false, error = 0.003, flags = [], ahead = false, cull = 0 }) {
   const g0 = KINDS[kind][0];
   const raw = groupMesh(g0);
@@ -1303,14 +1329,14 @@ const DEBUG = {};
 const UP_KINDS = new Set(['pompom', 'oer2', 'oer']);
 const GUNS = {
   // Her 6 in twins: two barrels out of a gunhouse.
-  main: gunKind('main', { guns: 2, minLen: 2, tris: 2400, barrelTris: 600 }),
+  main: gunKind('main', { guns: 2, minLen: 2, tris: FULL, barrelTris: FULL }),
   // Her 4 in twins: two barrels out of an open-backed shield.
-  sec: gunKind('sec', { guns: 2, minLen: 1.2, tris: 1800, barrelTris: 400 }),
+  sec: gunKind('sec', { guns: 2, minLen: 1.2, tris: FULL, barrelTris: FULL }),
   // Her pom-poms, her machine gun and her Oerlikons, which train whole.
-  pompom: gunKind('pompom', { whole: true, tris: 900 }),
-  mg: gunKind('mg', { whole: true, tris: 300, ahead: true }),
-  oer2: gunKind('oer2', { whole: true, tris: 300 }),
-  oer: gunKind('oer', { whole: true, tris: 200 }),
+  pompom: gunKind('pompom', { whole: true, tris: FULL }),
+  mg: gunKind('mg', { whole: true, tris: FULL, ahead: true }),
+  oer2: gunKind('oer2', { whole: true, tris: FULL }),
+  oer: gunKind('oer', { whole: true, tris: FULL }),
 };
 
 /**
@@ -1362,7 +1388,7 @@ const TUBES = (() => {
   }).sort((a, b) => b.seat.x - a.seat.x);
   const pieces = list.map((t) => {
     const local = toMount(t.raw, t.seat);
-    const house = creaseNormals(reduce(local, 2400, 0.003));
+    const house = creaseNormals(reduce(local, FULL, 0.003));
     // The tubes' axes: the four runs of points across the bank at its muzzle
     // end, the flared mouths standing clear of everything else on it.
     const xs = [];
@@ -1414,7 +1440,7 @@ const SCREWS = KINDS.screw.map((gi) => {
   const c = [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2];
   const P = raw.P.slice();
   for (let i = 0; i < P.length; i += 3) for (let k = 0; k < 3; k++) P[i + k] -= c[k];
-  const m = creaseNormals(reduce({ P, T: raw.T, C: raw.C }, 400, 0.001));
+  const m = creaseNormals(reduce({ P, T: raw.T, C: raw.C }, FULL, 0.001));
   const byV = new Uint8Array(m.P.length / 3);
   for (let t = 0; t < m.T.length / 3; t++) for (let k = 0; k < 3; k++) byV[m.T[t * 3 + k]] = m.C[t];
   return {

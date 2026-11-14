@@ -461,6 +461,7 @@ export class Briefing {
     // the observer on the canvas takes the repaint when it has one.
     drawWorld(c, {
       focus: [0, 8], zoom: 1,
+      graticule: true,
       marker: [d.lon, d.lat],
       markerName: d.name,
     });

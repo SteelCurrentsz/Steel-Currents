@@ -2,8 +2,8 @@
 // by kriss50 (https://skfb.ly/ptuAM), under Creative Commons Attribution 4.0,
 // credited on the game's Credits screen; the two were alike in 1941 --
 // through build/kriss-hull.mjs: her hull, her pagoda, her funnel and her
-// mainmast as one painted mesh, and her six twin 35.6 cm turrets, four twin
-// 12.7 cm, ten twin 25 mm and four screws cut free of her.
+// mainmast as one painted mesh, and her six twin 35.6 cm turrets, sixteen
+// 14 cm, four twin 12.7 cm, ten twin 25 mm and four screws cut free of her.
 //
 //   node build/prepare-ise-hull.mjs
 import { prepare } from './kriss-hull.mjs';
@@ -18,6 +18,33 @@ await prepare({
   paints: IJN_BB_PAINTS, paint: ijnBBPaint, paintLines: [0, BOOT], deckPaints: ['wood'],
   deckFallback: 8, hullTris: 70000,
   kinds: {
+    // Her sixteen 14 cm/50, eight a side, in the battery under her upper deck
+    // from abaft her funnel to No.2's barbette: each a round shield on its
+    // pedestal and its barrel, the model's own, and every one of them drawn
+    // trained along her side -- the after two of a side aft, the rest forward.
+    // They are all the one piece of the model (its node 131), so each is cut
+    // by a box round it, port side aft to forward and then starboard; each
+    // trains about the middle of its shield.
+    sec: { boxes: [
+      { x: [9.8, 12.5], y: [5.4, 7.1], z: [-1.5, 6.1] },
+      { x: [11.3, 13.9], y: [5.4, 7.1], z: [3.8, 11.3] },
+      { x: [11.2, 14.9], y: [5.4, 7.1], z: [17.9, 25.1] },
+      { x: [11, 13.9], y: [5.4, 7.1], z: [25.2, 32.6] },
+      { x: [10.6, 13.5], y: [5.4, 7.1], z: [32.9, 40.3] },
+      { x: [10, 12.9], y: [5.4, 7.1], z: [39.9, 47.3] },
+      { x: [9, 11.7], y: [5.4, 7.1], z: [47.75, 55.3] },
+      { x: [7.3, 9.95], y: [5.4, 7.1], z: [53.5, 61.1] },
+      { x: [-12.5, -9.8], y: [5.4, 7.1], z: [-1.5, 6.1] },
+      { x: [-13.9, -11.3], y: [5.4, 7.1], z: [3.8, 11.3] },
+      { x: [-14.9, -11.2], y: [5.4, 7.1], z: [17.9, 25.1] },
+      { x: [-13.9, -11], y: [5.4, 7.1], z: [25.2, 32.6] },
+      { x: [-13.5, -10.6], y: [5.4, 7.1], z: [32.9, 40.3] },
+      { x: [-12.9, -10], y: [5.4, 7.1], z: [39.9, 47.3] },
+      { x: [-11.7, -9], y: [5.4, 7.1], z: [47.75, 55.3] },
+      { x: [-9.95, -7.3], y: [5.4, 7.1], z: [53.5, 61.1] },
+    ], nodes: [131], min: 100, gun: { whole: true, tris: 360, error: 0.02,
+      pivots: [[11.18, 4.8], [12.6, 10.02], [12.54, 19.2], [12.37, 26.48], [11.99, 34.21], [11.38, 41.16], [10.37, 49.02], [8.72, 54.8], [-11.18, 4.8], [-12.6, 10.02], [-12.54, 19.2], [-12.37, 26.48], [-11.99, 34.21], [-11.38, 41.16], [-10.37, 49.02], [-8.72, 54.8]],
+      rests: [3.062, 3.055, 0.263, 0.159, 0.157, 0.157, 0.037, 0, -3.062, -3.055, -0.263, -0.159, -0.157, -0.157, -0.037, -0] } },
     // Her four twin 12.7 cm high-angle guns, two a side abreast her bridge.
     ha: { auto: { regions: [{}], nodes: [123, 125, 127, 129], size: [2, 7], minFaces: 2000, gap: 0.02 }, gun: { whole: true, tris: 900, error: 0.02 } },
     // Her ten twin 25 mm, about her bridge and her funnel and on her mainmast.
