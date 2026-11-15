@@ -2475,7 +2475,7 @@ check('the Nimitz flies her Hornets, Hawkeyes and Seahawks as their loads say, a
   assert.ok(widened || !foe.alive, 'her Hawkeye did not show her side a ship beyond her own sight');
 });
 
-check('the Kongo is commissioned before the Fuso, after the Missouri', () => {
+check('the Kongo is commissioned before the Amagi and the Fuso, after the Missouri', () => {
   const i = SHIP_ORDER.indexOf('kongo');
   assert.ok(i >= 0, 'the Kongo is not in the yard');
   // The Nimitz and the Ford are in the list between them, but in the missile
@@ -2483,7 +2483,8 @@ check('the Kongo is commissioned before the Fuso, after the Missouri', () => {
   assert.deepEqual(SHIP_ORDER.slice(i - 3, i), ['missouri', 'nimitz', 'ford'],
     `before the Kongo come ${SHIP_ORDER.slice(i - 3, i).join(', ')}`);
   assert.equal(WWII_ORDER[WWII_ORDER.indexOf('kongo') - 1], 'iowa', 'in the WWII yard the Kongo does not follow the Iowa');
-  assert.equal(SHIP_ORDER[i + 1], 'fuso', `after the Kongo comes ${SHIP_ORDER[i + 1]}`);
+  // Her own design's successor, the Amagi, between her and the Fuso.
+  assert.deepEqual(SHIP_ORDER.slice(i + 1, i + 3), ['amagi', 'fuso'], `after the Kongo come ${SHIP_ORDER.slice(i + 1, i + 3).join(', ')}`);
   const cls = SHIP_CLASSES.kongo;
   assert.equal(cls.fullName, 'IJN Kongo');
   assert.equal(cls.typeName, 'Battlecruiser');
