@@ -27124,7 +27124,7 @@ check('the published build ships each ship\'s packed strings as a file of its ow
   // carries: the gzipped strings go beside the module, not inside it.
   for (const f of ['scheerHull.data.js', 'zeroModel.data.js']) {
     const src = readFileSync(new URL(`../client/js/render/${f}`, import.meta.url), 'utf8');
-    const bin = f.replace(/\.js$/, '.z');
+    const bin = f.replace(/\.js$/, '.wasm');
     const { module, bytes } = packDataFile(src, bin);
     assert.ok(bytes && module.length + bytes.length < packData(src).length * 0.85, `${f} is no smaller as a file of its own`);
     assert.ok(module.includes(`await unpackFile(new URL('./${bin}', import.meta.url))`), `${f} does not fetch its file`);

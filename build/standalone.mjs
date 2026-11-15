@@ -155,13 +155,15 @@ if (!SPLIT) {
   // Each data file packed (build/pack-data.mjs): its long strings gzipped as
   // one, and opened again beside the page by unpack.js, which goes with them.
   fs.copyFileSync(path.join(ROOT, 'client/js/unpack.js'), out('split', 'unpack.js'));
-  // The packed strings go in a file of their own beside each module (its
-  // `.z` file), not base64 in it: a third smaller, and the page fits its host.
+  // The packed strings go in a file of their own beside each module, not
+  // base64 in it: a third smaller, and the page fits its host. Named `.wasm`
+  // only because that is the one kind of binary file the artifact host will
+  // serve; it is gzip, and unpack.js fetches it as plain bytes.
   let raw = 0, sent = 0;
   const bins = new Map();
   for (const f of named) {
     const src = fs.readFileSync(path.join(HULLS, f), 'utf8');
-    const bin = f.replace(/\.js$/, '.z');
+    const bin = f.replace(/\.js$/, '.wasm');
     const { module, bytes } = packDataFile(src, bin);
     fs.writeFileSync(out('split', f), module);
     if (bytes) { fs.writeFileSync(out('split', bin), bytes); bins.set(f, bin); }
@@ -176,7 +178,7 @@ if (!SPLIT) {
   // A page put up anywhere as these files plays with no signal once opened.
   const files = ['./', './unpack.js', './simworker.js', ...chunks.map((f) => `./${f}`),
     ...named.flatMap((f) => (bins.has(f) ? [`./${f}`, `./${bins.get(f)}`] : [`./${f}`]))];
-  const shell = files.filter((f) => !/\.data\.(js|z)$/.test(f) || /Model\.data\.(js|z)$/.test(f));
+  const shell = files.filter((f) => !/\.data\.(js|wasm)$/.test(f) || /Model\.data\.(js|wasm)$/.test(f));
   // Over what every file holds, the data files' too: a hull rebuilt under
   // the same name is a new version, or the worker would hand out the old one.
   const version = crypto.createHash('sha1')
