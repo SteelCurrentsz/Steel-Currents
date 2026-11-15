@@ -217,6 +217,21 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     for (const gun of CLS.aa.guns) for (const spec of gun.mounts) aa.push(lightGun(g, gun, spec, gun.caliber >= 40 ? 1.4 : 2.4));
     if (aa.length !== lightMounts(CLS).length) throw new Error(`the ${CLS.name} built a light battery her datasheet does not list`);
     const torp = CLS.torpedoes ? CLS.torpedoes.mounts.map((spec) => {
+      // A submarine's tubes are in her hull, their outer doors the model's
+      // own: nothing to cut and nothing that trains -- each bank is where
+      // its doors are, and a fish comes out of the door it is fired from.
+      if (CLS.torpedoes.inHull) {
+        const m = new THREE.Group();
+        m.position.set(spec.x, 0, spec.z);
+        m.rotation.y = spec.angle;
+        m.userData.rest = 0;
+        m.userData.mounting = true;
+        m.userData.name = `tubes ${spec.id + 1}`;
+        m.userData.trainRate = 0;
+        arm(m, m, spec.bores);
+        g.add(m);
+        return m;
+      }
       const s = seatFor(tubes, spec.x, spec.z, 'bank of tubes');
       const piece = gunPiece(tubes, s.ix);
       const m = new THREE.Group();
@@ -396,7 +411,7 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     mountings(g);
     mergeMoving(g);
     g.userData.classId = id;
-    if (g.userData.torpMounts.length) g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes);
+    if (g.userData.torpMounts.length && !CLS.torpedoes.inHull) g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes);
     dressShip(g);
     return {
       group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),

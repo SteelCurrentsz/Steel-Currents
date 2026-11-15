@@ -9159,7 +9159,7 @@ const SHIP_FISH = { usa: 'mk15', jpn: 'type93', ger: 'g7a', gbr: 'mk1', fra: 'l3
 const AIR_FISH = { usa: 'mk13', jpn: 'type91', ger: 'f5b', gbr: 'mk12', fra: 'mk13' };
 const FISH_NAMES = [
   [/mk\s*15/i, 'mk15'], [/type\s*93/i, 'type93'], [/g7e/i, 'g7e'], [/g7a/i, 'g7a'],
-  [/24\.5/, 'mk1'], [/1924/, 'l3'],
+  [/24\.5/, 'mk1'], [/1924/, 'l3'], [/mark\s*viii/i, 'mk8'],
 ];
 export function torpedoKind(cls, aerial = false) {
   if (!cls) return aerial ? 'mk13' : 'mk15';

@@ -74,6 +74,8 @@ const inBox = (b, x, y, z, slack = 0) => (!b.x || (x >= b.x[0] - slack && x <= b
  *   cards                { nodes }: the model's pieces drawn as cut-out cards, kept textured
  *   wireCards            her rigging written as a card of its own rather than into her hull
  *   floaters             { gap, near, keep }: take off whatever the export left adrift
+ *   wound                the model's faces are wound to look out already: leave them
+ *   cutAll               cut every face of her along her paint lines, not her shell's alone
  */
 export async function prepare(cfg) {
   const MeshoptSimplifier = await simplifier();
@@ -878,7 +880,7 @@ export async function prepare(cfg) {
     for (let t = 0; t < nf; t++) {
       const v = [T[t * 3], T[t * 3 + 1], T[t * 3 + 2]];
       const sd = v.map((i) => Math.sign(P[i * 3 + 1] - LEVEL));
-      if (kindOf.has(t) || NOT_HERS.has(t) || !isShell(t) || !(sd.includes(1) && sd.includes(-1))) { put(t, ...v); continue; }
+      if (kindOf.has(t) || NOT_HERS.has(t) || (!cfg.cutAll && !isShell(t)) || !(sd.includes(1) && sd.includes(-1))) { put(t, ...v); continue; }
       split++;
       const upp = [], down = [];
       for (let k = 0; k < 3; k++) {
@@ -1123,7 +1125,11 @@ export async function prepare(cfg) {
   const hullRaw = subMeshOf((t) => !kindOf.has(t) && !NOT_HERS.has(t) && model.L[t] !== WIRE);
   const wires = creaseNormals(reduce(subMeshOf((t) => !kindOf.has(t) && !NOT_HERS.has(t) && model.L[t] === WIRE), Infinity, 0));
   console.log('hull:', hullRaw.T.length / 3, 'triangles before decimation');
-  hullRaw.S0 = orient(hullRaw);
+  // `wound`: the model's own winding is right already, every face looking
+  // out -- and a hull pierced all along her sides, as a U-boat's casing is
+  // with its limber holes, lets the rays orient() casts escape through them
+  // and would have it turn good faces inside out.
+  hullRaw.S0 = cfg.wound ? new Uint8Array(hullRaw.T.length / 3) : orient(hullRaw);
   {
     // Her decks, every one of them looking up.
     let flipped = 0;
