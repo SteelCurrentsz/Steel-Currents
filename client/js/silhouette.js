@@ -506,6 +506,17 @@ const HULLS = {
     <rect x="32" y="15" width="4" height="4"/>
     <rect x="33.4" y="7" width="1.4" height="8"/>
     <path d="M41 30 L49 30 L50 34 L42 34 Z"/>`,
+  // The Hosho: flush-decked, no island, her flight deck carried out over her
+  // bow and her stern on trusses and running down to her stern, and the
+  // radio mast at its forward end.
+  hosho: `
+    <path d="M12 29 L91 29 L89 36 L15 36 Z"/>
+    <path d="M11 26.2 L91 26.2 L91 29.2 L11 29.2 Z"/>
+    <path d="M3 27.6 L12 24.2 L98 24.2 L98 25.9 L12 25.9 L3 28.8 Z"/>
+    <path d="M5 28.4 L12 25.9 L12 27 Z"/>
+    <path d="M91 25.9 L96 25.9 L91 28 Z"/>
+    <rect x="77.4" y="9" width="1.1" height="15.2"/>
+    <rect x="75" y="12" width="6" height="0.8"/>`,
 };
 
 // Badges that say what a hull icon does when it is a button rather than a

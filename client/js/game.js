@@ -3960,7 +3960,7 @@ export class Battle {
           // Which of her three types is going, and how long the deck has to get
           // her off: the first of a strike comes up from the hangar with the
           // whole evolution to go through, and the ones after her are quicker.
-          v.group.userData.launch?.(this.deckClock(v), ev.r, ev.d, ev.k, ev.n);
+          v.group.userData.launch?.(this.deckClock(v), ev.r, ev.d, ev.k, ev.n, ev.ld);
           break;
         }
         case 'trap': {

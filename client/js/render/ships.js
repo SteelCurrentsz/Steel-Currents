@@ -108,6 +108,7 @@ const SCULPTED = {
   type7c41: () => import('./type7c41.js').then((m) => { KRISS.type7c41 = m.buildType7c41; }),
   uclass3: () => import('./uclass3.js').then((m) => { KRISS.uclass3 = m.buildUclass3; }),
   implacable: () => import('./implacable.js').then((m) => { CARRIERS.implacable = m.buildImplacable; }),
+  hosho: () => import('./hosho.js').then((m) => { CARRIERS.hosho = m.buildHosho; }),
   essex: () => import('./essex.js').then((m) => { CARRIERS.essex = m.buildEssex; }),
   lexington: () => import('./lexington.js').then((m) => { CARRIERS.lexington = m.buildLexington; }),
   victory: () => import('./victory.js').then((m) => { KRISS.victory = m.buildVictory; }),
@@ -161,7 +162,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hornet', 'nimitz', 'ford', 'essex', 'lexington'].includes(classId) ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'hornet', 'nimitz', 'ford', 'essex', 'lexington'].includes(classId) ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */

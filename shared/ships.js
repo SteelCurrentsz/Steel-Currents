@@ -14800,6 +14800,142 @@ export const SHIP_CLASSES = {
     },
   },
 
+  hosho: {
+    // IJN Hōshō, the first ship in the world laid down as an aircraft carrier
+    // to be commissioned as one, in December 1922: a cruiser's hull of seven
+    // and a half thousand tonnes, twenty-five knots, a flight deck the length
+    // of her and a hangar under it. The Navy learned to fly from a ship off
+    // her deck. Her small island came off in 1924 and her three funnels were
+    // hinged to swing down clear of her flight deck. Her A5Ms and B4Ys flew
+    // over Shanghai in 1937; at Midway her eight B4Ys flew cover for the Main
+    // Body and one of them found the burning Hiryū. In 1944 her flight deck
+    // was carried out over her bow and her stern to train pilots on, and she
+    // came through the war to carry soldiers home from the islands.
+    //
+    // She is drawn from the owner's model of her (see hosho.js and
+    // build/prepare-hosho-hull.mjs) -- "Japanese Aircraft Carrier Hōshō" by
+    // kriss50, under Creative Commons Attribution 4.0, credited on the Credits
+    // screen -- flush-decked, her flight deck carried out over her bow and her
+    // stern on its trusses, and armed as the model arms her: her four
+    // 14 cm/50 3rd Year Type singles, two a side, and six Type 96 25 mm twins
+    // in their tubs at the edges of her flight deck. Her planked runway is
+    // laid afresh over the model's flight deck along its own profile, down
+    // the long slope of its after end, with her two lifts in it.
+    id: 'hosho',
+    name: 'Hōshō',
+    fullName: 'IJN Hōshō',
+    className: 'Hōshō',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'jpn',
+    blurb: 'The first carrier built as one: nineteen aircraft off a flush deck, A5M fighters and B4Y biplanes with a torpedo or bombs.',
+    // Her flight deck from end to end, 180.8 m, is the whole of the model.
+    hull: { length: 180.8, beam: 18.0, draft: 6.17, superstructure: 0.35, flightDeck: true },
+    hp: 23500,
+    // Thirty thousand horsepower on two shafts.
+    maxSpeed: 25 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.6,
+    turnRate: 0.074,
+    rudderShift: 9.0,
+    speedLossInTurn: 0.16,
+    concealment: 11800,
+    fireDetectPenalty: 4600,
+    radarRange: 0,
+    repairCooldown: 85,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // A light cruiser's protection and less: no belt to speak of, a thin
+    // protective deck over her machinery and her magazines, and nothing over
+    // her hangar but her flight deck's planking.
+    armor: { belt: 25, deck: 25, citadel: 25, bow: 10, superstructure: 10 },
+    // Her four 14 cm/50 in their shields, a pair forward under the fore end
+    // of her flight deck and a pair abreast her after hangar, each where the
+    // model stands it. Each fires out over her own side, and forward or aft
+    // along it.
+    turrets: [
+      { id: 0, name: 'S1', x: -4.069, z: 60.875, angle: -1.2, arc: 1.25, rest: 0, guns: 1, my: 9.14, piece: 'main' },
+      { id: 1, name: 'P1', x: 4.069, z: 60.875, angle: 1.2, arc: 1.25, rest: 0, guns: 1, my: 9.14, piece: 'main' },
+      { id: 2, name: 'S2', x: -7.216, z: -19.477, angle: -1.57, arc: 1.4, rest: 0, guns: 1, my: 9.1, piece: 'main' },
+      { id: 3, name: 'P2', x: 7.171, z: -19.477, angle: 1.57, arc: 1.4, rest: 0, guns: 1, my: 9.1, piece: 'main' },
+    ],
+    gun: {
+      name: '14 cm/50 3rd Year Type', role: 'surface',
+      elev: { min: -0.122, max: 0.524 },
+      reach: 4.98,
+      caliber: 140, reload: 7.5, traverse: 0.3, range: 15500, sigma: 1.9,
+      shells: shells(140, 2700, 2300, 95, 850, 0.09),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 3000, dps: 60,
+      guns: [
+        // Her six Type 96 25 mm twins, in their tubs at the edges of her
+        // flight deck: a pair abreast her forward lift, and two pairs aft.
+        { name: '25 mm Type 96 twin', caliber: 25, role: 'aa', reload: 0.25, range: 3000, piece: 'aa25',
+          elev: { min: -0.175, max: 1.396 },
+          mounts: [
+            { x: -10.377, z: 40.132, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 2, my: 11.53 },
+            { x: 10.451, z: 37.648, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 2, my: 11.51 },
+            { x: -11.315, z: -53.515, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 2, my: 11.56 },
+            { x: 11.315, z: -53.545, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 2, my: 11.56 },
+            { x: -9.344, z: -68.504, angle: -1.57, arc: 1.9, rest: -1.5708, guns: 2, my: 11.57 },
+            { x: 9.344, z: -68.534, angle: 1.57, arc: 1.9, rest: 1.5708, guns: 2, my: 11.57 },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 2, perSquadron: 10, cruiseSpeed: 58, strikeRange: 11000,
+      // Where her aircraft put their wheels down coming home: at the after
+      // end of the flat of her flight deck, past the slope of its overhang.
+      touchdown: { z: -66, y: 11.85 },
+      // Her air group of 1937 to 1942: A5M fighters, and the B4Y attack
+      // aeroplane that went out with a torpedo or with bombs. Her one type of
+      // attack aeroplane flies both jobs: whichever load she was given says
+      // which.
+      types: { fighter: 'a5m', dive: 'b4y', torpedo: 'b4y' },
+      runOut: { fighter: 210, dive: 190, torpedo: 190 },
+      runHeight: { fighter: 18.0, dive: 15.5, torpedo: 15.5 },
+      rearm: 38, torpDamage: 7600, torpSpeed: 26 * KNOTS, torpRange: 2400,
+      floodChance: 0.25, hp: 1050, dropSpread: 0.05,
+      // A B4Y's two 250 kg bombs, from the level.
+      bombDamage: 2600, bombHit: 0.3, bombFire: 0.3, bombPen: 60, bombBore: 0.3,
+      // Nineteen aircraft in her hangars and on her deck, split however her
+      // captain likes between her fighters and her attack aeroplanes.
+      group: {
+        total: 19,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 19, dive: 19, torpedo: 0 },
+        minStrike: 0,
+        // Eleven A5Ms and eight B4Ys: her group at Midway was the eight B4Ys.
+        default: { fighters: 11, dive: 8, torpedo: 0 },
+      },
+      // What each of her two types is, and what the B4Y is loaded with: her
+      // torpedo, or her two bombs.
+      slots: {
+        fighters: { type: 'a5m', label: 'Mitsubishi A5M', role: 'fighter',
+          note: 'A5M4: two 7.7 mm guns, and the tightest turn of anything of her day' },
+        dive: {
+          type: 'b4y', label: 'Yokosuka B4Y1', rowLabel: 'Yokosuka B4Y1', default: 'torpedo',
+          loadouts: {
+            torpedo: { name: 'Torpedo Load Out', note: 'a Type 91 aerial torpedo under her belly, run in low', role: 'torpedo' },
+            bombs: { name: 'Bomb Load Out', note: 'two 250 kg bombs on her crutches, dropped from the level', role: 'level', bomb: 2 },
+          },
+        },
+      },
+    },
+    datasheet: {
+      displacement: 7470,
+      aircraft: 0,
+      mainRounds: 600,
+      secondary: null,
+      tertiary: [
+        { caliber: 25, label: '25mm', barrels: 12, rounds: 24000 },
+      ],
+    },
+  },
+
   shokaku: {
     // The first of the two fleet carriers Japan built once she was free of the
     // treaties, and with her sister Zuikaku the best the Imperial Navy ever
@@ -17551,7 +17687,7 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'suzuya', 'yodo', 'mogami', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
   'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
-  'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'shokaku', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
+  'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'shokaku', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the

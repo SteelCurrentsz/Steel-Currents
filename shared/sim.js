@@ -12242,6 +12242,7 @@ export function launchStrike(state, ship, escortFor = 0) {
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: ship.launching.flights[0] ? ship.launching.flights[0].role : undefined,
     d: ship.launching.left,
+    ld: ship.launching.flights[0] && ship.launching.flights[0].load ? ship.launching.flights[0].load : undefined,
     ...deckloadTag(ship, cls, ship.launching.flights[0]),
   });
   return true;
@@ -12700,6 +12701,9 @@ function rangeNext(state, ship, cls, L) {
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: L.flights[0] ? L.flights[0].role : undefined,
     d: L.left,
+    // And what she is carrying, for a type with more than one load: the
+    // deck draws her with it.
+    ld: L.flights[0] && L.flights[0].load ? L.flights[0].load : undefined,
     ...deckloadTag(ship, cls, L.flights[0]),
   });
 }
@@ -14698,7 +14702,7 @@ const REAR_BITE = 0.11;     // of FIGHTER_GUNS, per machine with a gunner
 const REAR_ROLES = new Set(['dive', 'torpedo', 'scout']);
 function stepRearGunners(state, dt) {
   for (const p of state.planes) {
-    if (p.dead || !REAR_ROLES.has(p.role) || !(p.count > 0)) continue;
+    if (p.dead || !(REAR_ROLES.has(p.role) || (p.role === 'level' && !p.deckload)) || !(p.count > 0)) continue;
     // Somebody of ours is sitting in his seat and laying the gun himself:
     // see gunRear.
     if (state.t - (p.rearHand ?? -9) < 0.6) continue;
@@ -14759,7 +14763,7 @@ const REAR_HAND = 0.22;     // of FIGHTER_GUNS a second, per machine
 export function gunRear(state, ship, id, yaw, pitch, dt) {
   const p = state.planes.find((q) => q.id === id);
   if (!p || p.dead || !ship || p.team !== ship.team) return false;
-  if (!REAR_ROLES.has(p.role) || !(p.count > 0)) return false;
+  if (!(REAR_ROLES.has(p.role) || (p.role === 'level' && !p.deckload)) || !(p.count > 0)) return false;
   // Not somebody else's: an aeroplane another captain is flying has his gunner.
   if (p.pilot && p.pilot !== ship.id) return false;
   if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return false;
