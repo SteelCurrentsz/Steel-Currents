@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, arado, kingfisher, besson, loire, walrus, kor1, ro43,
-  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, muzzlesOf, dressPlane,
+  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -106,6 +106,11 @@ export function weld(group, about = null) {
   // welded without them, as it always was.
   let painted = false;
   group.traverse((o) => { if (o.isMesh && o.geometry?.attributes.color && shown(o)) painted = true; });
+  // And one drawn with her own texture (the Hosho's A5M and B4Y) keeps her
+  // place on it, point by point; anything welded with her that has none is
+  // put at the corner of it.
+  let textured = false;
+  group.traverse((o) => { if (o.isMesh && shown(o) && [].concat(o.material)[0]?.userData?.textured) textured = true; });
   group.traverse((o) => {
     if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return;
     if (!shown(o)) return;
@@ -113,7 +118,7 @@ export function weld(group, about = null) {
     const mat = list[0];
     let b = buckets.get(mat);
     if (!b) {
-      b = { pos: [], nor: [], col: [], idx: [], slot: mats.length };
+      b = { pos: [], nor: [], col: [], uv: [], idx: [], slot: mats.length };
       mats.push(mat);
       buckets.set(mat, b);
     }
@@ -125,6 +130,13 @@ export function weld(group, about = null) {
       for (let i = 0; i < pos.count; i++) {
         if (col) b.col.push(col.getX(i), col.getY(i), col.getZ(i));
         else b.col.push(1, 1, 1);
+      }
+    }
+    if (textured) {
+      const uv = mat?.userData?.textured ? geo.attributes.uv : null;
+      for (let i = 0; i < pos.count; i++) {
+        if (uv) b.uv.push(uv.getX(i), uv.getY(i));
+        else b.uv.push(0, 0);
       }
     }
     m.copy(o.matrixWorld);
@@ -149,6 +161,7 @@ export function weld(group, about = null) {
   const pos = [];
   const nor = [];
   const col = [];
+  const uvs = [];
   const idx = [];
   const groups = [];
   for (const b of buckets.values()) {
@@ -157,6 +170,7 @@ export function weld(group, about = null) {
     for (let i = 0; i < b.pos.length; i++) pos.push(b.pos[i]);
     for (let i = 0; i < b.nor.length; i++) nor.push(b.nor[i]);
     for (let i = 0; i < b.col.length; i++) col.push(b.col[i]);
+    for (let i = 0; i < b.uv.length; i++) uvs.push(b.uv[i]);
     for (const i of b.idx) idx.push(i + off);
     groups.push([start, idx.length - start, b.slot]);
   }
@@ -164,6 +178,7 @@ export function weld(group, about = null) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   if (painted) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  if (textured) geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(idx);
   for (const [start, count, slot] of groups) geo.addGroup(start, count, slot);
   return { geo, mats };
@@ -892,6 +907,8 @@ const REAR_SEATS = {
   // The Devastator's gunner, at the back of her long greenhouse with his thirty.
   devastator: () => ({ x: 0, y: DEVASTATOR.gun.at[1] + 0.45, z: DEVASTATOR.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
   b5n: () => ({ x: 0, y: B5N.gun.at[1] + 0.5, z: B5N.gun.at[2] + 0.35, cal: 0.0077, guns: 1 }),
+  // The B4Y's observer-gunner, in her after cockpit behind his Type 92.
+  b4y: () => ({ x: 0, y: 3.15, z: -0.55, cal: 0.0077, guns: 1 }),
   // A Stuka's gunner, under the aft end of her greenhouse with his twin MG 81Z.
   ju87c: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
   ju87d: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
@@ -919,8 +936,8 @@ const STORES = {};
  * out of her bay and an SC 250 off each wing -- has the first as itself and
  * the rest in `extra`, each the same shape and with its own `name`.
  */
-export function storeOf(kind) {
-  return STORES[kind] || null;
+export function storeOf(kind, load = null) {
+  return (load && STORES[`${kind}:${load}`]) || STORES[kind] || null;
 }
 
 function storeSpec(sp) {
@@ -945,6 +962,10 @@ function readStore(key, parts) {
   if (!falls.length) return;
   STORES[key] = storeSpec(falls[0]);
   if (falls.length > 1) STORES[key].extra = falls.slice(1).map(storeSpec);
+  // A type with a choice of loads (a B4Y's torpedo or her two bombs) has what
+  // falls for each of them as well, one at a time: storeOf(kind, load).
+  const loads = new Set(falls.map((q) => q.load).filter(Boolean));
+  if (loads.size > 1) for (const load of loads) STORES[`${key}:${load}`] = storeSpec(falls.find((q) => q.load === load));
 }
 
 /** One of each type, in flight trim, welded, cut into her pieces and ready to instance. */
@@ -1060,6 +1081,9 @@ export function flightModels() {
   // And the Implacable's Seafires and Fireflies.
   make('seafire', (g) => seafire(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   make('firefly', (g) => firefly(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  // And the Hosho's A5Ms and B4Ys.
+  make('a5m', (g) => a5m(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  make('b4y', (g) => b4y(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Devastator the Hornet's torpedo squadron flew at Midway.
   out.devastator = devastatorFlightModel();
   MUZZLES.devastator = DEVASTATOR.guns.slice().sort((a, b) => a[0] - b[0]);
@@ -1124,7 +1148,7 @@ export const ROLE_TYPE = {
   fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'f35', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'arado', 'kingfisher',
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'f35', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'a5m', 'b4y', 'arado', 'kingfisher',
   'besson', 'loire', 'walrus', 'kor1', 'ro43', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */

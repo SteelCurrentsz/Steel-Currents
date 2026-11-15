@@ -30,7 +30,7 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { DECK_RUN, lightMounts } from '../../../shared/sim.js';
 import { box, cyl, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly } from './planekit.js';
+import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly, a5m, b4y } from './planekit.js';
 import { HELLCAT } from './hellcatModel.js';
 import { DAUNTLESS } from './dauntlessModel.js';
 import { DEVASTATOR } from './devastatorModel.js';
@@ -60,6 +60,14 @@ const TYPES = {
     exhaust: () => [[0.42, 2.18, 3.25], [-0.42, 2.18, 3.25]] },
   firefly: { spread: 6.9, folded: 6.9, build: (g, x, y, z, ry, f, o) => firefly(g, x, y, z, ry, false, { load: 'bombs', ...o }),
     exhaust: () => [[0.46, 2.72, 3.95], [-0.46, 2.72, 3.95]] },
+  // The Hosho's, off the owner's models: neither folds. A B4Y on the deck
+  // carries the torpedo her load gives her unless she is told otherwise. The
+  // A5M's exhausts come out under her cowling's lip, and the B4Y's collector
+  // ring empties under her nose.
+  a5m: { spread: 4.63, folded: 4.63, build: (g, x, y, z, ry, f, o) => a5m(g, x, y, z, ry, false, o),
+    exhaust: () => [[0.42, 1.22, 2.62], [-0.42, 1.22, 2.62]] },
+  b4y: { spread: 6.71, folded: 6.71, build: (g, x, y, z, ry, f, o) => b4y(g, x, y, z, ry, false, { load: 'torpedo', ...o }),
+    exhaust: () => [[0.36, 1.72, 3.95], [-0.36, 1.72, 3.95]] },
 };
 
 /**

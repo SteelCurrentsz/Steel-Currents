@@ -269,6 +269,8 @@ const SEABED = -34;
 /** What to call a flight on screen: the machine, not the job she is on. */
 const FLIGHT_NAME = {
   seafire: 'her Seafires',
+  a5m: 'her A5Ms',
+  b4y: 'her B4Ys',
   firefly: 'her Fireflies',
   hellcat: 'her Hellcats',
   wildcat: 'her fighters',
@@ -299,6 +301,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
   seafire: 'Supermarine Seafire', firefly: 'Fairey Firefly',
+  a5m: 'Mitsubishi A5M', b4y: 'Yokosuka B4Y1',
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
   f18: 'F/A-18 Super Hornet', f35: 'F-35C Lightning', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
@@ -318,6 +321,8 @@ const ROLE_NAME = {
 /** What each machine's forward guns are, so the tracer is the right tracer. */
 const GUN_CALIBRE = {
   seafire: 20,        // two Hispanos and four Brownings in the wings
+  a5m: 7.7,           // two Type 89s in the top of her fuselage
+  b4y: 7.7,           // her gunner's Type 92: she has no gun forward
   firefly: 20,        // four Hispanos in the wings
   hellcat: 12.7,      // six fifties in the wings
   wildcat: 12.7,      // four fifties in the wings
@@ -362,7 +367,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  seafire: 2, firefly: 4,
+  seafire: 2, firefly: 4, a5m: 2, b4y: 1,
   hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
@@ -7132,7 +7137,11 @@ export class Battle {
   releaseOf(id) {
     const d = this.planeDrawn.get(id);
     if (!d || !d.n || this.time - d.at > 1) return null;
-    const st = storeOf(d.kind);
+    // What falls is what she went out with: a B4Y's torpedo or her bombs.
+    const tr = this.planeTrim.get(id);
+    const load = (tr && tr.load) || null;
+    const st = storeOf(d.kind, load);
+    const shapeKey = st && load && storeOf(d.kind, load) !== storeOf(d.kind) ? `${d.kind}:${load}` : d.kind;
     const m = d.mats[d.next % d.n];
     d.next++;
     const p = st ? new THREE.Vector3().fromArray(st.at) : new THREE.Vector3(0, 0.2, 0.4);
@@ -7142,7 +7151,7 @@ export class Battle {
       q.multiply(st.q);
       // Her own weapon, which is what falls.
       if (st.geo) {
-        this.scene.bombs.shape(d.kind, st.geo.clone().translate(-st.mid.x, -st.mid.y, -st.mid.z),
+        this.scene.bombs.shape(shapeKey, st.geo.clone().translate(-st.mid.x, -st.mid.y, -st.mid.z),
           st.mats.length > 1 ? st.mats : st.mats[0]);
       }
     }
@@ -7165,7 +7174,7 @@ export class Battle {
     return {
       p, v: d.v.clone(), q,
       len: st ? st.len : 1.75, r: st ? st.r : 0.2,
-      shape: st && st.geo ? d.kind : null,
+      shape: st && st.geo ? shapeKey : null,
       extra,
     };
   }

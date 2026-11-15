@@ -4116,6 +4116,96 @@ const seafire = (g, x, y, z, ry, folded, opts = {}) => navalAir('seafire', g, x,
 const firefly = (g, x, y, z, ry, folded, opts = {}) => fireflyStores(navalAir('firefly', g, x, y, z, ry, opts), opts);
 
 /**
+ * The Hosho's two, off the owner's models of them, each in her own texture:
+ * the A5M fighter, legs fixed in their spats, and the B4Y with whichever load
+ * she was given -- her Type 91 torpedo under her belly, the model's own, or
+ * two 250 kg bombs on the same crutches -- and her gunner's Type 92 on its
+ * ring in her after cockpit. Neither folds: `folded` is taken and ignored.
+ */
+const a5m = (g, x, y, z, ry, folded, opts = {}) => navalAir('a5m', g, x, y, z, ry, opts);
+const b4y = (g, x, y, z, ry, folded, opts = {}) => b4yStores(navalAir('b4y', g, x, y, z, ry, opts), opts);
+
+const B4Y_LOADS = ['torpedo', 'bombs'];
+function b4yStores(p, opts = {}) {
+  const parts = p.userData.parts || (p.userData.parts = []);
+  const show = (load) => !opts.load || opts.load === load;
+  // Her torpedo: the model's own, on the crutches under her belly.
+  const fish = p.userData.stores.store;
+  if (fish) {
+    if (show('torpedo')) parts.push({ name: 'store', node: fish, axis: 'z', open: 0, fall: true, load: 'torpedo', loads: B4Y_LOADS });
+    else fish.parent.remove(fish);
+  }
+  // Or her two 250 kg bombs -- Type 98 No. 25s, grey, a red band round the
+  // nose -- side by side on the same crutches.
+  if (show('bombs')) {
+    const grey = new THREE.MeshLambertMaterial({ color: 0x55595c });
+    const band = new THREE.MeshLambertMaterial({ color: 0x8c2020 });
+    const steel = new THREE.MeshLambertMaterial({ color: 0x3c4044 });
+    const R = 0.15;
+    for (const s of [-1, 1]) {
+      const b = new THREE.Group();
+      b.position.set(s * 0.29, 1.0, -0.05);
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 0.78, 16), grey);
+      body.rotation.x = Math.PI / 2;
+      b.add(body);
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(R, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), grey);
+      nose.rotation.x = Math.PI / 2;
+      nose.scale.y = 1.6;
+      nose.position.z = 0.39;
+      b.add(nose);
+      const ring = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.01, R * 1.01, 0.07, 16), band);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.z = 0.26;
+      b.add(ring);
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 0.32, 0.55, 16), grey);
+      tail.rotation.x = Math.PI / 2;
+      tail.position.z = -0.665;
+      b.add(tail);
+      for (let k = 0; k < 4; k++) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.2, 0.34), steel);
+        fin.rotation.z = (k * Math.PI) / 2 + Math.PI / 4;
+        fin.position.set(0, 0, -0.8);
+        fin.translateY(0.1);
+        b.add(fin);
+      }
+      // The ring that braces her fins.
+      const hoop = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.09, 16, 1, true), steel);
+      hoop.rotation.x = Math.PI / 2;
+      hoop.position.z = -0.86;
+      b.add(hoop);
+      p.add(b);
+      parts.push({ name: s < 0 ? 'bomb' : 'bomb1', node: b, axis: 'z', open: 0, fall: true, load: 'bombs', loads: B4Y_LOADS });
+    }
+  }
+  // Her gunner's Type 92 -- a 7.7 mm Lewis on a ring over her after cockpit,
+  // its pan on top -- laid aft about its pivot, and swung by whoever is
+  // laying it (see planes.js's rearGunOf).
+  const dark = new THREE.MeshLambertMaterial({ color: 0x2a2c2e });
+  const gun = new THREE.Group();
+  gun.position.set(0, 2.82, -0.9);
+  const jacket = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.62, 10), dark);
+  jacket.rotation.x = Math.PI / 2;
+  jacket.position.z = -0.42;
+  gun.add(jacket);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.3, 6), dark);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.z = -0.88;
+  gun.add(barrel);
+  const breech = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.4), dark);
+  breech.position.z = 0.02;
+  gun.add(breech);
+  const pan = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.05, 16), dark);
+  pan.position.set(0, 0.08, -0.02);
+  gun.add(pan);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.12, 0.05), dark);
+  grip.position.set(0, -0.08, 0.2);
+  gun.add(grip);
+  p.add(gun);
+  parts.push({ name: 'gun', node: gun, axis: 'y', open: 0, turret: true, muzzle: [0, 0, -1.04] });
+  return p;
+}
+
+/**
  * What a Firefly carries under her wings, by her load: two 1,000 lb bombs on
  * the racks just outboard of her legs ('bombs'), or sixteen RP-3 rockets --
  * three-inch motors with sixty-pound heads -- eight under each wing, two to a
@@ -5679,7 +5769,7 @@ function b52Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35 };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked
