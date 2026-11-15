@@ -16367,7 +16367,9 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
       assert.equal(rows.length, 0, `${cls.id} carries no weapons, and lists ${rows.map((w) => w.name).join(', ')}`);
       continue;
     }
-    const least = cls.type === 'LC' ? 1 : cls.cargo ? 2 : 3;
+    // A submarine is her tubes and a gun: the Type VIIC as the model has her
+    // late in the war, her deck gun landed, carries her tubes and her 2 cm.
+    const least = cls.type === 'LC' ? 1 : cls.cargo || cls.type === 'SS' ? 2 : 3;
     assert.ok(rows.length >= least, `${cls.id} lists only ${rows.length} weapons`);
     for (const w of rows) {
       assert.ok(w.name && w.name.length > 2, `${cls.id} has an unnamed weapon`);
@@ -16382,7 +16384,9 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     // A landing craft has no light battery: the Higgins boat's two Brownings
     // are her main battery, and dual-purpose -- they are her flak.
     const flak = cls.type === 'LC' ? rows.filter((w) => w.role === 'dp') : light;
-    assert.ok(flak.length > 0, `${cls.id} has no anti-aircraft guns listed`);
+    // And a small boat may have none: the U-class's flak was a Lewis gun
+    // brought up through the hatch.
+    if (cls.aa?.guns?.length || cls.type !== 'SS') assert.ok(flak.length > 0, `${cls.id} has no anti-aircraft guns listed`);
     for (const t of cls.datasheet.tertiary || []) {
       // A calibre she carries in more than one kind of mounting -- the
       // Yukikaze's 25 mm, triples and singles -- is listed a row to a kind,
