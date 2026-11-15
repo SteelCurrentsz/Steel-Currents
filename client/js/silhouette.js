@@ -110,6 +110,56 @@ const HULLS = {
     <rect x="69" y="10" width="2.5" height="14"/>
     <rect x="74" y="23.2" width="13" height="6.3"/>
     <rect x="86" y="25.2" width="8" height="2.2"/>`,
+  // The Amagi as she would have been finished: a long battlecruiser's hull
+  // sheering up to her bow, two twin turrets forward -- No.2 superfiring --
+  // a pagoda bridge, two funnels and a tall mainmast amidships, No.3 abaft
+  // it facing aft, and two twin turrets aft, No.4 superfiring.
+  amagi: `
+    <path d="M3 28.6 L20 30 L96 31 L94 38 L10 38 Z"/>
+    <rect x="24" y="28.6" width="4.4" height="1.8"/>
+    <rect x="19.8" y="28.9" width="4.4" height="0.7"/>
+    <rect x="29.4" y="26.8" width="4.3" height="3.6"/>
+    <rect x="25.6" y="27.2" width="4" height="0.7"/>
+    <rect x="33.5" y="27.6" width="24" height="2.9"/>
+    <path d="M33.8 27.8 L35 18.4 L43 18.4 L43.4 27.8 Z"/>
+    <rect x="37.4" y="11" width="2.8" height="7.6"/>
+    <path d="M40.4 27.8 L41 19.7 L43.8 19.7 L43.6 27.8 Z"/>
+    <path d="M45.3 27.8 L45.8 21.2 L48.6 21.2 L48.4 27.8 Z"/>
+    <rect x="53" y="1.2" width="1.1" height="26.8"/>
+    <rect x="57.6" y="27.3" width="4.3" height="3.2"/>
+    <rect x="61.8" y="27.7" width="4" height="0.7"/>
+    <rect x="67.8" y="27.3" width="4.2" height="3.4"/>
+    <rect x="73" y="29.4" width="4.3" height="1.8"/>
+    <rect x="77.2" y="29.7" width="4" height="0.7"/>`,
+  // A Type VIIC: the long low casing of a sea-going U-boat, her saddle tanks
+  // swelling her amidships under it, her tower a little forward of her
+  // middle with the Wintergarten abaft it, and her periscope standards.
+  viic: `
+    <path d="M3 27 L8 26.6 L93 27.4 L97 27.9 L92 33 L62 38.6 L20 38.6 L6 32 Z"/>
+    <path d="M43.6 27 L44.4 21 L53.4 21 L53.6 27 Z"/>
+    <rect x="53.4" y="23.2" width="4.8" height="3.9"/>
+    <rect x="45.4" y="12.6" width="0.9" height="8.6"/>
+    <rect x="50" y="18.4" width="0.7" height="2.8"/>`,
+  // The VIIC/41: the same boat, with her 8.8 cm on her casing forward of the
+  // tower and her flak on the two galleries abaft it.
+  viic41: `
+    <path d="M3 27 L8 26.6 L93 27.4 L97 27.9 L92 33 L62 38.6 L20 38.6 L6 32 Z"/>
+    <path d="M43.6 27 L44.4 21.6 L52 21.6 L52.2 27 Z"/>
+    <rect x="51.8" y="22.6" width="3.6" height="4.6"/>
+    <rect x="55.2" y="24.2" width="4.4" height="3"/>
+    <rect x="45.2" y="14.2" width="0.9" height="7.6"/>
+    <rect x="37.4" y="24.8" width="2.6" height="2.4"/>
+    <rect x="34.6" y="25.1" width="4" height="0.7"/>`,
+  // A U-class III: a short, round-bowed coastal boat, her tower aft of her
+  // middle, her 3-inch on a bandstand at its forward end, and the tall
+  // standards of her periscopes.
+  uclass: `
+    <path d="M2 30 C2 26.8 6 26.4 10 26.4 L80 27.2 L97 28.8 L96 30 L82 33.6 L56 38.8 L18 38.8 C8 38 2 35 2 30 Z"/>
+    <path d="M49.2 26.6 L49.2 22.6 L56.8 22.2 L58.4 24.2 L58.4 26.8 Z"/>
+    <rect x="52.4" y="9.4" width="0.8" height="13"/>
+    <rect x="54.6" y="19.6" width="0.7" height="3"/>
+    <rect x="44.6" y="24.6" width="3" height="2.2"/>
+    <rect x="40.8" y="25" width="4.4" height="0.6"/>`,
   // A carrier: flight deck over everything, island to starboard.
   enterprise: `
     <path d="M2 26 L98 26 L98 31 L94 37 L8 37 Z"/>
@@ -375,7 +425,7 @@ export function silhouette(classId, { flip = false, cls = '', badge = null } = {
   // Maya off the Takao, the Missouri off the Iowa, which she is with missiles
   // on her, and the Hornet off the Enterprise, the Yorktown she was built to
   // the drawings of.
-  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise', nimitz: 'enterprise', ford: 'enterprise', essex: 'enterprise', lexington: 'enterprise', fubuki: 'yukikaze', shimakaze: 'yukikaze', yugumo: 'yukikaze', victory: 'liberty', dunkerque: 'richelieu', texas: 'northcarolina', newmexico: 'northcarolina', maryland: 'northcarolina', pennsylvania: 'northcarolina', ise: 'yamato', implacable: 'enterprise' }[classId] || classId] || HULLS.fletcher;
+  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise', nimitz: 'enterprise', ford: 'enterprise', essex: 'enterprise', lexington: 'enterprise', fubuki: 'yukikaze', shimakaze: 'yukikaze', yugumo: 'yukikaze', victory: 'liberty', dunkerque: 'richelieu', texas: 'northcarolina', newmexico: 'northcarolina', maryland: 'northcarolina', pennsylvania: 'northcarolina', ise: 'yamato', implacable: 'enterprise', uclass3: 'uclass', type7c: 'viic', type7c41: 'viic41' }[classId] || classId] || HULLS.fletcher;
   const mark = badge ? BADGES[badge] || '' : '';
   // Room either side for the arrow, and above for the cross. Equal margins, so
   // the box's centre line is the hull's centre line and the mirror below maps

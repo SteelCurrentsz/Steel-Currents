@@ -97,6 +97,7 @@ const SCULPTED = {
   maryland: () => import('./maryland.js').then((m) => { KRISS.maryland = m.buildMaryland; }),
   pennsylvania: () => import('./pennsylvania.js').then((m) => { KRISS.pennsylvania = m.buildPennsylvania; }),
   ise: () => import('./ise.js').then((m) => { KRISS.ise = m.buildIse; }),
+  amagi: () => import('./amagi.js').then((m) => { KRISS.amagi = m.buildAmagi; }),
   implacable: () => import('./implacable.js').then((m) => { CARRIERS.implacable = m.buildImplacable; }),
   essex: () => import('./essex.js').then((m) => { CARRIERS.essex = m.buildEssex; }),
   lexington: () => import('./lexington.js').then((m) => { CARRIERS.lexington = m.buildLexington; }),
@@ -906,12 +907,16 @@ function buildModel(classId) {
     const built = KRISS[cls.id]();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
+      tubeCaps: built.tubeCaps || null,
     });
     return {
       group: built.group, turrets: built.turrets,
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
+      // A submarine's bow and stern caps, which the scene swings when a
+      // tube fires (see stepDive in scene.js).
+      tubeCaps: built.tubeCaps || null,
     };
   }
 
