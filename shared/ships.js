@@ -3996,7 +3996,7 @@ export const SHIP_CLASSES = {
       mounts: [
         { id: 0, x: 0, z: 28.4, angle: 0, arc: 0.30, tubes: 4, my: -1.65,
           bores: [[-0.47, -1.15, 2.4], [0.47, -1.15, 2.4], [-0.47, -2.15, 2.4], [0.47, -2.15, 2.4]],
-          launch: { eject: 9, stagger: 0.6, lanes: [-0.53, 0.53, -0.53, 0.53], lie: -3.11, muzzle: 2.4, wet: true, clear: 4.2,
+          launch: { eject: 9, stagger: 0.6, lanes: [-0.47, 0.47, -0.47, 0.47], lie: -3.11, muzzle: 2.4, wet: true, clear: 4.2,
             fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
         { id: 1, x: 0, z: -29.0, angle: Math.PI, arc: 0.30, tubes: 1, my: -0.42,
           bores: [[0, -0.42, 0.8]],
