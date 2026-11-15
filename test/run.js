@@ -308,6 +308,10 @@ import {
   shokakuSurfaceY,
 } from '../client/js/render/shokaku.js';
 import {
+  LIFTS as HO_LIFTS, FD_AFT as HO_FD_AFT, FD_FWD as HO_FD_FWD, SPOT as HO_SPOT, fdY as hoshoFdY,
+} from '../client/js/render/hosho.js';
+import { b4y as planekitB4y } from '../client/js/render/planekit.js';
+import {
   buildHornet, stepLifts as hornetLifts, FD_FWD as HN_FD_FWD, FD_AFT as HN_FD_AFT, LIFTS as HN_LIFTS,
   HANGAR as HN_HANGAR, hangarSpots as hornetHangarSpots, MOUNT_SEATS as HORNET_SEATS, hornetSurfaceY,
   DECKLOAD as HN_DECKLOAD, B25_COUNT, b25Taxi as hnB25Taxi, b25Spot as hnB25Spot, B25_LANE as HN_B25_LANE,
@@ -4188,6 +4192,169 @@ check('the Credits screen credits the Standards, the Hyuga, the Implacable and t
     assert.ok(credit.includes(`https://skfb.ly/${m.link}`) && credit.includes(m.by)
       && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
   }
+});
+
+// ---- the Hōshō --------------------------------------------------------------------------
+// The first carrier built as one, off the owner's model of her by
+// build/kriss-hull.mjs and put together by carrier.js; her A5Ms and B4Ys off
+// the owner's models of them by build/naval-air-source.mjs.
+check('the Hōshō is commissioned just before the Shokaku, with nineteen A5Ms and B4Ys', () => {
+  const i = SHIP_ORDER.indexOf('hosho');
+  assert.ok(i >= 0, 'she is not in the yard');
+  assert.equal(SHIP_ORDER[i + 1], 'shokaku', `after the Hōshō comes ${SHIP_ORDER[i + 1]}`);
+  assert.ok(WWII_ORDER.includes('hosho'), 'she is not in the WWII yard');
+  assert.ok(WWII_ORDER.indexOf('hosho') === WWII_ORDER.indexOf('shokaku') - 1, 'she is not before the Shokaku in the WWII yard');
+  const cls = SHIP_CLASSES.hosho;
+  assert.equal(cls.fullName, 'IJN Hōshō');
+  assert.equal(cls.nation, 'jpn');
+  assert.equal(cls.type, 'CV');
+  assert.equal(cls.planes.group.total, 19);
+  assert.deepEqual(cls.planes.types, { fighter: 'a5m', dive: 'b4y', torpedo: 'b4y' });
+  assert.notEqual(silhouette('hosho'), silhouette('fletcher'), 'she is drawn as a destroyer in the yard');
+  assert.notEqual(silhouette('hosho'), silhouette('shokaku'), 'she is drawn with the Shokaku\'s island');
+});
+
+check('the Hōshō is armed as her model arms her: four 14 cm/50 and six twin 25 mm', () => {
+  const cls = SHIP_CLASSES.hosho;
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [1, 1, 1, 1]);
+  assert.equal(cls.gun.caliber, 140);
+  // Two a side, a pair forward and a pair aft, each firing out over her own side.
+  assert.equal(cls.turrets.filter((t) => t.x < 0).length, 2);
+  assert.equal(cls.turrets.filter((t) => t.z > 0).length, 2);
+  for (const t of cls.turrets) assert.equal(Math.sign(t.angle), Math.sign(t.x), `${t.name} fires across her`);
+  const mounts = lightMounts(cls);
+  assert.equal(mounts.length, 6);
+  assert.ok(mounts.every((m) => m.guns === 2), 'her 25 mm are not twins');
+  assert.equal(cls.aa.guns[0].caliber, 25);
+  // Her arcs are her model's, surveyed: none of her fires into her.
+  surveyedArcsHold('hosho');
+});
+
+check('the Hōshō\'s B4Y goes out with a torpedo or two bombs, the captain\'s choice, and she flies no third type', () => {
+  const cls = SHIP_CLASSES.hosho;
+  const SL = cls.planes.slots;
+  assert.deepEqual(Object.keys(SL), ['fighters', 'dive'], 'she has a slot for a type she does not fly');
+  assert.equal(SL.fighters.type, 'a5m');
+  assert.equal(SL.dive.type, 'b4y');
+  assert.deepEqual(Object.keys(SL.dive.loadouts), ['torpedo', 'bombs']);
+  assert.equal(torpOf(SL.dive.loadouts.torpedo), 1, 'her torpedo load hangs no torpedo');
+  assert.equal(torpOf(SL.dive.loadouts.bombs), 0, 'her bomb load is counted as a fish');
+  assert.equal(SL.dive.loadouts.bombs.bomb, 2);
+  assert.equal(cls.planes.group.max.torpedo, 0);
+  for (const k of ['torpedo', 'bombs']) {
+    const g = normaliseAirGroup(cls, { ...defaultAirGroup(cls), load: { dive: k } });
+    assert.equal(g.load.dive, k, `the ${k} load does not stick`);
+    const q = slotOrder(cls, g, g.fighters, g.dive, g.torpedo);
+    const b4ys = q.filter((f) => f.type === 'b4y');
+    assert.equal(b4ys.length, g.dive);
+    assert.ok(b4ys.every((f) => f.load === k), `her B4Ys go out without the ${k} load`);
+    if (k === 'torpedo') assert.ok(b4ys.every((f) => f.torp === 1 && f.role === 'torpedo'));
+    else assert.ok(b4ys.every((f) => f.bomb === 2 && f.torp === 0 && f.role === 'level'));
+    assert.ok(q.filter((f) => f.type === 'a5m').every((f) => f.role === 'fighter'));
+  }
+});
+
+check('the Hōshō\'s B4Ys put a torpedo in the water on one load and bombs on her target on the other', () => {
+  for (const load of ['torpedo', 'bombs']) {
+    const cls = SHIP_CLASSES.hosho;
+    const state = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
+    const cv = addShip(state, { name: 'Hosho', classId: 'hosho', team: 0, index: 0 });
+    const foe = addShip(state, { name: 'Foe', classId: 'iowa', team: 1, index: 0 });
+    cv.x = 0; cv.z = 0; foe.x = 0; foe.z = 8000;
+    setAirGroup(cv, cls, { fighters: 0, dive: 19, torpedo: 0, load: { dive: load } });
+    let fish = 0, bombs = 0, ld = null;
+    for (let i = 0; i < 30 * 320 && !fish && !bombs; i++) {
+      foe.spottedBy[0] = 3; cv.aimX = foe.x; cv.aimZ = foe.z;
+      if (i % 300 === 0) launchStrike(state, cv);
+      for (const ev of step(state, DT)) {
+        if (ev.e === 'airDrop' && ev.fish) fish += ev.fish;
+        if (ev.e === 'bomb' && ev.victim === foe.id) bombs++;
+        if (ev.e === 'launch' && ev.ship === cv.id && ev.ld) ld = ev.ld;
+      }
+    }
+    assert.equal(ld, load, `her deck was not told she went out with the ${load} load`);
+    if (load === 'torpedo') assert.ok(fish > 0 && !bombs, 'her B4Ys did not put a torpedo in the water');
+    else assert.ok(bombs > 0 && !fish, 'her B4Ys did not bomb her target');
+  }
+});
+
+check('the Hōshō builds with every mounting her datasheet lists', () => {
+  const cls = SHIP_CLASSES.hosho;
+  const built = buildShip('hosho');
+  assert.equal(built.group.userData.classId, 'hosho');
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.aaMounts.length, lightMounts(cls).length);
+});
+
+check('the Hōshō\'s two lifts run, and her after lift takes a B4Y with her wings spread', () => {
+  const built = buildShip('hosho');
+  assert.equal(built.lifts.length, 2, `she has ${built.lifts.length} lifts`);
+  const ud = built.group.userData;
+  const ys = (t) => { ud.step(t); return built.lifts.map((l) => l.group.position.y); };
+  const a = ys(0), b = ys(21);
+  assert.ok(a.some((y, i) => Math.abs(y - b[i]) > 1), 'no lift moved');
+  // A B4Y does not fold her wings: the lift that brings her up has to be
+  // wider than she is.
+  const span = (AERO.b4y.span * 13.42) / 15.0;
+  assert.ok(HO_LIFTS[HO_LIFTS.length - 1].hw * 2 > span, 'her after lift is narrower than a B4Y');
+  // On her deck, a B4Y is ranged with the load she went out with.
+  ud.launch(0, 'level', undefined, null, null, 'bombs');
+  const deck = ud.deck;
+  const shown = Object.entries(deck.plane.kinds).filter(([, k]) => k.body.visible).map(([n]) => n);
+  assert.deepEqual(shown, ['dive:bombs'], `she ranged ${shown.join(', ')} for a B4Y with bombs`);
+  ud.launch(0, 'torpedo', undefined, null, null, 'torpedo');
+  const shown2 = Object.entries(deck.plane.kinds).filter(([, k]) => k.body.visible).map(([n]) => n);
+  assert.deepEqual(shown2, ['torpedo'], `she ranged ${shown2.join(', ')} for a B4Y with a torpedo`);
+  // And the simulation puts each of her types up where her deck leaves it.
+  const P = SHIP_CLASSES.hosho.planes;
+  for (const role of ['fighter', 'dive', 'torpedo']) {
+    const e = deck.endPoses[role];
+    assert.ok(Math.abs(P.runOut[role] - e.z) < 6 && Math.abs(P.runHeight[role] - e.y) < 1.5,
+      `her deck leaves her ${role}s at ${e.z.toFixed(0)}, ${e.y.toFixed(1)} up, and the simulation puts them up at ${P.runOut[role]}, ${P.runHeight[role]}`);
+  }
+});
+
+check('the Hōshō\'s runway runs down the slope of her flight deck over her stern, as her model draws it', () => {
+  assert.ok(HO_FD_AFT < -88, `her runway stops at ${HO_FD_AFT}, short of her stern`);
+  assert.ok(HO_FD_FWD > 88, `her runway stops at ${HO_FD_FWD}, short of her bow`);
+  assert.ok(Math.abs(hoshoFdY(0) - 11.85) < 0.01 && Math.abs(hoshoFdY(-60) - 11.85) < 0.01, 'her flat is not flat');
+  assert.ok(hoshoFdY(-89) < hoshoFdY(-80) && hoshoFdY(-80) < hoshoFdY(-71), 'her after end does not run down');
+  assert.ok(hoshoFdY(-89) < 10, 'her stern is drawn as high as her flat');
+  // And her aeroplanes come aboard and go off on the flat of it.
+  const t = SHIP_CLASSES.hosho.planes.touchdown;
+  assert.ok(t.z > -70 && Math.abs(t.y - 11.85) < 0.05, 'she lands them on the slope');
+  assert.ok(HO_SPOT > -70, 'she spots them on the slope');
+});
+
+check('the Hōshō\'s A5M and B4Y are drawn in their own textures, and the B4Y carries the load she was given', () => {
+  for (const k of ['a5m', 'b4y']) {
+    const src = readFileSync(new URL(`../client/js/render/${k}Model.data.js`, import.meta.url), 'utf8');
+    assert.ok(src.includes(`${k.toUpperCase()}_TEXTURE = "data:image/jpeg;base64,`), `the ${k} has no texture`);
+    assert.ok(/"bodyUV":"u16:/.test(src), `the ${k}'s airframe has no place on her texture`);
+  }
+  const torp = new THREE.Group(), bombs = new THREE.Group();
+  const t = planekitB4y(torp, 0, 0, 0, 0, false, { load: 'torpedo' });
+  const b = planekitB4y(bombs, 0, 0, 0, 0, false, { load: 'bombs' });
+  const falls = (p) => p.userData.parts.filter((q) => q.fall).map((q) => q.load);
+  assert.deepEqual(falls(t), ['torpedo']);
+  assert.deepEqual(falls(b), ['bombs', 'bombs']);
+  assert.ok(t.userData.parts.some((q) => q.turret), 'her gunner has no gun');
+  // In the air: what falls is what she went out with.
+  flightModels();
+  assert.ok(storeOf('b4y', 'torpedo') && storeOf('b4y', 'bombs'), 'she has nothing to drop');
+  assert.ok(storeOf('b4y', 'torpedo').len > storeOf('b4y', 'bombs').len, 'her torpedo is no longer than a bomb');
+  assert.ok(rearGunOf('b4y'), 'her gunner\'s gun is not drawn in the air');
+  assert.equal(gunsOf('a5m').length, 2, 'her A5M does not have her two guns');
+});
+
+check('the Credits screen credits the Hōshō\'s model as its licence asks', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const at = screen.indexOf('Japanese Aircraft Carrier Hōshō</a>');
+  assert.ok(at >= 0, 'the Hōshō is not credited');
+  const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+  assert.ok(credit.includes('https://skfb.ly/ptTKX') && credit.includes('kriss50')
+    && credit.includes('http://creativecommons.org/licenses/by/4.0/'), 'her credit is not as its licence asks');
 });
 
 // ---- the ships of the owner's eight new models ---------------------------------------
