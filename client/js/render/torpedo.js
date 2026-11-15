@@ -77,6 +77,14 @@ export const TORPEDO_KINDS = {
     blades: [4, 4], stud: true,
     paint: { head: 0x4a4d45, flask: 0x9da2a3, after: 0x8f9495, tail: 0x777c7d, joint: 0x2c2e2b, screw: 0xae8a54 },
   },
+  // The British 21-inch Mark VIII, out of a submarine's bow tubes: a
+  // burner-cycle steam fish, shorter than an American 21-inch, with a black
+  // warhead on a grey body.
+  mk8: {
+    len: 6.6, r: 0.267, nose: 'round', head: 0.26, flask: 0.38, cone: 3.8, fin: 0.98,
+    blades: [4, 4], stud: true,
+    paint: { head: 0x24272a, flask: 0x7b8085, after: 0x70757a, tail: 0x63686c, joint: 0x8a6b3a, screw: 0xb38b4f },
+  },
   // The Surcouf's 55 cm 1924V: long, a round head and an olive warhead.
   l3: {
     len: 8.28, r: 0.275, nose: 'round', head: 0.25, flask: 0.38, cone: 4.0, fin: 0.98,

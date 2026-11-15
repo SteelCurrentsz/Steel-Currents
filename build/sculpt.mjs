@@ -2014,7 +2014,35 @@ export function pack(m, col, uv, { buckets: nBuckets, length, surfaceOf = null, 
       bk.idx.push(li);
     }
   }
-  const nonEmpty = buckets.filter((bk) => bk.idx.length > 0);
+  // A slice with more points than a Uint16 can number -- the whole of a
+  // pagoda bridge drawn to a third of a million faces falls in a metre or
+  // two of her length -- is dealt out into as many slices as it takes, each
+  // of the same surface, triangle by triangle in the order they came.
+  const nonEmpty = [];
+  for (const bk of buckets) {
+    if (!bk.idx.length) continue;
+    if (bk.pos.length / 3 < 65536) { nonEmpty.push(bk); continue; }
+    let cur = null;
+    for (let i = 0; i < bk.idx.length; i += 3) {
+      if (!cur || cur.pos.length / 3 > 65530) {
+        cur = { map: new Map(), pos: [], nrm: [], col: [], uv: [], idx: [], surface: bk.surface };
+        nonEmpty.push(cur);
+      }
+      for (let k = 0; k < 3; k++) {
+        const v = bk.idx[i + k];
+        let li = cur.map.get(v);
+        if (li === undefined) {
+          li = cur.pos.length / 3;
+          cur.map.set(v, li);
+          cur.pos.push(bk.pos[v * 3], bk.pos[v * 3 + 1], bk.pos[v * 3 + 2]);
+          cur.nrm.push(bk.nrm[v * 3], bk.nrm[v * 3 + 1], bk.nrm[v * 3 + 2]);
+          cur.col.push(bk.col[v * 3], bk.col[v * 3 + 1], bk.col[v * 3 + 2]);
+          cur.uv.push(bk.uv[v * 2], bk.uv[v * 2 + 1]);
+        }
+        cur.idx.push(li);
+      }
+    }
+  }
   if (compact) return packCompact(nonEmpty, !!surfaceOf, T.length / 3);
   const parts = [];
   const head = Buffer.alloc(4);

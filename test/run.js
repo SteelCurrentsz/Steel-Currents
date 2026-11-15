@@ -2483,7 +2483,7 @@ check('the Nimitz flies her Hornets, Hawkeyes and Seahawks as their loads say, a
   assert.ok(widened || !foe.alive, 'her Hawkeye did not show her side a ship beyond her own sight');
 });
 
-check('the Kongo is commissioned before the Fuso, after the Missouri', () => {
+check('the Kongo is commissioned before the Amagi and the Fuso, after the Missouri', () => {
   const i = SHIP_ORDER.indexOf('kongo');
   assert.ok(i >= 0, 'the Kongo is not in the yard');
   // The Nimitz and the Ford are in the list between them, but in the missile
@@ -2492,7 +2492,8 @@ check('the Kongo is commissioned before the Fuso, after the Missouri', () => {
     `before the Kongo come ${SHIP_ORDER.slice(i - 3, i).join(', ')}`);
   assert.deepEqual(WWII_ORDER.slice(WWII_ORDER.indexOf('kongo') - 2, WWII_ORDER.indexOf('kongo')), ['iowa', 'louisiana'],
     'in the WWII yard the Kongo does not follow the Iowa and the Louisiana');
-  assert.equal(SHIP_ORDER[i + 1], 'fuso', `after the Kongo comes ${SHIP_ORDER[i + 1]}`);
+  // Her own design's successor, the Amagi, between her and the Fuso.
+  assert.deepEqual(SHIP_ORDER.slice(i + 1, i + 3), ['amagi', 'fuso'], `after the Kongo come ${SHIP_ORDER.slice(i + 1, i + 3).join(', ')}`);
   const cls = SHIP_CLASSES.kongo;
   assert.equal(cls.fullName, 'IJN Kongo');
   assert.equal(cls.typeName, 'Battlecruiser');
@@ -3148,10 +3149,10 @@ check("the Yukikaze trains both banks out and throws their fish over her side, w
   });
 });
 
-check('the Fuso is commissioned before the Mutsu, after the Kongo', () => {
+check('the Fuso is commissioned before the Mutsu, after the Kongo and the Amagi', () => {
   const i = SHIP_ORDER.indexOf('fuso');
   assert.ok(i >= 0, 'the Fuso is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'kongo', `before the Fuso comes ${SHIP_ORDER[i - 1]}`);
+  assert.deepEqual(SHIP_ORDER.slice(i - 2, i), ['kongo', 'amagi'], `before the Fuso come ${SHIP_ORDER.slice(i - 2, i).join(', ')}`);
   // And her near-sister the Ise, and then the Mutsu between them and the Yamato.
   assert.equal(SHIP_ORDER[i + 1], 'ise', `after the Fuso comes ${SHIP_ORDER[i + 1]}`);
   assert.equal(SHIP_ORDER[i + 2], 'mutsu', `after the Ise comes ${SHIP_ORDER[i + 2]}`);
@@ -16450,7 +16451,11 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // And the Higgins boat: her ramp stands up across her bow higher than the
     // muzzles of her two Brownings aft, so the wave tops dead ahead are hidden
     // from both. She fights an aeroplane off either bow and on the beam.
-    const noBow = blindAhead || cls.id === 'agincourt' || cls.id === 'higgins';
+    //
+    // And a U-boat's flak, however much of it: the VIIC/41's two 2 cm and her
+    // 3.7 cm all stand on the galleries abaft her tower, which hides the wave
+    // tops dead ahead from every one of them, as the U-48's one gun is.
+    const noBow = blindAhead || cls.id === 'agincourt' || cls.id === 'higgins' || cls.type === 'SS';
     assert.ok(only ? (ahead.barrels > 0 || beam.barrels > 0)
       : ((ahead.barrels > 0 || noBow) && beam.barrels > 0),
       `${cls.id} cannot shoot at an aeroplane at all`);
@@ -16634,7 +16639,9 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
       assert.equal(rows.length, 0, `${cls.id} carries no weapons, and lists ${rows.map((w) => w.name).join(', ')}`);
       continue;
     }
-    const least = cls.type === 'LC' ? 1 : cls.cargo ? 2 : 3;
+    // A submarine is her tubes and a gun: the Type VIIC as the model has her
+    // late in the war, her deck gun landed, carries her tubes and her 2 cm.
+    const least = cls.type === 'LC' ? 1 : cls.cargo || cls.type === 'SS' ? 2 : 3;
     assert.ok(rows.length >= least, `${cls.id} lists only ${rows.length} weapons`);
     for (const w of rows) {
       assert.ok(w.name && w.name.length > 2, `${cls.id} has an unnamed weapon`);
@@ -16649,7 +16656,9 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     // A landing craft has no light battery: the Higgins boat's two Brownings
     // are her main battery, and dual-purpose -- they are her flak.
     const flak = cls.type === 'LC' ? rows.filter((w) => w.role === 'dp') : light;
-    assert.ok(flak.length > 0, `${cls.id} has no anti-aircraft guns listed`);
+    // And a small boat may have none: the U-class's flak was a Lewis gun
+    // brought up through the hatch.
+    if (cls.aa?.guns?.length || cls.type !== 'SS') assert.ok(flak.length > 0, `${cls.id} has no anti-aircraft guns listed`);
     for (const t of cls.datasheet.tertiary || []) {
       // A calibre she carries in more than one kind of mounting -- the
       // Yukikaze's 25 mm, triples and singles -- is listed a row to a kind,
@@ -26796,11 +26805,12 @@ check('a flight in the battle actually flies the turn she is given', () => {
   void from;
 });
 
-check('the FS Surcouf is in the yard after U-48, and she is a submarine', () => {
+check('the FS Surcouf is in the yard after U-48 and the three boats that follow her, and she is a submarine', () => {
   // The cruiser-submarine: the other answer to the question the U-48 answers.
   const i = SHIP_ORDER.indexOf('surcouf');
   assert.ok(i > 0, 'the Surcouf is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'u48', 'she is not next after U-48');
+  // After the U-48 and the three boats that follow her -- two Type VIICs and a U-class.
+  assert.deepEqual(SHIP_ORDER.slice(i - 4, i), ['u48', 'type7c', 'type7c41', 'uclass3'], 'she is not next after U-48 and the boats that follow her');
   const cls = SHIP_CLASSES.surcouf;
   assert.equal(cls.type, 'SS', 'she is not a submarine');
   assert.equal(cls.fullName, 'FS Surcouf');
@@ -33213,6 +33223,117 @@ check('the height of the sea alone is the height the full sample gives', () => {
   for (let i = 0; i < 500; i++) {
     const x = Math.sin(i) * 9000, z = Math.cos(i * 1.3) * 9000, t = i * 0.77;
     assert.equal(sampleSea(W, x, z, t, false).y, sampleSea(W, x, z, t, true).y);
+  }
+});
+
+// ---- the Amagi, the Type VIICs and the U-class --------------------------------------------
+// A battlecruiser and three submarines, each off the owner's model of her by
+// build/kriss-hull.mjs and put together by krissShip.js.
+const AMAGI_SUB_MODELS = [
+  { id: 'amagi', link: '6Utus', title: 'Japanese Battlecruiser Amagi', by: 'MPonceE' },
+  { id: 'type7c41', link: 'pt97Q', title: 'Type VIIC41 U-boat 3D Model', by: 'kriss50' },
+  { id: 'uclass3', link: 'pt9xJ', title: 'British U-class III', by: 'kriss50' },
+  { id: 'type7c', link: 'pt9wq', title: 'Type VIIC U-boat', by: 'kriss50' },
+];
+
+check('the Amagi comes in the yard after the Kongo, and the new boats after the U-48', () => {
+  assert.equal(SHIP_ORDER.indexOf('amagi'), SHIP_ORDER.indexOf('kongo') + 1);
+  const w = WWII_ORDER.indexOf('amagi');
+  assert.ok(w > 0 && WWII_ORDER[w - 1] === 'kongo', 'she is not in the Second World War yard after the Kongo');
+  const u = SHIP_ORDER.indexOf('u48');
+  assert.deepEqual(SHIP_ORDER.slice(u + 1, u + 4), ['type7c', 'type7c41', 'uclass3']);
+  for (const id of ['type7c', 'type7c41', 'uclass3']) assert.ok(WWII_ORDER.includes(id), `${id} is not in the WWII yard`);
+  assert.equal(SHIP_CLASSES.amagi.fullName, 'IJN Amagi');
+  assert.equal(SHIP_CLASSES.type7c.fullName, 'KMS Type VIIC');
+  assert.equal(SHIP_CLASSES.type7c41.fullName, 'KMS Type VIIC41');
+  assert.equal(SHIP_CLASSES.uclass3.fullName, 'HMS U-Class III');
+});
+
+check('the Amagi is armed as she was designed and as her model arms her', () => {
+  const C = SHIP_CLASSES.amagi;
+  assert.equal(C.nation, 'jpn');
+  // Ten 41 cm in five twins, two forward and three aft.
+  assert.deepEqual(C.turrets.map((t) => t.guns), [2, 2, 2, 2, 2]);
+  assert.equal(C.gun.caliber, 410);
+  assert.deepEqual(C.turrets.map((t) => Math.sign(t.z)), [1, 1, -1, -1, -1]);
+  // Sixteen single 14 cm in her casemates, at ships only.
+  assert.equal(C.secondary.caliber, 140);
+  assert.equal(C.secondary.role, 'surface');
+  assert.equal(C.secondary.mounts.length, 16);
+  assert.ok(C.secondary.mounts.every((m) => m.guns === 1));
+  // Eight twin 100 mm dual-purpose, and her triple 25 mm.
+  const dp = C.aa.guns.find((g) => g.caliber === 100);
+  assert.equal(dp.role, 'dp');
+  assert.equal(dp.mounts.length, 8);
+  assert.ok(dp.mounts.every((m) => m.guns === 2));
+  const triples = C.aa.guns.filter((g) => g.caliber === 25).flatMap((g) => g.mounts).filter((m) => m.guns === 3);
+  assert.ok(triples.length >= 16, `only ${triples.length} triple 25 mm`);
+  assert.equal(C.torpedoes, null);
+});
+
+check('the three new boats are submarines that dive, their tubes in their hulls', () => {
+  const C = SHIP_CLASSES;
+  for (const id of ['type7c', 'type7c41', 'uclass3']) {
+    assert.equal(C[id].type, 'SS', `${id} is not a submarine`);
+    assert.ok(C[id].dive && C[id].dive.max > C[id].dive.periscope, `${id} cannot dive`);
+    assert.ok(C[id].torpedoes.inHull, `${id}'s tubes train`);
+    assert.ok(C[id].torpedoes.mounts.every((m) => m.bores.length === m.tubes), `${id}: a tube with no door`);
+  }
+  assert.deepEqual(C.type7c.torpedoes.mounts.map((m) => m.tubes), [4, 1]);
+  assert.deepEqual(C.type7c41.torpedoes.mounts.map((m) => m.tubes), [4, 1]);
+  assert.deepEqual(C.uclass3.torpedoes.mounts.map((m) => m.tubes), [4]);
+  assert.equal(C.type7c41.gun.caliber, 88);
+  assert.equal(C.uclass3.gun.caliber, 76);
+  assert.equal(C.uclass3.nation, 'gbr');
+  assert.equal(torpedoKind(C.uclass3), 'mk8');
+  assert.equal(torpedoKind(C.type7c), 'g7e');
+  // The VIIC/41 goes deeper than the VIIC she was built from.
+  assert.ok(C.type7c41.dive.max > C.type7c.dive.max);
+});
+
+check('the Amagi and the three boats build with every mounting their datasheets list', () => {
+  for (const { id } of AMAGI_SUB_MODELS) {
+    const cls = SHIP_CLASSES[id];
+    const built = buildShip(id);
+    assert.equal(built.group.userData.classId, id, `${id} was built as something else`);
+    assert.equal(built.turrets.length, cls.turrets.length, `${id}: ${built.turrets.length} turrets`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${id}: ${built.aaMounts.length} light mounts`);
+    assert.equal((built.torpMounts || []).length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${id}: tubes`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${id}: secondaries`);
+    // Every bank's muzzles are its doors, one to a tube.
+    if (cls.torpedoes) {
+      built.torpMounts.forEach((m, i) => assert.equal(m.userData.muzzles.length, cls.torpedoes.mounts[i].tubes, `${id}: bank ${i}`));
+    }
+  }
+});
+
+check('each new boat goes down, fires her bow tubes under the sea, and her guns drown', () => {
+  for (const id of ['type7c', 'type7c41', 'uclass3']) {
+    const D = SHIP_CLASSES[id].dive;
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const state = createState(world, { mode: 'deathmatch' });
+    const boat = addShip(state, { name: 'U', classId: id, team: 0, index: 0 });
+    const foe = addShip(state, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+    boat.x = 0; boat.z = -1500; boat.heading = 0;
+    foe.x = 0; foe.z = 28000;
+    boat.aimX = 0; boat.aimZ = 28000;
+    applyInput(boat, { depth: D.periscope + 4 });
+    for (let i = 0; i < 400; i++) step(state, DT);
+    assert.ok(submerged(boat) && gunsDrowned(boat), `${id}: under and her guns are not drowned`);
+    assert.ok(fireTorpedoes(state, boat, 0) > 0, `${id}: her bow tubes will not fire submerged`);
+  }
+});
+
+check('the Credits screen credits the Amagi\'s model and the three boats\'', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of AMAGI_SUB_MODELS) {
+    const at = screen.indexOf(`${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(`https://skfb.ly/${m.link}`) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
   }
 });
 

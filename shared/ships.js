@@ -4606,6 +4606,302 @@ export const SHIP_CLASSES = {
     },
   },
 
+  type7c: {
+    // The Type VIIC: the workhorse of the Battle of the Atlantic, and the most
+    // numerous submarine class ever built -- five hundred and sixty-eight of
+    // them commissioned between 1940 and 1945. A VIIB lengthened by sixty
+    // centimetres for a bigger control room and the active sonar, the same
+    // four bow tubes and one stern tube, and seven and a half knots under the
+    // sea.
+    //
+    // She is drawn from the owner's model of her -- "Type VIIC U-boat" by
+    // kriss50, under Creative Commons Attribution 4.0, credited on the Credits
+    // screen (see type7c.js and build/prepare-type7c-hull.mjs) -- at her
+    // 67.1 m over all, as the model has her late in the war: her deck gun
+    // landed, a single 2 cm on her Wintergarten.
+    id: 'type7c',
+    name: 'Type VIIC',
+    fullName: 'KMS Type VIIC',
+    className: 'Type VIIC',
+    type: 'SS',
+    typeName: 'Submarine',
+    nation: 'ger',
+    blurb: 'The workhorse of the Atlantic: five hundred and sixty-eight built. Four bow tubes and one aft, her deck gun landed, and a 2 cm on her Wintergarten.',
+    hull: { length: 67.1, beam: 6.18, draft: 4.74, superstructure: 0.8 },
+    hp: 7100,
+    // Seventeen knots and a half on her two diesels on the surface, seven and
+    // a half on her motors under it.
+    maxSpeed: 17.7 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.62,
+    turnRate: 0.105,
+    rudderShift: 3.4,
+    speedLossInTurn: 0.18,
+    concealment: 3100,
+    fireDetectPenalty: 4200,
+    radarRange: 0,
+    repairCooldown: 96,
+    repairHeal: 0.07,
+    smokeCharges: 0,
+    // Her pressure hull, eighteen and a half millimetres of it, and every gun in this game goes through it.
+    armor: { belt: 18, deck: 5, citadel: 18, bow: 5, superstructure: 5 },
+    dive: {
+      periscope: 9, max: 34,
+      rate: 2.4, blow: 3.6,
+      oxygen: 720, recharge: 90,
+      speed: 7.6 * KNOTS,
+      concealment: 1250,
+    },
+    // No deck gun: the model draws her as she went to sea late in the war, the
+    // 8.8 cm landed to save weight and drag under water, and the boat fought
+    // with her tubes and her flak alone. (The figures below describe nothing
+    // she carries: with no mounting to put it in, it never fires.)
+    turrets: [],
+    gun: {
+      name: 'None', role: 'surface',
+      elev: { min: -0.1, max: 0.6 },
+      reach: 0.5,
+      caliber: 20, reload: 9999, traverse: 1, range: 1000, sigma: 1.4,
+      shells: shells(20, 1, 1, 1, 800, 0.004),
+    },
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 0, z: 28.4, angle: 0, arc: 0.30, tubes: 4, my: -0.78,
+          bores: [[-0.53, -0.3, 2.4], [0.53, -0.3, 2.4], [-0.53, -1.25, 2.4], [0.53, -1.25, 2.4]],
+          launch: { eject: 9, stagger: 0.6, lanes: [-0.53, 0.53, -0.53, 0.53], lie: -3.11, muzzle: 2.4, wet: true, clear: 4.2,
+            fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
+        { id: 1, x: 0, z: -29.0, angle: Math.PI, arc: 0.30, tubes: 1, my: -0.9,
+          bores: [[0, -0.9, 0.8]],
+          launch: { eject: 9, stagger: 0, lanes: [0], lie: -3.11, muzzle: 0.8, wet: true, clear: 4.2,
+            fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
+      ],
+      name: 'G7e torpedo', role: 'surface', caliber: 533,
+      reach: 0.55,
+      // In the hull, and aimed by aiming the boat.
+      inHull: true,
+      traverse: 0.0,
+      reload: 96, damage: 14200, speed: 30 * KNOTS, range: 5000,
+      // Electric, so no wake at all.
+      detection: 700, arming: 300, spread: 0.035, floodChance: 0.38,
+    },
+    secondary: null,
+    // Her 2 cm C/30 on the Wintergarten abaft her bridge, which drowns with
+    // the boat.
+    aa: {
+      range: 2200, dps: 9,
+      guns: [
+        { name: '2 cm C/30', caliber: 20, role: 'aa', reload: 0.30, range: 2200, piece: 'aa',
+          mounts: [
+            { x: 0, z: -1.64, angle: Math.PI, arc: 2.79, rest: Math.PI, guns: 1, my: 5.03 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 769,
+      aircraft: 0,
+      mainRounds: 0,
+      torpedoesCarried: 14,
+      tertiary: [
+        { caliber: 20, label: '2cm', barrels: 1, rounds: 4380 },
+      ],
+    },
+  },
+
+  type7c41: {
+    // The Type VIIC/41: the VIIC built again from 1943 with a pressure hull of
+    // thicker steel, good for a hundred and twenty metres where the VIIC was
+    // good for a hundred, lighter machinery to pay for it, and the bigger
+    // flak the air war over the Biscay had taught the U-boats they needed.
+    //
+    // She is drawn from the owner's model of her -- "Type VIIC41 U-boat 3D
+    // Model" by kriss50, under Creative Commons Attribution 4.0, credited on
+    // the Credits screen (see type7c41.js and build/prepare-type7c41-hull.mjs)
+    // -- at her 67.2 m over all, armed as the model arms her: the 8.8 cm on
+    // her casing forward of the tower, a 2 cm either side of her upper
+    // Wintergarten and a 3.7 cm on her lower one.
+    id: 'type7c41',
+    name: 'Type VIIC/41',
+    fullName: 'KMS Type VIIC41',
+    className: 'Type VIIC/41',
+    type: 'SS',
+    typeName: 'Submarine',
+    nation: 'ger',
+    blurb: 'A VIIC with a thicker pressure hull and the flak of 1943: an 8.8 cm forward, two 2 cm and a 3.7 cm on her galleries, and five tubes.',
+    hull: { length: 67.2, beam: 6.2, draft: 4.74, superstructure: 0.8 },
+    hp: 7400,
+    // Seventeen knots and a half on her two diesels on the surface, seven and
+    // a half on her motors under it.
+    maxSpeed: 17.7 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.62,
+    turnRate: 0.105,
+    rudderShift: 3.4,
+    speedLossInTurn: 0.18,
+    concealment: 3100,
+    fireDetectPenalty: 4200,
+    radarRange: 0,
+    repairCooldown: 96,
+    repairHeal: 0.07,
+    smokeCharges: 0,
+    // Her pressure hull, twenty-one and a half millimetres of it -- the VIIC's eighteen and a half, made stronger to go deeper, and every gun in this game goes through it.
+    armor: { belt: 21, deck: 5, citadel: 21, bow: 5, superstructure: 5 },
+    dive: {
+      periscope: 9, max: 40,
+      rate: 2.4, blow: 3.6,
+      oxygen: 720, recharge: 90,
+      speed: 7.6 * KNOTS,
+      concealment: 1250,
+    },
+    // The 8.8 cm SK C/35 on the casing forward of the tower: an open mounting
+    // on a wet deck, worked by men standing in the sea's way. It cannot be
+    // fought with the boat under.
+    turrets: [
+      { id: 0, name: 'Deck gun', x: 0.05, z: 7.95, angle: 0, arc: 2.79, rest: 0, guns: 1, my: 2.53, open: true },
+    ],
+    gun: {
+      name: '8.8 cm SK C/35', role: 'surface',
+      reach: 2.69,
+      caliber: 88, reload: 4.4, traverse: 0.46, range: 11000, sigma: 1.30,
+      shells: shells(88, 950, 820, 9, 700, 0.05),
+    },
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 0, z: 28.4, angle: 0, arc: 0.30, tubes: 4, my: -1.65,
+          bores: [[-0.47, -1.15, 2.4], [0.47, -1.15, 2.4], [-0.47, -2.15, 2.4], [0.47, -2.15, 2.4]],
+          launch: { eject: 9, stagger: 0.6, lanes: [-0.47, 0.47, -0.47, 0.47], lie: -3.11, muzzle: 2.4, wet: true, clear: 4.2,
+            fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
+        { id: 1, x: 0, z: -29.0, angle: Math.PI, arc: 0.30, tubes: 1, my: -0.42,
+          bores: [[0, -0.42, 0.8]],
+          launch: { eject: 9, stagger: 0, lanes: [0], lie: -3.11, muzzle: 0.8, wet: true, clear: 4.2,
+            fish: { len: 7.16, r: 0.267, kind: 'g7e' } } },
+      ],
+      name: 'G7e torpedo', role: 'surface', caliber: 533,
+      reach: 0.55,
+      // In the hull, and aimed by aiming the boat.
+      inHull: true,
+      traverse: 0.0,
+      reload: 96, damage: 14200, speed: 30 * KNOTS, range: 5000,
+      // Electric, so no wake at all.
+      detection: 700, arming: 300, spread: 0.035, floodChance: 0.38,
+    },
+    secondary: null,
+    aa: {
+      range: 4200, dps: 26,
+      guns: [
+        // Her two 2 cm C/38, one either side of her upper Wintergarten.
+        { name: '2 cm C/38', caliber: 20, role: 'aa', reload: 0.27, range: 2200, piece: 'aa',
+          mounts: [
+            { x: -1.02, z: -0.6, angle: -2.2, arc: 1.9, rest: Math.PI, guns: 1, my: 5.26 },
+            { x: 1.02, z: -0.6, angle: 2.2, arc: 1.9, rest: Math.PI, guns: 1, my: 5.26 },
+          ] },
+        // And her 3.7 cm Flak M42 on the lower one, over her after casing.
+        { name: '3.7 cm Flak M42', caliber: 37, role: 'aa', reload: 0.36, range: 4200, piece: 'aa37',
+          mounts: [
+            { x: 0, z: -4.1, angle: Math.PI, arc: 2.4, rest: Math.PI, guns: 1, my: 4.24 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 759,
+      aircraft: 0,
+      mainRounds: 205,
+      torpedoesCarried: 14,
+      tertiary: [
+        { caliber: 37, label: '3.7cm', barrels: 1, rounds: 1195 },
+        { caliber: 20, label: '2cm', barrels: 2, rounds: 4380 },
+      ],
+    },
+  },
+
+  uclass3: {
+    // A U-class submarine of the third group: the Royal Navy's small boats,
+    // built for training and for the narrow seas and sent instead to the
+    // Mediterranean, where from Malta in 1941 and 1942 they did more than any
+    // other ships to starve Rommel's army -- Upholder, Urge, Unbroken, Unruffled.
+    // Fifty-eight metres, five hundred and forty tonnes, four bow tubes
+    // inside her hull and eight torpedoes, a 3-inch on a bandstand at the
+    // forward end of her tower, and diesel-electric drive that made her
+    // nearly as quick under the sea as on it.
+    //
+    // She is drawn from the owner's model of her -- "British U-class III" by
+    // kriss50, under Creative Commons Attribution 4.0, credited on the Credits
+    // screen (see uclass3.js and build/prepare-uclass3-hull.mjs) -- at her
+    // 58.2 m over all.
+    id: 'uclass3',
+    name: 'U-class III',
+    fullName: 'HMS U-Class III',
+    className: 'U',
+    type: 'SS',
+    typeName: 'Submarine',
+    nation: 'gbr',
+    blurb: 'The small boats that starved the Afrika Korps from Malta: four bow tubes, a 3-inch, and nearly as quick under the sea as on it.',
+    hull: { length: 58.2, beam: 4.88, draft: 4.6, superstructure: 0.7 },
+    hp: 5600,
+    // Eleven knots and a quarter on the surface; ten under it, which no other
+    // boat of the war could come near.
+    maxSpeed: 11.25 * KNOTS,
+    reverseSpeed: 5 * KNOTS,
+    accel: 0.58,
+    turnRate: 0.12,
+    rudderShift: 3.0,
+    speedLossInTurn: 0.16,
+    // Smaller still than a Type VII, and painted dark for the Mediterranean.
+    concealment: 2700,
+    fireDetectPenalty: 3800,
+    radarRange: 0,
+    repairCooldown: 96,
+    repairHeal: 0.07,
+    smokeCharges: 0,
+    armor: { belt: 16, deck: 5, citadel: 16, bow: 5, superstructure: 5 },
+    dive: {
+      periscope: 9, max: 30,
+      rate: 2.6, blow: 3.6,
+      oxygen: 720, recharge: 90,
+      speed: 9 * KNOTS,
+      concealment: 1100,
+    },
+    // Her 3-inch 12 cwt on its bandstand at the forward end of her tower.
+    turrets: [
+      { id: 0, name: 'Deck gun', x: -0.05, z: 3.05, angle: 0, arc: 2.79, rest: 0, guns: 1, my: 2.77, open: true },
+    ],
+    gun: {
+      name: '3-inch 12 cwt', role: 'surface',
+      reach: 3.24,
+      caliber: 76, reload: 4.0, traverse: 0.5, range: 9000, sigma: 1.35,
+      shells: shells(76, 780, 650, 6, 670, 0.04),
+    },
+    // Four 21-inch tubes in her bow, inside her pressure hull, and four
+    // reloads. Mark VIIIs: steam torpedoes, faster than a G7e and leaving a
+    // wake to say where they came from.
+    torpedoes: {
+      mounts: [
+        { id: 0, x: 0, z: 26.4, angle: 0, arc: 0.30, tubes: 4, my: -0.72,
+          bores: [[-0.55, -0.25, 0.3], [0.55, -0.25, 0.3], [-0.55, -1.2, 0.3], [0.55, -1.2, 0.3]],
+          launch: { eject: 9, stagger: 0.6, lanes: [-0.55, 0.55, -0.55, 0.55], lie: -3.11, muzzle: 0.3, wet: true, clear: 4.2,
+            fish: { len: 6.6, r: 0.267, kind: 'mk8' } } },
+      ],
+      name: '21-inch Mark VIII', role: 'surface', caliber: 533,
+      reach: 0.55,
+      inHull: true,
+      traverse: 0.0,
+      reload: 110, damage: 15500, speed: 45 * KNOTS, range: 4570,
+      detection: 1200, arming: 300, spread: 0.035, floodChance: 0.4,
+    },
+    secondary: null,
+    // No flak: a Lewis gun brought up through the hatch, and nothing more.
+    aa: { range: 0, dps: 0, guns: [] },
+    planes: null,
+    datasheet: {
+      displacement: 540,
+      aircraft: 0,
+      mainRounds: 120,
+      torpedoesCarried: 8,
+      tertiary: [],
+    },
+  },
+
   surcouf: {
     // FS Surcouf: the croiseur sous-marin, and the largest submarine in the
     // world from 1934 until the Japanese built the I-400s.
@@ -11073,6 +11369,171 @@ export const SHIP_CLASSES = {
     },
   },
 
+  amagi: {
+    // IJN Amagi, the name ship of the battlecruisers the Washington Treaty
+    // killed on the slip: laid down at Yokosuka in December 1920, two hundred
+    // and fifty-two metres of her, ten 41 cm/45 in five twin turrets -- the
+    // Nagatos' guns with half again as many of them -- and thirty knots on
+    // a hundred and thirty-one thousand shaft horsepower. The treaty spared
+    // her for conversion to a carrier; the Great Kanto earthquake of
+    // September 1923 broke her keel on the slip, and she was scrapped, and
+    // her sister Akagi went to sea as the carrier in her place.
+    //
+    // She sails here as she would have been finished, and as the owner's
+    // model of her draws her -- "Japanese Battlecruiser Amagi" by MPonceE,
+    // under Creative Commons Attribution 4.0, credited on the Credits screen
+    // (see amagi.js and build/prepare-amagi-hull.mjs) -- at her 252 m over
+    // all and floated at 9.5 m: her ten 41 cm, sixteen 14 cm in casemates
+    // in her side, eight twin 100 mm dual-purpose guns about her funnels,
+    // and her triple 25 mm -- with six single 25 mm on her quarterdeck, and
+    // a triple on the roof of each of her three superfiring turrets, which
+    // trains with it.
+    id: 'amagi',
+    name: 'Amagi',
+    fullName: 'IJN Amagi',
+    className: 'Amagi',
+    type: 'BB',
+    typeName: 'Battlecruiser',
+    nation: 'jpn',
+    blurb: 'The battlecruiser the earthquake broke on her slip: ten 41 cm guns in five twin turrets, sixteen casemate 14 cm and thirty knots.',
+    hull: {
+      // Where her two funnels come out, [across, along, up].
+      funnels: [[0, 22.6, 25.6], [0, 8.8, 23.0]], length: 252, beam: 30.8, draft: 9.5, superstructure: 1.45 },
+    hp: 76000,
+    // Thirty knots on four shafts, as she was designed.
+    maxSpeed: 30 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.38,
+    turnRate: 0.046,
+    rudderShift: 13,
+    speedLossInTurn: 0.17,
+    concealment: 16200,
+    fireDetectPenalty: 7000,
+    // No radar: she was designed in 1919.
+    radarRange: 0,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Ten inches of belt, inclined, over her vitals -- a battlecruiser's,
+    // given up for her speed -- ninety-five millimetres of armour deck and
+    // 280 mm on her turret faces.
+    armor: { belt: 254, deck: 95, citadel: 254, bow: 25, superstructure: 25 },
+    turrets: [
+      // Nos. 1 and 2 forward, No.2 superfiring; No.3 abaft her mainmast,
+      // superfiring, facing aft; Nos. 4 and 5 aft, No.4 superfiring.
+      { id: 0, name: 'No.1', x: 0, z: 64.97, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 8.26 },
+      { id: 1, name: 'No.2', x: 0, z: 50.57, angle: 0, arc: 2.5, rest: 0, guns: 2, my: 10.86 },
+      { id: 2, name: 'No.3', x: 0, z: -26.65, angle: Math.PI, arc: 2.2, rest: Math.PI, guns: 2, my: 9.99 },
+      { id: 3, name: 'No.4', x: 0, z: -54.56, angle: Math.PI, arc: 2.5, rest: Math.PI, guns: 2, my: 9.99 },
+      { id: 4, name: 'No.5', x: 0, z: -69.06, angle: Math.PI, arc: 2.6, rest: Math.PI, guns: 2, my: 7.08 },
+    ],
+    gun: {
+      name: '41 cm/45 3rd Year Type', role: 'surface',
+      // Three below the horizontal to thirty up, as she was designed.
+      elev: { min: -0.052, max: 0.52 },
+      reach: 16.62,
+      caliber: 410, reload: 30, traverse: 0.05, range: 21400, sigma: 1.4,
+      shells: shells(410, 13600, 6300, 620, 790, 0.26),
+    },
+    torpedoes: null,
+    // Sixteen 14 cm/50 3rd Year Type singles, eight a side in casemates in
+    // her side under her forecastle deck, the model's own: surface targets
+    // only. The forward six of a side stow pointing forward and the after two
+    // aft, as the model draws them, and each trains from there out past her
+    // beam.
+    secondary: {
+      name: '14 cm/50 3rd Year Type', role: 'surface', piece: 'sec',
+      elev: { min: -0.122, max: 0.35 },
+      reach: 4.62,
+      caliber: 140, reload: 7.5, traverse: 0.14, range: 11000, sigma: 1.5,
+      shells: shells(140, 2300, 1900, 125, 850, 0.10),
+      mounts: [
+        { x: 10.31, z: 35.63, angle: 0.9628, arc: 0.95, rest: 0.0128, guns: 1, my: 6.3 },
+        { x: 11.53, z: 25.88, angle: 0.9592, arc: 0.95, rest: 0.0092, guns: 1, my: 6.18 },
+        { x: 13.14, z: 11.23, angle: 1.021, arc: 0.95, rest: 0.071, guns: 1, my: 6 },
+        { x: 13.57, z: 2.21, angle: 1.1398, arc: 0.95, rest: 0.1898, guns: 1, my: 5.83 },
+        { x: 13.67, z: -8.89, angle: 1.263, arc: 0.95, rest: 0.313, guns: 1, my: 5.79 },
+        { x: 13.57, z: -19.49, angle: 1.6751, arc: 0.95, rest: 0.7251, guns: 1, my: 5.63 },
+        { x: 13.34, z: -29.57, angle: 2.1879, arc: 0.95, rest: 3.1379, guns: 1, my: 5.54 },
+        { x: 12.06, z: -34.95, angle: 2.1879, arc: 0.95, rest: 3.1379, guns: 1, my: 5.61 },
+        { x: -10.31, z: 35.63, angle: -0.9628, arc: 0.95, rest: -0.0128, guns: 1, my: 6.32 },
+        { x: -11.53, z: 25.88, angle: -0.9592, arc: 0.95, rest: -0.0092, guns: 1, my: 6.17 },
+        { x: -13.14, z: 11.23, angle: -1.021, arc: 0.95, rest: -0.071, guns: 1, my: 5.98 },
+        { x: -13.57, z: 2.21, angle: -1.1398, arc: 0.95, rest: -0.1898, guns: 1, my: 5.85 },
+        { x: -13.67, z: -8.89, angle: -1.263, arc: 0.95, rest: -0.313, guns: 1, my: 5.79 },
+        { x: -13.57, z: -19.49, angle: -1.6751, arc: 0.95, rest: -0.7251, guns: 1, my: 5.65 },
+        { x: -13.34, z: -29.57, angle: -2.1879, arc: 0.95, rest: -3.1379, guns: 1, my: 5.54 },
+        { x: -12.06, z: -34.95, angle: -2.1879, arc: 0.95, rest: -3.1379, guns: 1, my: 5.59 },
+      ],
+    },
+    aa: {
+      range: 8500, dps: 96,
+      guns: [
+        // Her eight twin 100 mm/65 Type 98, the Akizukis' gun, four a side
+        // about her funnels: dual purpose, at aircraft and at ships alike.
+        { name: '100 mm/65 Type 98', caliber: 100, role: 'dp', reload: 3.2, range: 8500, piece: 'dp',
+          elev: { min: -0.175, max: 1.57 },
+          mounts: [
+            { x: -6.647, z: 24.186, angle: -1.5708, arc: 1.66, rest: -1.5676, guns: 2, my: 12.95 },
+            { x: 6.648, z: 24.186, angle: 1.5708, arc: 1.66, rest: 1.5733, guns: 2, my: 12.96 },
+            { x: -12.333, z: 8.538, angle: -1.5708, arc: 1.66, rest: -1.5707, guns: 2, my: 9.79 },
+            { x: 12.334, z: 8.538, angle: 1.5708, arc: 1.66, rest: 1.5705, guns: 2, my: 9.79 },
+            { x: -12.08, z: -1.937, angle: -1.5708, arc: 1.66, rest: -1.5703, guns: 2, my: 9.64 },
+            { x: 12.08, z: -1.937, angle: 1.5708, arc: 1.66, rest: 1.5678, guns: 2, my: 9.64 },
+            { x: -5.465, z: -10.967, angle: -1.5708, arc: 1.66, rest: -1.5734, guns: 2, my: 12.12 },
+            { x: 5.465, z: -10.967, angle: 1.5708, arc: 1.66, rest: 1.5683, guns: 2, my: 12.12 },
+          ] },
+        // Her triple 25 mm Type 96 on her decks: on her forecastle, abreast
+        // her turrets and her superstructure, and on her quarterdeck.
+        { name: '25 mm Type 96 triple', caliber: 25, role: 'aa', reload: 0.16, range: 3000, piece: 'aa',
+          elev: { min: -0.175, max: 1.396 },
+          mounts: [
+            { x: 0, z: 118.864, angle: 0, arc: 2.4, rest: 0.0192, guns: 3, my: 8.91 },
+            { x: 0, z: 108.819, angle: 0, arc: 2.4, rest: 0.0192, guns: 3, my: 8.64 },
+            { x: -7.343, z: 80.6, angle: -1.5708, arc: 1.66, rest: -1.5898, guns: 3, my: 7.57 },
+            { x: 7.344, z: 80.6, angle: 1.5708, arc: 1.66, rest: 1.5898, guns: 3, my: 7.57 },
+            { x: -10.128, z: 52.971, angle: -1.5708, arc: 1.66, rest: -1.5887, guns: 3, my: 7 },
+            { x: 10.128, z: 52.971, angle: 1.5708, arc: 1.66, rest: 1.5888, guns: 3, my: 7 },
+            { x: -12.295, z: -24.151, angle: -1.5708, arc: 1.66, rest: -1.59, guns: 3, my: 8.64 },
+            { x: 12.296, z: -24.151, angle: 1.5708, arc: 1.66, rest: 1.59, guns: 3, my: 8.64 },
+            { x: -8.694, z: -39.31, angle: -1.5708, arc: 1.66, rest: -1.5903, guns: 3, my: 8.6 },
+            { x: 8.695, z: -39.31, angle: 1.5708, arc: 1.66, rest: 1.5903, guns: 3, my: 8.6 },
+            { x: -10.871, z: -62.466, angle: -1.5708, arc: 1.66, rest: -1.5915, guns: 3, my: 5.89 },
+            { x: 10.871, z: -62.466, angle: 1.5708, arc: 1.66, rest: 1.5915, guns: 3, my: 5.9 },
+            { x: -9.533, z: -77.918, angle: -1.5708, arc: 1.66, rest: -1.5898, guns: 3, my: 5.89 },
+            { x: 9.533, z: -77.918, angle: 1.5708, arc: 1.66, rest: 1.5895, guns: 3, my: 5.9 },
+            { x: -8.783, z: -85.869, angle: -1.5708, arc: 1.66, rest: -1.5905, guns: 3, my: 5.9 },
+            { x: 8.783, z: -85.869, angle: 1.5708, arc: 1.66, rest: 1.5905, guns: 3, my: 5.91 },
+            { x: -3.294, z: -112.285, angle: -1.5708, arc: 1.66, rest: -1.5897, guns: 3, my: 6.1 },
+            { x: 3.294, z: -112.285, angle: 1.5708, arc: 1.66, rest: 1.5897, guns: 3, my: 6.11 },
+            { x: 0, z: -118.606, angle: 3.1416, arc: 2.4, rest: -3.1226, guns: 3, my: 6.1 },
+          ] },
+        // And six single 25 mm on her quarterdeck, three a side.
+        { name: '25 mm Type 96 single', caliber: 25, role: 'aa', reload: 0.16, range: 3000, piece: 'aa2',
+          elev: { min: -0.175, max: 1.396 },
+          mounts: [
+            { x: -7.281, z: -92.85, angle: -1.5708, arc: 1.66, rest: -1.6613, guns: 1, my: 5.8 },
+            { x: 7.317, z: -92.85, angle: 1.5708, arc: 1.66, rest: 1.6615, guns: 1, my: 5.8 },
+            { x: -6.557, z: -97.778, angle: -1.5708, arc: 1.66, rest: -1.6623, guns: 1, my: 5.83 },
+            { x: 6.557, z: -97.778, angle: 1.5708, arc: 1.66, rest: 1.6629, guns: 1, my: 5.84 },
+            { x: -5.873, z: -101.892, angle: -1.5708, arc: 1.66, rest: -1.6647, guns: 1, my: 5.88 },
+            { x: 5.874, z: -101.894, angle: 1.5708, arc: 1.66, rest: 1.6656, guns: 1, my: 5.89 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 41217,
+      aircraft: 0,
+      mainRounds: 900,
+      secondary: { caliber: 140, label: '14cm', barrels: 16, rounds: 1920 },
+      tertiary: [
+        { caliber: 100, label: '100mm', barrels: 16, rounds: 4800 },
+        { caliber: 25, label: '25mm', barrels: 63, rounds: 189000 },
+      ],
+    },
+  },
+
   fuso: {
     // IJN Fuso, the first of the two Fusos: twelve 35.6 cm/45 in six twin
     // turrets -- more than any other battleship of her day -- three forward of
@@ -17089,7 +17550,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'suzuya', 'yodo', 'mogami', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'shokaku', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**

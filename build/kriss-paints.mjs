@@ -140,3 +140,54 @@ export const RM_PAINTS = {
   bottom: 0x7a3228,
 };
 export const rmPaint = rnPaint;
+
+// The Kriegsmarine's U-boats: Hellgrau 50 on the tower, the casing sides and
+// everything above the tops of the saddle tanks, Dunkelgrau 51 on the tanks
+// and the hull below them, the casing's wooden grating darker still, a black
+// boot topping at the surfaced waterline and the dull green-black of the
+// antifouling under it.
+export const KM_SUB_PAINTS = {
+  light: 0x8b929a,
+  hull: 0x6b727a,
+  deck: 0x4c4d48,
+  dark: 0x4a5159,
+  boot: 0x1a1d21,
+  bottom: 0x3d423e,
+};
+/**
+ * `tanks`: the height of the tops of her saddle tanks, where the two greys
+ * meet, and `casing` the height of the top of her casing. Painted by height
+ * alone, so the layers of her that the model draws one on another -- her
+ * outer casing over her pressure hull, each seen through the limber holes of
+ * the other -- are the one paint where they lie together, and do not fight.
+ */
+export const kmSubPaint = (tanks, casing = 2.2) => (f) => {
+  if (f.kind === 'screw') return 'dark';
+  if (f.kind) return 'light';
+  if (f.cy < -0.02) return 'bottom';
+  if (f.cy < BOOT) return 'boot';
+  if (f.cy < tanks) return 'hull';
+  if (f.up && f.cy < casing) return 'deck';
+  return 'light';
+};
+
+// The Royal Navy's submarines in home waters and the Mediterranean in 1943:
+// dark grey over the casing and the tower, a black boot topping, and the
+// red-brown of the antifouling under it.
+export const RN_SUB_PAINTS = {
+  grey: 0x4f565c,
+  light: 0x646b71,
+  deck: 0x41464b,
+  dark: 0x33383c,
+  boot: 0x16181b,
+  bottom: 0x5c2c25,
+};
+/** Painted by height alone, as the U-boats are (see kmSubPaint). */
+export function rnSubPaint(f) {
+  if (f.kind === 'screw') return 'dark';
+  if (f.kind) return 'light';
+  if (f.cy < -0.02) return 'bottom';
+  if (f.cy < BOOT) return 'boot';
+  if (f.up && f.cy < 2.0) return 'deck';
+  return 'grey';
+}
