@@ -45,7 +45,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildFord, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildBorgia, buildSuzuya, buildYodo, buildMogami, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
+  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildFord, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildBorgia, buildSuzuya, buildYodo, buildMogami, buildLouisiana, buildOregon, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
 /**
  * The ships put together by krissShip.js off the owner's whole-ship models,
  * each builder by class once its module has loaded: every one of them is
@@ -126,6 +126,8 @@ const SCULPTED = {
   suzuya: () => import('./suzuya.js').then((m) => { buildSuzuya = m.buildSuzuya; }),
   yodo: () => import('./yodo.js').then((m) => { buildYodo = m.buildYodo; }),
   mogami: () => import('./mogami.js').then((m) => { buildMogami = m.buildMogami; }),
+  louisiana: () => import('./louisiana.js').then((m) => { buildLouisiana = m.buildLouisiana; }),
+  oregon: () => import('./oregon.js').then((m) => { buildOregon = m.buildOregon; }),
   brooklyn: () => import('./brooklyn.js').then((m) => { buildBrooklyn = m.buildBrooklyn; }),
   ticonderoga: () => import('./ticonderoga.js').then((m) => { buildTiconderoga = m.buildTiconderoga; }),
   guangzhou: () => import('./guangzhou.js').then((m) => { buildGuangzhou = m.buildGuangzhou; }),
@@ -1281,9 +1283,12 @@ function buildModel(classId) {
     };
   }
 
-  // And the Suzuya, the Yodo and the Mogami: the owner's models of their
-  // hulls, their bridges, their funnels and every gun they carry.
-  const textured = { suzuya: buildSuzuya, yodo: buildYodo, mogami: buildMogami }[cls.id];
+  // And the Suzuya, the Yodo, the Mogami, the Louisiana and the Oregon: the
+  // owner's models of their hulls, their bridges, their funnels and every
+  // gun they carry.
+  const textured = {
+    suzuya: buildSuzuya, yodo: buildYodo, mogami: buildMogami, louisiana: buildLouisiana, oregon: buildOregon,
+  }[cls.id];
   if (textured) {
     const built = textured();
     Object.assign(built.group.userData, {

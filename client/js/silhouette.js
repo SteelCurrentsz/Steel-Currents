@@ -157,6 +157,36 @@ const HULLS = {
     <rect x="14" y="21" width="14" height="8"/>
     <rect x="30" y="22" width="7" height="7"/>
     <rect x="84" y="24" width="9" height="5"/>`,
+  // The Louisiana: a long flush deck, two twin turrets forward with B
+  // superfiring, a tall tower and two capped funnels amidships, and X
+  // superfiring over Y aft.
+  louisiana: `
+    <path d="M2 29 L98 28 L94 38 L7 38 Z"/>
+    <rect x="71" y="23" width="8" height="6"/>
+    <rect x="63.5" y="20" width="8" height="9"/>
+    <rect x="30" y="20" width="8" height="9"/>
+    <rect x="22.5" y="23" width="8" height="6"/>
+    <rect x="40" y="18" width="21" height="11"/>
+    <rect x="55" y="8" width="5" height="11"/>
+    <rect x="56.8" y="2" width="1.4" height="7"/>
+    <rect x="51" y="11" width="4" height="8"/>
+    <rect x="43" y="12" width="4" height="7"/>
+    <rect x="47.5" y="5" width="1.2" height="13"/>`,
+  // The Oregon: a super battleship, longer and lower, two twin turrets
+  // forward with B superfiring, her tower and lattice masts amidships, and
+  // three twin turrets aft, Y superfiring over Z.
+  oregon: `
+    <path d="M2 29 L98 28.5 L95 38 L6 38 Z"/>
+    <rect x="73" y="23" width="8" height="6"/>
+    <rect x="65.5" y="20" width="8" height="9"/>
+    <rect x="34" y="23" width="8" height="6"/>
+    <rect x="24.5" y="20" width="8" height="9"/>
+    <rect x="17" y="23.5" width="8" height="5.5"/>
+    <rect x="43" y="18" width="20" height="11"/>
+    <rect x="56" y="8" width="5" height="11"/>
+    <rect x="57.8" y="2" width="1.4" height="7"/>
+    <rect x="47" y="12" width="5" height="7"/>
+    <rect x="52.5" y="6" width="1.2" height="12"/>`,
   // The North Carolina: a long flush deck with a sheer up to her bow, two
   // triple turrets forward, No.2 superfiring, a tall tower forward of her two
   // funnels, a tripod abaft them, and No.3 aft.

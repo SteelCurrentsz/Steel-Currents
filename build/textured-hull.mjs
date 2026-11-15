@@ -204,10 +204,12 @@ const XC = (lo[0] + hi[0]) / 2, ZC = (lo[2] + hi[2]) / 2;
 const LOA = REAL_LOA;
 for (let i = 0; i < model.P.length; i += 3) {
   model.P[i] = (model.P[i] - XC) * SCALE;
-  model.P[i + 1] *= SCALE;
+  // A model that does not stand her on its y = 0 at her waterline is sunk
+  // (or raised) `cfg.sink` metres to it.
+  model.P[i + 1] = model.P[i + 1] * SCALE - (cfg.sink || 0);
   model.P[i + 2] = (model.P[i + 2] - ZC) * SCALE;
 }
-console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SCALE).toFixed(2)} m across, keel ${(lo[1] * SCALE).toFixed(2)}, truck ${(hi[1] * SCALE).toFixed(2)}`);
+console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SCALE).toFixed(2)} m across, keel ${(lo[1] * SCALE - (cfg.sink || 0)).toFixed(2)}, truck ${(hi[1] * SCALE - (cfg.sink || 0)).toFixed(2)}`);
 
 // ---- what the fleet cannot draw -------------------------------------------------------
 // The grating and the netting the model drew as single sheets with a
@@ -236,6 +238,12 @@ console.log(`frame: x${SCALE.toFixed(1)}, ${LOA} m long, ${((hi[0] - lo[0]) * SC
 // The materials of the pieces `cfg.shell` names -- her hull, and her bulges
 // where the model draws them apart.
 const SHELL_MATS = new Set(model.M.filter((_, t) => cfg.shell.test(j.nodes[model.L[t]].name)));
+// And the materials of her guns where the description asks (`cfg.crisp`):
+// their atlases read whole and sharp, as her hull's is. Shrunk and blurred,
+// the black of a muzzle's wedge bleeds a few texels over the edge of its
+// island into the corners of the grey faces of the chase beside it, and
+// smears up the barrel from there.
+const CRISP_MATS = new Set(cfg.crisp ? model.M.filter((_, t) => cfg.crisp.test(j.nodes[model.L[t]].name || '')) : []);
 const WATERLINE = 0.0;
 const deep = new Set();
 for (let t = 0; t < model.T.length / 3; t++) {
@@ -320,6 +328,170 @@ for (const LEVEL of [WATERLINE, BOOT_TOP]) {
   console.log(`${LEVEL ? 'boot-topping' : 'waterline'}: ${split} triangles of her hull cut along it`);
 }
 
+// Her bottom, made whole (`cfg.loft`: the Oregon's model, after the Tillman's).
+// A model drawn as sections -- bow, midbody, stern -- each closed off on its
+// own leaves them stepped and cracked where they meet under her waterline,
+// the bottom of one stopping short of the next and open to her insides. So
+// under her waterline, from forward of her skegs and screws (`aft`) to her
+// forefoot, the sections' plating (`hull`, the pieces it is) is taken off and
+// she is plated again in one skin, lofted through her own sections: at every
+// station, how far out the outermost of them stands at each height, and how
+// deep the deepest goes, eased along her length so the steps between them
+// are faired out. At her waterline the skin meets her side exactly where the
+// model has it; aft, where her stern's own plating takes over, it meets that.
+if (cfg.loft) {
+  const LOFT_AFT = cfg.loft.aft;
+  const LEVELS = 24, DZ = 1, FAIR = cfg.loft.fair ?? 7;
+  const { P, UV } = model;
+  const isHull = (t) => cfg.loft.hull.test(j.nodes[model.L[t]].name || '');
+  const hullT = [];
+  for (let t = 0; t < model.T.length / 3; t++) if (isHull(t)) hullT.push(t);
+  const bins = new Map();
+  for (const t of hullT) {
+    let z0 = Infinity, z1 = -Infinity;
+    for (let k = 0; k < 3; k++) { const z = P[model.T[t * 3 + k] * 3 + 2]; z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    for (let b = Math.floor(z0); b <= Math.floor(z1); b++) { if (!bins.has(b)) bins.set(b, []); bins.get(b).push(t); }
+  }
+  /** Her section at z: the segments every hull piece cuts it in, (x, y). */
+  const section = (z) => {
+    const segs = [];
+    for (const t of bins.get(Math.floor(z)) || []) {
+      const pts = [];
+      for (let k = 0; k < 3; k++) {
+        const a = model.T[t * 3 + k], b = model.T[t * 3 + (k + 1) % 3];
+        const za = P[a * 3 + 2], zb = P[b * 3 + 2];
+        if ((za - z) * (zb - z) < 0) {
+          const s = (z - za) / (zb - za);
+          pts.push([P[a * 3] + (P[b * 3] - P[a * 3]) * s, P[a * 3 + 1] + (P[b * 3 + 1] - P[a * 3 + 1]) * s]);
+        }
+      }
+      if (pts.length === 2) segs.push(pts);
+    }
+    return segs;
+  };
+  /** How far out to one side (+1, -1) her section reaches at y. */
+  const reach = (segs, y, side) => {
+    let m = 0;
+    for (const [a, b] of segs) {
+      if ((a[1] - y) * (b[1] - y) > 0 || a[1] === b[1]) continue;
+      const x = a[0] + (b[0] - a[0]) * ((y - a[1]) / (b[1] - a[1]));
+      if (x * side > m) m = x * side;
+    }
+    return m;
+  };
+  const st = [];
+  for (let z = LOFT_AFT; ; z += DZ) {
+    const segs = section(z + 1e-3);
+    let keel = 0;
+    for (const sg of segs) for (const p of sg) if (p[1] < keel) keel = p[1];
+    if (keel > -0.5) break;
+    st.push({ z, keel, segs });
+  }
+  const ease = (arr, r) => arr.map((_, i) => {
+    let s = 0, n = 0;
+    for (let k = Math.max(0, i - r); k <= Math.min(arr.length - 1, i + r); k++) { s += arr[k]; n++; }
+    return s / n;
+  });
+  const keel = ease(st.map((s) => s.keel), 3);
+  // Held aft where she meets her stern's plating; forward, swept up to her
+  // stem over the last FOREFOOT metres, as a ship's is.
+  keel[0] = st[0].keel;
+  const FOREFOOT = cfg.loft.forefoot ?? 18;
+  const zStem = st[st.length - 1].z + DZ;
+  for (let i = 0; i < st.length; i++) {
+    const s = (st[i].z - (zStem - FOREFOOT)) / FOREFOOT;
+    if (s > 0) keel[i] *= Math.sqrt(1 - Math.min(1, s) ** 2) * 0.85 + 0.15 * (1 - s);
+  }
+  // Her bottom is flat, near enough, with a little rise of floor out to her
+  // bilge: the first height her side is read at is a hand over her keel.
+  const lv = (i, k) => (k ? keel[i] * (1 - k / LEVELS) : keel[i] + Math.min(0.35, -keel[i] / LEVELS * 0.6));
+  // Both sides alike under water: the outer of her two at every height.
+  const raws = [1, -1].map((side) => st.map((s, i) => Array.from({ length: LEVELS + 1 }, (_, k) => reach(s.segs, lv(i, k), side))));
+  const sym = raws[0].map((r, i) => r.map((v, k) => Math.max(v, raws[1][i][k])));
+  // A crack between two of her sections reads as nothing there: each station
+  // takes the outermost of itself and the one either side, before the easing.
+  const full = sym.map((r, i) => r.map((v, k) => Math.max(v, sym[i - 1]?.[k] ?? 0, sym[i + 1]?.[k] ?? 0)));
+  for (let i = 0; i < 2; i++) full[i] = sym[i].slice();
+  const eased = [];
+  for (let k = 0; k < LEVELS; k++) eased[k] = ease(full.map((r) => r[k]), FAIR);
+  const half = raws.map((raw) => {
+    const out = raw.map((r) => r.slice());
+    for (let k = 0; k < LEVELS; k++) {
+      const w = Math.min(1, (LEVELS - k) / 3);
+      for (let i = 1; i < st.length; i++) out[i][k] = raw[i][k] * (1 - w) + eased[k][i] * w;
+    }
+    return out;
+  });
+  // The old plating: every face of her sections wholly under her waterline
+  // and wholly forward of `aft`.
+  const keep = [];
+  let dropped = 0, tri0 = -1;
+  for (let t = 0; t < model.T.length / 3; t++) {
+    let under = isHull(t);
+    for (let k = 0; under && k < 3; k++) {
+      const v = model.T[t * 3 + k];
+      if (P[v * 3 + 1] > WATERLINE + 1e-4 || P[v * 3 + 2] < LOFT_AFT) under = false;
+    }
+    if (!under) keep.push(t);
+    else { dropped++; if (tri0 < 0 || P[model.T[t * 3] * 3 + 1] < P[model.T[tri0 * 3] * 3 + 1]) tri0 = t; }
+  }
+  const T2 = [], G2 = [], L2 = [], M2 = [];
+  for (const t of keep) { T2.push(model.T[t * 3], model.T[t * 3 + 1], model.T[t * 3 + 2]); G2.push(model.G[t]); L2.push(model.L[t]); M2.push(model.M[t]); }
+  // The new: a ring of points round each station, keel to waterline and back,
+  // every pair of rings joined, her forefoot closed on her stem. Its points
+  // are painted off the deepest of the faces it replaces -- her bottom's paint.
+  const g = model.G[tri0], l = model.L[tri0], m = model.M[tri0];
+  const u0 = UV[model.T[tri0 * 3] * 2], v0 = UV[model.T[tri0 * 3] * 2 + 1];
+  const first = P.length / 3;
+  const point = (x, y, z) => { const w = P.length / 3; P.push(x, y, z); model.N.push(0, 0, 0); UV.push(u0, v0); return w; };
+  const ring = [];
+  for (let i = 0; i < st.length; i++) {
+    const r = [];
+    for (let k = LEVELS; k >= 0; k--) r.push(point(-half[1][i][k], lv(i, k), st[i].z));
+    r.push(point(0, keel[i], st[i].z));
+    for (let k = 0; k <= LEVELS; k++) r.push(point(half[0][i][k], lv(i, k), st[i].z));
+    ring.push(r);
+  }
+  const made = [];
+  const face = (a, b, c) => { made.push(a, b, c); };
+  for (let i = 0; i + 1 < ring.length; i++) {
+    const A = ring[i], B = ring[i + 1];
+    for (let k = 0; k + 1 < A.length; k++) { face(A[k], B[k + 1], B[k]); face(A[k], A[k + 1], B[k + 1]); }
+  }
+  {
+    const A = ring[ring.length - 1];
+    const stem = A.map((v) => point(0, P[v * 3 + 1], zStem));
+    for (let k = 0; k + 1 < A.length; k++) { face(A[k], stem[k + 1], stem[k]); face(A[k], A[k + 1], stem[k + 1]); }
+  }
+  // Turned to face out of her -- away from her centreline and down -- and
+  // its points given the mean of the faces round them, as a smooth skin is.
+  let out = 0;
+  for (let f = 0; f < made.length; f += 3) {
+    const [a, b, c] = [made[f], made[f + 1], made[f + 2]];
+    const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
+    const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz;
+    const cx = (P[a * 3] + P[b * 3] + P[c * 3]) / 3;
+    out += Math.sign(nx * cx - ny * 0.5);
+  }
+  if (out < 0) for (let f = 0; f < made.length; f += 3) { const b = made[f + 1]; made[f + 1] = made[f + 2]; made[f + 2] = b; }
+  const acc = new Float64Array((P.length / 3 - first) * 3);
+  for (let f = 0; f < made.length; f += 3) {
+    const [a, b, c] = [made[f], made[f + 1], made[f + 2]];
+    const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
+    const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+    const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+    for (const v of [a, b, c]) for (let q = 0; q < 3; q++) acc[(v - first) * 3 + q] += n[q];
+  }
+  for (let v = first; v < P.length / 3; v++) {
+    const n = [acc[(v - first) * 3], acc[(v - first) * 3 + 1], acc[(v - first) * 3 + 2]];
+    const len = Math.hypot(...n) || 1;
+    model.N[v * 3] = n[0] / len; model.N[v * 3 + 1] = n[1] / len; model.N[v * 3 + 2] = n[2] / len;
+  }
+  for (let f = 0; f < made.length; f += 3) { T2.push(made[f], made[f + 1], made[f + 2]); G2.push(g); L2.push(l); M2.push(m); }
+  model.T = T2; model.G = G2; model.L = L2; model.M = M2;
+  console.log(`bottom: ${dropped} faces of her sections' plating under water replaced by one skin, ${st.length} stations from ${LOFT_AFT} to ${zStem} m`);
+}
 // Her decks and her sides cut small. The model plates a deck or a side in
 // triangles tens of metres long, and the paint a face gets is the mean of
 // what its texture holds -- her grey and her weathering, her forecastle's red
@@ -404,9 +576,22 @@ function halveWhere(pick, passes) {
 // little: a vertex colour is the paint of a few square metres of her, not the
 // grain of one plank.
 const textures = new Map();
+/**
+ * A material's base colour and its texture, wherever the model keeps them: in
+ * its metallic-roughness block, or -- an older export, the Louisiana's -- as
+ * the diffuse colour of KHR_materials_pbrSpecularGlossiness.
+ */
+function baseOf(mat) {
+  const pbr = (mat && mat.pbrMetallicRoughness) || {};
+  const sg = mat && mat.extensions && mat.extensions.KHR_materials_pbrSpecularGlossiness;
+  if (!pbr.baseColorTexture && !pbr.baseColorFactor && sg) {
+    return { baseColorTexture: sg.diffuseTexture, baseColorFactor: sg.diffuseFactor };
+  }
+  return pbr;
+}
 async function texture(mi) {
   const mat = j.materials[mi];
-  const pbr = (mat && mat.pbrMetallicRoughness) || {};
+  const pbr = baseOf(mat);
   if (!pbr.baseColorTexture) return null;
   const ti = pbr.baseColorTexture.index;
   if (!textures.has(ti)) {
@@ -414,7 +599,7 @@ async function texture(mi) {
     const meta = await sharp(Buffer.from(model.views[img.bufferView])).metadata();
     // Her hull's own atlas is read whole: the line of her boot-topping on it
     // is a few texels across, and blurred it smears up her side.
-    const whole = SHELL_MATS.has(mi);
+    const whole = SHELL_MATS.has(mi) || CRISP_MATS.has(mi);
     const k = whole ? 1 : Math.min(1, 512 / Math.max(meta.width, meta.height));
     const { data, info } = await sharp(Buffer.from(model.views[img.bufferView]))
       .resize(Math.max(4, Math.round(meta.width * k)), Math.max(4, Math.round(meta.height * k)))
@@ -471,6 +656,14 @@ function sample(tex, u, v) {
   };
   const made = halveWhere(sharp_, 8);
   console.log(`paint edges: ${made} edges halved down to ${AMIN} m2 where the paint changes, ${model.T.length / 3} triangles`);
+  // And her guns' paint cut finer still (`cfg.finePaint`, the pieces it names):
+  // a barrel's long faces run from its muzzle's black down its grey chase, and
+  // halved only so far the black runs half a metre up the chase as a smear,
+  // where the model paints a sharp edge.
+  if (cfg.finePaint) {
+    const fine = halveWhere((T, t) => cfg.finePaint.test(j.nodes[model.L[t]].name || '') && sharp_(T, t), cfg.finePaintPasses ?? 10);
+    console.log(`paint edges: ${fine} more edges halved on her guns, ${model.T.length / 3} triangles`);
+  }
 }
 // Its glass: the one see-through material, a dark tinted pane.
 const GLASS = [0.02, 0.025, 0.035];
@@ -487,7 +680,7 @@ const flat = new Uint8Array(nTri);
 for (let t = 0; t < nTri; t++) {
   const mi = model.M[t];
   const mat = j.materials[mi] || {};
-  const pbr = mat.pbrMetallicRoughness || {};
+  const pbr = baseOf(mat);
   const f = pbr.baseColorFactor || [1, 1, 1, 1];
   let c;
   if (mat.alphaMode === 'BLEND') c = GLASS;
@@ -857,7 +1050,7 @@ function boxGap(A, B) {
  * the pieces `fit`, that lies within `reach` of one given to the nearest. Bow
  * first.
  */
-function mountsOf(kind, { house, fit = null, min = 0, gap = 0.3, reach = 3, count, boxes: inBoxes = null }) {
+function mountsOf(kind, { house, fit = null, min = 0, gap = 0.3, reach = 3, count, boxes: inBoxes = null, byPiece = false }) {
   const hs = leavesOf(house);
   const all = partsOf(hs);
   // Or, where the model draws a kind's mountings run into one another --
@@ -881,7 +1074,21 @@ function mountsOf(kind, { house, fit = null, min = 0, gap = 0.3, reach = 3, coun
     return sets.map((t) => new Set(t));
   }
   let clusters = all.map((p) => ({ tris: [...p.tris], lo: [...p.lo], hi: [...p.hi] }));
-  for (let merged = true; merged;) {
+  // Where the model draws every mounting as a piece of its own, a piece is a
+  // mounting, however close it stands to the next: a superfiring turret's
+  // barrels lie over the roof of the one before it.
+  if (byPiece) {
+    const by = new Map();
+    for (const c of clusters) {
+      const k = model.L[c.tris[0]];
+      const was = by.get(k);
+      if (!was) { by.set(k, c); continue; }
+      was.tris.push(...c.tris);
+      for (let d = 0; d < 3; d++) { was.lo[d] = Math.min(was.lo[d], c.lo[d]); was.hi[d] = Math.max(was.hi[d], c.hi[d]); }
+    }
+    clusters = [...by.values()];
+  }
+  for (let merged = !byPiece; merged;) {
     merged = false;
     for (let a = 0; a < clusters.length && !merged; a++) {
       for (let b = a + 1; b < clusters.length; b++) {
@@ -1144,6 +1351,9 @@ function creaseNormals(m, deg = 38) {
   // own, lit as its face is.
   if (m.N) {
     const P = [...m.P], N = [...m.N], T = [...m.T];
+    // And where each new point was on her, as the point it is split off was:
+    // what it is painted by (see colourAt). Without it, it was painted black.
+    const O = m.O ? [...m.O] : null;
     const cos = Math.cos((70 * Math.PI) / 180);
     const own = new Map();
     let fixed = 0;
@@ -1161,13 +1371,14 @@ function creaseNormals(m, deg = 38) {
           w = P.length / 3; own.set(key, w);
           P.push(m.P[v * 3], m.P[v * 3 + 1], m.P[v * 3 + 2]);
           N.push(x / l, y / l, z / l);
+          if (O) O.push(m.O[v * 3], m.O[v * 3 + 1], m.O[v * 3 + 2]);
         }
         T[t * 3 + k] = w;
         fixed++;
       }
     }
     if (fixed && !m.quiet) console.log(`normals: ${fixed} corners looking away from their faces lit as their faces`);
-    return { P, N, T, C: m.C, S: m.S, F: m.F, O: m.O };
+    return { P, N, T, C: m.C, S: m.S, F: m.F, O };
   }
   const { P, T, C } = m;
   const nf = T.length / 3;
@@ -1981,7 +2192,7 @@ const FULL = +(process.env.GUN_TRIS || Infinity);
 function gunKind(kind, { guns, minLen, tris, barrelTris, inside = 0.6, test = null, fitTest = null, baseTrunnion = false, barrelPaint = null, whole = false, error = 0.003, flags = [], ahead = false, cull = 0 }) {
   const g0 = KINDS[kind][0];
   const raw = groupMesh(g0);
-  const s = turned(seatOf(raw, UP_KINDS.has(kind)), kind);
+  const s = seatFor(raw, kind);
   const local = toMount(raw, s);
   // A gun too small and too elevated to take its barrels off: it trains
   // whole, and its muzzle is the furthest of it from its pivot, forward.
@@ -2081,6 +2292,59 @@ function gunKind(kind, { guns, minLen, tris, barrelTris, inside = 0.6, test = nu
 }
 
 const DEBUG = {};
+/**
+ * Where a mounting of `kind` stands: off the whole of it, or -- a kind with
+ * fittings hung on its gunhouse that reach lower than its foot, life rafts
+ * on a turret's flanks -- off its gunhouse alone (`seatHouse`).
+ */
+function seatFor(m, kind) {
+  const o = cfg.kinds[kind] || {};
+  // A turret whose gunhouse's foot is its barbette's ring and a skirt hung
+  // off the back of it (`ring`): it trains about the middle of the ring --
+  // the circle its foot's points lie on, as wide as its foot is across --
+  // not the middle of ring and skirt together, which is a metre off it and
+  // walks the turret round its barbette as it trains.
+  if (o.ring) {
+    const w = seatFor(m, null);
+    // Off its gunhouse alone, where it has fittings hung lower than its foot.
+    let P = m.P;
+    if (o.seatHouse) {
+      P = [];
+      for (let t = 0; t < m.T.length / 3; t++) {
+        if (!o.house.test(j.nodes[model.L[m.F[t]]].name || '')) continue;
+        for (let k = 0; k < 3; k++) { const v = m.T[t * 3 + k]; P.push(m.P[v * 3], m.P[v * 3 + 1], m.P[v * 3 + 2]); }
+      }
+    }
+    let y0 = Infinity;
+    for (let i = 1; i < P.length; i += 3) y0 = Math.min(y0, P[i]);
+    const foot = [];
+    for (let i = 0; i < P.length; i += 3) if (P[i + 1] <= y0 + 0.05) foot.push([P[i], P[i + 2]]);
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of foot) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    const r = (x1 - x0) / 2, cx = (x0 + x1) / 2;
+    let best = (z0 + z1) / 2, most = -1;
+    for (let c = z0 + r - 0.2; c <= z1 - r + 0.2; c += 0.01) {
+      let n = 0;
+      for (const [x, z] of foot) if (Math.abs(Math.hypot(x - cx, z - c) - r) < 0.04) n++;
+      if (n > most) { most = n; best = c; }
+    }
+    console.log(`${kind}: ring ${(2 * r).toFixed(2)} m across, centred ${best.toFixed(2)} (foot ${z0.toFixed(2)}..${z1.toFixed(2)}), ${most} of ${foot.length} points on it`);
+    return { ...w, x: cx, z: best, y: y0 };
+  }
+  const src = m;
+  if (o.seatHouse && !o.ring) {
+    const P = [];
+    for (let t = 0; t < m.T.length / 3; t++) {
+      if (!o.house.test(j.nodes[model.L[m.F[t]]].name || '')) continue;
+      for (let k = 0; k < 3; k++) { const v = m.T[t * 3 + k]; P.push(m.P[v * 3], m.P[v * 3 + 1], m.P[v * 3 + 2]); }
+    }
+    // Stood where its gunhouse stands, and facing the way the whole of it
+    // does: towards its muzzles, not the rangefinder at the back of its house.
+    const h = seatOf({ P }), w = seatOf(m, UP_KINDS.has(kind));
+    return turned({ ...w, x: h.x, z: h.z, y: h.y }, kind);
+  }
+  return turned(seatOf(src, UP_KINDS.has(kind)), kind);
+}
 /** The kinds that face their highest points (see seatOf). */
 // The kinds stowed cocked well up, whose breeches and loading platforms
 // reach out further from the pivot than their muzzles: they face their
@@ -2099,7 +2363,7 @@ const GUNS = Object.fromEntries(Object.entries(cfg.guns).map(([k, o]) => [k, gun
 function seats(kind) {
   const g = GUNS[kind];
   return KINDS[kind].map((gi) => {
-    const s = turned(seatOf(groupMesh(gi), UP_KINDS.has(kind)), kind);
+    const s = seatFor(groupMesh(gi), kind);
     const c = Math.cos(g.pitch), sn = Math.sin(g.pitch);
     const out = g.muzzles.map(([x, y, z]) => {
       // Back up off the level the cradle frame has them in.
