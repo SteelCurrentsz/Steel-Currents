@@ -16,6 +16,7 @@
 // have a bounding sphere that means anything; those are always drawn.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { pickLod, pumpLods } from './lod.js';
 
 const state = { on: false, x: 0, y: 0, z: 0, k: 0, min: 0.5 };
 const sphere = new THREE.Sphere();
@@ -45,8 +46,21 @@ THREE.Frustum.prototype.intersectsObject = function intersectsObject(object) {
   const d = Math.sqrt(dx * dx + dy * dy + dz * dz) - sphere.radius;
   // Its radius on the screen, in pixels of the drawing buffer.
   if (d > 0 && sphere.radius * state.k < state.min * d) return false;
-  return this.intersectsSphere(sphere);
+  if (!this.intersectsSphere(sphere)) return false;
+  // In view, and drawn: with a coarser copy of itself if there is one that
+  // nobody could tell from it at this range (see lod.js). The renderer reads
+  // the geometry off the object straight after this, and it is put back the
+  // moment the frame is drawn, so nothing else ever sees the copy.
+  if (d > 0) {
+    const lod = pickLod(object, g, d, state.k, sphere.radius / (g.boundingSphere.radius || Infinity));
+    if (lod !== g) { swapped.push(object, g); object.geometry = lod; }
+  }
+  return true;
 };
+const swapped = [];
+let lastSwaps = 0;
+/** For the console: how many meshes the last frame drew with a coarser copy. */
+export function lodSwaps() { return lastSwaps; }
 
 /**
  * Draw `scene` through `camera` with pieces under half a pixel left out. Only
@@ -61,7 +75,14 @@ export function renderCulled(renderer, scene, camera) {
   state.x = p[12]; state.y = p[13]; state.z = p[14];
   state.k = (h / 2) / Math.tan((camera.fov * Math.PI) / 360) * (camera.zoom || 1);
   state.on = true;
-  try { renderer.render(scene, camera); } finally { state.on = false; }
+  try { renderer.render(scene, camera); } finally {
+    state.on = false;
+    for (let i = 0; i < swapped.length; i += 2) swapped[i].geometry = swapped[i + 1];
+    lastSwaps = swapped.length / 2;
+    swapped.length = 0;
+  }
+  // And a few milliseconds on the copies still to be made, behind the frame.
+  pumpLods();
 }
 
 /** For the tests: how a mesh at this distance is judged. */

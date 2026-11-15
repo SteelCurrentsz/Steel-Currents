@@ -484,7 +484,7 @@ export class TitleScene {
     this.sky.position.set(eye.x, 0, eye.z);
     this.ocean.update(dt, eye);
     this.effects.update(dt, this.camera);
-    this.bursts.update(dt);
+    this.bursts.update(dt, this.camera);
     this.flames.update(dt);
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);

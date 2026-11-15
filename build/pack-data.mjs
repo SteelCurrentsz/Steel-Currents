@@ -41,3 +41,20 @@ export function packData(src) {
   // nearly what it was, and is left as it is rather than opened for nothing.
   return out.length < src.length * 0.9 ? out : src;
 }
+
+/**
+ * The same, but the gzipped strings written as a file of their own beside
+ * the module (`bin`, its name) rather than base64 inside it: a third smaller
+ * again, which is what the published page needs to fit its host. The module
+ * fetches it from beside itself. `{ module, bytes }`; `bytes` null where the
+ * module had nothing worth packing.
+ */
+export function packDataFile(src, bin) {
+  const strings = [];
+  const body = replaceLong(src, (s) => `__z[${strings.push(s) - 1}]`);
+  if (!strings.length) return { module: src, bytes: null };
+  const bytes = zlib.gzipSync(Buffer.from(strings.join(',')), { level: 9 });
+  if (bytes.length > src.length * 0.9) return { module: src, bytes: null };
+  const module = `import { unpackFile } from './unpack.js';\nconst __z = await unpackFile(new URL('./${bin}', import.meta.url));\n${body}`;
+  return { module, bytes };
+}

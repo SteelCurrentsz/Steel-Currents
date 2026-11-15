@@ -41,6 +41,7 @@ import { Rupture } from './rupture.js';
 import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import { renderCulled } from './pixelcull.js';
+import { buildLodsNow, resetLods } from './lod.js';
 import { Scars, scarUniforms, cutLand } from './scars.js';
 import {
   MAP_HALF, landMask, groundHeight, keelGround, getWeather, islandRadius, islandHeight,
@@ -2380,7 +2381,7 @@ export class BattleScene {
     // What a round that gets into a ship does that can be seen: it goes off
     // inside her, fireball and soot and the pieces it throws. No lights of its
     // own -- see ExplosionSystem.
-    this.bursts = new ExplosionSystem(this.scene, { slots: 28, lights: false });
+    this.bursts = new ExplosionSystem(this.scene, { slots: 40, lights: false });
     // And lent to the effects, so an aeroplane going up is the same boiling
     // fireball as a shell going off inside a ship, not a glowing disc.
     this.effects.bursts = this.bursts;
@@ -2607,6 +2608,10 @@ export class BattleScene {
     const v = BattleScene.prototype.makeShipView.call(this, classId, team, isSelf);
     v.group.visible = false;
     (this.parked || (this.parked = new Map())).set(id, v);
+    // And the coarser copies of her she is drawn with at range (see lod.js),
+    // made here behind the loading screen rather than a frame at a time once
+    // the battle is up.
+    try { buildLodsNow(v.group); } catch (e) { console.warn('Steel Currents: ship detail levels', e); }
     return v;
   }
 
@@ -2751,7 +2756,7 @@ export class BattleScene {
     // ship is now is where the sea has to keep out of her this frame.
     this.breakers.update(dt, this.camera, this.shipViews.values());
     this.effects.update(dt, this.camera);
-    this.bursts.update(dt);
+    this.bursts.update(dt, this.camera);
     // The air the smoke goes off on.
     if (this.world) {
       const w = windAt(this.world, this.ocean?.clock ?? this.flames.time);
@@ -2979,6 +2984,8 @@ export class BattleScene {
    * texture made once) is simply uploaded again the next time it is drawn.
    */
   dispose() {
+    // Nothing of this battle is waiting to have its detail levels made.
+    resetLods();
     const keep = new Set([this.renderer, this.camera, this.scene, this.world]);
     const free = (v) => {
       if (!v || typeof v !== 'object' || keep.has(v) || v.isObject3D) return;

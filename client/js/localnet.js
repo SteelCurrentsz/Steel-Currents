@@ -269,13 +269,18 @@ export class LocalNet extends EventTarget {
     // second copy that had never learned about the chart, so a captain who laid
     // his squadron out and pressed Sortie found it back on the spawn line with
     // no artillery on the coast at all.
+    // As many hulls as the briefing lets a captain commission (FLEET_MAX):
+    // her own and twenty-four more, against twenty-five. It used to stop at
+    // eight a side here, and the rest of a fleet the chart had laid out
+    // never put to sea -- a cap from before the simulation and the drawing
+    // could carry a fleet action of that size.
     const out = crewBattle(room, { ...req, botSkill: opts.botSkill }, (at) => {
       if (opts.staged) return room.seatDirector(this.player);
       const res = room.join(this.player, {
         name: this.player.name, classId: msg.classId, team: msg.team, at,
       });
       return res.error ? { error: res.error } : { team: this.player.team };
-    }, { allies: opts.staged ? 8 : 7, enemies: 8, guns: 12, doctrine: localLessons() });
+    }, { allies: opts.staged ? 25 : 24, enemies: 25, guns: 12, doctrine: localLessons() });
     if (out && out.error) { this.deliver({ t: 'error', msg: out.error }); return; }
     const stage = opts.staged ? room.stageScript(msg.script) : null;
 

@@ -22,7 +22,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { packData } from './pack-data.mjs';
+import { packDataFile } from './pack-data.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPLIT = process.argv.includes('--split');
@@ -155,26 +155,35 @@ if (!SPLIT) {
   // Each data file packed (build/pack-data.mjs): its long strings gzipped as
   // one, and opened again beside the page by unpack.js, which goes with them.
   fs.copyFileSync(path.join(ROOT, 'client/js/unpack.js'), out('split', 'unpack.js'));
+  // The packed strings go in a file of their own beside each module, not
+  // base64 in it: a third smaller, and the page fits its host. Named `.wasm`
+  // only because that is the one kind of binary file the artifact host will
+  // serve; it is gzip, and unpack.js fetches it as plain bytes.
   let raw = 0, sent = 0;
+  const bins = new Map();
   for (const f of named) {
     const src = fs.readFileSync(path.join(HULLS, f), 'utf8');
-    const packed = packData(src);
-    fs.writeFileSync(out('split', f), packed);
-    raw += src.length; sent += packed.length;
-    console.log(`build/split/${f} — ${Math.round(packed.length / 1024)} KB${packed === src ? '' : ` (${Math.round(src.length / 1024)} KB unpacked)`}`);
+    const bin = f.replace(/\.js$/, '.wasm');
+    const { module, bytes } = packDataFile(src, bin);
+    fs.writeFileSync(out('split', f), module);
+    if (bytes) { fs.writeFileSync(out('split', bin), bytes); bins.set(f, bin); }
+    const size = module.length + (bytes ? bytes.length : 0);
+    raw += src.length; sent += size;
+    console.log(`build/split/${f} — ${Math.round(size / 1024)} KB${bytes ? ` (${Math.round(src.length / 1024)} KB unpacked)` : ''}`);
   }
   console.log(`data files: ${(sent / 1e6).toFixed(1)} MB sent for ${(raw / 1e6).toFixed(1)} MB of data`);
   // The offline keeper beside the page (client/sw.js), with the list it keeps
   // written in, as the server writes it into its own: the page, its chunks and
   // the aircraft to take over with, then the hulls behind them.
   // A page put up anywhere as these files plays with no signal once opened.
-  const files = ['./', './unpack.js', './simworker.js', ...chunks.map((f) => `./${f}`), ...named.map((f) => `./${f}`)];
-  const shell = files.filter((f) => !/\.data\.js$/.test(f) || /Model\.data\.js$/.test(f));
+  const files = ['./', './unpack.js', './simworker.js', ...chunks.map((f) => `./${f}`),
+    ...named.flatMap((f) => (bins.has(f) ? [`./${f}`, `./${bins.get(f)}`] : [`./${f}`]))];
+  const shell = files.filter((f) => !/\.data\.(js|wasm)$/.test(f) || /Model\.data\.(js|wasm)$/.test(f));
   // Over what every file holds, the data files' too: a hull rebuilt under
   // the same name is a new version, or the worker would hand out the old one.
   const version = crypto.createHash('sha1')
     .update(html).update(every).update(named.join())
-    .update(named.map((f) => fs.readFileSync(out('split', f))).reduce((h, b) => h.update(b), crypto.createHash('sha1')).digest())
+    .update([...named, ...bins.values()].map((f) => fs.readFileSync(out('split', f))).reduce((h, b) => h.update(b), crypto.createHash('sha1')).digest())
     .digest('hex').slice(0, 12);
   const worker = fs.readFileSync(path.join(ROOT, 'client/sw.js'), 'utf8');
   fs.writeFileSync(out('split', 'sw.js'),
