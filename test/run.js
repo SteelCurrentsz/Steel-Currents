@@ -520,7 +520,7 @@ import {
   cityToWorld, surfaceAt, buildingAt,
 } from '../shared/works.js';
 import { planRoute } from '../shared/tankroute.js';
-import { packData } from '../build/pack-data.mjs';
+import { packData, packDataFile } from '../build/pack-data.mjs';
 import { gunzip, unpack } from '../client/js/unpack.js';
 // The sculpted ships are fetched on demand in the browser; here, all of them up front.
 await loadShips();
@@ -27117,6 +27117,21 @@ check('the published build\'s packed ship data opens to exactly what was packed'
   const small = 'export const A = [1, 2, 3];\n';
   assert.equal(packData(small), small, 'a data file with nothing long in it was packed anyway');
   assert.equal(typeof unpack, 'function');
+});
+
+check('the published build ships each ship\'s packed strings as a file of its own, which opens to them', () => {
+  // The page has to fit its host, and base64 is a third bigger than what it
+  // carries: the gzipped strings go beside the module, not inside it.
+  for (const f of ['scheerHull.data.js', 'zeroModel.data.js']) {
+    const src = readFileSync(new URL(`../client/js/render/${f}`, import.meta.url), 'utf8');
+    const bin = f.replace(/\.js$/, '.z');
+    const { module, bytes } = packDataFile(src, bin);
+    assert.ok(bytes && module.length + bytes.length < packData(src).length * 0.85, `${f} is no smaller as a file of its own`);
+    assert.ok(module.includes(`await unpackFile(new URL('./${bin}', import.meta.url))`), `${f} does not fetch its file`);
+    const strings = [...src.matchAll(/"([A-Za-z0-9+/=]{256,})"/g)].map((m) => m[1]);
+    assert.deepEqual(new TextDecoder().decode(gunzip(bytes)).split(','), strings, `${f} does not open to what was packed`);
+  }
+  assert.deepEqual(packDataFile('export const A = [1, 2, 3];\n', 'a.z'), { module: 'export const A = [1, 2, 3];\n', bytes: null });
 });
 
 check('from outside her you never see her insides', () => {

@@ -15,7 +15,21 @@
 
 /** The strings `packed` holds, in the order they were packed. */
 export async function unpack(packed) {
-  const bytes = fromBase64(packed);
+  return opened(fromBase64(packed));
+}
+
+/**
+ * The strings the file at `url` holds: the same gzipped run of them, shipped
+ * as a file of its own beside its module rather than base64 inside it (see
+ * build/pack-data.mjs, packDataFile).
+ */
+export async function unpackFile(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`could not fetch ${url}: ${res.status}`);
+  return opened(new Uint8Array(await res.arrayBuffer()));
+}
+
+async function opened(bytes) {
   let text;
   if (typeof DecompressionStream === 'function') {
     try {
