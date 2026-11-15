@@ -3140,10 +3140,10 @@ check("the Yukikaze trains both banks out and throws their fish over her side, w
   });
 });
 
-check('the Fuso is commissioned before the Mutsu, after the Kongo', () => {
+check('the Fuso is commissioned before the Mutsu, after the Kongo and the Amagi', () => {
   const i = SHIP_ORDER.indexOf('fuso');
   assert.ok(i >= 0, 'the Fuso is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'kongo', `before the Fuso comes ${SHIP_ORDER[i - 1]}`);
+  assert.deepEqual(SHIP_ORDER.slice(i - 2, i), ['kongo', 'amagi'], `before the Fuso come ${SHIP_ORDER.slice(i - 2, i).join(', ')}`);
   // And her near-sister the Ise, and then the Mutsu between them and the Yamato.
   assert.equal(SHIP_ORDER[i + 1], 'ise', `after the Fuso comes ${SHIP_ORDER[i + 1]}`);
   assert.equal(SHIP_ORDER[i + 2], 'mutsu', `after the Ise comes ${SHIP_ORDER[i + 2]}`);
