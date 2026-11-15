@@ -394,6 +394,25 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     });
   }
 
+  // ------------------------------------------------- her tube doors ----
+  // A submarine's outer doors, the model's own, each on its hinge outboard of
+  // its tube: the dive step swings them open when a tube fires (see stepDive
+  // in scene.js), bow doors and stern doors each their own way. Each `hand`
+  // is the side its hinge is on, turned so the door opens out, clear of the
+  // mouth of its tube.
+  function tubeDoors(g) {
+    const caps = { bow: [], stern: [] };
+    (D.MOUNTS.cap || []).forEach((s, i) => {
+      const hinge = new THREE.Group();
+      hinge.position.set(s.x, s.y, s.z);
+      hinge.userData.dynamic = true;
+      hinge.add(new THREE.Mesh(gunPiece('cap', i).house, materials().sheet));
+      g.add(hinge);
+      (s.z > 0 ? caps.bow : caps.stern).push({ node: hinge, hand: s.x > 0 ? -1 : 1 });
+    });
+    return caps;
+  }
+
   // --------------------------------------------------------- build ----
   const STATIC = [['hull', hullModel], ['depthCharges', depthCharges], ['armour', armour], ['screws', screws]];
   function build(extra = null) {
@@ -409,14 +428,16 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
     const cardMeshes = cards(g);
     const turrets = mainBattery(g);
     mountings(g);
+    const tubeCaps = CLS.dive ? tubeDoors(g) : null;
     mergeMoving(g);
     g.userData.classId = id;
+    if (tubeCaps) g.userData.tubeCaps = tubeCaps;
     if (g.userData.torpMounts.length && !CLS.torpedoes.inHull) g.userData.step = fitTubes(g, g.userData.torpMounts, CLS.torpedoes);
     dressShip(g);
     return {
       group: g, turrets, length: LOA, beam: BEAM, deckY: deckOver(0),
       secMounts: g.userData.secMounts || [], aaMounts: g.userData.aaMounts || [], torpMounts: g.userData.torpMounts || [],
-      cards: cardMeshes,
+      cards: cardMeshes, tubeCaps,
     };
   }
   /** Every piece of her and where it sits, for the tests. */

@@ -33,6 +33,16 @@ await prepare({
     // And her 3.7 cm on the lower one.
     aa37: { boxes: [{ x: [-1.2, 1.2], y: [2.6, 4.9], z: [-7.2, -2.85] }], nodes: odd(61, 81),
       min: 200, gun: { whole: true, tris: 4000, error: 0.002, pivots: [[0, -4.1]], rests: [Math.PI] } },
+    // The outer doors of her tubes, each the model's own, cut free so it
+    // swings open on its hinge, outboard of its tube, when the tube fires.
+    cap: { boxes: [
+      { x: [0.1, 0.95], y: [-1.55, -0.75], z: [28.1, 28.3] },
+      { x: [0.1, 0.95], y: [-2.5, -1.75], z: [28.1, 28.3] },
+      { x: [-0.85, 0], y: [-1.55, -0.75], z: [28.1, 28.3] },
+      { x: [-0.85, 0], y: [-2.5, -1.75], z: [28.1, 28.3] },
+      { x: [-0.45, 0.35], y: [-0.8, 0.05], z: [-29.9, -29.7] },
+    ], nodes: [183, 185, 187, 189, 191], min: 100,
+      gun: { whole: true, tris: 1200, error: 0.001, pivots: [[0.91, 28.22], [0.9, 28.21], [-0.8, 28.22], [-0.79, 28.21], [0.28, -29.81]], rests: [0, 0, 0, 0, 0] } },
     // Her two screws.
     screw: { boxes: [
       { x: [-1.9, -0.3], y: [-2.8, -1.0], z: [-28.5, -27.3] },

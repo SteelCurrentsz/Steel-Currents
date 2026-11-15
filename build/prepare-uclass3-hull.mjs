@@ -21,6 +21,15 @@ await prepare({
     // Her 3-inch 12 cwt on its bandstand at the forward end of her tower.
     main: { boxes: [{ x: [-0.9, 0.9], y: [1.35, 3.25], z: [1.6, 6.5] }], nodes: [13, 15],
       min: 200, gun: { whole: true, tris: 3000, error: 0.002, pivots: [[-0.05, 3.05]], rests: [0] } },
+    // The outer doors of her tubes, each the model's own, cut free so it
+    // swings open on its hinge, outboard of its tube, when the tube fires.
+    cap: { boxes: [
+      { x: [0.2, 0.9], y: [-0.5, 0.05], z: [26.5, 26.7] },
+      { x: [0.2, 0.9], y: [-1.45, -0.9], z: [26.1, 26.25] },
+      { x: [-0.9, -0.2], y: [-0.5, 0.05], z: [26.5, 26.7] },
+      { x: [-0.9, -0.2], y: [-1.45, -0.9], z: [26.1, 26.25] },
+    ], nodes: [17, 19, 21, 23], min: 100,
+      gun: { whole: true, tris: 1200, error: 0.001, pivots: [[0.79, 26.6], [0.85, 26.18], [-0.8, 26.6], [-0.85, 26.18]], rests: [0, 0, 0, 0] } },
     // Her two screws.
     screw: { boxes: [
       { x: [-1.8, -0.2], y: [-3.0, -1.3], z: [-24, -23] },

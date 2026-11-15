@@ -22,6 +22,16 @@ await prepare({
     // Her single 2 cm C/30 on the Wintergarten abaft her bridge.
     aa: { boxes: [{ x: [-0.6, 0.6], y: [3.65, 5.5], z: [-3.1, -0.3] }], nodes: [13, 15, 17, 19, 21, 23, 25, 27, 29, 31],
       min: 200, gun: { whole: true, tris: 3000, error: 0.002, pivots: [[0, -1.64]], rests: [Math.PI] } },
+    // The outer doors of her tubes, each the model's own, cut free so it
+    // swings open on its hinge, outboard of its tube, when the tube fires.
+    cap: { boxes: [
+      { x: [0.1, 0.95], y: [-0.7, 0.1], z: [28.1, 28.35] },
+      { x: [0.1, 0.95], y: [-1.7, -0.9], z: [28.1, 28.35] },
+      { x: [-0.85, 0], y: [-0.7, 0.1], z: [28.1, 28.35] },
+      { x: [-0.85, 0], y: [-1.7, -0.9], z: [28.1, 28.35] },
+      { x: [-0.4, 0.4], y: [-1.5, -0.6], z: [-29.85, -29.65] },
+    ], nodes: [83, 85, 87, 97, 101], min: 100,
+      gun: { whole: true, tris: 1200, error: 0.001, pivots: [[0.91, 28.25], [0.89, 28.26], [-0.81, 28.25], [-0.8, 28.26], [0.34, -29.75]], rests: [0, 0, 0, 0, 0] } },
     // Her two screws.
     screw: { boxes: [
       { x: [-1.8, -0.2], y: [-3.5, -1.8], z: [-28.4, -27.3] },
