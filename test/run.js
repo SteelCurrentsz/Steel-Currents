@@ -208,6 +208,12 @@ import {
 } from '../client/js/render/borgia.js';
 import { borgiaSurfaceY, MOUNT_SEATS as BORGIA_SEATS } from '../client/js/render/borgiaHull.js';
 import { BORGIA_GUNS } from '../client/js/render/borgiaHull.data.js';
+import * as SUZUYA_SHIP from '../client/js/render/suzuya.js';
+import * as YODO_SHIP from '../client/js/render/yodo.js';
+import * as MOGAMI_SHIP from '../client/js/render/mogami.js';
+import { SUZUYA_GUNS } from '../client/js/render/suzuyaHull.data.js';
+import { YODO_GUNS } from '../client/js/render/yodoHull.data.js';
+import { MOGAMI_GUNS } from '../client/js/render/mogamiHull.data.js';
 import {
   buildBrooklyn, shellAt as brooklynShellAt, keelY as brooklynKeel, deckOver as brooklynSheer, zAt as brooklynZAt,
   CAT_X as BROOKLYN_CAT_X, CAT_Z as BROOKLYN_CAT_Z,
@@ -4978,6 +4984,166 @@ check('the Credits screen credits the model the Cesare Borgia is drawn from', ()
     && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
     'the credit is not as its licence asks');
 });
+
+// The three Japanese cruisers off the owner's models: the Suzuya, the Yodo
+// and the Mogami, in that order just before the Takao.
+const JPN_CRUISERS = {
+  suzuya: {
+    M: SUZUYA_SHIP, GUNS: SUZUYA_GUNS, next: 'yodo', fullName: 'IJN Suzuya', type: 'CL',
+    main: 155, turrets: [3, 3, 3, 3], sec: 127, secMounts: 4,
+    light: { 25: [26 + 8 + 4, [1, 2, 3]] }, kinds: ['main', 'main2', 'sec', 'aa1', 'aa2', 'aa3'],
+    model: 'Japanese Light Cruiser 7-铃鹿（Suzuka）', url: 'https://skfb.ly/owptP',
+  },
+  yodo: {
+    M: YODO_SHIP, GUNS: YODO_GUNS, next: 'mogami', fullName: 'IJN Yodo', type: 'CL',
+    main: 150, turrets: [3, 3, 3, 3], sec: 127, secMounts: 6,
+    light: { 40: [20, [2]], 25: [20, [1]] }, kinds: ['main', 'main2', 'sec', 'aa40', 'aa'],
+    model: 'Japanese Light Cruiser X-九头龙（Kuzuryu）', url: 'https://skfb.ly/owptS',
+  },
+  mogami: {
+    M: MOGAMI_SHIP, GUNS: MOGAMI_GUNS, next: 'takao', fullName: 'IJN Mogami', type: 'CA',
+    main: 203, turrets: [2, 2, 2, 2, 2], sec: 100, secMounts: 4,
+    light: { 40: [10, [2]], 25: [28, [1]] }, kinds: ['main', 'main2', 'sec', 'aa40', 'aa'],
+    model: 'Japanese Light Cruiser 9-大井（Ooi）', url: 'https://skfb.ly/owptR',
+  },
+};
+
+for (const [id, J] of Object.entries(JPN_CRUISERS)) {
+  const cls = SHIP_CLASSES[id];
+  const build = () => J.M['build' + id[0].toUpperCase() + id.slice(1)]();
+
+  check(`the ${J.fullName} is commissioned just before the ${SHIP_CLASSES[J.next].fullName}, armed as the owner asked`, () => {
+    const i = SHIP_ORDER.indexOf(id);
+    assert.ok(i >= 0, `the ${cls?.name} is not in the yard`);
+    assert.equal(SHIP_ORDER[i + 1], J.next, `after the ${cls.name} comes ${SHIP_ORDER[i + 1]}`);
+    assert.equal(WWII_ORDER.indexOf(id), WWII_ORDER.indexOf(J.next) - 1, 'she is not next to her in the yard');
+    assert.equal(cls.fullName, J.fullName);
+    assert.equal(cls.type, J.type);
+    assert.equal(cls.nation, 'jpn');
+    assert.equal(cls.gun.caliber, J.main);
+    assert.deepEqual(cls.turrets.map((t) => t.guns), J.turrets);
+    assert.equal(cls.secondary.caliber, J.sec);
+    assert.equal(cls.secondary.mounts.length, J.secMounts);
+    const light = lightMounts(cls);
+    for (const [cal, [n, guns]] of Object.entries(J.light)) {
+      const list = cls.aa.guns.filter((g) => g.caliber === +cal).flatMap((g) => g.mounts);
+      assert.equal(list.length, n, `${list.length} ${cal} mm mountings, not ${n}`);
+      assert.deepEqual([...new Set(list.map((m) => m.guns))].sort(), guns);
+    }
+    assert.deepEqual([...new Set(cls.aa.guns.map((g) => g.caliber))].sort(), Object.keys(J.light).map(Number).sort());
+    // Sixteen 610 mm in four quadruple banks, two a side.
+    assert.equal(cls.torpedoes.caliber, 610);
+    assert.deepEqual(cls.torpedoes.mounts.map((m) => m.tubes), [4, 4, 4, 4]);
+    assert.deepEqual(cls.torpedoes.mounts.map((m) => Math.sign(m.x)).sort(), [-1, -1, 1, 1]);
+    const built = build();
+    assert.equal(built.turrets.length, J.turrets.length);
+    assert.equal(built.secMounts.length, J.secMounts);
+    assert.equal(built.aaMounts.length, light.length);
+    assert.equal(built.torpMounts.length, 4);
+    // Every one of her mountings stands on her deck, not in the air over it.
+    const surf = J.M[`${id}SurfaceY`];
+    for (const [kind, list] of Object.entries(J.M.MOUNT_SEATS)) {
+      for (const st of list) {
+        const top = surf(st.x, st.z);
+        assert.ok(Math.abs(top - st.y) < 1.5 || top < st.y + 0.05,
+          `her ${kind} at ${st.x}, ${st.z} stands ${st.y} m up over a deck at ${top}`);
+      }
+    }
+    // Her superfiring pair carry the lattice stay for her aerials on their
+    // roofs, and it trains with them: it is part of their gunhouses, standing
+    // metres over the roofs of the low turrets, and nothing of it is left on
+    // her over where they stand.
+    assert.ok(J.GUNS.main2.roof > J.GUNS.main.roof + 2, 'her superfiring turrets have nothing on their roofs');
+    const supers = cls.turrets.filter((t) => t.piece === 'main2');
+    assert.equal(supers.length, 2, 'she has not two superfiring turrets');
+    for (const t of supers) {
+      const st = J.M.MOUNT_SEATS.main2.find((m) => Math.hypot(m.x - t.x, m.z - t.z) < 0.6);
+      assert.ok(surf(t.x, t.z) < st.y + 1.5, `something of her stands ${surf(t.x, t.z)} m up over ${t.name}`);
+    }
+    // Every barrel that elevates is laid level on its cradle, its muzzles out
+    // ahead of its trunnions.
+    for (const kind of J.kinds) {
+      const p = J.GUNS[kind];
+      assert.ok(p && Number.isFinite(p.pitch), `her ${kind} has no elevation`);
+      for (const [, y, z] of p.muzzles) {
+        assert.ok(z > 0.3 && Math.abs(y) < 0.05, `her ${kind}'s muzzle stands at ${y}, ${z} off its trunnions`);
+      }
+    }
+  });
+
+  check(`the ${cls.name}'s main battery lands on a stationary target`, () => {
+    const { state, a, b } = duel(id, 'takao', 9000);
+    let hits = 0, salvos = 0;
+    // Long enough for six salvos of eight-inch, a round every twelve seconds.
+    for (let i = 0; i < 60 * 45; i++) {
+      a.aimX = b.x; a.aimZ = b.z;
+      if (i > 90 && salvos < 8 && fireGuns(state, a) > 0) salvos++;
+      for (const ev of step(state, DT)) if (ev.e === 'hit' && ev.victim === b.id) hits++;
+    }
+    assert.ok(salvos >= 6, `expected salvos, got ${salvos}`);
+    assert.ok(hits > salvos, `expected hits from ${salvos} salvos, got ${hits}`);
+  });
+
+  check(`the ${cls.name}'s Long Lances go out of her under the water on the beam and run on the bearing`, () => {
+    const state = createState(generateWorld(2020, 'open_ocean'), { mode: 'deathmatch' });
+    state.world.islands = [];
+    const s = addShip(state, { name: 'CL', classId: id, team: 0, index: 0 });
+    s.x = 0; s.z = 0; s.heading = 0;
+    s.aimX = 3000; s.aimZ = 0;
+    let launched = 0;
+    for (let i = 0; i < 30 * 20 && !launched; i++) { step(state, DT); launched = fireTorpedoes(state, s); }
+    assert.ok(launched === 4 || launched === 8, `her starboard banks put ${launched} fish in the water`);
+    for (let i = 0; i < 30 * 8; i++) step(state, DT);
+    const fish = state.torps.filter((t) => t.owner === s.id);
+    assert.equal(fish.length, launched);
+    for (const t of fish) {
+      assert.ok(!t.aboard, 'a fish is still aboard her');
+      assert.ok(Math.abs(angleDelta(t.heading, Math.PI / 2)) < 0.15, `a fish runs on ${t.heading.toFixed(2)}, not the bearing`);
+      assert.ok(t.x > 12, `a fish is in the water ${t.x.toFixed(1)} m off her centreline`);
+    }
+  });
+
+  check(`the ${cls.name}'s shell has no holes in it`, () => {
+    const { shellAt, keelY, deckOver, zAt } = J.M;
+    const built = build();
+    built.group.updateMatrixWorld(true);
+    const meshes = [];
+    built.group.traverse((o) => { if (o.isMesh && !o.userData.inside) meshes.push(o); });
+    const ray = new THREE.Raycaster();
+    let tested = 0;
+    const holes = [];
+    for (let t = -0.95; t <= 0.95; t += 0.01) {
+      const top = deckOver(t);
+      for (let y = keelY(t) + 0.3; y <= top - 0.4; y += 0.5) {
+        const w = shellAt(t, y);
+        if (w < 0.35) continue;
+        // Her shafts, their bossings and their brackets under her quarter,
+        // which her lines read as her side: from a third of her length abaft
+        // her middle.
+        if (t < -0.64 && y < -2) continue;
+        tested++;
+        for (const side of [-1, 1]) {
+          ray.set(new THREE.Vector3(side * 60, y, zAt(t)), new THREE.Vector3(-side, 0, 0));
+          const hit = ray.intersectObjects(meshes, false)[0];
+          if (!hit || (y > keelY(t) + 1.5 && side * hit.point.x < w - 1.5)) holes.push(`t ${t.toFixed(2)} y ${y.toFixed(2)} side ${side}`);
+        }
+      }
+    }
+    assert.ok(tested > 1000, `only ${tested} stations of plating were tested`);
+    assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes[0]}`);
+  });
+
+  check(`the Credits screen credits the model the ${cls.name} is drawn from`, () => {
+    const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+    const screen = html.slice(html.indexOf('id="screen-credits"'));
+    const at = screen.indexOf(`${J.model}</a>`);
+    assert.ok(at >= 0, 'the model is not credited');
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(J.url) && credit.includes('全斗焕')
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'),
+      'the credit is not as its licence asks');
+  });
+}
 
 check('the KMS Admiral Scheer is commissioned after the Admiral Graf Spee, armed as her model is', () => {
   const i = SHIP_ORDER.indexOf('scheer');

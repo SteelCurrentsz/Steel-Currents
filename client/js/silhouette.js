@@ -235,6 +235,59 @@ const HULLS = {
     <rect x="58.1" y="9" width="1.4" height="10"/>
     <rect x="66" y="22" width="5" height="4"/>
     <rect x="71.5" y="25.5" width="5" height="3.5"/>`,
+  // The Suzuya: a Mogami, a long low flush-decked cruiser hull sheering up
+  // to her bow, two triple turrets at each end -- No.2 and No.3 superfiring
+  // -- her tall pagoda bridge with its mast, two raked funnels, the fore one
+  // trunked, a tripod mainmast between them and her aircraft deck aft.
+  suzuya: `
+    <path d="M2 28.5 L20 30 L80 30.5 L98 31 L95 37 L6 37 Z"/>
+    <rect x="21" y="27.5" width="4.2" height="3.2"/>
+    <rect x="26.7" y="25.5" width="4.2" height="5.2"/>
+    <rect x="31" y="27.5" width="27" height="3.2"/>
+    <rect x="33.1" y="19.6" width="6" height="8.7"/>
+    <rect x="34.6" y="15.8" width="3.6" height="4.7"/>
+    <rect x="37.8" y="12.4" width="1.2" height="8.7"/>
+    <path d="M41.5 28.6 L45.5 21.2 L49 21.6 L48.5 28.6 Z"/>
+    <rect x="51.7" y="22" width="3.3" height="6.7"/>
+    <rect x="55.9" y="8.4" width="1.2" height="20.7"/>
+    <rect x="58" y="27" width="11" height="3.7"/>
+    <rect x="69.9" y="25.1" width="4.2" height="5.7"/>
+    <rect x="74.2" y="27.5" width="4.2" height="3.7"/>`,
+  // The Yodo: a big flush-decked cruiser hull with a long forecastle, two
+  // triple turrets at each end -- the inner ones superfiring -- a tall tower
+  // bridge and its mast, one great trunked funnel raked aft, a tall mainmast
+  // and an after control tower, and her crane at her stern.
+  yodo: `
+    <path d="M2 27 L20 29 L78 29 L80 31.7 L98 31.7 L95 37 L6 37 Z"/>
+    <rect x="23.3" y="26.6" width="4.2" height="2.5"/>
+    <rect x="29.1" y="24" width="4.2" height="5"/>
+    <rect x="33.5" y="26" width="32" height="3"/>
+    <rect x="36.2" y="15" width="4.7" height="11"/>
+    <rect x="37" y="11.9" width="3.2" height="3.5"/>
+    <rect x="39.4" y="7" width="1.2" height="9"/>
+    <path d="M42.5 26 L47.4 17.3 L51.5 17.3 L52 26 Z"/>
+    <rect x="58.4" y="1.2" width="1.2" height="25"/>
+    <rect x="60.2" y="15" width="4.1" height="11"/>
+    <rect x="64.5" y="24" width="4.2" height="5"/>
+    <rect x="69.8" y="26.7" width="4.2" height="2.5"/>
+    <path d="M93 31.7 L96.4 18 L97.1 18.3 L94.3 31.7 Z"/>`,
+  // The Mogami as a heavy cruiser: her long low hull sheering up to her bow,
+  // three twin turrets forward -- No.3 superfiring over No.2 -- her pagoda
+  // bridge and its tripod, one great trunked funnel raked aft, a tall
+  // mainmast, and two twin turrets aft, No.4 superfiring.
+  mogami: `
+    <path d="M2 28 L14 30 L94 30 L98 31.4 L95 37 L6 37 Z"/>
+    <rect x="16.8" y="27.4" width="4.2" height="2.6"/>
+    <rect x="23.6" y="27.6" width="4.2" height="2.4"/>
+    <rect x="28" y="25.2" width="4.2" height="4.8"/>
+    <rect x="32.5" y="26.2" width="37" height="3.8"/>
+    <rect x="35.7" y="18.5" width="4.3" height="8"/>
+    <rect x="36.6" y="15.6" width="3" height="3.2"/>
+    <rect x="38.6" y="10.8" width="1.2" height="9"/>
+    <path d="M43.5 26.2 L48 18.2 L52 18.2 L51.5 26.2 Z"/>
+    <rect x="69" y="2" width="1.2" height="25"/>
+    <rect x="71.6" y="24.8" width="4.2" height="5.2"/>
+    <rect x="76.1" y="26.9" width="4.2" height="3.1"/>`,
   // The Ajax: a Leander, a low cruiser hull with two twin turrets at each
   // end, the inner ones superfiring, a tall bridge forward, one great
   // trunked funnel amidships and a tripod mast at each end of her.
