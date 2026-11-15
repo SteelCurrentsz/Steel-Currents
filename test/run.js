@@ -16183,7 +16183,11 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // And the Higgins boat: her ramp stands up across her bow higher than the
     // muzzles of her two Brownings aft, so the wave tops dead ahead are hidden
     // from both. She fights an aeroplane off either bow and on the beam.
-    const noBow = blindAhead || cls.id === 'agincourt' || cls.id === 'higgins';
+    //
+    // And a U-boat's flak, however much of it: the VIIC/41's two 2 cm and her
+    // 3.7 cm all stand on the galleries abaft her tower, which hides the wave
+    // tops dead ahead from every one of them, as the U-48's one gun is.
+    const noBow = blindAhead || cls.id === 'agincourt' || cls.id === 'higgins' || cls.type === 'SS';
     assert.ok(only ? (ahead.barrels > 0 || beam.barrels > 0)
       : ((ahead.barrels > 0 || noBow) && beam.barrels > 0),
       `${cls.id} cannot shoot at an aeroplane at all`);
