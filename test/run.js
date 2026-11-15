@@ -16808,7 +16808,9 @@ check('the arsenal lists every weapon aboard, with what each may engage', () => 
     }
     // A submarine is her tubes and a gun: the Type VIIC as the model has her
     // late in the war, her deck gun landed, carries her tubes and her 2 cm.
-    const least = cls.type === 'LC' ? 1 : cls.cargo || cls.type === 'SS' ? 2 : 3;
+    // And a carrier whose weapon is her air group may carry two kinds of gun:
+    // the Hōshō's 14 cm and her 25 mm.
+    const least = cls.type === 'LC' ? 1 : cls.cargo || cls.type === 'SS' || (cls.type === 'CV' && cls.planes) ? 2 : 3;
     assert.ok(rows.length >= least, `${cls.id} lists only ${rows.length} weapons`);
     for (const w of rows) {
       assert.ok(w.name && w.name.length > 2, `${cls.id} has an unnamed weapon`);
