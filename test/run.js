@@ -26537,11 +26537,12 @@ check('a flight in the battle actually flies the turn she is given', () => {
   void from;
 });
 
-check('the FS Surcouf is in the yard after U-48, and she is a submarine', () => {
+check('the FS Surcouf is in the yard after U-48 and the three boats that follow her, and she is a submarine', () => {
   // The cruiser-submarine: the other answer to the question the U-48 answers.
   const i = SHIP_ORDER.indexOf('surcouf');
   assert.ok(i > 0, 'the Surcouf is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'u48', 'she is not next after U-48');
+  // After the U-48 and the three boats that follow her -- two Type VIICs and a U-class.
+  assert.deepEqual(SHIP_ORDER.slice(i - 4, i), ['u48', 'type7c', 'type7c41', 'uclass3'], 'she is not next after U-48 and the boats that follow her');
   const cls = SHIP_CLASSES.surcouf;
   assert.equal(cls.type, 'SS', 'she is not a submarine');
   assert.equal(cls.fullName, 'FS Surcouf');
