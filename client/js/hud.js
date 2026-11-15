@@ -22,6 +22,20 @@ import {
 
 const $ = (id) => document.getElementById(id);
 
+// Text written to the page only when it changes. Most of what the HUD shows is
+// the same frame after frame, and writing a node -- even with what it already
+// says -- makes the browser work its styles and its layout over again.
+const setText = (el, v) => {
+  if (!el) return;
+  const t = v == null ? '' : String(v);
+  if (el.textContent !== t) el.textContent = t;
+};
+const setHtml = (el, html) => {
+  if (!el || el.__html === html) return;
+  el.__html = html;
+  el.innerHTML = html;
+};
+
 // The engine-room telegraph, bottom to top: astern, stop, and up through her
 // speeds. The order is the lever's order, not an array's.
 const NOTCHES = ['ASTERN', 'STOP', 'SLOW', 'HALF', 'FULL', 'FLANK'];
@@ -813,7 +827,7 @@ class HudBase {
     M.buttons.forEach((b, i) => {
       const left = d.left ? d.left[i] ?? 0 : b.K.rounds;
       const cool = d.cool ? d.cool[i] ?? 0 : 0;
-      b.q.textContent = left;
+      setText(b.q, left);
       b.el.classList.toggle('empty', !left);
       b.c.style.width = `${Math.round((1 - Math.min(1, cool / (b.K.interval || 1))) * 100)}%`;
     });
@@ -826,7 +840,7 @@ class HudBase {
     M.target.textContent = d.target
       ? `${SHIP_CLASSES[d.target.c]?.name || d.target.name || 'enemy'} · ${km(d.targetRange)}`
       : 'AUTO · NEAREST';
-    M.mode.textContent = d.riding ? `RIDING ${MISSILE_SHAPES[d.riding.k]?.name.toUpperCase() || 'MISSILE'}` : 'OWN SHIP';
+    setText(M.mode, d.riding ? `RIDING ${MISSILE_SHAPES[d.riding.k]?.name.toUpperCase() || 'MISSILE'}` : 'OWN SHIP');
     // Her missiles in the air, as keys to ride them by.
     const key = d.mine.map((m) => `${m.i}${m.a ? 'a' : ''}`).join(',') + `|${d.riding ? d.riding.i : 0}`;
     if (key !== M.airKey) {
@@ -1042,7 +1056,7 @@ class HudBase {
   paintKeys(own) {
     const kn = Math.abs(own.v * MPS_TO_KNOTS);
     if (this.keys.helm) {
-      this.keys.helm.querySelector('span').textContent = `${kn.toFixed(0)} KN`;
+      setText(this.keys.helm.querySelector('span'), `${kn.toFixed(0)} KN`);
     }
     if (this.keys.air) {
       const ready = (own.sq || []).filter((q) => q === 0).length;
@@ -1073,7 +1087,7 @@ class HudBase {
         const o2 = document.getElementById('o2-fill');
         if (o2) o2.style.width = `${pct}%`;
         const n = document.getElementById('o2-pct');
-        if (n) n.textContent = `${pct}%`;
+        setText(n, `${pct}%`);
       }
       const depth = own.d || 0;
       const label = document.getElementById('dive-label');
@@ -1119,7 +1133,7 @@ class HudBase {
     if (holes) bits.push(`${holes} hole${holes === 1 ? '' : 's'}`);
     if (gone) bits.push(`${gone} compartment${gone === 1 ? '' : 's'} open`);
     if (!bits.length) bits.push(worst >= 99 ? 'sound' : `${worst}%`);
-    this.condCount.textContent = bits.join(' · ');
+    setText(this.condCount, bits.join(' · '));
   }
 
   /**
@@ -1137,7 +1151,7 @@ class HudBase {
     const [rs, rf, ri] = el.igRows;
     const paint = (r, v, shown, warn, bad) => {
       if (!r) return;
-      r.pct.textContent = shown;
+      setText(r.pct, shown);
       r.fill.style.width = `${v}%`;
       r.row.classList.toggle('warn', warn && !bad);
       r.row.classList.toggle('bad', bad);
@@ -1207,7 +1221,7 @@ class HudBase {
       this.autoOn = auto;
       set('auto', auto ? 'ON' : 'OFF', auto ? 'active' : 'ready');
       set('plane', 'PL', 'ready');
-      this.el.connSub.textContent = `${ready} ready`;
+      setText(this.el.connSub, `${ready} ready`);
       return;
     }
     if (this.panel === 'arms') { this.paintArsenal(own); return; }
@@ -1270,7 +1284,7 @@ class HudBase {
     this.el.connPanel.classList.toggle('wide', this.panel === 'dmg' || this.panel === 'targeting');
     this.el.connPanel.classList.toggle('tall', this.panel === 'arms' || this.panel === 'ship');
     if (!this.panel) return;
-    this.el.connTitle.textContent = PANEL_TITLES[this.panel] || '';
+    setText(this.el.connTitle, PANEL_TITLES[this.panel] || '');
     this.el.connBody.innerHTML = '';
     this.acts = {};
     if (this.panel === 'helm') this.buildHelmPanel();
@@ -1299,7 +1313,7 @@ class HudBase {
     this.el.connBody.appendChild(rows);
     const note = document.createElement('p');
     note.className = 'conn-note';
-    note.textContent = 'Course is laid off on the plot';
+    setText(note, 'Course is laid off on the plot');
     this.el.connBody.appendChild(note);
   }
 
@@ -1322,7 +1336,7 @@ class HudBase {
     this.boardRows = null;
     const note = document.createElement('p');
     note.className = 'conn-note';
-    note.textContent = 'Drag to turn her · pinch or scroll to come in';
+    setText(note, 'Drag to turn her · pinch or scroll to come in');
     this.el.connBody.appendChild(note);
     this.onBoard?.(cv);
   }
@@ -1531,7 +1545,7 @@ class HudBase {
     if (el.flyThrottleFill) el.flyThrottleFill.style.height = `${u * 100}%`;
     if (el.flyThrottleKnob) el.flyThrottleKnob.style.bottom = `${u * 100}%`;
     if (el.flyThrottle) el.flyThrottle.classList.toggle('wep', this.fly.throttle > 1.001);
-    if (el.flyThr) el.flyThr.textContent = Math.round(this.fly.throttle * 100);
+    setText(el.flyThr, Math.round(this.fly.throttle * 100));
   }
 
   /**
@@ -1549,7 +1563,7 @@ class HudBase {
     el.bombSight.hidden = !at;
     if (el.bombSightHint) {
       el.bombSightHint.hidden = !at || !hint;
-      el.bombSightHint.textContent = hint;
+      setText(el.bombSightHint, hint);
     }
     if (!at) return;
     el.bombSight.classList.toggle('away', away);
@@ -1606,7 +1620,7 @@ class HudBase {
     if (!el.flyDrop) return;
     if (!what) { el.flyDrop.hidden = true; return; }
     el.flyDrop.hidden = false;
-    el.flyDrop.textContent = what;
+    setText(el.flyDrop, what);
   }
 
   /**
@@ -1643,10 +1657,10 @@ class HudBase {
     const box = this.el.flyDamageParts;
     if (!box) return;
     if (!this.dmgChips || this.dmgChips.length !== names.length) {
-      box.textContent = '';
+      setText(box, '');
       this.dmgChips = names.map((n) => {
         const el = document.createElement('span');
-        el.textContent = n;
+        setText(el, n);
         box.appendChild(el);
         return el;
       });
@@ -1761,9 +1775,9 @@ class HudBase {
   paintCockpit(p) {
     const el = this.el;
     if (!el.flySpeed || !p) return;
-    el.flySpeed.textContent = Math.round(p.v * 3.6);
-    el.flyAlt.textContent = Math.round(p.y);
-    el.flyG.textContent = p.g.toFixed(1);
+    setText(el.flySpeed, Math.round(p.v * 3.6));
+    setText(el.flyAlt, Math.round(p.y));
+    setText(el.flyG, p.g.toFixed(1));
     el.flyStall.hidden = p.stall < 0.25;
     el.flyDrop.classList.toggle('spent', !p.armed);
   }
@@ -1789,13 +1803,13 @@ class HudBase {
         group = t.group;
         const h = document.createElement('span');
         h.className = 'target-band';
-        h.textContent = group;
+        setText(h, group);
         bar.appendChild(h);
       }
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'target-gun';
-      b.textContent = t.label;
+      setText(b, t.label);
       b.title = `${t.group} ${t.label}`;
       this.dragGun(b, t, 0);
       bar.appendChild(b);
@@ -1810,7 +1824,7 @@ class HudBase {
     foes.className = 'target-foes';
     const none = document.createElement('p');
     none.className = 'conn-note target-none';
-    none.textContent = 'No enemy in sight';
+    setText(none, 'No enemy in sight');
     foes.appendChild(none);
     this.el.connBody.appendChild(foes);
     this.targetFoes = { el: foes, none, boxes: new Map() };
@@ -1913,7 +1927,7 @@ class HudBase {
       const label = f.works ? `${f.n} · ${Math.round((f.left ?? 1) * 100)}% standing` : f.n;
       if (b.name.textContent !== label) b.name.textContent = label;
       b.el.classList.toggle('works', !!f.works);
-      b.range.textContent = `${Math.round(f.d * M_TO_YARDS).toLocaleString()} yd`;
+      setText(b.range, `${Math.round(f.d * M_TO_YARDS).toLocaleString()} yd`);
       // Her guns on this ship, in the order the bar has them.
       const on = keys.filter((k) => assign && assign[`${k.t.kind}:${k.t.i}`] === f.i);
       const sig = on.map((k) => `${k.t.kind}${k.t.i}:${f.d > reach(k.t) ? 1 : 0}${dead(k.t) ? 'x' : ''}`).join(',');
@@ -1924,7 +1938,7 @@ class HudBase {
           const g = document.createElement('button');
           g.type = 'button';
           g.className = 'target-gun linked' + (f.d > reach(k.t) ? ' idle' : '') + (dead(k.t) ? ' off' : '');
-          g.textContent = k.t.label;
+          setText(g, k.t.label);
           g.title = f.d > reach(k.t) ? `${k.t.label}: out of range, idle` : `${k.t.label}: firing on ${f.n}`;
           this.dragGun(g, k.t, f.i);
           b.guns.appendChild(g);
@@ -1932,7 +1946,7 @@ class HudBase {
         if (!on.length) {
           const hint = document.createElement('span');
           hint.className = 'tf-hint';
-          hint.textContent = 'Drop a gun here';
+          setText(hint, 'Drop a gun here');
           b.guns.appendChild(hint);
         }
       }
@@ -1988,7 +2002,7 @@ class HudBase {
         band = w.band;
         const h = document.createElement('div');
         h.className = 'arms-band';
-        h.textContent = band;
+        setText(h, band);
         list.appendChild(h);
       }
       const row = document.createElement('div');
@@ -2089,7 +2103,7 @@ class HudBase {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'arms-dc-set';
-      b.textContent = `${d} m`;
+      setText(b, `${d} m`);
       b.onclick = (e) => { e.stopPropagation(); this.onCharges?.({ k: 'set', d }); };
       sets.appendChild(b);
       entry.setEls.push({ b, d });
@@ -2221,7 +2235,7 @@ class HudBase {
           + `${Math.round(deg).toString().padStart(3, '0')}°`;
         entry.pingEl.classList.add('on');
       } else {
-        entry.pingEl.textContent = 'No contact';
+        setText(entry.pingEl, 'No contact');
         entry.pingEl.classList.remove('on');
       }
     }
@@ -2254,7 +2268,7 @@ class HudBase {
       // go and stand at that gun is worth knowing about.
       const hint = document.createElement('p');
       hint.className = 'arms-hint';
-      hint.textContent = 'Press a mounting to man it';
+      setText(hint, 'Press a mounting to man it');
       this.armsWrap.appendChild(hint);
     }
     entry.row.insertAdjacentElement('afterend', this.armsWrap);
@@ -2323,7 +2337,7 @@ class HudBase {
     if (!info || !info.lamps.length) {
       const p = document.createElement('p');
       p.className = 'conn-note';
-      p.textContent = 'No searchlights left on her';
+      setText(p, 'No searchlights left on her');
       this.el.connBody.appendChild(p);
       return;
     }
@@ -2360,7 +2374,7 @@ class HudBase {
     this.el.connBody.appendChild(wrap);
     const note = document.createElement('p');
     note.className = 'conn-note';
-    note.textContent = 'Tap a light to stand behind it';
+    setText(note, 'Tap a light to stand behind it');
     this.el.connBody.appendChild(note);
   }
 
@@ -2377,7 +2391,7 @@ class HudBase {
     if (!info) {
       const p = document.createElement('p');
       p.className = 'conn-note';
-      p.textContent = 'There is nothing of her left to stand on';
+      setText(p, 'There is nothing of her left to stand on');
       body.appendChild(p);
       return;
     }
@@ -2386,14 +2400,14 @@ class HudBase {
     const go = document.createElement('button');
     go.type = 'button';
     go.className = 'human-deploy';
-    go.textContent = 'Deploy';
+    setText(go, 'Deploy');
     go.disabled = true;
     bar.appendChild(go);
     // Straight up to her bridge: no pin wanted, it is always the same place.
     const up = document.createElement('button');
     up.type = 'button';
     up.className = 'human-deploy human-bridge';
-    up.textContent = 'Bridge';
+    setText(up, 'Bridge');
     up.onclick = () => this.onHumanBridge?.();
     bar.appendChild(up);
     // Off her altogether: into the town, if the battle has one, or onto the
@@ -2402,7 +2416,7 @@ class HudBase {
       const town = document.createElement('button');
       town.type = 'button';
       town.className = 'human-deploy human-bridge';
-      town.textContent = 'Town';
+      setText(town, 'Town');
       town.onclick = () => this.onHumanAshore?.('town');
       bar.appendChild(town);
     }
@@ -2410,13 +2424,13 @@ class HudBase {
       const land = document.createElement('button');
       land.type = 'button';
       land.className = 'human-deploy human-bridge';
-      land.textContent = 'Ashore';
+      setText(land, 'Ashore');
       land.onclick = () => this.onHumanAshore?.('land');
       bar.appendChild(land);
     }
     const said = document.createElement('span');
     said.className = 'human-said';
-    said.textContent = 'No place picked';
+    setText(said, 'No place picked');
     bar.appendChild(said);
     body.appendChild(bar);
 
@@ -2456,14 +2470,14 @@ class HudBase {
       pin.style.left = `${fx * 100}%`;
       pin.style.top = `${fy * 100}%`;
       go.disabled = false;
-      said.textContent = info.describe ? info.describe(x, z) : 'Place picked';
+      setText(said, info.describe ? info.describe(x, z) : 'Place picked');
     });
     go.onclick = () => { if (at) this.onHumanDeploy?.(at.x, at.z); };
     wrap.appendChild(ship);
     body.appendChild(wrap);
     const note = document.createElement('p');
     note.className = 'conn-note';
-    note.textContent = 'Tap her deck to put a pin in it, then Deploy';
+    setText(note, 'Tap her deck to put a pin in it, then Deploy');
     body.appendChild(note);
   }
 
@@ -2562,7 +2576,7 @@ class HudBase {
     if (name) name.textContent = lamp.name;
     const sw = document.getElementById('lamp-switch');
     if (sw) {
-      sw.textContent = lamp.on ? 'Light off' : 'Light on';
+      setText(sw, lamp.on ? 'Light off' : 'Light on');
       sw.classList.toggle('on', !!lamp.on);
     }
   }
@@ -2613,7 +2627,7 @@ class HudBase {
       bits.push(cd > 0 ? `RELOAD ${Math.round(cd)}` : 'READY');
     }
     if (beyond) bits.push('OUT OF RANGE');
-    read.textContent = bits.join('   ');
+    setText(read, bits.join('   '));
     const fire = this.el.sightFire || (this.el.sightFire = document.getElementById('gun-fire'));
     if (fire && !gun.auto) {
       const i = gun.id ?? gun.index;
@@ -2727,7 +2741,7 @@ class HudBase {
     const n = partyCount(this.shown);
     const band = document.createElement('div');
     band.className = 'arms-band';
-    band.textContent = 'DAMAGE CONTROL PARTIES';
+    setText(band, 'DAMAGE CONTROL PARTIES');
     this.el.connBody.appendChild(band);
     this.partyRows = [];
     for (let i = 0; i < n; i++) {
@@ -2745,7 +2759,7 @@ class HudBase {
         (this.partyJobs || (this.partyJobs = []))[i] = job;
         this.partyHold = (this.partyHold || []);
         this.partyHold[i] = performance.now() + 900;
-        key.textContent = PARTY_KEY[job || ''];
+        setText(key, PARTY_KEY[job || '']);
         this.connFn?.('party', { i, job });
       };
       this.el.connBody.appendChild(row);
@@ -2787,7 +2801,7 @@ class HudBase {
       const held = this.partyHold && this.partyHold[i] > now;
       if (!held) {
         this.partyJobs[i] = p[0] || null;
-        r.key.textContent = PARTY_KEY[p[0] || ''];
+        setText(r.key, PARTY_KEY[p[0] || '']);
       }
       r.key.classList.toggle('on', !!(held ? this.partyJobs[i] : p[0]));
       const text = this.partyDoing(p[1]);
@@ -2874,19 +2888,19 @@ class HudBase {
     const el = this.el.targetPlate;
     if (!el) return;
     el.classList.toggle('idle', !t);
-    this.el.targetName.textContent = t ? t.name : 'NO TARGET';
-    if (!t) { this.el.targetLine.textContent = ''; return; }
+    setText(this.el.targetName, t ? t.name : 'NO TARGET');
+    if (!t) { setText(this.el.targetLine, ''); return; }
     const kn = t.speed === null ? null : `${t.speed.toFixed(0)} KN`;
-    this.el.targetLine.textContent = kn
+    setText(this.el.targetLine, kn
       ? `${this.formatRange(t.range)} · ${kn}`
-      : this.formatRange(t.range);
+      : this.formatRange(t.range));
   }
 
   update(own, snap) {
     if (!this.built || !own) return;
     const cls = this.shown;
 
-    this.el.ownName.textContent = `${own.n || ''} · ${cls.name} (${cls.type})`;
+    setText(this.el.ownName, `${own.n || ''} · ${cls.name} (${cls.type})`);
     // Her condition, in a line: how many holes are in her and how much of her
     // is open. Where they are is on the board, drawn on the ship.
     this.paintCondition(own.sec);
@@ -2897,7 +2911,7 @@ class HudBase {
     if (own.fl) chips.push(`<span class="status-chip flood">FLOODING ×${own.fl}</span>`);
     if (own.eng) chips.push('<span class="status-chip engine">ENGINE</span>');
     if (own.str) chips.push('<span class="status-chip steering">STEERING</span>');
-    this.el.status.innerHTML = chips.join('');
+    setHtml(this.el.status, chips.join(''));
 
     this.lastOwn = own;
     this.paintKeys(own);
@@ -2909,14 +2923,14 @@ class HudBase {
       // points, so what a clock is for now is telling you how long you have
       // been at it.
       const t = Math.max(0, snap.time);
-      this.el.timer.textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+      setText(this.el.timer, `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`);
     }
   }
 
   ribbon(text, cls = '') {
     const el = document.createElement('div');
     el.className = `ribbon ${cls}`;
-    el.textContent = text;
+    setText(el, text);
     this.el.ribbons.appendChild(el);
     setTimeout(() => el.remove(), 2400);
     while (this.el.ribbons.children.length > 7) this.el.ribbons.firstChild.remove();
@@ -3671,8 +3685,13 @@ for (const name of Object.getOwnPropertyNames(HudBase.prototype)) {
   const d = Object.getOwnPropertyDescriptor(HudBase.prototype, name);
   if (typeof d.value !== 'function') continue;
   const f = d.value;
-  HudBase.prototype[name] = function (...args) {
-    return this && this.abort ? within(this.abort.signal, () => f.apply(this, args)) : f.apply(this, args);
+  // Without a closure or a copy of the arguments made for it: several of
+  // these are called every frame, and each call used to leave garbage behind.
+  HudBase.prototype[name] = function () {
+    if (!(this && this.abort)) return f.apply(this, arguments);
+    const was = listening;
+    listening = this.abort.signal;
+    try { return f.apply(this, arguments); } finally { listening = was; }
   };
 }
 

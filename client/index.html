@@ -704,6 +704,18 @@
     <div class="msl-air" id="msl-air"></div>
     <p class="msl-hint" id="msl-hint">Z Tomahawk &middot; V Harpoon &middot; N target &middot; J ride</p>
   </div>
+  <!-- The event log: who is sinking, whose rounds went into whom and where,
+       and which carrier's aircraft hit whom. Small in the top left corner (under
+       the missile radar when she has one); its title brings it up large in the
+       middle of the screen, and the button there puts it back. -->
+  <div class="event-log" id="event-log" hidden>
+    <div class="ev-head">
+      <button type="button" class="ev-title" id="ev-title" aria-expanded="false"
+              title="Show the whole log">EVENT LOG <span id="ev-count"></span></button>
+      <button type="button" class="ev-shrink" id="ev-shrink" hidden>Minimise</button>
+    </div>
+    <ol class="ev-list" id="ev-list"></ol>
+  </div>
   <div class="hud-right" id="hud-right">
     <!-- The one way into the free camera. It used to start the moment anybody
          shift-dragged, which meant the camera wandered off its ship by

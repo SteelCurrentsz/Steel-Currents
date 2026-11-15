@@ -220,21 +220,20 @@ function lineClear() {
 }
 
 /**
- * Fetch every sculpted ship in the background, one at a time, and none
- * while a battle's own are coming down.
+ * Fetch, behind the title screen, what every battle needs: the aircraft.
  *
- * All of them at once was forty megabytes asked for in a single breath, and
- * the two or three a battle actually needed came down at a thirteenth of the
- * line each, behind the ten it did not. One after another, a battle's own
- * ships (asked for by loadShips the moment it is chosen) share the line with
- * at most one other.
+ * It used to import every sculpted ship here, one after another, so the yard
+ * and the first battle found them in. But an imported module is never let go
+ * of, and a hull is megabytes of data: by the time the preload had run, the
+ * page was holding four hundred megabytes of ships nobody had asked for --
+ * which is what took a phone or a tablet down in the middle of a one-on-one.
+ * A ship is now brought in when she is wanted (the yard, the briefing, a
+ * battle), and the files themselves are still kept on the device by the
+ * service worker (client/sw.js), so that is a read from disk, not the line.
  */
 export async function preloadShips() {
-  for (const k of Object.keys(SCULPTED)) {
-    // Never alongside a battle's own ships: each waits for them to be in.
-    await lineClear();
-    try { await loadShips([k], null, { background: true }); } catch { /* tried again when it is wanted */ }
-  }
+  await lineClear();
+  try { await loadShips([], null, { background: true }); } catch { /* tried again when it is wanted */ }
 }
 
 const PALETTE = {

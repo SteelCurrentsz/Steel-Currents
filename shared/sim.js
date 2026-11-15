@@ -3259,6 +3259,8 @@ function deliverOrdnance(state, p, best, P) {
       x: p.x, z: p.z,
       tx: Math.round(tx * 10) / 10, tz: Math.round(tz * 10) / 10,
       hit: hit ? 1 : 0,
+      // Whose it was and whom it was meant for, for the event log.
+      victim: best.id, owner: p.owner,
     });
     if (!hit) {
       // Into the sea beside her, a couple of seconds after it left the rack,
@@ -8902,6 +8904,8 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
     lx: Math.round(l.x * 10) / 10, lz: Math.round(l.z * 10) / 10,
     lv: [Math.round(lv.x), Math.round(sh.vy), Math.round(lv.z)],
     sc: target.classId, ap: spec.type === 'ap' ? 1 : 0,
+    // Off an aeroplane, and what it was: a bomb, a rocket or her guns.
+    ...(sh.plane ? { air: sh.rocket ? 'rocket' : sh.bomb ? 'bomb' : 'gun' } : {}),
   });
 }
 
@@ -9345,7 +9349,7 @@ function stepTorpedoes(state, dt) {
         openHull(state, target, hole,
           (34 + state.rng() * 30) * TORP_RENT * (1 - reduction), side, 4 + state.rng() * 2.5);
         if (owner) owner.ribbons.torps++;
-        state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
+        state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner, ...(tp.aerial ? { air: 1 } : {}) });
         // And the column of water it throws up her side, which is a wave like
         // any other to whatever is lying alongside.
         waterBlow(state, tp.x, tp.z, 620);

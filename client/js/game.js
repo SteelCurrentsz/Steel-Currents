@@ -57,6 +57,7 @@ import {
   worksTarget, worksTargets, wallMiddle, isWorksTarget,
 } from '../../shared/works.js';
 import { MISSILE_SHAPES } from './render/missiles.js';
+import { EventLog } from './eventlog.js';
 
 /** What each missile code is called on the banner. */
 const MISSILE_NAMES = Object.fromEntries(Object.entries(MISSILE_SHAPES).map(([k, S]) => [k, S.name]));
@@ -746,6 +747,8 @@ export class Battle {
     }
     this.hud = new Hud({ team, world, onLeave: () => this.leave() });
     this.hud.buildFor(classId);
+    // The event log in the corner: sinkings, hits and air strikes, by name.
+    this.eventLog = new EventLog({ team, who: (id) => this.whoIs(id) });
     this.hud.setSelected(shipId);
     // The damage board builds its own little renderer the first time the
     // wrench is pressed, and is fed her compartments every frame after.
@@ -3004,6 +3007,21 @@ export class Battle {
     return best;
   }
 
+  /** A ship in the battle by her id: her captain, her name, her side. */
+  whoIs(id) {
+    if (id == null) return null;
+    const r = (this.roster || []).find((q) => q.id === id);
+    if (!r) return null;
+    return { captain: r.name, ship: SHIP_CLASSES[r.cls]?.name || r.cls, team: r.team, cls: r.cls };
+  }
+
+  /** What fired from a gun position ashore, for the event log. */
+  batteryName(id) {
+    const snap = this.snapshots && this.snapshots[this.snapshots.length - 1];
+    const g = snap && (snap.batteries || []).find((q) => q.i === id);
+    return g ? (BATTERIES[g.b]?.name || 'Shore battery') : null;
+  }
+
   onEvents(events, late = false) {
     const fx = this.scene.effects;
     // The bridge you are standing on.
@@ -3443,6 +3461,7 @@ export class Battle {
             }
             break;
           }
+          this.eventLog?.impact(ev, this.batteryName(ev.owner));
           // A round that got into her goes off inside her: an explosion, as
           // big as the damage it did. One that did not get in is a flash and
           // a puff against her armour. Neither leaves a mark on the ship.
@@ -3553,6 +3572,7 @@ export class Battle {
           // than anything a gun makes, which is why one hit ends an argument.
           fx.splash(ev.x, ev.z, 620, { kind: 'torp' });
           audio.torpHit({ x: ev.x, y: -1, z: ev.z });
+          if (ev.air) this.eventLog?.air(ev.owner, 'torpedo', ev.victim);
           if (ev.owner === this.shipId) this.hud.ribbon('TORPEDO HIT', 'cit');
           if (ev.victim === this.shipId) {
             this.hud.alert('Torpedo hit');
@@ -3601,6 +3621,7 @@ export class Battle {
           break;
         }
         case 'sinking': {
+          this.eventLog?.sinking(ev.ship);
           // She is going. Not gone: whatever is still above the water goes on
           // fighting, and she has as long as the sea gives her.
           const who = ev.ship === this.shipId ? 'We are' : `${this.names.get(ev.ship) || 'A ship'} is`;
@@ -3705,6 +3726,8 @@ export class Battle {
           // of her heaves the sea up white over her.
           this.sinkInfo = this.sinkInfo || new Map();
           this.sinkInfo.set(ev.ship, ev);
+          // Said once a ship: a sinking she was not seen to begin is said here.
+          this.eventLog?.sinking(ev.ship);
           fx.splash(ev.x, ev.z, 300, { kind: 'dc' });
           audio.founder({ x: ev.x, y: -1, z: ev.z });
           const victim = this.names.get(ev.ship) || 'A ship';
@@ -3968,6 +3991,12 @@ export class Battle {
           break;
         }
         case 'bomb': {
+          // On a ship, it goes in the event log as it lands, not as it leaves
+          // the rack.
+          if (ev.hit && ev.victim != null && this.whoIs(ev.victim)) {
+            const { owner, victim } = ev;
+            setTimeout(() => { if (!this.disposed) this.eventLog?.air(owner, 'bomb', victim); }, 2600);
+          }
           // One bomb away, and where she is going. The arc is flown by the
           // scene; whether she hits was settled the moment the pilot let go.
           const from = (this.planesNow || []).find((q) => q.i === ev.i);
@@ -8092,6 +8121,7 @@ export class Battle {
       if (this.troop) this.stepTroopCommand();
     }
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
+    this.eventLog?.update(dt);
   }
 
   /** Where the guns are laid: the sea point under the crosshair. */
@@ -10230,6 +10260,8 @@ export class Battle {
     // this one still in memory.
     try { this.scene.dispose(); } catch (e) { console.error('Steel Currents: clearing the battle', e); }
     this.hud.dispose?.();
+    this.eventLog?.dispose();
+    this.eventLog = null;
     this.abort?.abort();
     for (const b of [this.board, this.armsBoard, this.planeBoard]) { try { b?.dispose(); } catch { /* gone */ } }
     this.board = this.armsBoard = this.planeBoard = null;
