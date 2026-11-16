@@ -267,6 +267,17 @@ export const AERO = {
     thrust: 10200, vMax: 77, name: 'B4Y1',
     helix: 0.048, gLimit: 4.5,
   },
+  // The Aichi D3A1 -- "Val" -- the dive bomber the Navy went to war with
+  // off the Akagi and the Soryu: fixed spatted legs, an elliptical wing with
+  // dive brakes under it, a 1,070 hp Kinsei, and a 250 kg bomb on a crutch
+  // that swings it clear of her airscrew in the dive. Slower than the Suisei
+  // that replaced her, and the steadier for it in a dive.
+  val: {
+    mass: 3650, wing: 34.9, span: 14.37, clMax: 1.55, cd0: 0.0305,
+    thrust: 12600, vMax: 118, name: 'D3A1',
+    helix: 0.058, gLimit: 6.0,
+    brake: 0.120,
+  },
   // The Suisei: an inline-engined dive bomber, faster than most fighters of
   // her generation, with an internal bomb bay and dive brakes under the wing.
   suisei: {

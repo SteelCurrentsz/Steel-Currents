@@ -95,6 +95,7 @@ const SCULPTED = {
   z57: () => import('./z57.js').then((m) => { KRISS.z57 = m.buildZ57; }),
   soldati: () => import('./soldati.js').then((m) => { KRISS.soldati = m.buildSoldati; }),
   fubuki: () => import('./fubuki.js').then((m) => { KRISS.fubuki = m.buildFubuki; }),
+  tone: () => import('./tone.js').then((m) => { KRISS.tone = m.buildTone; }),
   shimakaze: () => import('./shimakaze.js').then((m) => { KRISS.shimakaze = m.buildShimakaze; }),
   yugumo: () => import('./yugumo.js').then((m) => { KRISS.yugumo = m.buildYugumo; }),
   dunkerque: () => import('./dunkerque.js').then((m) => { KRISS.dunkerque = m.buildDunkerque; }),
@@ -109,6 +110,8 @@ const SCULPTED = {
   uclass3: () => import('./uclass3.js').then((m) => { KRISS.uclass3 = m.buildUclass3; }),
   implacable: () => import('./implacable.js').then((m) => { CARRIERS.implacable = m.buildImplacable; }),
   hosho: () => import('./hosho.js').then((m) => { CARRIERS.hosho = m.buildHosho; }),
+  soryu: () => import('./soryu.js').then((m) => { CARRIERS.soryu = m.buildSoryu; }),
+  akagi: () => import('./akagi.js').then((m) => { CARRIERS.akagi = m.buildAkagi; }),
   essex: () => import('./essex.js').then((m) => { CARRIERS.essex = m.buildEssex; }),
   lexington: () => import('./lexington.js').then((m) => { CARRIERS.lexington = m.buildLexington; }),
   victory: () => import('./victory.js').then((m) => { KRISS.victory = m.buildVictory; }),
@@ -162,7 +165,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'hornet', 'nimitz', 'ford', 'essex', 'lexington'].includes(classId) ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'hornet', 'nimitz', 'ford', 'essex', 'lexington'].includes(classId) ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */
@@ -908,7 +911,7 @@ function buildModel(classId) {
       group: built.group, turrets: built.turrets, lifts: built.lifts,
       deckPlane: built.deckPlane,
       length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
+      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
     };
   }
 

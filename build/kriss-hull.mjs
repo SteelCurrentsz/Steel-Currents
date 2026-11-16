@@ -465,7 +465,9 @@ export async function prepare(cfg) {
     const onDeck = new Set();
     for (let t = 0; t < nf; t++) {
       const off = [0, 1, 2].map((k) => { const v = T[t * 3 + k] * 3; return P[v + 1] - deckAt(P[v + 2]); });
-      if (Math.min(...off) < -0.08 || Math.max(...off) > 0.08) continue;
+      // `tol`: how far off her profile a plate of her flight deck may lie.
+      const TOL = C.tol ?? 0.08;
+      if (Math.min(...off) < -TOL || Math.max(...off) > TOL) continue;
       if (Math.abs(nrm(t)[1]) < 0.9) continue;
       onDeck.add(t);
     }
@@ -519,16 +521,19 @@ export async function prepare(cfg) {
     let FD_AFT = 0, FD_FWD = 0;
     for (let k = 0; k < plan.nz; k++) if (plan.port[k] > 0.5 && plan.stbd[k] > 0.5) { FD_AFT = plan.z0 + k * plan.dz; break; }
     for (let k = plan.nz - 1; k >= 0; k--) if (plan.port[k] > 0.5 && plan.stbd[k] > 0.5) { FD_FWD = plan.z0 + k * plan.dz; break; }
-    // Abreast her island her runway stops at its face.
+    // Abreast her island her runway stops at its face -- to starboard, or to
+    // port for an island on her port side (`island.port`, the Akagi's), its
+    // `face` then the least x of it.
     {
+      const SIDE = ISL.port ? -1 : 1;
       const face = new Float32Array(plan.nz).fill(99);
       for (let t = 0; t < nf; t++) {
         const v = [0, 1, 2].map((k) => T[t * 3 + k] * 3);
         const cx = (P[v[0]] + P[v[1]] + P[v[2]]) / 3, cy = (P[v[0] + 1] + P[v[1] + 1] + P[v[2] + 1]) / 3, cz = (P[v[0] + 2] + P[v[1] + 2] + P[v[2] + 2]) / 3;
-        if (!inIsland(cx, cz) || cx > ISL.face || cy < FD + 0.8 || cy > FD + 6) continue;
+        if (!inIsland(cx, cz) || SIDE * cx > SIDE * ISL.face || cy < FD + 0.8 || cy > FD + 6) continue;
         for (const q of v) {
           const kk = Math.round((P[q + 2] - plan.z0) / plan.dz);
-          if (kk >= 0 && kk < plan.nz) face[kk] = Math.min(face[kk], -P[q]);
+          if (kk >= 0 && kk < plan.nz) face[kk] = Math.min(face[kk], -SIDE * P[q]);
         }
       }
       for (let k = 0; k < plan.nz; k++) {
@@ -536,7 +541,8 @@ export async function prepare(cfg) {
         if (z <= ISL.z0 + 1 || z >= ISL.z1 - 1) continue;
         let f = 99;
         for (let d = -12; d <= 12; d++) if (k + d >= 0 && k + d < plan.nz) f = Math.min(f, face[k + d]);
-        if (f < plan.stbd[k]) plan.stbd[k] = Math.max(f - 0.05, 4);
+        const edge = ISL.port ? plan.port : plan.stbd;
+        if (f < edge[k]) edge[k] = Math.max(f - 0.05, 4);
       }
     }
     const BAND = 0.6;
@@ -1067,7 +1073,7 @@ export async function prepare(cfg) {
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const l = Math.hypot(nx, ny, nz) || 1;
     return {
-      cx, cy, cz, up: Math.abs(ny) > 0.75 * l, down: ny < -0.9 * l, shell: isShell(t), node: model.L[t], mat: model.M[t],
+      cx, cy, cz, ny: ny / l, up: Math.abs(ny) > 0.75 * l, down: ny < -0.9 * l, shell: isShell(t), node: model.L[t], mat: model.M[t],
       kind: kindOf.get(t) || null, hull: HULL_PIECES.has(model.L[t]), half: hbAt(cz),
     };
   };

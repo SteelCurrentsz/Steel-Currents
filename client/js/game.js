@@ -271,6 +271,7 @@ const FLIGHT_NAME = {
   seafire: 'her Seafires',
   a5m: 'her A5Ms',
   b4y: 'her B4Ys',
+  val: 'her Vals',
   firefly: 'her Fireflies',
   hellcat: 'her Hellcats',
   wildcat: 'her fighters',
@@ -301,7 +302,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
   seafire: 'Supermarine Seafire', firefly: 'Fairey Firefly',
-  a5m: 'Mitsubishi A5M', b4y: 'Yokosuka B4Y1',
+  a5m: 'Mitsubishi A5M', b4y: 'Yokosuka B4Y1', val: 'Aichi D3A1 Val',
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
   f18: 'F/A-18 Super Hornet', f35: 'F-35C Lightning', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
@@ -323,6 +324,7 @@ const GUN_CALIBRE = {
   seafire: 20,        // two Hispanos and four Brownings in the wings
   a5m: 7.7,           // two Type 89s in the top of her fuselage
   b4y: 7.7,           // her gunner's Type 92: she has no gun forward
+  val: 7.7,           // two Type 97s in the top of her cowling
   firefly: 20,        // four Hispanos in the wings
   hellcat: 12.7,      // six fifties in the wings
   wildcat: 12.7,      // four fifties in the wings
@@ -367,7 +369,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  seafire: 2, firefly: 4, a5m: 2, b4y: 1,
+  seafire: 2, firefly: 4, a5m: 2, b4y: 1, val: 2,
   hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,

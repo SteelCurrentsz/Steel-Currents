@@ -232,6 +232,28 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
         g.add(m);
         return m;
       }
+      // A bank the model draws shut in a torpedo room under her upper deck,
+      // its fish going out through her side there (`spec.port`; the Tone's):
+      // the bank stays in her hull as the model drew it, and what trains and
+      // fires is the launcher behind her side -- nothing to be seen of it but
+      // the fish, each lying wholly inside her until it is pushed out.
+      if (spec.port) {
+        const L = spec.launch || CLS.torpedoes.launch;
+        const m = new THREE.Group();
+        m.position.set(spec.x, spec.my - (L.lift || 0), spec.z);
+        m.rotation.y = stowed(spec);
+        m.userData.rest = 0;
+        m.userData.dynamic = true;
+        m.userData.mounting = true;
+        m.userData.name = `${spec.x > 0 ? 'port' : 'starboard'} tubes`;
+        m.userData.trainRate = CLS.torpedoes.traverse;
+        const cradle = new THREE.Group();
+        m.add(cradle);
+        arm(m, cradle, L.lanes.map((x) => [x, 0, L.muzzle]));
+        m.userData.bores = L.lanes.map((x) => [x, 0, 0, L.muzzle]);
+        g.add(m);
+        return m;
+      }
       const s = seatFor(tubes, spec.x, spec.z, 'bank of tubes');
       const piece = gunPiece(tubes, s.ix);
       const m = new THREE.Group();

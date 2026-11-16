@@ -310,7 +310,10 @@ import {
 import {
   LIFTS as HO_LIFTS, FD_AFT as HO_FD_AFT, FD_FWD as HO_FD_FWD, SPOT as HO_SPOT, fdY as hoshoFdY,
 } from '../client/js/render/hosho.js';
+import * as SORYU_SHIP from '../client/js/render/soryu.js';
+import * as AKAGI_SHIP from '../client/js/render/akagi.js';
 import { b4y as planekitB4y } from '../client/js/render/planekit.js';
+import { val as planekitVal } from '../client/js/render/planekit.js';
 import {
   buildHornet, stepLifts as hornetLifts, FD_FWD as HN_FD_FWD, FD_AFT as HN_FD_AFT, LIFTS as HN_LIFTS,
   HANGAR as HN_HANGAR, hangarSpots as hornetHangarSpots, MOUNT_SEATS as HORNET_SEATS, hornetSurfaceY,
@@ -4203,12 +4206,12 @@ check('the Credits screen credits the Standards, the Hyuga, the Implacable and t
 // The first carrier built as one, off the owner's model of her by
 // build/kriss-hull.mjs and put together by carrier.js; her A5Ms and B4Ys off
 // the owner's models of them by build/naval-air-source.mjs.
-check('the Hōshō is commissioned just before the Shokaku, with nineteen A5Ms and B4Ys', () => {
+check('the Hōshō is commissioned just before the Sōryū and the Shokaku, with nineteen A5Ms and B4Ys', () => {
   const i = SHIP_ORDER.indexOf('hosho');
   assert.ok(i >= 0, 'she is not in the yard');
-  assert.equal(SHIP_ORDER[i + 1], 'shokaku', `after the Hōshō comes ${SHIP_ORDER[i + 1]}`);
+  assert.deepEqual(SHIP_ORDER.slice(i + 1, i + 3), ['soryu', 'shokaku'], `after the Hōshō comes ${SHIP_ORDER[i + 1]}`);
   assert.ok(WWII_ORDER.includes('hosho'), 'she is not in the WWII yard');
-  assert.ok(WWII_ORDER.indexOf('hosho') === WWII_ORDER.indexOf('shokaku') - 1, 'she is not before the Shokaku in the WWII yard');
+  assert.ok(WWII_ORDER.indexOf('hosho') === WWII_ORDER.indexOf('soryu') - 1, 'she is not before the Sōryū in the WWII yard');
   const cls = SHIP_CLASSES.hosho;
   assert.equal(cls.fullName, 'IJN Hōshō');
   assert.equal(cls.nation, 'jpn');
@@ -4360,6 +4363,172 @@ check('the Credits screen credits the Hōshō\'s model as its licence asks', () 
   const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
   assert.ok(credit.includes('https://skfb.ly/ptTKX') && credit.includes('kriss50')
     && credit.includes('http://creativecommons.org/licenses/by/4.0/'), 'her credit is not as its licence asks');
+});
+
+// ---- the Sōryū and the Akagi ------------------------------------------------------------
+// Off the owner's models of them by build/kriss-hull.mjs (prepare-soryu-hull.mjs,
+// prepare-akagi-hull.mjs), in the Shokaku's colours, put together by
+// carrier.js; Zeros, Vals and Kates in their hangars.
+check('the Sōryū comes after the Hōshō with fifty-seven aircraft, the Akagi after the Shokaku with ninety-one', () => {
+  assert.equal(SHIP_ORDER.indexOf('soryu'), SHIP_ORDER.indexOf('hosho') + 1);
+  assert.equal(SHIP_ORDER.indexOf('akagi'), SHIP_ORDER.indexOf('shokaku') + 1);
+  assert.equal(WWII_ORDER.indexOf('akagi'), WWII_ORDER.indexOf('shokaku') + 1, 'the Akagi is not after the Shokaku in the WWII yard');
+  for (const [id, name, total] of [['soryu', 'IJN Sōryū', 57], ['akagi', 'IJN Akagi', 91]]) {
+    const cls = SHIP_CLASSES[id];
+    assert.equal(cls.fullName, name);
+    assert.equal(cls.nation, 'jpn');
+    assert.equal(cls.type, 'CV');
+    assert.equal(cls.planes.group.total, total, `${id} carries ${cls.planes.group.total}`);
+    assert.deepEqual(cls.planes.types, { fighter: 'zero', dive: 'val', torpedo: 'b5n' });
+    assert.notEqual(silhouette(id), silhouette('fletcher'), `the ${name} is drawn as a destroyer in the yard`);
+    assert.notEqual(silhouette(id), silhouette('shokaku'), `the ${name} is drawn as the Shokaku`);
+  }
+});
+
+check('the Sōryū is armed as she was: six twin 12.7 cm and fifteen twin 25 mm', () => {
+  const cls = SHIP_CLASSES.soryu;
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [2, 2, 2, 2, 2, 2]);
+  assert.equal(cls.gun.caliber, 127);
+  assert.equal(cls.turrets.filter((t) => t.x < 0).length, 3);
+  const mounts = lightMounts(cls);
+  assert.equal(mounts.length, 15);
+  assert.ok(mounts.every((m) => m.guns === 2), 'her 25 mm are not twins');
+  surveyedArcsHold('soryu');
+});
+
+check('the Akagi is armed as she was: six 20 cm casemates, six twin 12 cm and fourteen twin 25 mm', () => {
+  const cls = SHIP_CLASSES.akagi;
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [1, 1, 1, 1, 1, 1]);
+  assert.equal(cls.gun.caliber, 200);
+  // Three a side, all aft, each firing out over her own side.
+  assert.ok(cls.turrets.every((t) => t.z < -60), 'a casemate is not aft');
+  for (const t of cls.turrets) assert.equal(Math.sign(t.angle), Math.sign(t.x), `${t.name} fires across her`);
+  assert.equal(cls.secondary.caliber, 120);
+  assert.equal(cls.secondary.mounts.reduce((n, m) => n + m.guns, 0), 12);
+  const mounts = lightMounts(cls);
+  assert.equal(mounts.length, 14);
+  assert.ok(mounts.every((m) => m.guns === 2), 'her 25 mm are not twins');
+  surveyedArcsHold('akagi');
+});
+
+check('the Sōryū and the Akagi build with every mounting their datasheets list, and their lifts run', () => {
+  for (const id of ['soryu', 'akagi']) {
+    const cls = SHIP_CLASSES[id];
+    const built = buildShip(id);
+    assert.equal(built.group.userData.classId, id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${id}: turrets`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${id}: light guns`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${id}: secondaries`);
+    assert.equal(built.lifts.length, 3, `${id} has ${built.lifts.length} lifts`);
+    const ud = built.group.userData;
+    const ys = (t) => { ud.step(t); return built.lifts.map((l) => l.group.position.y); };
+    const a = ys(0), b = ys(21);
+    assert.ok(a.some((y, i) => Math.abs(y - b[i]) > 1), `no lift of the ${id}'s moved`);
+    // Each lift comes up flush with her deck where it stands, the Akagi's
+    // sloping one included, and goes down to her hangar.
+    const lines = id === 'soryu' ? SORYU_SHIP : AKAGI_SHIP;
+    for (let t = 0; t < 42; t += 0.5) {
+      ud.step(t);
+      for (const l of built.lifts) {
+        const top = lines.fdY(l.group.position.z);
+        assert.ok(l.group.position.y <= top + 0.01, `a lift of the ${id}'s rose over her deck`);
+        assert.ok(l.group.position.y >= lines.HANGAR - 0.01, `a lift of the ${id}'s went through her hangar deck`);
+      }
+    }
+    // The simulation puts each of her types up where her deck leaves it.
+    const P = cls.planes;
+    for (const role of ['fighter', 'dive', 'torpedo']) {
+      const e = ud.deck.endPoses[role];
+      assert.ok(Math.abs(P.runOut[role] - e.z) < 6 && Math.abs(P.runHeight[role] - e.y) < 1.5,
+        `${id}: her deck leaves her ${role}s at ${e.z.toFixed(0)}, ${e.y.toFixed(1)} up, and the simulation puts them up at ${P.runOut[role]}, ${P.runHeight[role]}`);
+    }
+  }
+});
+
+check('nothing struck below in the Sōryū or the Akagi stands up through her flight deck', () => {
+  for (const [id, L] of [['soryu', SORYU_SHIP], ['akagi', AKAGI_SHIP]]) {
+    const built = buildShip(id);
+    const g = built.group;
+    g.updateMatrixWorld(true);
+    const v = new THREE.Vector3();
+    let through = 0;
+    g.traverse((o) => {
+      if (!o.isMesh || !o.userData.inside || !o.geometry.attributes.position) return;
+      const p = o.geometry.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld);
+        if (Math.abs(v.x) > 9 || v.z < L.FD_AFT + 2 || v.z > L.FD_FWD - 2) continue;
+        if (L.LIFTS.some((l) => Math.abs(v.z - l.z) < l.hd + 0.5)) continue;
+        if (v.y > L.fdY(v.z) + 0.03) through++;
+      }
+    });
+    assert.equal(through, 0, `${through} points of the ${id}'s insides stand up through her flight deck`);
+  }
+});
+
+check('the Val is drawn in her own texture, with her 250 kg bomb and two 60 kg, and her gunner', () => {
+  const src = readFileSync(new URL('../client/js/render/valModel.data.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('VAL_TEXTURE = "data:image/jpeg;base64,'), 'the Val has no texture');
+  assert.ok(/"bodyUV":"u16:/.test(src), 'the Val\'s airframe has no place on her texture');
+  const g = new THREE.Group();
+  const p = planekitVal(g, 0, 0, 0, 0, false, {});
+  const falls = p.userData.parts.filter((q) => q.fall).map((q) => q.load || q.name);
+  assert.equal(falls.length, 3, `she drops ${falls.length} things`);
+  assert.ok(p.userData.parts.some((q) => q.turret), 'her gunner has no gun');
+  flightModels();
+  assert.equal(gunsOf('val').length, 2, 'her Val does not have her two guns');
+});
+
+check('the Credits screen credits the Sōryū\'s, the Akagi\'s and the Tone\'s models as their licences ask', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of [
+    { title: 'IJN Soryu', link: 'pwnZy', by: '42manako' },
+    { title: 'CV IJN Akagi (War Thunder)', link: 'pGusB', by: 'KojfDiscord' },
+    { title: 'IJN Tone War Thunder', link: 'pFsv7', by: 'Jimphf' },
+  ]) {
+    const at = screen.indexOf(`${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(`https://skfb.ly/${m.link}`) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+  }
+});
+
+// ---- the Tone ---------------------------------------------------------------------------
+// Off the owner's model of her by build/prepare-tone-hull.mjs, put together by
+// krissShip.js: every gun forward, her aircraft deck aft.
+check('the Tone comes in the yard just before the Takao, armed as she was and as her model has her', () => {
+  assert.equal(SHIP_ORDER.indexOf('tone'), SHIP_ORDER.indexOf('takao') - 1);
+  assert.equal(WWII_ORDER.indexOf('tone'), WWII_ORDER.indexOf('takao') - 1, 'she is not before the Takao in the WWII yard');
+  const cls = SHIP_CLASSES.tone;
+  assert.equal(cls.fullName, 'IJN Tone');
+  assert.equal(cls.nation, 'jpn');
+  assert.equal(cls.type, 'CA');
+  // Four twin 20.3 cm, every one of them forward of her bridge.
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [2, 2, 2, 2]);
+  assert.equal(cls.gun.caliber, 203);
+  assert.ok(cls.turrets.every((t) => t.z > 25), 'a turret of hers is aft');
+  // Four twin 12.7 cm, two a side.
+  assert.equal(cls.secondary.caliber, 127);
+  assert.deepEqual(cls.secondary.mounts.map((m) => m.guns), [2, 2, 2, 2]);
+  assert.equal(cls.secondary.mounts.filter((m) => m.x < 0).length, 2);
+  // Twelve triple and four twin 25 mm.
+  const mounts = lightMounts(cls);
+  assert.equal(mounts.filter((m) => m.guns === 3).length, 12);
+  assert.equal(mounts.filter((m) => m.guns === 2).length, 4);
+  // Four triple banks of 61 cm tubes, two a side.
+  assert.deepEqual(cls.torpedoes.mounts.map((m) => m.tubes), [3, 3, 3, 3]);
+  assert.equal(cls.torpedoes.caliber, 610);
+  assert.notEqual(silhouette('tone'), silhouette('takao'), 'she is drawn as the Takao in the yard');
+  assert.notEqual(silhouette('tone'), silhouette('fletcher'), 'she is drawn as a destroyer in the yard');
+  const built = buildShip('tone');
+  assert.equal(built.group.userData.classId, 'tone');
+  assert.equal(built.turrets.length, 4);
+  assert.equal(built.secMounts.length, 4);
+  assert.equal(built.aaMounts.length, mounts.length);
+  assert.equal(built.torpMounts.length, 4);
+  surveyedArcsHold('tone');
 });
 
 // ---- the ships of the owner's eight new models ---------------------------------------

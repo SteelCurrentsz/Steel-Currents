@@ -27,6 +27,9 @@ const SOURCES = {
   // the texture her paint is drawn on.
   a5m: () => import('./a5mModel.data.js').then((m) => [m.A5M_PIECES, m.A5M_META, m.A5M_TEXTURE]),
   b4y: () => import('./b4yModel.data.js').then((m) => [m.B4Y_PIECES, m.B4Y_META, m.B4Y_TEXTURE]),
+  // And the Akagi's and the Soryu's dive bomber, the Val, in the texture
+  // her paint is drawn on.
+  val: () => import('./valModel.data.js').then((m) => [m.VAL_PIECES, m.VAL_META, m.VAL_TEXTURE]),
 };
 const PIECES = {};
 /**

@@ -1,7 +1,7 @@
 // The Nimitz's three aircraft, the Ka-27, and the Implacable's Seafire and
 // Firefly, from the glbs the owner uploaded to the pieces the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|a5m|b4y|val
 //     ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
@@ -298,6 +298,77 @@ const KINDS = {
       },
     },
     spins: [{ name: 'prop', hub: [0, 0.094, 0.70], axis: 'z' }],
+  },
+  // The Akagi's and the Soryu's dive bomber: the Aichi D3A1 -- "Val" --
+  // fixed legs in their spats, elliptical wings, a 250 kg bomb on the
+  // swinging crutch under her belly that throws it clear of her airscrew in
+  // the dive, and her gunner's Type 92 on its ring at the back of her long
+  // glasshouse. The model is bare: she is painted here in the ameiro of the
+  // carriers' aircraft of 1941-42, her cowling black, the hinomaru on her
+  // upper and lower wings and her fuselage sides, and her carrier's red band
+  // round her tail.
+  val: {
+    src: 'AichiD3AVal.glb', length: 10.2, keep: 0.035, nose: '-x', comps: true,
+    // Her two Type 97s, in the top of her cowling.
+    guns: [[-0.25, 2.62, 3.75], [0.25, 2.62, 3.75]],
+    // The model's frame: her nose at -x, her span along z, her airscrew's
+    // hub 0.05 up; the model is one welded skin, so her airscrew is told
+    // from her cowling by where it is: its spinner forward of -0.706, and
+    // its blades, which sweep out past the cowling's lip.
+    piece: ({ o: [x, y, z] }) => (x < -0.706 || (x < -0.66 && Math.hypot(y - 0.05, z) > 0.158) ? 'spin0' : 'body'),
+    paint: ({ piece }) => (piece === 'spin0' ? [0.6, 0.59, 0.56] : [0.64, 0.63, 0.53]).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)),
+    atlas: {
+      size: 2048, pieces: ['body', 'spin0'],
+      layer: ({ o: [x, y, z], axis, sign, piece }) => {
+        if (piece !== 'body') return 'p';
+        // Her tyres, in the bottoms of her spats: black.
+        if (y < -0.245 && Math.abs(z) > 0.18) return 'k';
+        // Her long glasshouse over her two cockpits.
+        if (x > -0.335 && x < 0.1 && (y > 0.142 || (y > 0.115 && Math.abs(z) < 0.095 && axis === 2))) return 'g';
+        if (axis === 1) return Math.abs(z) > 0.16 ? (sign > 0 ? 'uw' : 'lw') : 'f';
+        if (axis === 0) return x < -0.5 ? 'n' : x > 0.5 ? 't' : 'm';
+        return Math.abs(z) < 0.16 ? 'f' : 'o';
+      },
+      paint: ({ piece, axis, layer, a, b }) => {
+        const AMEIRO = [0.64, 0.63, 0.53], RED = [0.66, 0.09, 0.09], BLACK = [0.08, 0.08, 0.08], WHITE = [0.86, 0.86, 0.84];
+        const COWL = [0.1, 0.1, 0.11];
+        if (piece === 'spin0') {
+          // Bare metal, red at the tips, the spinner metal.
+          const r = axis === 0 ? Math.hypot(b - 0.05, a) : axis === 1 ? Math.abs(b) : Math.abs(b - 0.05);
+          if (r > 0.255) return RED;
+          return [0.6, 0.59, 0.56];
+        }
+        if (layer === 'k') return BLACK;
+        // Her glasshouse: glass, framed every so often along it.
+        if (layer === 'g') {
+          const along = axis === 0 ? 0 : a;
+          return ((along + 0.335) % 0.072) < 0.009 ? [0.42, 0.42, 0.36] : [0.24, 0.3, 0.33];
+        }
+        // Her cowling, back to its gills; the Akagi's red band round her
+        // after fuselage; the hinomaru on her wings, top and bottom, and on
+        // her sides, with a white ring round the ones on her sides.
+        const COWL_AFT = -0.535, BAND = [0.37, 0.415];
+        const disc = (d, R, ring) => (d < R ? RED : ring && d < R + 0.012 ? WHITE : null);
+        if (axis === 1) {
+          const [x, z] = [a, b];
+          if (x < COWL_AFT && Math.abs(z) < 0.16) return COWL;
+          if (layer === 'uw' || layer === 'lw') return disc(Math.hypot(x + 0.265, Math.abs(z) - 0.7), 0.075) || AMEIRO;
+          if (x > BAND[0] && x < BAND[1]) return RED;
+          return AMEIRO;
+        }
+        if (axis === 2) {
+          const [x, y] = [a, b];
+          if (x < COWL_AFT && layer === 'f') return COWL;
+          if (layer === 'f' && x > BAND[0] && x < BAND[1]) return RED;
+          if (layer === 'f') return disc(Math.hypot(x - 0.2, y + 0.02), 0.05, true) || AMEIRO;
+          return AMEIRO;
+        }
+        const [z, y] = [a, b];
+        if (layer === 'n') return Math.hypot(y - 0.05, z) < 0.16 ? COWL : AMEIRO;
+        return AMEIRO;
+      },
+    },
+    spins: [{ name: 'prop', hub: [0, 0.05, 0.75], axis: 'z' }],
   },
 };
 const KIND = process.argv[2];
