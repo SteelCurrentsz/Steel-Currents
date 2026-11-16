@@ -77,4 +77,8 @@ await borrowGuns(OUT, { dp: ['suzuya', 'sec'], aa2: ['suzuya', 'aa2'] });
 // And her casemate guns' barrels, which the model draws as boxes, turned
 // round: a 20 cm/50's, tapering from her breech ring to her muzzle swell, in
 // her grey.
-await turnBarrels(OUT, 'main', { r0: 0.27, r1: 0.17, rgb: [64, 66, 89] });
+// The model draws her six 20 cm alike but for the two at each end of her
+// casemate battery, whose barrels it runs half a metre further out than the
+// middle pair's, through the edge of the embrasure: all six as the middle
+// pair, the one gun turned once.
+await turnBarrels(OUT, 'main', { r0: 0.27, r1: 0.17, rgb: [64, 66, 89], length: 4.79, shared: true });

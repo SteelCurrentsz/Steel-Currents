@@ -15838,17 +15838,17 @@ export const SHIP_CLASSES = {
     // her own side, in the narrow arc of her ports; their arcs, and where her
     // own structure masks them, surveyed off her model.
     turrets: [
-      { id: 0, name: 'CS1', x: -12.007, z: -70.434, angle: -1.5638, arc: 0.6, rest: -1.5638, guns: 1, my: 6.65, piece: 'main' },
-      { id: 1, name: 'CS2', x: -11.308, z: -79.797, angle: -1.5723, arc: 0.6, rest: -1.5723, guns: 1, my: 6.65, piece: 'main' },
-      { id: 2, name: 'CS3', x: -10.006, z: -87.047, angle: -1.5791, arc: 0.6, rest: -1.5791, guns: 1, my: 6.64, piece: 'main' },
-      { id: 3, name: 'CP1', x: 12.007, z: -70.395, angle: 1.5687, arc: 0.6, rest: 1.5687, guns: 1, my: 6.59, piece: 'main' },
-      { id: 4, name: 'CP2', x: 11.308, z: -79.757, angle: 1.5806, arc: 0.6, rest: 1.5806, guns: 1, my: 6.64, piece: 'main' },
-      { id: 5, name: 'CP3', x: 10.006, z: -87.126, angle: 1.565, arc: 0.6, rest: 1.565, guns: 1, my: 6.63, piece: 'main' },
+      { id: 0, name: 'CS1', x: -12.007, z: -70.434, angle: -1.56, arc: 0.02, rest: -1.5638, guns: 1, my: 6.59, piece: 'main' },
+      { id: 1, name: 'CS2', x: -11.308, z: -79.797, angle: -1.55, arc: 1.0, rest: -1.5723, guns: 1, my: 6.59, piece: 'main' },
+      { id: 2, name: 'CS3', x: -10.006, z: -87.047, angle: -1.58, arc: 0.02, rest: -1.5791, guns: 1, my: 6.59, piece: 'main' },
+      { id: 3, name: 'CP1', x: 12.007, z: -70.395, angle: 1.57, arc: 0.02, rest: 1.5687, guns: 1, my: 6.59, piece: 'main' },
+      { id: 4, name: 'CP2', x: 11.308, z: -79.757, angle: 1.54, arc: 1.0, rest: 1.5806, guns: 1, my: 6.59, piece: 'main' },
+      { id: 5, name: 'CP3', x: 10.006, z: -87.126, angle: 1.57, arc: 0.02, rest: 1.565, guns: 1, my: 6.59, piece: 'main' },
     ],
     gun: {
       name: '20 cm/50 3rd Year Type No.1', role: 'surface',
       elev: { min: -0.087, max: 0.436 },
-      reach: 5.37,
+      reach: 4.79,
       caliber: 200, reload: 12.0, traverse: 0.12, range: 22600, sigma: 1.8,
       shells: shells(200, 4700, 3000, 230, 870, 0.13),
     },

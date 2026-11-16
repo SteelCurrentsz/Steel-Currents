@@ -54,14 +54,19 @@ export async function borrowGuns(out, swaps) {
  * the frame of its cradle -- from `from` metres ahead of the trunnions out to
  * the model's own muzzle -- `r0` round at the breech end and `r1` at the
  * muzzle, with the swell of a muzzle at the end of it, painted `rgb` (a
- * colour as the hull's palette stores it, in light, 0-255).
+ * colour as the hull's palette stores it, in light, 0-255). `length`: every
+ * barrel that long from its trunnions, where the model draws the same gun at
+ * different lengths; `shared`: every mounting of the kind is the one turned
+ * piece, where the model's own mountings of it differ only by its slips.
  */
-export async function turnBarrels(out, kind, { r0, r1, from = 0.2, rgb, sides = 20 }) {
+export async function turnBarrels(out, kind, { r0, r1, from = 0.2, rgb, sides = 20, length = 0, shared = false }) {
   const { packPieceCompact } = await import('./sculpt.mjs');
   const file = path.isAbsolute(out) ? out : path.join(ROOT, out);
   let src = readFileSync(file, 'utf8');
   const GUNS = JSON.parse(src.match(/^export const GUNS = (.*);$/m)[1]);
   const g = GUNS[kind];
+  if (length) for (const m of g.muzzles) m[2] = length;
+  if (shared) g.each = null;
   const P = [], N = [], T = [];
   // The barrel's profile, breech to muzzle: [z along it from 0 to 1, radius].
   const prof = [[0, r0 * 1.12], [0.04, r0 * 1.12], [0.05, r0], [0.35, r0 * 0.93], [0.93, r1], [0.965, r1 * 1.16], [1, r1 * 1.12]];
@@ -92,6 +97,12 @@ export async function turnBarrels(out, kind, { r0, r1, from = 0.2, rgb, sides = 
   }
   g.guns = packPieceCompact({ P, N, T }, () => rgb).toString('base64');
   src = src.replace(/^export const GUNS = .*;$/m, () => `export const GUNS = ${JSON.stringify(GUNS)};`);
+  if (length) {
+    const MOUNTS = JSON.parse(src.match(/^export const MOUNTS = (.*);$/m)[1]);
+    const reach = Math.max(...g.muzzles.map((m) => Math.hypot(m[0], m[2])));
+    for (const m of MOUNTS[kind] || []) m.reach = +reach.toFixed(2);
+    src = src.replace(/^export const MOUNTS = .*;$/m, () => `export const MOUNTS = ${JSON.stringify(MOUNTS)};`);
+  }
   writeFileSync(file, src);
   console.log(`${kind}: ${g.muzzles.length} barrels turned, ${T.length / 3} triangles`);
 }
