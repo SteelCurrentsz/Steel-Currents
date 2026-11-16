@@ -2699,7 +2699,12 @@ check("the Kongo trains her catapult out over her port quarter and shoots on the
 check('the Matsu is commissioned after the Fletcher, before the Yukikaze', () => {
   const i = SHIP_ORDER.indexOf('matsu');
   assert.ok(i >= 0, 'the Matsu is not in the yard');
-  assert.equal(SHIP_ORDER[i - 1], 'fletcher', `before the Matsu comes ${SHIP_ORDER[i - 1]}`);
+  // After the Fletcher and the destroyers commissioned after her, the last of
+  // them the Soldati; the Matsu leads the Japanese.
+  assert.ok(SHIP_ORDER.indexOf('fletcher') < i, 'the Matsu comes before the Fletcher');
+  assert.ok(SHIP_ORDER.slice(SHIP_ORDER.indexOf('fletcher'), i).every((id) => SHIP_CLASSES[id].type === 'DD'),
+    'something other than a destroyer comes between the Fletcher and the Matsu');
+  assert.equal(SHIP_CLASSES[SHIP_ORDER[i - 1]].nation === 'jpn', false, `a Japanese destroyer comes before the Matsu`);
   assert.equal(SHIP_ORDER[i + 1], 'yukikaze', `after the Matsu comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.matsu;
   assert.equal(cls.fullName, 'IJN Matsu');
@@ -6629,7 +6634,8 @@ check('HMS Agincourt is in a yard of her own, the Great War\'s, armed with seven
   // And the ship icon offers the Great War first, left of the Second.
   const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
   const eras = [...html.matchAll(/data-era="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(eras, ['ww1', 'wwii', 'modern', 'civil'], `the eras on offer are ${eras}`);
+  // (And the Premium store's hulls after them.)
+  assert.deepEqual(eras, ['ww1', 'wwii', 'modern', 'civil', 'premium'], `the eras on offer are ${eras}`);
   const main = readFileSync(new URL('../client/js/main.js', import.meta.url), 'utf8');
   assert.ok(/ww1: WWI_ORDER/.test(main), 'the WWI button opens no yard');
   const cls = SHIP_CLASSES.agincourt;
@@ -9811,24 +9817,37 @@ check('a hull answers the helm and loses speed in the turn', () => {
 });
 
 check('bots find each other and fight to a decision', () => {
-  const world = generateWorld(77, 'coral_shelf');
-  const state = createState(world, { mode: 'deathmatch', timeLimit: 600 });
-  const brains = new Map();
-  for (let i = 0; i < 3; i++) {
-    for (const team of [0, 1]) {
-      const cls = ['fletcher', 'cleveland', 'iowa'][i];
-      const s = addShip(state, { name: `bot${team}${i}`, classId: cls, team, index: i, isBot: true });
-      brains.set(s.id, createBotBrain('veteran'));
+  // The bots roll their own dice (Math.random): seeded here, so the battle
+  // is the same battle every time it is fought.
+  const dice = Math.random;
+  Math.random = makeRng(1);
+  try {
+    const world = generateWorld(77, 'coral_shelf');
+    const state = createState(world, { mode: 'deathmatch', timeLimit: 600 });
+    const brains = new Map();
+    for (let i = 0; i < 3; i++) {
+      for (const team of [0, 1]) {
+        const cls = ['fletcher', 'cleveland', 'iowa'][i];
+        const s = addShip(state, { name: `bot${team}${i}`, classId: cls, team, index: i, isBot: true });
+        brains.set(s.id, createBotBrain('veteran'));
+      }
     }
+    let sinks = 0;
+    for (let i = 0; i < 30 * 420 && !state.over; i++) {
+      for (const s of state.ships) if (s.alive) stepBot(state, s, brains.get(s.id), DT);
+      for (const ev of step(state, DT)) if (ev.e === 'sink') sinks++;
+    }
+    const totalDamage = state.ships.reduce((n, s) => n + s.damageDealt, 0);
+    assert.ok(totalDamage > 20000, `expected real damage, got ${Math.round(totalDamage)}`);
+    // A decision: a ship sunk, or one shot to pieces -- one of her three
+    // integrity bars gone. Ships are tough now (see damageShip): shot to
+    // pieces alone she does not sink, and inside seven minutes six veteran
+    // bots put one out of it rather than under.
+    const out = state.ships.filter((s) => !s.alive || barsDestroyed(s) >= 1).length;
+    assert.ok(sinks > 0 || out > 0, 'six veteran bots fought seven minutes and put nothing out of the fight');
+  } finally {
+    Math.random = dice;
   }
-  let sinks = 0;
-  for (let i = 0; i < 30 * 420 && !state.over; i++) {
-    for (const s of state.ships) if (s.alive) stepBot(state, s, brains.get(s.id), DT);
-    for (const ev of step(state, DT)) if (ev.e === 'sink') sinks++;
-  }
-  const totalDamage = state.ships.reduce((n, s) => n + s.damageDealt, 0);
-  assert.ok(totalDamage > 20000, `expected real damage, got ${Math.round(totalDamage)}`);
-  assert.ok(sinks > 0, 'six veteran bots should sink something inside seven minutes');
 });
 
 check('snapshots hide unspotted enemies', () => {
@@ -16568,7 +16587,12 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // deck a metre and a half above the sea with nothing on it but rails.
     // Ahead is still masked to the two after mountings by her bridge.
     const small = cls.hull.length < 40;
-    assert.ok(only || (ahead.share < 1 && (small || beam.share < 1)),
+    // And a battery that all stands on her centreline, on a platform over her
+    // deck: the H-class's two quadruple Vickers between her funnels each look
+    // out across a deck ten metres wide over both beams, and are masked only
+    // ahead and astern, by her funnels and her bridge.
+    const centred = aaBattery(cls).every((m) => Math.abs(m.x) < cls.hull.beam * 0.4);
+    assert.ok(only || (ahead.share < 1 && (small || centred || beam.share < 1)),
       `${cls.id} brings her whole light battery to bear on one bearing`);
     // And she can fight an aeroplane somewhere. A ship with galleries down
     // both sides fights one on either bearing; the U-boat's one gun stands on
@@ -16622,7 +16646,18 @@ check('a ship brings less to bear ahead than she does on the beam', () => {
     // And a U-boat's flak, however much of it: the VIIC/41's two 2 cm and her
     // 3.7 cm all stand on the galleries abaft her tower, which hides the wave
     // tops dead ahead from every one of them, as the U-48's one gun is.
-    const noBow = blindAhead || cls.id === 'agincourt' || cls.id === 'higgins' || cls.type === 'SS';
+    //
+    // And the H-class and the Tribal: their light guns stand between and
+    // abaft their funnels, and the forward funnel hides everything dead ahead
+    // from all of them low down (measured off their models); each fights a
+    // low aeroplane on either beam and astern, and one over her bow once he
+    // is up off the water.
+    const funnelled = cls.id === 'hclass' || cls.id === 'tribal';
+    if (funnelled) {
+      assert.ok(aaBearing(cls, ship, 0, R, 400).barrels === aaBarrels(cls),
+        `the ${cls.id} cannot shoot at an aeroplane high over her bow`);
+    }
+    const noBow = blindAhead || cls.id === 'agincourt' || cls.id === 'higgins' || funnelled || cls.type === 'SS';
     assert.ok(only ? (ahead.barrels > 0 || beam.barrels > 0)
       : ((ahead.barrels > 0 || noBow) && beam.barrels > 0),
       `${cls.id} cannot shoot at an aeroplane at all`);
@@ -19385,9 +19420,16 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     //
     // And the Mutsu's: the model carries her side plumb down nearly to her
     // flat bottom, and she is as full at her bilge as the Kongo.
-    const box = id === 'musashi' || id === 'yamato' ? 0.97 : id === 'bismarck' || id === 'tirpitz' || id === 'soyuz' ? 0.995
+    //
+    // And the Musashi, drawn now off her own model: her side stands out over
+    // her anti-torpedo bulge three to five metres under her waterline, wider
+    // than she is at it, and her bilge keels stand out at the turn of her
+    // bilge -- so her bilge is measured against the widest of her section,
+    // over her bulge.
+    const box = id === 'yamato' ? 0.97 : id === 'bismarck' || id === 'tirpitz' || id === 'soyuz' || id === 'musashi' ? 0.995
       : id === 'richelieu' || id === 'kongo' || id === 'mutsu' ? 0.975 : 0.92;
-    assert.ok(deep < mid * box,
+    const widest = id === 'musashi' ? Math.max(mid, ...[0.2, 0.3, 0.4, 0.5].map((f) => halfBeamAt(lines, 0, lines.keel * f))) : mid;
+    assert.ok(deep < widest * box,
       `${id} has no turn of bilge: her section is a box`);
 
     // The water fills from her keel to her waterline, and stays inside her. A
@@ -19425,9 +19467,11 @@ check('the damage board is drawn on her own lines, not on a box', () => {
     // bulges, which are fullest three metres under it, and the Scharnhorst's
     // side, which is widest four or five metres under hers, and the Mutsu's,
     // which the model carries out as far under her waterline as at it, and
-    // the Takao's bulges, widest five metres under hers.)
+    // the Takao's bulges, widest five metres under hers -- and the Yamato's,
+    // drawn now off her own model, her side plumb from her waterline down
+    // past half her draft, and the Musashi's, off hers, over her bulge.)
     if (id === 'bismarck' || id === 'tirpitz' || id === 'richelieu' || id === 'fuso' || id === 'kongo'
-      || id === 'scharnhorst' || id === 'soyuz' || id === 'mutsu' || id === 'takao') {
+      || id === 'scharnhorst' || id === 'soyuz' || id === 'mutsu' || id === 'takao' || id === 'yamato' || id === 'musashi') {
       let side = 0;
       for (let j = 0; j <= 10; j++) {
         side = Math.max(side, halfBeamAt(lines, -half * 0.2 + (half * 0.4 * j) / 10, waterTop(lines, 0.5)));
@@ -23297,7 +23341,10 @@ check('the Japanese ships are built the same on both sides', () => {
   // on the other, a ladder up one side of a tower only. It is the one fault
   // you cannot see from the side you built it on.
   for (const [id, parts, floor, spare] of [
-    ['Yamato', yamatoParts, 150, new Set(['radar', 'airGroup'])],
+    // (The Yamato is not here any more: she is drawn off the owner's model of
+    // her now, which stands everything on her itself -- cranes and boats on
+    // one side of her as the model has them -- and nothing is built on her to
+    // be paired.)
     // (Her hull is the sculpt, checked slice by slice below, so what is
     // paired is what is built on it. Drawn off the Atago model, her bridge,
     // funnels and decks are all in that sculpt and everything else on her
@@ -24840,10 +24887,11 @@ check('an aeroplane flown into a ship is an aeroplane into a ship', () => {
   assert.equal(runs.armed.armed, 1, 'a loaded torpedo bomber had nothing on the rack');
   assert.ok(runs.armed.dmg > runs.empty.dmg * 2.5,
     `loaded ${runs.armed.dmg} against empty ${runs.empty.dmg}: the payload did nothing`);
-  // Where she hit decides whether the sea comes in. High on the upperworks is
-  // a fire; at the waterline is a hole.
-  assert.ok(runs.armed.y > 12, 'the high run did not go in high');
-  assert.ok(runs.low.y < 12, 'the low run did not go in low');
+  // Where she hit decides whether the sea comes in. High on the upperworks --
+  // over her deck -- is a fire; at the waterline is a hole.
+  const deck = freeboardOf(SHIP_CLASSES.iowa);
+  assert.ok(runs.armed.y > deck, `the high run went in at ${runs.armed.y} m, under her deck at ${deck} m`);
+  assert.ok(runs.low.y < deck - 2, `the low run went in at ${runs.low.y} m, not low on her side`);
   assert.ok(runs.low.water > 0.01, 'an aeroplane into her side at the waterline let no water in');
   assert.ok(runs.armed.water < runs.low.water,
     'a strike on her upperworks flooded her as badly as one on the waterline');
@@ -33191,7 +33239,7 @@ check('each missile goes only for what it was built for, and the nuclear AGM-86B
 }));
 
 import {
-  detonate as blowMagazine, magazineBlows, integrityCategories, flyPlane as flyHand, dropOrdnance as dropHand,
+  detonate as blowMagazine, magazineBlows, integrityCategories, barsDestroyed, flyPlane as flyHand, dropOrdnance as dropHand,
 } from '../shared/sim.js';
 
 check('a multi-role Hornet strike lets go of its bombs and its Mavericks, and does not fly into the ship', () => pinned(() => {

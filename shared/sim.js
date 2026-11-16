@@ -13925,8 +13925,9 @@ function hullShape(cls) {
   // freeboard: about seventeen metres in an Essex, twenty-odd in a Nimitz.
   const deck = carrier ? clamp(L * 0.066, 14, 23) : fb;
   const blocks = [];
-  if (carrier) {
-    // The island, to starboard, a little forward of amidships.
+  if (carrier && cls.hull.island !== false) {
+    // The island, to starboard, a little forward of amidships -- on a carrier
+    // that has one: the Hōshō is flush-decked.
     blocks.push({ z0: -0.12 * half, z1: 0.2 * half, x0: hb * 0.45, x1: hb * 1.05, top: deck + 10 + 14 * ss });
   } else if (cls.type !== 'SS') {
     // Her upperworks: from just ahead of her bridge to abaft her last funnel,
@@ -16061,7 +16062,9 @@ function stepPlanes(state, dt) {
       // would pull.
       const frame = AIRFRAME[p.role] || AIRFRAME.scout;
       const wantY = guide ? guide.y + jink.height + clear.height
-        : Math.max(30, wantedHeight(state, p, carrier, !!station) + jink.height + clear.height);
+        // Never under thirty metres -- except going in, whose whole profile
+        // is the last of a dive down onto the thing she is going to hit.
+        : Math.max(p.phase === 'ram' && !p.ramOut ? 0 : 30, wantedHeight(state, p, carrier, !!station) + jink.height + clear.height);
       // A formation climbs at the rate its slowest aeroplane can hold, because
       // otherwise it is not a formation. Left to their own rates the fighters
       // were at cruising height while the torpedo bombers were still two
@@ -16106,7 +16109,7 @@ function stepPlanes(state, dt) {
       const air = p.role === 'dive' && (p.dv || p.brkWant || (p.brk ?? 0) > 0)
         ? diveAirspeed(p, cruiseOf(P, p) * wear.speed, dt) : null;
       if (air !== null) p.vy = clamp(p.vy, -0.985 * air, 0.9 * air);
-      p.y = Math.max(14, p.y + p.vy * dt);
+      p.y = Math.max(p.phase === 'ram' && !p.ramOut ? 4 : 14, p.y + p.vy * dt);
 
       // And height is speed. Going down she gains it and going up she pays
       // for it, which is why a dive bomber is fast in the dive and a loaded

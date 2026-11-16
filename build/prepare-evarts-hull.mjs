@@ -14,10 +14,12 @@ await prepare({
   src: 'assets/models/evarts_destroyer_escort-maximum-compressed.glb',
   out: 'client/js/render/evartsHull.data.js',
   credit: '"Evarts Destroyer Escort" by kriss50 (https://skfb.ly/ptByP), CC BY 4.0',
-  // 289 ft 5 in (88.2 m) stem to stern, 8 ft 3 in (2.51 m) to her keel; her
+  // 289 ft 5 in (88.2 m) stem to stern, and floated at her full-load draught,
+  // 9 ft 6 in (2.90 m), to her keel -- 8 ft 3 in light, which a heavy sea
+  // takes most of the way out from under her; her
   // screws hang a hand's breadth under it. The model draws her bow +Z, turned
   // a fifth of a degree off its own axis.
-  loa: 88.2, draught: 2.61, bow: '+z', endsBelow: 5.3, yaw: 0.00374,
+  loa: 88.2, draught: 2.90, bow: '+z', endsBelow: 5.3, yaw: 0.00374,
   paints: USN_PAINTS, paint: usnPaint, paintLines: [0, BOOT],
   deckFallback: 4.6,
   hullTris: 45000,
