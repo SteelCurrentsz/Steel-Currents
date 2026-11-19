@@ -3468,7 +3468,12 @@ export class Battle {
             : (Number.isFinite(this.scene.ocean.clock) ? this.scene.ocean.clock : null);
           // How big: the B-29's bomb is 1, the B-52's warheads a good deal less.
           const k = nukeScale(ev.kt);
-          this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land, t0, k);
+          // Drawn no bigger than two and a half times the B-29's: Monster
+          // One's megaton at its full four times hangs a sheet of cloud over
+          // every kilometre of sea in sight. What it does is the full
+          // megaton's (see stepNukes), and so is its wave.
+          const kv = Math.min(k, 2.5);
+          this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land, t0, kv);
           // Its wave is the sea from here on (see burstSwell).
           if (!ev.land && t0 != null) this.scene.ocean.addBurst(ev.x, ev.z, t0, k);
           (this.nukeAt || (this.nukeAt = new Map())).set(ev.i, { x: ev.x, z: ev.z });
@@ -3477,7 +3482,7 @@ export class Battle {
           // The flash, as bright as the burst is big and near.
           this.whiteOut(Math.min(1, (0.55 + 0.45 * k) * Math.max(0.45, 1 - far / (26000 * k))), !!ev.land);
           this.shake = Math.max(this.shake, (ev.land ? 3 : 2.2) * Math.max(0.35, 1 - far / 12000) * (0.6 + 0.4 * k));
-          if (!ev.land) fx.splash(ev.x, ev.z, 4000 * k, { kind: 'bomb' });
+          if (!ev.land) fx.splash(ev.x, ev.z, 4000 * kv, { kind: 'bomb' });
           audio.nuke({ x: ev.x, y: Math.max(10, ev.y), z: ev.z });
           this.hud.alert('Atomic detonation');
           break;
