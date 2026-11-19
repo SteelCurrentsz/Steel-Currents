@@ -1,7 +1,7 @@
 // The Nimitz's three aircraft, the Ka-27, and the Implacable's Seafire and
 // Firefly, from the glbs the owner uploaded to the pieces the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|a5m|b4y|val
 //     ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
@@ -211,6 +211,165 @@ const KINDS = {
     },
     spins: [{ name: 'prop', hub: [0, 2.73, 5.2], axis: 'z' }],
   },
+  // The Hosho's fighter: the Mitsubishi A5M, the Navy's first carrier
+  // monoplane -- "Claude" to the Allies -- off the owner's model of her, in
+  // the model's own paint: her two-bladed airscrew turns, and her legs,
+  // fixed and spatted, stay down.
+  a5m: {
+    src: 'Type96Claude-maximum-compressed.glb', length: 7.565, keep: 0.12, nose: '-x', comps: true, texture: 1024,
+    // Her two Type 89s, in the top of her fuselage ahead of her windscreen.
+    guns: [[-0.19, 2.39, 2.95], [0.19, 2.39, 2.95]],
+    piece: ({ comp }) => (comp.lo[0] < -0.715 && comp.hi[0] < -0.67 ? 'spin0' : 'body'),
+    spins: [{ name: 'prop', hub: [0.003, 0.004, 0.735], axis: 'z' }],
+  },
+  // And her attack aeroplane: the Yokosuka B4Y1 -- "Jean" -- the last
+  // biplane the Navy took to sea, with a torpedo slung under her belly. The
+  // model is bare, so she is given the paint of a carrier's attack aeroplane
+  // of 1937 to 1942 here: ameiro, the Navy's grey-green, over all of her, her
+  // engine black, her tail red as her carrier's fighters' are, the hinomaru on
+  // her upper wing and under her lower, her airscrew bare metal with red tips,
+  // and her torpedo the dark steel of a Type 91.
+  b4y: {
+    src: 'Type96Jean-maximum-compressed.glb', length: 10.15, keep: 0.045, storeKeep: 0.2, nose: '-x', comps: true,
+    piece: ({ o, comp }) => {
+      // Her torpedo: a piece of the model of its own, under her belly.
+      if (comp.n > 5000 && comp.n < 40000 && comp.hi[1] < -0.05) return 'store';
+      // Her airscrew and its hub, ahead of her engine.
+      if (o[0] < -0.6895 && Math.hypot(o[1] - 0.094, o[2]) < 0.3) return 'spin0';
+      return 'body';
+    },
+    stores: ['store'],
+    // The model's frame: her nose at -x, her span along z, her airscrew's hub
+    // 0.094 up; her upper wing's skins between 0.2 and 0.29 up, her lower
+    // wing's between -0.1 and 0.06; her fin from 0.476 aft, her tailplane
+    // from 0.43.
+    // Her torpedo, which is not on the texture: a Type 91's warhead darker
+    // than her air vessel and her tail. (And what the rest of her is at each
+    // corner, where a texture cannot be drawn.)
+    // (Corner colours are drawn as they stand, where her texture is
+    // decoded from sRGB: they are given here in light, not in paint.)
+    paint: ({ o, piece }) => (piece === 'store' ? (o[0] < -0.105 ? [0.2, 0.21, 0.22] : [0.28, 0.29, 0.3])
+      : piece === 'spin0' ? [0.6, 0.59, 0.56] : [0.64, 0.63, 0.53]).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)),
+    atlas: {
+      size: 2048, pieces: ['body', 'spin0'],
+      layer: ({ o: [x, y, z], axis, sign, piece }) => {
+        if (piece !== 'body') return 'p';
+        // Her tyres and her tail wheel, under: black.
+        if (axis === 1 && sign < 0 && (y < -0.255 || (x > 0.52 && y < -0.13))) return 'k';
+        if (axis === 1 && sign > 0 && y > 0.2 && x > -0.41 && x < -0.12) return 'uw';
+        if (axis === 1 && sign < 0 && y < 0.06 && y > -0.1 && x > -0.38 && x < -0.09 && Math.abs(z) > 0.1) return 'lw';
+        if (axis === 2) return Math.abs(z) < 0.1 ? 'f' : 'o';
+        if (axis === 0) return x < -0.52 ? 'n' : x > 0.432 ? 't' : 'm';
+        return 'o';
+      },
+      paint: ({ piece, axis, layer, a, b }) => {
+        const AMEIRO = [0.64, 0.63, 0.53], RED = [0.66, 0.09, 0.09], BLACK = [0.08, 0.08, 0.08];
+        const ENGINE = [0.15, 0.15, 0.16];
+        if (piece === 'spin0') {
+          // Bare metal, red at the tips, the hub dark.
+          const r = axis === 0 ? Math.hypot(b - 0.094, a) : axis === 1 ? Math.abs(b) : Math.abs(b - 0.094);
+          if (r > 0.224 && r < 0.241) return RED;
+          if (r < 0.06) return [0.2, 0.2, 0.21];
+          return [0.6, 0.59, 0.56];
+        }
+        if (layer === 'k') return BLACK;
+        const R = 0.085, TAIL = 0.432, NOSE = -0.52;
+        if (axis === 1) {
+          const [x, z] = [a, b];
+          if (x < NOSE && Math.abs(z) < 0.215) return ENGINE;
+          if (layer === 'uw' && Math.hypot(x + 0.267, Math.abs(z) - 0.74) < R) return RED;
+          if (layer === 'lw' && Math.hypot(x + 0.237, Math.abs(z) - 0.74) < R) return RED;
+          if (x > TAIL) return RED;
+          return AMEIRO;
+        }
+        if (axis === 2) {
+          const [x, y] = [a, b];
+          if (y < -0.255) return BLACK;
+          if (x > 0.52 && y < -0.13 && layer === 'f') return BLACK;
+          if (x < NOSE && Math.abs(y - 0.094) < 0.215) return ENGINE;
+          if (x > TAIL) return RED;
+          return AMEIRO;
+        }
+        const [z, y] = [a, b];
+        if (y < -0.255) return BLACK;
+        if (layer === 'n' && Math.hypot(y - 0.094, z) < 0.215) return ENGINE;
+        if (layer === 't') return y < -0.13 ? BLACK : RED;
+        return AMEIRO;
+      },
+    },
+    spins: [{ name: 'prop', hub: [0, 0.094, 0.70], axis: 'z' }],
+  },
+  // The Akagi's and the Soryu's dive bomber: the Aichi D3A1 -- "Val" --
+  // fixed legs in their spats, elliptical wings, a 250 kg bomb on the
+  // swinging crutch under her belly that throws it clear of her airscrew in
+  // the dive, and her gunner's Type 92 on its ring at the back of her long
+  // glasshouse. The model is bare: she is painted here in the ameiro of the
+  // carriers' aircraft of 1941-42, her cowling black, the hinomaru on her
+  // upper and lower wings and her fuselage sides, and her carrier's red band
+  // round her tail.
+  val: {
+    src: 'AichiD3AVal.glb', length: 10.2, keep: 0.035, nose: '-x', comps: true,
+    // Her two Type 97s, in the top of her cowling.
+    guns: [[-0.25, 2.62, 3.75], [0.25, 2.62, 3.75]],
+    // The model's frame: her nose at -x, her span along z, her airscrew's
+    // hub 0.05 up; the model is one welded skin, so her airscrew is told
+    // from her cowling by where it is: its spinner forward of -0.706, and
+    // its blades, which sweep out past the cowling's lip.
+    piece: ({ o: [x, y, z] }) => (x < -0.706 || (x < -0.66 && Math.hypot(y - 0.05, z) > 0.158) ? 'spin0' : 'body'),
+    paint: ({ piece }) => (piece === 'spin0' ? [0.6, 0.59, 0.56] : [0.64, 0.63, 0.53]).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)),
+    atlas: {
+      size: 2048, pieces: ['body', 'spin0'],
+      layer: ({ o: [x, y, z], axis, sign, piece }) => {
+        if (piece !== 'body') return 'p';
+        // Her tyres, in the bottoms of her spats: black.
+        if (y < -0.245 && Math.abs(z) > 0.18) return 'k';
+        // Her long glasshouse over her two cockpits.
+        if (x > -0.335 && x < 0.1 && (y > 0.142 || (y > 0.115 && Math.abs(z) < 0.095 && axis === 2))) return 'g';
+        if (axis === 1) return Math.abs(z) > 0.16 ? (sign > 0 ? 'uw' : 'lw') : 'f';
+        if (axis === 0) return x < -0.5 ? 'n' : x > 0.5 ? 't' : 'm';
+        return Math.abs(z) < 0.16 ? 'f' : 'o';
+      },
+      paint: ({ piece, axis, layer, a, b }) => {
+        const AMEIRO = [0.64, 0.63, 0.53], RED = [0.66, 0.09, 0.09], BLACK = [0.08, 0.08, 0.08], WHITE = [0.86, 0.86, 0.84];
+        const COWL = [0.1, 0.1, 0.11];
+        if (piece === 'spin0') {
+          // Bare metal, red at the tips, the spinner metal.
+          const r = axis === 0 ? Math.hypot(b - 0.05, a) : axis === 1 ? Math.abs(b) : Math.abs(b - 0.05);
+          if (r > 0.255) return RED;
+          return [0.6, 0.59, 0.56];
+        }
+        if (layer === 'k') return BLACK;
+        // Her glasshouse: glass, framed every so often along it.
+        if (layer === 'g') {
+          const along = axis === 0 ? 0 : a;
+          return ((along + 0.335) % 0.072) < 0.009 ? [0.42, 0.42, 0.36] : [0.24, 0.3, 0.33];
+        }
+        // Her cowling, back to its gills; the Akagi's red band round her
+        // after fuselage; the hinomaru on her wings, top and bottom, and on
+        // her sides, with a white ring round the ones on her sides.
+        const COWL_AFT = -0.535, BAND = [0.37, 0.415];
+        const disc = (d, R, ring) => (d < R ? RED : ring && d < R + 0.012 ? WHITE : null);
+        if (axis === 1) {
+          const [x, z] = [a, b];
+          if (x < COWL_AFT && Math.abs(z) < 0.16) return COWL;
+          if (layer === 'uw' || layer === 'lw') return disc(Math.hypot(x + 0.265, Math.abs(z) - 0.7), 0.075) || AMEIRO;
+          if (x > BAND[0] && x < BAND[1]) return RED;
+          return AMEIRO;
+        }
+        if (axis === 2) {
+          const [x, y] = [a, b];
+          if (x < COWL_AFT && layer === 'f') return COWL;
+          if (layer === 'f' && x > BAND[0] && x < BAND[1]) return RED;
+          if (layer === 'f') return disc(Math.hypot(x - 0.2, y + 0.02), 0.05, true) || AMEIRO;
+          return AMEIRO;
+        }
+        const [z, y] = [a, b];
+        if (layer === 'n') return Math.hypot(y - 0.05, z) < 0.16 ? COWL : AMEIRO;
+        return AMEIRO;
+      },
+    },
+    spins: [{ name: 'prop', hub: [0, 0.05, 0.75], axis: 'z' }],
+  },
 };
 const KIND = process.argv[2];
 const K = KINDS[KIND];
@@ -321,9 +480,40 @@ const model = flatten(readFileSync(SRC));
 const { j, P, UV } = model;
 // A model drawn nose along +x is turned to put it along +z, about her
 // vertical, and stays a right-handed aeroplane.
+// The model's own frame, kept: what a kind's `piece` and `paint` are written
+// in (`o`), whichever way her nose is turned.
+const P0 = Float64Array.from(P);
 if (K.nose === '+x') {
   for (let i = 0; i < P.length; i += 3) { const x = P[i], z = P[i + 2]; P[i] = -z; P[i + 2] = x; }
 }
+// And one drawn nose along -x the other way round.
+if (K.nose === '-x') {
+  for (let i = 0; i < P.length; i += 3) { const x = P[i], z = P[i + 2]; P[i] = z; P[i + 2] = -x; }
+}
+const centroid = (A, t) => [0, 1, 2].map((k) => (A[model.T[t * 3] * 3 + k] + A[model.T[t * 3 + 1] * 3 + k] + A[model.T[t * 3 + 2] * 3 + k]) / 3);
+// `comps`: every run of faces that share corners -- by index, as the model
+// was built, not welded by where they stand -- and the box of each, in the
+// model's own frame: a torpedo slung under her, or a spinner and its blades,
+// told apart from the airframe they touch.
+let COMP = null;
+if (K.comps) {
+  const nv = P.length / 3;
+  const up = new Int32Array(nv).map((_, i) => i);
+  const find = (a) => { while (up[a] !== a) { up[a] = up[up[a]]; a = up[a]; } return a; };
+  const T0 = model.T;
+  for (let t = 0; t < T0.length; t += 3) { up[find(T0[t + 1])] = find(T0[t]); up[find(T0[t + 2])] = find(T0[t]); }
+  const boxes = new Map();
+  COMP = new Array(T0.length / 3);
+  for (let t = 0; t < T0.length / 3; t++) {
+    const r = find(T0[t * 3]);
+    let b = boxes.get(r);
+    if (!b) boxes.set(r, b = { n: 0, lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] });
+    b.n++;
+    for (let k = 0; k < 3; k++) { const v = T0[t * 3 + k]; for (let c = 0; c < 3; c++) { b.lo[c] = Math.min(b.lo[c], P0[v * 3 + c]); b.hi[c] = Math.max(b.hi[c], P0[v * 3 + c]); } }
+    COMP[t] = b;
+  }
+}
+if (K.prep) K.prep({ model, P0, centroid, COMP });
 const parentOf = new Map();
 j.nodes.forEach((n, i) => (n.children || []).forEach((c) => parentOf.set(c, i)));
 const nameOf = (ni) => (j.nodes[parentOf.get(ni)] || {}).name || j.nodes[ni].name || '';
@@ -363,7 +553,7 @@ const nt = model.T.length / 3;
 const PIECE = new Array(nt);
 for (let t = 0; t < nt; t++) {
   const c = [0, 1, 2].map((k) => (P[model.T[t * 3] * 3 + k] + P[model.T[t * 3 + 1] * 3 + k] + P[model.T[t * 3 + 2] * 3 + k]) / 3);
-  PIECE[t] = K.piece({ c, mat: model.M[t], node: nameOf(model.L[t]), own: j.nodes[model.L[t]].name || '' });
+  PIECE[t] = K.piece({ c, o: centroid(P0, t), comp: COMP && COMP[t], mat: model.M[t], node: nameOf(model.L[t]), own: j.nodes[model.L[t]].name || '' });
 }
 
 // ---- her frame ------------------------------------------------------------
@@ -416,7 +606,8 @@ async function colourOf(v, mi, t0 = -1) {
   // A model with no paint of its own is painted by where each face is (K.paint).
   if (K.paint && t0 >= 0) {
     const c = [0, 1, 2].map((k) => (P[model.T[t0 * 3] * 3 + k] + P[model.T[t0 * 3 + 1] * 3 + k] + P[model.T[t0 * 3 + 2] * 3 + k]) / 3);
-    return K.paint({ c, p: [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], piece: PIECE[t0], own: j.nodes[model.L[t0]].name || '' });
+    return K.paint({ c, p: [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]], o: centroid(P0, t0), q: [P0[v * 3], P0[v * 3 + 1], P0[v * 3 + 2]],
+      t: t0, piece: PIECE[t0], own: j.nodes[model.L[t0]].name || '' });
   }
   const { t, f } = await texture(mi);
   // A model painted in someone else's colours is repainted in hers (K.recolour).
@@ -458,16 +649,22 @@ async function colourOf(v, mi, t0 = -1) {
  */
 async function piece(which, keep, about = [0, 0, 0]) {
   const key = new Map();
-  const pos = [], col = [], cn = [], idx = [];
+  const pos = [], col = [], cn = [], idx = [], uvs = [];
+  // A kind drawn with her own texture (`texture`) keeps each point's place on
+  // it: two corners that stand together but sit either side of a seam in the
+  // texture stay two points.
+  const tx = !!K.texture || !!(ATLAS && K.atlas.pieces.includes(which));
   for (let t = 0; t < nt; t++) {
     if (PIECE[t] !== which) continue;
     for (let k = 0; k < 3; k++) {
       const v = model.T[t * 3 + k];
+      const uv = !tx ? null : ATLAS ? ATLAS.uvOf(t, v) : [UV[v * 2], UV[v * 2 + 1]];
       const c = await colourOf(v, model.M[t], t);
       const p = toHer(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
       // A repainted model keeps its upper and lower skins' points apart where
       // they meet, so the two colours are not run together along the edge.
-      const id = p.map((x) => Math.round(x * 1e4)).join(',') + (K.recolour ? (model.NY[v] > 0 ? '+' : '-') : '');
+      const id = p.map((x) => Math.round(x * 1e4)).join(',') + (K.recolour ? (model.NY[v] > 0 ? '+' : '-') : '')
+        + (tx ? `@${Math.round(uv[0] * 65536)},${Math.round(uv[1] * 65536)}` : '');
       let n = key.get(id);
       if (n === undefined) {
         n = pos.length / 3;
@@ -475,6 +672,7 @@ async function piece(which, keep, about = [0, 0, 0]) {
         pos.push(p[0] - about[0], p[1] - about[1], p[2] - about[2]);
         col.push(0, 0, 0);
         cn.push(0);
+        if (tx) uvs.push(uv[0], uv[1]);
       }
       col[n * 3] += c[0]; col[n * 3 + 1] += c[1]; col[n * 3 + 2] += c[2]; cn[n]++;
       idx.push(n);
@@ -483,21 +681,38 @@ async function piece(which, keep, about = [0, 0, 0]) {
   for (let i = 0; i < cn.length; i++) for (let c = 0; c < 3; c++) col[i * 3 + c] /= cn[i];
   let out = Uint32Array.from(idx);
   if (keep < 1 && idx.length) {
-    const attr = Float32Array.from(col);
     const target = Math.floor((idx.length / 3) * keep) * 3;
-    [out] = MeshoptSimplifier.simplifyWithAttributes(out, Float32Array.from(pos), 3, attr, 3,
-      [0.6, 0.6, 0.6], null, target, 0.02, []);
+    if (tx) {
+      // Her texture carries her paint: the decimation keeps her shape and the
+      // run of her texture over it, and lets the corners' baked colour go.
+      const attr = new Float32Array(cn.length * 2);
+      for (let i = 0; i < cn.length; i++) { attr[i * 2] = uvs[i * 2]; attr[i * 2 + 1] = uvs[i * 2 + 1]; }
+      [out] = MeshoptSimplifier.simplifyWithAttributes(out, Float32Array.from(pos), 3, attr, 2,
+        [K.uvWeight ?? 4, K.uvWeight ?? 4], null, target, 0.02, []);
+    } else {
+      const attr = Float32Array.from(col);
+      [out] = MeshoptSimplifier.simplifyWithAttributes(out, Float32Array.from(pos), 3, attr, 3,
+        [0.6, 0.6, 0.6], null, target, 0.02, []);
+    }
   }
-  const m = creased(pos, col, out);
+  const m = creased(pos, col, out, tx ? uvs : null);
   console.log(`  ${which}: ${idx.length / 3} -> ${m.T.length / 3} faces`);
   return m;
 }
 
 /** Normals that keep a crease sharper than fifty degrees, and are smooth across anything gentler. */
 const CREASE = Math.cos((50 * Math.PI) / 180);
-function creased(pos, col, idx) {
+function creased(pos, col, idx, uvs = null) {
   const nf = idx.length / 3;
   const fn = new Float64Array(nf * 3);
+  const spot = new Map();
+  const at = (v) => {
+    if (!uvs) return v;
+    const k = `${Math.round(pos[v * 3] * 1e4)},${Math.round(pos[v * 3 + 1] * 1e4)},${Math.round(pos[v * 3 + 2] * 1e4)}`;
+    let s = spot.get(k);
+    if (s === undefined) spot.set(k, s = v);
+    return s;
+  };
   const round = new Map();
   for (let f = 0; f < nf; f++) {
     const a = idx[f * 3] * 3, b = idx[f * 3 + 1] * 3, c = idx[f * 3 + 2] * 3;
@@ -505,7 +720,9 @@ function creased(pos, col, idx) {
     const vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2];
     fn[f * 3] = uy * vz - uz * vy; fn[f * 3 + 1] = uz * vx - ux * vz; fn[f * 3 + 2] = ux * vy - uy * vx;
     for (let k = 0; k < 3; k++) {
-      const v = idx[f * 3 + k];
+      // Smoothed round each point where it stands, not round each corner
+      // index: a seam in her texture is no crease in her skin.
+      const v = at(idx[f * 3 + k]);
       let r = round.get(v);
       if (!r) round.set(v, r = []);
       r.push(f);
@@ -515,14 +732,14 @@ function creased(pos, col, idx) {
     const l = hyp(fn[f * 3], fn[f * 3 + 1], fn[f * 3 + 2]) || 1;
     return [fn[f * 3] / l, fn[f * 3 + 1] / l, fn[f * 3 + 2] / l];
   };
-  const m = { P: [], N: [], C: [], T: [] };
+  const m = { P: [], N: [], C: [], T: [], UV: uvs ? [] : null };
   const made = new Map();
   for (let f = 0; f < nf; f++) {
     const me = unit(f);
     for (let k = 0; k < 3; k++) {
       const v = idx[f * 3 + k];
       let nx = 0, ny = 0, nz = 0;
-      for (const g of round.get(v)) {
+      for (const g of round.get(at(v))) {
         const u = unit(g);
         if (u[0] * me[0] + u[1] * me[1] + u[2] * me[2] < CREASE) continue;
         nx += fn[g * 3]; ny += fn[g * 3 + 1]; nz += fn[g * 3 + 2];
@@ -537,6 +754,7 @@ function creased(pos, col, idx) {
         m.P.push(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]);
         m.N.push(nx, ny, nz);
         m.C.push(col[v * 3], col[v * 3 + 1], col[v * 3 + 2]);
+        if (uvs) m.UV.push(uvs[v * 2], uvs[v * 2 + 1]);
       }
       m.T.push(n);
     }
@@ -545,12 +763,145 @@ function creased(pos, col, idx) {
 }
 
 const toByte = (x) => Math.max(0, Math.min(255, Math.round(x * 255)));
-const packed = (m) => packPieceCompact(m, (i) => [toByte(m.C[i * 3]), toByte(m.C[i * 3 + 1]), toByte(m.C[i * 3 + 2])]).toString('base64');
+// A piece drawn with her texture carries its place on it instead of a colour.
+const packed = (m) => packPieceCompact(m, m.UV ? null : (i) => [toByte(m.C[i * 3]), toByte(m.C[i * 3 + 1]), toByte(m.C[i * 3 + 2])]).toString('base64');
 const extent = (m) => {
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < m.P.length; i += 3) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], m.P[i + c]); hi[c] = Math.max(hi[c], m.P[i + c]); }
   return [lo, hi];
 };
+
+// ---- her own texture, painted here (`atlas`) ------------------------------
+// A bare model is given a texture of her paint rather than a colour at each
+// corner: every face is laid flat on the tile of the way it looks -- down on
+// her from above, up at her from below, at her side, at her nose -- and each
+// tile painted texel by texel off where on her it is (`atlas.paint`). Her
+// markings are drawn by the texture, round and sharp, whatever size her
+// faces happen to be. A tile can be split further by where on her a face is
+// (`atlas.layer`): her upper wing's top from her lower wing's, under it.
+let ATLAS = null;
+if (K.atlas) {
+  const A = K.atlas;
+  const tiles = new Map();
+  const FACE_TILE = new Array(nt);
+  const proj = (axis, q) => (axis === 0 ? [q[2], q[1]] : axis === 1 ? [q[0], q[2]] : [q[0], q[1]]);
+  // Which way each face looks, off her surface's normal where it stands --
+  // the faces' own normals welded and smoothed round every point -- and then
+  // each face put with the most of those round it, a few times over: a
+  // sculpted skin's faces lean every way, and laid each by its own lean they
+  // break her texture into thousands of islands with a seam round each.
+  const wid = new Int32Array(P0.length / 3);
+  {
+    const at = new Map();
+    for (let v = 0; v < wid.length; v++) {
+      const k = `${Math.round(P0[v * 3] * 1e5)},${Math.round(P0[v * 3 + 1] * 1e5)},${Math.round(P0[v * 3 + 2] * 1e5)}`;
+      let i = at.get(k);
+      if (i === undefined) at.set(k, i = at.size);
+      wid[v] = i;
+    }
+  }
+  const nw = wid.reduce((m, v) => Math.max(m, v), 0) + 1;
+  const VN = new Float64Array(nw * 3);
+  const FN = new Float64Array(nt * 3);
+  for (let t = 0; t < nt; t++) {
+    const a = model.T[t * 3] * 3, b = model.T[t * 3 + 1] * 3, c = model.T[t * 3 + 2] * 3;
+    const ux = P0[b] - P0[a], uy = P0[b + 1] - P0[a + 1], uz = P0[b + 2] - P0[a + 2];
+    const vx = P0[c] - P0[a], vy = P0[c + 1] - P0[a + 1], vz = P0[c + 2] - P0[a + 2];
+    FN[t * 3] = uy * vz - uz * vy; FN[t * 3 + 1] = uz * vx - ux * vz; FN[t * 3 + 2] = ux * vy - uy * vx;
+    for (let k = 0; k < 3; k++) { const w = wid[model.T[t * 3 + k]]; for (let q = 0; q < 3; q++) VN[w * 3 + q] += FN[t * 3 + q]; }
+  }
+  const label = new Int8Array(nt).fill(-1);
+  const labelOf = (n) => {
+    const axis = Math.abs(n[0]) >= Math.abs(n[1]) && Math.abs(n[0]) >= Math.abs(n[2]) ? 0 : Math.abs(n[1]) >= Math.abs(n[2]) ? 1 : 2;
+    return axis * 2 + (n[axis] >= 0 ? 1 : 0);
+  };
+  for (let t = 0; t < nt; t++) {
+    if (!A.pieces.includes(PIECE[t])) continue;
+    const n = [0, 0, 0];
+    for (let k = 0; k < 3; k++) { const w = wid[model.T[t * 3 + k]]; const l = Math.hypot(VN[w * 3], VN[w * 3 + 1], VN[w * 3 + 2]) || 1; for (let q = 0; q < 3; q++) n[q] += VN[w * 3 + q] / l; }
+    label[t] = labelOf(n);
+  }
+  // Faces round each point, for the vote.
+  const start = new Int32Array(nw + 1);
+  for (let t = 0; t < nt; t++) if (label[t] >= 0) for (let k = 0; k < 3; k++) start[wid[model.T[t * 3 + k]] + 1]++;
+  for (let i = 0; i < nw; i++) start[i + 1] += start[i];
+  const fill = start.slice(0, nw);
+  const round = new Int32Array(start[nw]);
+  for (let t = 0; t < nt; t++) if (label[t] >= 0) for (let k = 0; k < 3; k++) round[fill[wid[model.T[t * 3 + k]]]++] = t;
+  for (let pass = 0; pass < (A.smooth ?? 3); pass++) {
+    const next = label.slice();
+    const votes = new Int32Array(6);
+    for (let t = 0; t < nt; t++) {
+      if (label[t] < 0) continue;
+      votes.fill(0);
+      for (let k = 0; k < 3; k++) {
+        const w = wid[model.T[t * 3 + k]];
+        for (let i = start[w]; i < start[w + 1]; i++) if (PIECE[round[i]] === PIECE[t]) votes[label[round[i]]]++;
+      }
+      let best = label[t];
+      for (let q = 0; q < 6; q++) if (votes[q] > votes[best]) best = q;
+      next[t] = best;
+    }
+    label.set(next);
+  }
+  for (let t = 0; t < nt; t++) {
+    if (label[t] < 0) continue;
+    const a = model.T[t * 3] * 3, b = model.T[t * 3 + 1] * 3, c = model.T[t * 3 + 2] * 3;
+    const axis = label[t] >> 1;
+    const sign = label[t] & 1 ? 1 : -1;
+    const o = centroid(P0, t);
+    const key = `${PIECE[t]}|${axis}|${sign}|${A.layer({ o, axis, sign, piece: PIECE[t] })}`;
+    let tl = tiles.get(key);
+    if (!tl) tiles.set(key, tl = { key, piece: PIECE[t], axis, sign, layer: key.split('|')[3], lo: [Infinity, Infinity], hi: [-Infinity, -Infinity] });
+    for (const v of [a, b, c]) {
+      const [pa, pb] = proj(axis, [P0[v], P0[v + 1], P0[v + 2]]);
+      tl.lo[0] = Math.min(tl.lo[0], pa); tl.lo[1] = Math.min(tl.lo[1], pb);
+      tl.hi[0] = Math.max(tl.hi[0], pa); tl.hi[1] = Math.max(tl.hi[1], pb);
+    }
+    FACE_TILE[t] = tl;
+  }
+  // Packed in shelves, tallest first, at one density over all of them, with
+  // a margin round each so that nothing bleeds into its neighbour as it is
+  // filtered down.
+  const SIZE = A.size, PAD = 6;
+  const list = [...tiles.values()].sort((p, q) => (q.hi[1] - q.lo[1]) - (p.hi[1] - p.lo[1]));
+  const fits = (d) => {
+    let x = 0, y = 0, row = 0;
+    for (const tl of list) {
+      const w = Math.ceil((tl.hi[0] - tl.lo[0]) * d) + PAD * 2, h = Math.ceil((tl.hi[1] - tl.lo[1]) * d) + PAD * 2;
+      if (w > SIZE) return false;
+      if (x + w > SIZE) { x = 0; y += row; row = 0; }
+      tl.px = x; tl.py = y; tl.pw = w; tl.ph = h;
+      x += w; row = Math.max(row, h);
+    }
+    return y + row <= SIZE;
+  };
+  let d = 4096;
+  while (!fits(d)) d *= 0.97;
+  const img = Buffer.alloc(SIZE * SIZE * 3, 0);
+  for (const tl of list) {
+    for (let py = 0; py < tl.ph; py++) {
+      for (let px = 0; px < tl.pw; px++) {
+        const a = tl.lo[0] + (px + 0.5 - PAD) / d, b = tl.lo[1] + (py + 0.5 - PAD) / d;
+        const c = A.paint({ piece: tl.piece, axis: tl.axis, sign: tl.sign, layer: tl.layer, a, b });
+        const o = ((tl.py + py) * SIZE + tl.px + px) * 3;
+        img[o] = Math.round(Math.min(1, Math.max(0, c[0])) * 255);
+        img[o + 1] = Math.round(Math.min(1, Math.max(0, c[1])) * 255);
+        img[o + 2] = Math.round(Math.min(1, Math.max(0, c[2])) * 255);
+      }
+    }
+  }
+  const uvOf = (t, v) => {
+    const tl = FACE_TILE[t];
+    const [pa, pb] = proj(tl.axis, [P0[v * 3], P0[v * 3 + 1], P0[v * 3 + 2]]);
+    return [(tl.px + PAD + (pa - tl.lo[0]) * d) / SIZE, (tl.py + PAD + (pb - tl.lo[1]) * d) / SIZE];
+  };
+  const jpg = await sharp(img, { raw: { width: SIZE, height: SIZE, channels: 3 } })
+    .jpeg({ quality: 90, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer();
+  if (process.env.ATLAS) writeFileSync(process.env.ATLAS, jpg);
+  ATLAS = { uvOf, FACE_TILE, jpg };
+  console.log(`atlas: ${tiles.size} tiles at ${(d / S).toFixed(1)} texels a metre, ${(jpg.length / 1024).toFixed(0)} KB`);
+}
 
 console.log('pieces:');
 const PIECES = {};
@@ -560,6 +911,17 @@ DUMPS.body = { m: body };
 PIECES.body = packed(body);
 if (PIECE.includes('glass')) { const m = await piece('glass', 0.8); DUMPS.glass = { m }; PIECES.glass = packed(m); }
 if (PIECE.includes('gear')) { const m = await piece('gear', Math.min(1, K.keep * 1.4)); DUMPS.gear = { m }; PIECES.gear = packed(m); }
+// Whatever she carries that leaves her -- a torpedo slung under her -- each
+// about its own middle, and where that is.
+const STORES = {};
+for (const name of K.stores || []) {
+  const [slo, shi] = box((t) => PIECE[t] === name);
+  const mid = toHer(...[0, 1, 2].map((c) => (slo[c] + shi[c]) / 2));
+  const m = await piece(name, Math.min(1, K.storeKeep ?? K.keep * 1.5), mid);
+  PIECES[name] = packed(m);
+  DUMPS[name] = { m, at: mid };
+  STORES[name] = mid.map((v) => +v.toFixed(3));
+}
 const SPINS = [];
 for (let i = 0; i < K.spins.length; i++) {
   const s = K.spins[i];
@@ -574,6 +936,26 @@ for (let i = 0; i < K.spins.length; i++) {
   DUMPS[s.name] = { m, at: hub };
   SPINS.push({ name: s.name, hub: hub.map((v) => +v.toFixed(3)), axis: s.axis, r: +r.toFixed(2) });
 }
+// Each textured piece's place on her texture, a pair a point: in sixteen
+// bits where it all lies on the one sheet, as glTF draws it, and in floats
+// where it repeats.
+for (const [k, d] of Object.entries(DUMPS)) {
+  if (!d.m.UV) continue;
+  const inside = d.m.UV.every((v) => v >= 0 && v <= 1);
+  PIECES[`${k}UV`] = inside
+    ? `u16:${Buffer.from(Uint16Array.from(d.m.UV, (v) => Math.round(v * 65535)).buffer).toString('base64')}`
+    : `f32:${Buffer.from(Float32Array.from(d.m.UV).buffer).toString('base64')}`;
+}
+// And the texture itself, as a JPEG, for the kinds drawn with it.
+let TEXTURE = ATLAS ? `data:image/jpeg;base64,${ATLAS.jpg.toString('base64')}` : null;
+if (K.texture) {
+  const mat = j.materials[0] || {};
+  const img = j.images[j.textures[mat.pbrMetallicRoughness.baseColorTexture.index].source];
+  const jpg = await sharp(Buffer.from(model.views[img.bufferView])).resize(K.texture, K.texture)
+    .jpeg({ quality: 88, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer();
+  TEXTURE = `data:image/jpeg;base64,${jpg.toString('base64')}`;
+  console.log(`  texture: ${K.texture}px, ${(jpg.length / 1024).toFixed(0)} KB`);
+}
 const [blo, bhi] = extent(body);
 const r3 = (a) => a.map((v) => Math.round(v * 1000) / 1000);
 const META = {
@@ -581,6 +963,7 @@ const META = {
   length: +(bhi[2] - blo[2]).toFixed(2),
   height: +(bhi[1] - blo[1]).toFixed(2),
   spins: SPINS,
+  ...(Object.keys(STORES).length ? { stores: STORES } : {}),
   // Where her contrails come off her: her wingtips, aft.
   tips: [[r3([blo[0] + 0.3, (blo[1] + bhi[1]) / 2, 0])[0], +((blo[1] + bhi[1]) / 2).toFixed(2), 0],
     [r3([bhi[0] - 0.3])[0], +((blo[1] + bhi[1]) / 2).toFixed(2), 0]],
@@ -593,32 +976,37 @@ const lines = [
   '// Do not hand-edit -- regenerate from the source asset instead.',
   `export const ${NAME}_PIECES = ${JSON.stringify(PIECES)};`,
   `export const ${NAME}_META = ${JSON.stringify(META)};`,
+  ...(TEXTURE ? [`export const ${NAME}_TEXTURE = ${JSON.stringify(TEXTURE)};`] : []),
   '',
 ];
 writeFileSync(OUT, lines.join('\n'));
 // DUMP=file.glb: every piece, in place, as one coloured mesh to look at.
 if (process.env.DUMP) {
-  const Pd = [], Nd = [], Cd = [], Td = [];
+  const Pd = [], Nd = [], Cd = [], Td = [], Ud = [];
   const add = (m, at = [0, 0, 0]) => {
     const base = Pd.length / 3;
-    for (let i = 0; i < m.P.length; i += 3) { Pd.push(m.P[i] + at[0], m.P[i + 1] + at[1], m.P[i + 2] + at[2]); Nd.push(m.N[i], m.N[i + 1], m.N[i + 2]); Cd.push(m.C[i], m.C[i + 1], m.C[i + 2]); }
+    for (let i = 0; i < m.P.length; i += 3) { Pd.push(m.P[i] + at[0], m.P[i + 1] + at[1], m.P[i + 2] + at[2]); Nd.push(m.N[i], m.N[i + 1], m.N[i + 2]); Cd.push(m.C[i], m.C[i + 1], m.C[i + 2]); Ud.push(m.UV ? m.UV[(i / 3) * 2] : 0, m.UV ? m.UV[(i / 3) * 2 + 1] : 0); }
     for (const v of m.T) Td.push(base + v);
   };
   for (const [k, m] of Object.entries(DUMPS)) add(m.m, m.at);
   const f32 = (a) => Buffer.from(Float32Array.from(a).buffer);
-  const bufs = [f32(Pd), f32(Nd), f32(Cd), Buffer.from(Uint32Array.from(Td).buffer)];
+  const jpg = TEXTURE ? Buffer.from(TEXTURE.split(',')[1], 'base64') : null;
+  const pad4 = (b) => Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4)]);
+  const bufs = [f32(Pd), f32(Nd), f32(Cd), Buffer.from(Uint32Array.from(Td).buffer), f32(Ud), ...(jpg ? [pad4(jpg)] : [])];
   let off = 0;
   const views = bufs.map((b) => { const v = { buffer: 0, byteOffset: off, byteLength: b.length }; off += b.length; return v; });
   const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < Pd.length; i++) { mn[i % 3] = Math.min(mn[i % 3], Pd[i]); mx[i % 3] = Math.max(mx[i % 3], Pd[i]); }
   const js = Buffer.from(JSON.stringify({ asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
-    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, COLOR_0: 2 }, indices: 3, material: 0 }] }],
-    materials: [{ pbrMetallicRoughness: { metallicFactor: 0, roughnessFactor: 0.8 }, doubleSided: true }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, ...(jpg ? { TEXCOORD_0: 4 } : { COLOR_0: 2 }) }, indices: 3, material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { metallicFactor: 0, roughnessFactor: 0.8, ...(jpg ? { baseColorTexture: { index: 0 } } : {}) }, doubleSided: true }],
+    ...(jpg ? { textures: [{ source: 0 }], images: [{ bufferView: 5, mimeType: 'image/jpeg' }] } : {}),
     buffers: [{ byteLength: off }], bufferViews: views,
     accessors: [{ bufferView: 0, componentType: 5126, count: Pd.length / 3, type: 'VEC3', min: mn, max: mx },
       { bufferView: 1, componentType: 5126, count: Pd.length / 3, type: 'VEC3' },
       { bufferView: 2, componentType: 5126, count: Pd.length / 3, type: 'VEC3' },
-      { bufferView: 3, componentType: 5125, count: Td.length, type: 'SCALAR' }] }));
+      { bufferView: 3, componentType: 5125, count: Td.length, type: 'SCALAR' },
+      { bufferView: 4, componentType: 5126, count: Pd.length / 3, type: 'VEC2' }] }));
   const jsPad = Buffer.concat([js, Buffer.alloc((4 - (js.length % 4)) % 4, 0x20)]);
   const bodyB = Buffer.concat(bufs);
   const head = Buffer.alloc(12); head.write('glTF', 0); head.writeUInt32LE(2, 4); head.writeUInt32LE(12 + 8 + jsPad.length + 8 + bodyB.length, 8);

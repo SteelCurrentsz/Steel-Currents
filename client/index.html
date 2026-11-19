@@ -475,8 +475,20 @@
       <p class="credit">"<a href="https://skfb.ly/oHGQC" target="_blank" rel="noopener">US Super Battleship Oregon</a>"
         by 全斗焕 is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/ptTKX" target="_blank" rel="noopener">Japanese Aircraft Carrier Hōshō</a>"
+        by kriss50 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/o6w8T" target="_blank" rel="noopener">IJN CV SHOUKAKU 1960</a>"
         by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pwnZy" target="_blank" rel="noopener">IJN Soryu</a>"
+        by 42manako is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pGusB" target="_blank" rel="noopener">CV IJN Akagi (War Thunder)</a>"
+        by KojfDiscord is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pFsv7" target="_blank" rel="noopener">IJN Tone War Thunder</a>"
+        by Jimphf is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/o6M9r" target="_blank" rel="noopener">U.S. Navy Aircraft Carrier USS Hornet(CV-8)</a>"
         by 全斗焕 is licensed under
@@ -727,6 +739,18 @@
     </div>
     <div class="msl-air" id="msl-air"></div>
     <p class="msl-hint" id="msl-hint">Z Tomahawk &middot; V Harpoon &middot; N target &middot; J ride</p>
+  </div>
+  <!-- The event log: who is sinking, whose rounds went into whom and where,
+       and which carrier's aircraft hit whom. Small in the top left corner (under
+       the missile radar when she has one); its title brings it up large in the
+       middle of the screen, and the button there puts it back. -->
+  <div class="event-log" id="event-log" hidden>
+    <div class="ev-head">
+      <button type="button" class="ev-title" id="ev-title" aria-expanded="false"
+              title="Show the whole log">EVENT LOG <span id="ev-count"></span></button>
+      <button type="button" class="ev-shrink" id="ev-shrink" hidden>Minimise</button>
+    </div>
+    <ol class="ev-list" id="ev-list"></ol>
   </div>
   <div class="hud-right" id="hud-right">
     <!-- The one way into the free camera. It used to start the moment anybody

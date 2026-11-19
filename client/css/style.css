@@ -3150,6 +3150,62 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
   .msl-fire { flex-direction: column; gap: 3px; }
 }
 
+/* The event log, in the top left corner -- under the missile radar, on a ship
+   that has one up (eventlog.js sets its top). Four short lines; the title
+   brings the whole log up large in the middle of the screen. */
+.event-log {
+  position: absolute; top: max(0.7rem, env(safe-area-inset-top)); z-index: 7;
+  left: calc(max(0.8rem, env(safe-area-inset-left)) + 52px);
+  width: min(250px, 34vw); padding: 3px 5px 4px;
+  background: rgba(6, 16, 28, 0.72); border: 1px solid var(--panel-line);
+  font: 500 10px/1.25 var(--ui); letter-spacing: 0.02em; color: var(--steel);
+  pointer-events: auto;
+}
+.event-log[hidden] { display: none; }
+.ev-head { display: flex; align-items: center; gap: 6px; }
+.ev-title {
+  flex: 1; text-align: left; background: none; border: 0; padding: 1px 0; cursor: pointer;
+  font: 600 10px/1.2 var(--stencil, inherit); letter-spacing: 0.12em; color: var(--sand);
+}
+.ev-title span { color: var(--steel); font-weight: 400; letter-spacing: 0.04em; margin-left: 4px; }
+.ev-title:hover, .ev-title:focus-visible { color: var(--sand-bright); }
+.ev-shrink {
+  background: rgba(6, 16, 28, 0.9); border: 1px solid var(--panel-line); color: var(--steel);
+  font: 600 11px/1 var(--ui); letter-spacing: 0.08em; padding: 5px 10px; cursor: pointer;
+}
+.ev-shrink:hover { color: var(--sand); border-color: rgba(230, 207, 156, 0.6); }
+.ev-shrink[hidden] { display: none; }
+.ev-list { list-style: none; margin: 2px 0 0; padding: 0; }
+.ev-list li {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 1px 0; border-top: 1px solid rgba(154, 166, 178, 0.12);
+}
+.ev-list li:first-child { border-top: 0; color: #dfe6ec; }
+.ev-list b { font-weight: 600; color: #dfe6ec; }
+.ev-list b.al { color: var(--ally); }
+.ev-list b.en { color: var(--enemy); }
+.ev-list i { font-style: normal; color: var(--sand); }
+.ev-list .ev-sink { color: #ffb2a8; }
+.ev-list .ev-none { opacity: 0.6; }
+/* Large: in the middle of the screen, every line kept, wrapped in full. */
+.event-log.big {
+  position: fixed; z-index: 30; top: 50% !important; left: 50% !important;
+  transform: translate(-50%, -50%);
+  width: min(600px, 92vw); max-height: 72vh; display: flex; flex-direction: column;
+  padding: 10px 14px 12px; font-size: 13px; background: rgba(6, 16, 28, 0.94);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+.event-log.big .ev-title { font-size: 14px; cursor: default; }
+.event-log.big .ev-list { overflow-y: auto; margin-top: 8px; overscroll-behavior: contain; }
+.event-log.big .ev-list li { white-space: normal; padding: 4px 0; }
+@media (pointer: coarse) {
+  .event-log { left: max(0.7rem, env(safe-area-inset-left)); }
+}
+@media (max-width: 700px), (max-height: 500px) {
+  .event-log { width: 170px; font-size: 9px; }
+  .event-log:not(.big) .ev-list li:nth-child(n+4) { display: none; }
+}
+
 /* The era choice the ship icon opens before the shipyard. --------------- */
 .era-pick {
   position: fixed; inset: 0; z-index: 40;
@@ -3323,7 +3379,7 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
 /* ---- the dark sheet: panels and plates ---------------------------------- */
 .panel, .conn-panel, .scoreboard, .sink-overlay, .toast, .group-bar,
 .director-bar, .script-panel, .airgroup, .era-box, .yard-search-list,
-.watch-banner, .port-key, .msl-radar, .plot-table-box, .o2-gauge,
+.watch-banner, .port-key, .msl-radar, .event-log, .plot-table-box, .o2-gauge,
 .gate-ship {
   background: var(--chart-dark);
   border-color: var(--chart-rule);

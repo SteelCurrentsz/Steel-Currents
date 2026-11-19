@@ -250,6 +250,34 @@ export const AERO = {
     thrust: 13400, vMax: 155, name: 'A6M5',
     helix: 0.080, gLimit: 7.0,
   },
+  // The Hosho's fighter, the A5M4 -- "Claude" -- the Navy's first carrier
+  // monoplane: open cockpit, fixed spatted legs, a 785 hp Kotobuki, and a
+  // wing so lightly loaded that she turned inside everything of her day.
+  a5m: {
+    mass: 1671, wing: 17.8, span: 11.00, clMax: 1.55, cd0: 0.0265,
+    thrust: 9300, vMax: 121, name: 'A5M4',
+    helix: 0.092, gLimit: 7.0,
+  },
+  // And her attack aeroplane, the B4Y1 -- "Jean" -- the last of the Navy's
+  // biplanes at sea: two wings and their bracing, a fixed undercarriage and an
+  // 840 hp Hikari, a torpedo or two 250 kg bombs, and a hundred and fifty
+  // knots flat out.
+  b4y: {
+    mass: 3600, wing: 50.0, span: 15.00, clMax: 1.70, cd0: 0.0420,
+    thrust: 10200, vMax: 77, name: 'B4Y1',
+    helix: 0.048, gLimit: 4.5,
+  },
+  // The Aichi D3A1 -- "Val" -- the dive bomber the Navy went to war with
+  // off the Akagi and the Soryu: fixed spatted legs, an elliptical wing with
+  // dive brakes under it, a 1,070 hp Kinsei, and a 250 kg bomb on a crutch
+  // that swings it clear of her airscrew in the dive. Slower than the Suisei
+  // that replaced her, and the steadier for it in a dive.
+  val: {
+    mass: 3650, wing: 34.9, span: 14.37, clMax: 1.55, cd0: 0.0305,
+    thrust: 12600, vMax: 118, name: 'D3A1',
+    helix: 0.058, gLimit: 6.0,
+    brake: 0.120,
+  },
   // The Suisei: an inline-engined dive bomber, faster than most fighters of
   // her generation, with an internal bomb bay and dive brakes under the wing.
   suisei: {

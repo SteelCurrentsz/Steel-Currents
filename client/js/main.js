@@ -432,7 +432,11 @@ function govern(interval) {
     g.calm = 0;
   } else if (g.ema < 1 / 57 && g.scale < 1) {
     g.calm += interval;
-    if (g.calm > 3) {
+    // Every change of size is a new drawing buffer and a dropped frame, so it
+    // comes back up only after a good long stretch of headroom: stepped up on
+    // three seconds of it, a phone on the edge see-sawed up and down all
+    // battle, a hitch at every step.
+    if (g.calm > 6) {
       setRenderScale(Math.min(1, g.scale * 1.06));
       g.wait = 1.5;
       g.calm = 0;
@@ -950,6 +954,7 @@ function renderAirGroup() {
     hellcat: 'Hellcat', wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger', devastator: 'Devastator',
     bf109: 'Bf-109', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
     seafire: 'Seafire', firefly: 'Firefly',
+    a5m: 'A5M', b4y: 'B4Y', val: 'Val',
   };
   const ROLES = { fighters: ['fighter', 'Hellcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],
     torpedo: ['torpedo', 'Avenger', 'torpedoes'] };
@@ -1916,37 +1921,46 @@ net.on('joined', (m) => {
       try {
         b.scene.warmCuts([...b.scene.shipViews.values(), ...(b.scene.parked?.values() || [])]);
       } catch { /* compiled when each is first seen instead */ }
-      // The ships not yet sighted are kept out of the picture, and a compile
-      // only looks at what is in it: they are put in it for as long as it
-      // takes to hand their materials over, which is no time at all.
-      let compiled = null;
-      const parked = [...(b.scene.parked?.values() || [])].filter((v) => !v.group.visible);
-      try {
-        for (const v of parked) v.group.visible = true;
-        compiled = renderer.compileAsync
-          ? renderer.compileAsync(b.scene.scene, b.scene.camera)
-          : renderer.compile(b.scene.scene, b.scene.camera);
-      } catch { /* compiled as each is first drawn instead */ } finally {
-        for (const v of parked) v.group.visible = false;
-      }
-      // And the screen kept up until the graphics card has finished them.
-      // Handed over and not waited for, the compiling went on behind the
-      // first seconds of the battle, and the first time each material was
-      // drawn the frame stopped dead until its program was ready -- a hitch
-      // for every new thing that came into view. Not waited for for ever: a
-      // driver that never says it is done costs a few seconds, no more.
-      const ready = compiled && typeof compiled.then === 'function'
-        ? Promise.race([compiled.catch(() => {}), new Promise((ok) => setTimeout(ok, 8000))])
-        : Promise.resolve();
-      // And two frames of it drawn behind the screen before it comes down:
-      // the first frame of a battle is the one that hands every hull in
+      const compiled = warmScene(b.scene.scene, b.scene.camera);
+      // The screen stays up until the graphics card has finished them (the
+      // compile above only starts them, where the browser can compile in the
+      // background) -- otherwise the first frames of the battle wait on each
+      // in turn and the opening salvo is a slideshow. Never longer than a few
+      // seconds: a driver that never says it is done is not waited on forever.
+      // And then two frames of it drawn behind the screen before it comes
+      // down: the first frame of a battle is the one that hands every hull in
       // sight to the graphics card, and that is a stall worth hiding too.
-      return ready.then(() => new Promise((resolve) => {
+      return Promise.race([compiled, new Promise((r) => { setTimeout(r, 4000); })]).then(() => new Promise((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)));
       }));
     });
   });
 });
+
+/**
+ * Every material in a scene compiled now, the hidden ones included.
+ *
+ * The renderer's own compile only walks what is visible, and a battle keeps
+ * most of what it will ever draw hidden until it is wanted: the pools of
+ * explosions, splashes, fires, smoke, debris, tracer and flak, the bombs and
+ * the torpedoes. Each of those was compiled the first time it was shown --
+ * which is to say in the frame of the first salvo, the first hit and the
+ * first fire, each a stall of its own just when the battle was busiest. So
+ * for the length of the call everything hidden is shown, and put back.
+ */
+function warmScene(scene, camera) {
+  const hidden = [];
+  scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+  let done = null;
+  try {
+    done = renderer.compileAsync ? renderer.compileAsync(scene, camera) : renderer.compile(scene, camera);
+  } catch { /* compiled as each is first drawn instead */ } finally {
+    // The programs are made in the call itself; only their finishing is waited
+    // for, so the scene can be put back as it was at once.
+    for (const o of hidden) o.visible = false;
+  }
+  return done && typeof done.then === 'function' ? done.then(() => {}, () => {}) : Promise.resolve();
+}
 
 function joinBattle(m, replay = null) {
   if (battle) { battle.dispose(); battle = null; }
@@ -1977,12 +1991,7 @@ function joinBattle(m, replay = null) {
   const warm = battle;
   setTimeout(() => {
     if (battle !== warm || !warm.scene) return;
-    try {
-      const done = renderer.compileAsync
-        ? renderer.compileAsync(warm.scene.scene, warm.scene.camera)
-        : renderer.compile(warm.scene.scene, warm.scene.camera);
-      done?.catch?.(() => {});
-    } catch { /* a warm-up that fails costs nothing but the warm-up */ }
+    warmScene(warm.scene.scene, warm.scene.camera);
   }, 600);
   audio.resume();
   if (replay) replay.play();
@@ -2246,9 +2255,9 @@ requestAnimationFrame(() => requestAnimationFrame(() => {
     // rather than the player watching it appear.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       boot.done();
-      // The sculpted ships, fetched behind the title screen so the shipyard
-      // and the first battle find them already here. A failure is left for
-      // whichever of those asks next, which tries again.
+      // The aircraft every battle flies, fetched behind the title screen.
+      // The ships come in when they are wanted (see preloadShips). A failure
+      // is left for whichever asks next, which tries again.
       setTimeout(() => preloadShips(), 300);
     }));
   } catch (e) {

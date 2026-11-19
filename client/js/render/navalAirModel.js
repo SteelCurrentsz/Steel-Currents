@@ -23,17 +23,46 @@ const SOURCES = {
   firefly: () => import('./fireflyModel.data.js').then((m) => [m.FIREFLY_PIECES, m.FIREFLY_META]),
   // And the Gerald R. Ford's F-35C Lightning II.
   f35: () => import('./f35Model.data.js').then((m) => [m.F35_PIECES, m.F35_META]),
+  // And the Hosho's two: the A5M in her model's own texture, and the B4Y in
+  // the texture her paint is drawn on.
+  a5m: () => import('./a5mModel.data.js').then((m) => [m.A5M_PIECES, m.A5M_META, m.A5M_TEXTURE]),
+  b4y: () => import('./b4yModel.data.js').then((m) => [m.B4Y_PIECES, m.B4Y_META, m.B4Y_TEXTURE]),
+  // And the Akagi's and the Soryu's dive bomber, the Val, in the texture
+  // her paint is drawn on.
+  val: () => import('./valModel.data.js').then((m) => [m.VAL_PIECES, m.VAL_META, m.VAL_TEXTURE]),
 };
 const PIECES = {};
+/**
+ * Each textured kind's texture, decoded before the kinds are called ready, so
+ * that no aeroplane is ever drawn in a texture still on its way. Under Node --
+ * the tests -- there is no image to decode it into, and she is drawn in a
+ * flat colour.
+ */
+const TEXTURES = {};
+function textureOf(src) {
+  if (!src || typeof Image === 'undefined') return Promise.resolve(null);
+  const img = new Image();
+  const tex = new THREE.Texture(img);
+  // glTF's texture coordinates run down the image, not up it.
+  tex.flipY = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  const done = () => { tex.needsUpdate = true; return tex; };
+  img.src = src;
+  return (img.decode ? img.decode() : new Promise((ok, no) => { img.onload = ok; img.onerror = no; }))
+    .then(done, () => (img.complete && img.naturalWidth ? done() : null));
+}
 /** Each kind's measurements -- span, length, hubs -- once loadNavalAir() is in. */
 export const NAVAL_AIR = {};
 let loading = null;
 
 export function loadNavalAir() {
-  loading ||= Promise.all(Object.entries(SOURCES).map(([k, f]) => f().then(([p, m]) => {
+  loading ||= Promise.all(Object.entries(SOURCES).map(([k, f]) => f().then(([p, m, src]) => textureOf(src).then((tex) => {
+    if (tex) TEXTURES[k] = tex;
     PIECES[k] = p;
     NAVAL_AIR[k] = m;
-  }))).catch((e) => { loading = null; throw e; });
+  })))).catch((e) => { loading = null; throw e; });
   return loading;
 }
 
@@ -44,7 +73,21 @@ const GEOS = {};
 function geometries(kind) {
   if (GEOS[kind]) return GEOS[kind];
   GEOS[kind] = {};
-  for (const [k, v] of Object.entries(PIECES[kind])) GEOS[kind][k] = decodePiece(v);
+  for (const [k, v] of Object.entries(PIECES[kind])) {
+    if (k.endsWith('UV')) continue;
+    const geo = decodePiece(v);
+    // A piece drawn with her texture carries its place on it.
+    const uv = PIECES[kind][`${k}UV`];
+    if (uv) {
+      const b = Uint8Array.from(atob(uv.slice(4)), (c) => c.charCodeAt(0));
+      const a = uv.startsWith('u16:')
+        ? Float32Array.from(new Uint16Array(b.buffer), (q) => q / 65535)
+        : new Float32Array(b.buffer);
+      geo.setAttribute('uv', new THREE.BufferAttribute(a, 2));
+      geo.userData.textured = true;
+    }
+    GEOS[kind][k] = geo;
+  }
   return GEOS[kind];
 }
 
@@ -66,6 +109,22 @@ function materials() {
 }
 
 /**
+ * A textured kind's skin and blades: her texture, or -- with none decoded,
+ * under Node -- a flat colour in its place. `textured` says to the weld (see
+ * planes.js) that her texture coordinates go through it with her points.
+ */
+const TEX_MATS = {};
+function texturedMaterials(kind) {
+  if (TEX_MATS[kind]) return TEX_MATS[kind];
+  const map = TEXTURES[kind] || null;
+  const skin = new THREE.MeshPhongMaterial({ map, color: map ? 0xffffff : 0xa8a698, specular: 0x30353a, shininess: 22 });
+  const blades = new THREE.MeshPhongMaterial({ map, color: map ? 0xffffff : 0x9a9890, specular: 0x30353a, shininess: 28, side: THREE.DoubleSide });
+  for (const m of [skin, blades]) { m.userData.painted = true; m.userData.textured = !!map; }
+  TEX_MATS[kind] = { skin, blades };
+  return TEX_MATS[kind];
+}
+
+/**
  * How fast each thing that turns goes against her airscrews' own rate: a
  * rotodome goes round six times a minute, and a helicopter's rotors are
  * wound on at a quarter of an airscrew's pace -- they are long, and a
@@ -76,6 +135,7 @@ const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22, prop: 1 };
 
 /** How far each kind's legs rise into her as they come up. */
 const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2 };
+// (The A5M's and the B4Y's legs are fixed, in their spats: they have no `gear`.)
 
 /**
  * One of the three, nose +z, wheels on y = 0, her length centred on her
@@ -89,8 +149,9 @@ export function navalAirModel(kind, opts = {}) {
   const g = geometries(kind);
   const M = materials();
   const meta = NAVAL_AIR[kind];
+  const T = g.body.userData.textured ? texturedMaterials(kind) : null;
   const p = new THREE.Group();
-  p.add(new THREE.Mesh(g.body, M.skin));
+  p.add(new THREE.Mesh(g.body, T ? T.skin : M.skin));
   if (g.glass) {
     const glass = new THREE.Mesh(g.glass, opts.solidGlass ? M.glassSolid : M.glass);
     glass.renderOrder = 2;
@@ -100,7 +161,7 @@ export function navalAirModel(kind, opts = {}) {
   p.userData.props = meta.spins.map((s) => {
     const hub = new THREE.Group();
     hub.position.fromArray(s.hub);
-    hub.add(new THREE.Mesh(g[s.name], M.blades));
+    hub.add(new THREE.Mesh(g[s.name], g[s.name].userData.textured ? texturedMaterials(kind).blades : M.blades));
     p.add(hub);
     hub.userData.axis = s.axis;
     hub.userData.rate = RATE[s.name] ?? 1;
@@ -121,6 +182,17 @@ export function navalAirModel(kind, opts = {}) {
       legs.visible = k < 0.985;
     };
   } else p.userData.gear = () => {};
+  // What she carries that leaves her -- the B4Y's torpedo -- each about its
+  // own middle where it hangs, in her own paint. Whoever builds her says
+  // which load it is and hangs it on her as a part (see planekit's b4y).
+  p.userData.stores = {};
+  for (const [name, at] of Object.entries(meta.stores || {})) {
+    const s = new THREE.Group();
+    s.position.fromArray(at);
+    s.add(new THREE.Mesh(g[name], M.skin));
+    p.add(s);
+    p.userData.stores[name] = s;
+  }
   // Turn whatever turns by `rate` radians of airscrew: each at its own pace.
   p.userData.turn = (rate) => {
     for (const h of p.userData.props) {

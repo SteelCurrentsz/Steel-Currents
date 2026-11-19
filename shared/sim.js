@@ -3296,6 +3296,8 @@ function deliverOrdnance(state, p, best, P) {
       x: p.x, z: p.z,
       tx: Math.round(tx * 10) / 10, tz: Math.round(tz * 10) / 10,
       hit: hit ? 1 : 0,
+      // Whose it was and whom it was meant for, for the event log.
+      victim: best.id, owner: p.owner,
     });
     if (!hit) {
       // Into the sea beside her, a couple of seconds after it left the rack,
@@ -8970,6 +8972,8 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
     lx: Math.round(l.x * 10) / 10, lz: Math.round(l.z * 10) / 10,
     lv: [Math.round(lv.x), Math.round(sh.vy), Math.round(lv.z)],
     sc: target.classId, ap: spec.type === 'ap' ? 1 : 0,
+    // Off an aeroplane, and what it was: a bomb, a rocket or her guns.
+    ...(sh.plane ? { air: sh.rocket ? 'rocket' : sh.bomb ? 'bomb' : 'gun' } : {}),
   });
 }
 
@@ -9413,7 +9417,7 @@ function stepTorpedoes(state, dt) {
         openHull(state, target, hole,
           (34 + state.rng() * 30) * TORP_RENT * (1 - reduction), side, 4 + state.rng() * 2.5);
         if (owner) owner.ribbons.torps++;
-        state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner });
+        state.events.push({ e: 'torpHit', x: tp.x, z: tp.z, victim: target.id, owner: tp.owner, ...(tp.aerial ? { air: 1 } : {}) });
         // And the column of water it throws up her side, which is a wave like
         // any other to whatever is lying alongside.
         waterBlow(state, tp.x, tp.z, 620);
@@ -12238,6 +12242,7 @@ export function launchStrike(state, ship, escortFor = 0) {
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: ship.launching.flights[0] ? ship.launching.flights[0].role : undefined,
     d: ship.launching.left,
+    ld: ship.launching.flights[0] && ship.launching.flights[0].load ? ship.launching.flights[0].load : undefined,
     ...deckloadTag(ship, cls, ship.launching.flights[0]),
   });
   return true;
@@ -12696,6 +12701,9 @@ function rangeNext(state, ship, cls, L) {
     e: 'launch', x: ship.x, z: ship.z, ship: ship.id,
     r: L.flights[0] ? L.flights[0].role : undefined,
     d: L.left,
+    // And what she is carrying, for a type with more than one load: the
+    // deck draws her with it.
+    ld: L.flights[0] && L.flights[0].load ? L.flights[0].load : undefined,
     ...deckloadTag(ship, cls, L.flights[0]),
   });
 }
@@ -13917,8 +13925,9 @@ function hullShape(cls) {
   // freeboard: about seventeen metres in an Essex, twenty-odd in a Nimitz.
   const deck = carrier ? clamp(L * 0.066, 14, 23) : fb;
   const blocks = [];
-  if (carrier) {
-    // The island, to starboard, a little forward of amidships.
+  if (carrier && cls.hull.island !== false) {
+    // The island, to starboard, a little forward of amidships -- on a carrier
+    // that has one: the Hōshō is flush-decked.
     blocks.push({ z0: -0.12 * half, z1: 0.2 * half, x0: hb * 0.45, x1: hb * 1.05, top: deck + 10 + 14 * ss });
   } else if (cls.type !== 'SS') {
     // Her upperworks: from just ahead of her bridge to abaft her last funnel,
@@ -14694,7 +14703,7 @@ const REAR_BITE = 0.11;     // of FIGHTER_GUNS, per machine with a gunner
 const REAR_ROLES = new Set(['dive', 'torpedo', 'scout']);
 function stepRearGunners(state, dt) {
   for (const p of state.planes) {
-    if (p.dead || !REAR_ROLES.has(p.role) || !(p.count > 0)) continue;
+    if (p.dead || !(REAR_ROLES.has(p.role) || (p.role === 'level' && !p.deckload)) || !(p.count > 0)) continue;
     // Somebody of ours is sitting in his seat and laying the gun himself:
     // see gunRear.
     if (state.t - (p.rearHand ?? -9) < 0.6) continue;
@@ -14755,7 +14764,7 @@ const REAR_HAND = 0.22;     // of FIGHTER_GUNS a second, per machine
 export function gunRear(state, ship, id, yaw, pitch, dt) {
   const p = state.planes.find((q) => q.id === id);
   if (!p || p.dead || !ship || p.team !== ship.team) return false;
-  if (!REAR_ROLES.has(p.role) || !(p.count > 0)) return false;
+  if (!(REAR_ROLES.has(p.role) || (p.role === 'level' && !p.deckload)) || !(p.count > 0)) return false;
   // Not somebody else's: an aeroplane another captain is flying has his gunner.
   if (p.pilot && p.pilot !== ship.id) return false;
   if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return false;
@@ -16053,7 +16062,9 @@ function stepPlanes(state, dt) {
       // would pull.
       const frame = AIRFRAME[p.role] || AIRFRAME.scout;
       const wantY = guide ? guide.y + jink.height + clear.height
-        : Math.max(30, wantedHeight(state, p, carrier, !!station) + jink.height + clear.height);
+        // Never under thirty metres -- except going in, whose whole profile
+        // is the last of a dive down onto the thing she is going to hit.
+        : Math.max(p.phase === 'ram' && !p.ramOut ? 0 : 30, wantedHeight(state, p, carrier, !!station) + jink.height + clear.height);
       // A formation climbs at the rate its slowest aeroplane can hold, because
       // otherwise it is not a formation. Left to their own rates the fighters
       // were at cruising height while the torpedo bombers were still two
@@ -16098,7 +16109,7 @@ function stepPlanes(state, dt) {
       const air = p.role === 'dive' && (p.dv || p.brkWant || (p.brk ?? 0) > 0)
         ? diveAirspeed(p, cruiseOf(P, p) * wear.speed, dt) : null;
       if (air !== null) p.vy = clamp(p.vy, -0.985 * air, 0.9 * air);
-      p.y = Math.max(14, p.y + p.vy * dt);
+      p.y = Math.max(p.phase === 'ram' && !p.ramOut ? 4 : 14, p.y + p.vy * dt);
 
       // And height is speed. Going down she gains it and going up she pays
       // for it, which is why a dive bomber is fast in the dive and a loaded

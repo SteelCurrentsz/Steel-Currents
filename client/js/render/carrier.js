@@ -30,7 +30,9 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { DECK_RUN, lightMounts } from '../../../shared/sim.js';
 import { box, cyl, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly } from './planekit.js';
+import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly, a5m, b4y, zero, b5n, val } from './planekit.js';
+import { ZERO } from './zeroModel.js';
+import { B5N } from './b5nModel.js';
 import { HELLCAT } from './hellcatModel.js';
 import { DAUNTLESS } from './dauntlessModel.js';
 import { DEVASTATOR } from './devastatorModel.js';
@@ -60,6 +62,21 @@ const TYPES = {
     exhaust: () => [[0.42, 2.18, 3.25], [-0.42, 2.18, 3.25]] },
   firefly: { spread: 6.9, folded: 6.9, build: (g, x, y, z, ry, f, o) => firefly(g, x, y, z, ry, false, { load: 'bombs', ...o }),
     exhaust: () => [[0.46, 2.72, 3.95], [-0.46, 2.72, 3.95]] },
+  // The Hosho's, off the owner's models: neither folds. A B4Y on the deck
+  // carries the torpedo her load gives her unless she is told otherwise. The
+  // A5M's exhausts come out under her cowling's lip, and the B4Y's collector
+  // ring empties under her nose.
+  a5m: { spread: 4.63, folded: 4.63, build: (g, x, y, z, ry, f, o) => a5m(g, x, y, z, ry, false, o),
+    exhaust: () => [[0.42, 1.22, 2.62], [-0.42, 1.22, 2.62]] },
+  b4y: { spread: 6.71, folded: 6.71, loads: ['torpedo', 'bombs'], build: (g, x, y, z, ry, f, o) => b4y(g, x, y, z, ry, false, { load: 'torpedo', ...o }),
+    exhaust: () => [[0.36, 1.72, 3.95], [-0.36, 1.72, 3.95]] },
+  // The Soryu's and the Akagi's: the Zero, whose wingtips fold, the Val,
+  // which does not fold at all, and the B5N, whose wings fold up over her
+  // back. The Val's exhausts are the stubs either side of her cowling.
+  zero: { spread: 5.5, folded: 5.0, build: (g, x, y, z, ry, f, o) => zero(g, x, y, z, ry, f, o), exhaust: () => ZERO && ZERO.exhaust },
+  val: { spread: 6.34, folded: 6.34, build: (g, x, y, z, ry, f, o) => val(g, x, y, z, ry, false, o),
+    exhaust: () => [[0.62, 2.05, 3.55], [-0.62, 2.05, 3.55]] },
+  b5n: { spread: 7.75, folded: 3.8, build: (g, x, y, z, ry, f, o) => b5n(g, x, y, z, ry, f, o), exhaust: () => B5N && B5N.exhaust },
 };
 
 /**
@@ -143,7 +160,10 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
   // ------------------------------------------------------- her decks ----
   const FD = D.DECK.y;
   const HANGAR = H.y;
-  const HANGAR_TOP = FD - 2.6;
+  // Her hangar's deckhead: a gallery deck's height under her flight deck,
+  // or -- a flush-decked carrier with nothing between them -- where her
+  // description puts it (`hangar.top`).
+  const HANGAR_TOP = H.top ?? FD - 2.6;
   const HANGAR_Z = H.z;
   const HANGAR_HW = H.hw;
   function planAt(side, z) {
@@ -159,12 +179,30 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
   const FLAT = { aft: FD_AFT + 9, fwd: FD_FWD - 4 };
   const DROP = { aft: 1.0, fwd: 0.25 };
   const rounded = (d, len, drop) => (d <= 0 ? 0 : drop * Math.min(1, d / len) ** 2);
+  // A flight deck the model draws sloping -- the Hosho's, carried out over
+  // her stern and running down to it -- is laid along the model's own
+  // profile of it (`DECK.profile`, [z, y] from aft forward), and has no
+  // round-down drawn on top of that.
+  const PRO = D.DECK.profile || null;
   function fdY(z) {
+    if (PRO) {
+      if (z <= PRO[0][0]) return PRO[0][1];
+      for (let i = 1; i < PRO.length; i++) {
+        if (z <= PRO[i][0]) return PRO[i - 1][1] + ((PRO[i][1] - PRO[i - 1][1]) * (z - PRO[i - 1][0])) / (PRO[i][0] - PRO[i - 1][0]);
+      }
+      return PRO[PRO.length - 1][1];
+    }
     if (z < FLAT.aft) return FD - rounded(FLAT.aft - z, FLAT.aft - FD_AFT, DROP.aft);
     if (z > FLAT.fwd) return FD - rounded(z - FLAT.fwd, Math.max(0.5, FD_FWD - FLAT.fwd), DROP.fwd);
     return FD;
   }
   const liftX = (l) => l.x || 0;
+  // Where her deck stands at a station: a sloping deck (the Akagi's runs
+  // up from her stern) carries her lifts, and an aeroplane on it, up its
+  // slope; a flat one is her flight deck's height all along, round-downs
+  // apart, which no lift or aeroplane stands on.
+  const deckAt = (z) => (PRO ? fdY(z) : FD);
+  const liftTop = (l) => deckAt(l.z);
   function liftOutline(hw, hd, ch) {
     return [[-hw + ch, -hd], [hw - ch, -hd], [hw, -hd + ch], [hw, hd - ch], [hw - ch, hd], [-hw + ch, hd], [-hw, hd - ch], [-hw, -hd + ch]];
   }
@@ -239,12 +277,14 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
         const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length];
         const len = Math.hypot(bx - ax, bz - az) + 0.2;
         const ry = Math.atan2(bx - ax, bz - az);
-        box(g, M.steelDark, 0.3, 0.16, len, (ax + bx) / 2, FD + 0.06, l.z + (az + bz) / 2, ry);
-        box(g, M.steelDark, 0.24, FD - HANGAR_TOP, len, (ax + bx) / 2, (FD + HANGAR_TOP) / 2, l.z + (az + bz) / 2, ry).userData.inside = true;
+        const top = deckAt(l.z + (az + bz) / 2);
+        box(g, M.steelDark, 0.3, 0.16, len, (ax + bx) / 2, top + 0.06, l.z + (az + bz) / 2, ry);
+        box(g, M.steelDark, 0.24, top - HANGAR_TOP, len, (ax + bx) / 2, (top + HANGAR_TOP) / 2, l.z + (az + bz) / 2, ry).userData.inside = true;
       }
       for (const sgn of [-1, 1]) {
         for (const dz of [-l.hd + 1.6, l.hd - 1.6]) {
-          box(g, M.gunDark, 0.3, FD - HANGAR, 0.3, sgn * (l.hw + 0.12), (FD + HANGAR) / 2, l.z + dz).userData.inside = true;
+          const top = deckAt(l.z + dz);
+          box(g, M.gunDark, 0.3, top - HANGAR, 0.3, sgn * (l.hw + 0.12), (top + HANGAR) / 2, l.z + dz).userData.inside = true;
         }
       }
     }
@@ -253,7 +293,8 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
   function elevators(g) {
     return LIFTS.map((l, i) => {
       const lift = new THREE.Group();
-      lift.position.set(liftX(l), FD, l.z);
+      const top = liftTop(l);
+      lift.position.set(liftX(l), top, l.z);
       lift.userData.dynamic = true;
       g.add(lift);
       const pts = liftOutline(l.hw - 0.06, l.hd - 0.06, l.ch - 0.025);
@@ -279,7 +320,7 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
       // A deck-edge lift runs on rails up the outside of her hull.
       if (l.x) for (const dz of [-l.hd + 1.0, l.hd - 1.0]) box(lift, M.steel, 0.5, 0.5, 0.5, -Math.sign(l.x) * (l.hw - 0.3), -0.3, dz);
       mergeStatic(lift);
-      return { group: lift, phase: i / LIFTS.length, edge: !!l.x };
+      return { group: lift, phase: i / LIFTS.length, edge: !!l.x, top, drop: top - HANGAR };
     });
   }
   function hangarHalf(z, y0, y1) {
@@ -327,7 +368,8 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     const w = strip();
     for (let i = 0; i < N; i++) {
       const za = z0 + ((z1 - z0) * i) / N, zb = z0 + ((z1 - z0) * (i + 1)) / N;
-      for (const sgn of [-1, 1]) w.quad([sgn * gh(za), y1, za], [sgn * gh(za), FD - 0.2, za], [sgn * gh(zb), FD - 0.2, zb], [sgn * gh(zb), y1, zb], [sgn, 0, 0]);
+      const ta = deckAt(za) - 0.2, tb = deckAt(zb) - 0.2;
+      for (const sgn of [-1, 1]) w.quad([sgn * gh(za), y1, za], [sgn * gh(za), ta, za], [sgn * gh(zb), tb, zb], [sgn * gh(zb), y1, zb], [sgn, 0, 0]);
     }
     const m = w.mesh(g, M.steelDark);
     if (m) m.userData.inside = true;
@@ -408,6 +450,19 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     return turrets;
   }
   function mountings(g) {
+    // Her secondary battery, where she has one besides her main: the Akagi's
+    // high-angle twelve-centimetre twins beside her casemate 20 cm.
+    const sec = (CLS.secondary ? CLS.secondary.mounts : []).map((spec) => {
+      const kind = spec.piece || CLS.secondary.piece || 'dp';
+      const s = seatFor(kind, spec.x, spec.z, `${CLS.secondary.caliber} mm`);
+      const m = sculpted(g, kind, s.x, s.y, s.z, stowed(spec), CLS.secondary.traverse, undefined, s.ix);
+      m.userData.rest = 0;
+      m.userData.sector = { angle: spec.angle, arc: spec.arc, stow: stowed(spec) };
+      m.userData.stops = CLS.secondary.elev || null;
+      m.userData.lift = spec.lift || null;
+      return m;
+    });
+    g.userData.secMounts = sec;
     const aa = [];
     for (const gun of CLS.aa.guns) {
       for (const spec of gun.mounts) {
@@ -422,7 +477,7 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     }
     if (aa.length !== lightMounts(CLS).length) throw new Error(`the ${CLS.name} built a light battery her datasheet does not list`);
     g.userData.aaMounts = aa;
-    return { aa };
+    return { sec, aa };
   }
 
   // ------------------------------------------------------ her armour ----
@@ -468,19 +523,25 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     const kinds = {};
     for (const role of ['torpedo', 'fighter', 'dive']) {
       const T = TYPES[KINDS[role]] || TYPES.avenger;
-      const body = T.build(plane, 0, 0, 0, 0, role === 'torpedo', {});
-      const prop = body.userData.prop || null;
-      kinds[role] = {
-        body, prop, props: body.userData.props || (prop ? [prop] : []), wings: null,
-        fold: body.userData.fold || null, gear: body.userData.gear || null, blur: propBlur(prop), exhaust: T.exhaust() || [],
-      };
+      // A type with a choice of loads (the Hosho's B4Y) is ranged with the
+      // one her flight went out with: built once for each of them.
+      for (const load of T.loads || [null]) {
+        const body = T.build(plane, 0, 0, 0, 0, role === 'torpedo', load ? { load } : {});
+        const prop = body.userData.prop || null;
+        kinds[load && load !== (T.loads || [])[0] ? `${role}:${load}` : role] = {
+          body, prop, props: body.userData.props || (prop ? [prop] : []), wings: null,
+          fold: body.userData.fold || null, gear: body.userData.gear || null, blur: propBlur(prop), exhaust: T.exhaust() || [],
+        };
+      }
     }
     const out = { group: plane, kinds, role: 'torpedo' };
-    out.pick = (role) => {
-      const r = kinds[role] ? role : 'torpedo';
+    out.pick = (role, load = null) => {
+      // A flight bombing from the level is her carrier's attack type.
+      const base = kinds[role] ? role : role === 'level' && kinds.dive ? 'dive' : 'torpedo';
+      const r = load && kinds[`${base}:${load}`] ? `${base}:${load}` : base;
       for (const [k, v] of Object.entries(kinds)) v.body.visible = k === r;
       const k = kinds[r];
-      out.role = r;
+      out.role = base;
       out.prop = k.prop; out.props = k.props; out.wings = k.wings; out.fold = k.fold; out.gear = k.gear;
       out.blur = k.blur; out.exhaust = k.exhaust;
     };
@@ -488,11 +549,13 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     return out;
   }
   const ON = 0.04;
+  // Her deck's rise forward at a station, as an angle (none on a flat one).
+  const slope = (z) => (PRO ? Math.atan2(deckAt(z + 1) - deckAt(z - 1), 2) : 0);
   // The lift that works her aeroplanes: the after one on her centreline.
   const workLift = (lifts) => { for (let i = lifts.length - 1; i >= 0; i--) if (!lifts[i].edge) return lifts[i]; return lifts[lifts.length - 1]; };
   function below(deck, p, aft) {
     if (deck.owner && p.parent !== deck.owner) return;
-    p.position.set(aft.group.position.x, FD - LIFT_DROP + ON, aft.group.position.z - 0.4);
+    p.position.set(aft.group.position.x, HANGAR + ON, aft.group.position.z - 0.4);
     p.rotation.set(0, 0.08, 0);
   }
   /**
@@ -526,8 +589,8 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
       else if (u < 0.48) k = (u - 0.36) / 0.12;
       else if (u < 0.86) k = 1;
       else k = 1 - (u - 0.86) / 0.14;
-      const idle = FD - LIFT_DROP * ease(k);
-      l.group.position.y = idle + (FD - idle) * ease(deck.flush);
+      const idle = l.top - l.drop * ease(k);
+      l.group.position.y = idle + (l.top - idle) * ease(deck.flush);
     }
     if (!plane) return;
     const p = plane.group;
@@ -546,10 +609,10 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
       if (!at.done) {
         p.visible = true;
         wings(at.wings);
-        const ly = FD - LIFT_DROP * at.lift;
+        const ly = aft.top - aft.drop * at.lift;
         aft.group.position.y = ly;
-        p.position.set(0, ly + ON, at.z);
-        p.rotation.set(0, 0, 0);
+        p.position.set(0, (at.lift > 0 ? ly : deckAt(at.z)) + ON, at.z);
+        p.rotation.set(at.lift > 0 ? 0 : -slope(at.z), 0, 0);
         turnProps(at.turning);
         return;
       }
@@ -576,33 +639,36 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     if (run < UP) {
       if (plane.gear) plane.gear(0);
       const u = ease(run / UP);
-      aft.group.position.y = FD - LIFT_DROP * (1 - u);
+      aft.group.position.y = aft.top - aft.drop * (1 - u);
       wings(clamp((u - 0.3) / 0.6, 0, 1));
       p.position.set(0, aft.group.position.y + ON, AFT_Z - 0.4);
       p.rotation.set(0, 0.08 * (1 - u), 0);
     } else if (run < ROLL) {
-      aft.group.position.y = FD;
+      aft.group.position.y = aft.top;
       wings(true);
       if (plane.gear) plane.gear(0);
       if (run < TAXIED) {
         const u = ease((run - UP) / (TAXIED - UP));
-        p.position.set(0, FD + ON, AFT_Z - 0.4 + (SPOT - (AFT_Z - 0.4)) * u);
-        p.rotation.set(0, 0, 0.006 * Math.sin(run * 9));
+        const z = AFT_Z - 0.4 + (SPOT - (AFT_Z - 0.4)) * u;
+        p.position.set(0, deckAt(z) + ON, z);
+        p.rotation.set(-slope(z), 0, 0.006 * Math.sin(run * 9));
         power = 0.22;
       } else {
         power = 0.3 + 0.7 * Math.min(1, (run - TAXIED) / (ROLL - TAXIED));
-        p.position.set(0, FD + ON, SPOT);
-        p.rotation.set(-0.012 * Math.sin((run - TAXIED) * 22) * power, 0, 0);
+        p.position.set(0, deckAt(SPOT) + ON, SPOT);
+        p.rotation.set(-slope(SPOT) - 0.012 * Math.sin((run - TAXIED) * 22) * power, 0, 0);
       }
     } else {
-      aft.group.position.y = FD;
+      aft.group.position.y = aft.top;
       wings(true);
       power = 1;
       const i = Math.min(pr.rows.length - 1, Math.max(0, Math.round((run - ROLL) / pr.dt)));
       const [s2, h, th, up] = pr.rows[i];
       speed = rowSpeed(pr, i);
-      p.position.set(0, FD + ON + h, SPOT + s2);
-      p.rotation.set(-th, 0, 0);
+      // On a sloping deck her run climbs it, the deck under her wheels
+      // until she lifts off it.
+      p.position.set(0, deckAt(SPOT + s2) + ON + h, SPOT + s2);
+      p.rotation.set(-th - slope(SPOT + s2) * Math.max(0, 1 - h / 1.5), 0, 0);
       const off = pr.bow >= 0 ? (run - ROLL) - pr.bow : -1;
       if (plane.gear) plane.gear(up && off > 0 ? Math.min(1, off / 2.6) : 0);
     }
@@ -634,17 +700,17 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     deck.endPoses = {};
     for (const [role, pr] of Object.entries(deck.profiles)) {
       const end = pr.rows[pr.rows.length - 1];
-      deck.endPoses[role] = { x: 0, y: FD + end[1] + ON, z: SPOT + end[0], pitch: end[2] };
+      deck.endPoses[role] = { x: 0, y: deckAt(SPOT + end[0]) + end[1] + ON, z: SPOT + end[0], pitch: end[2] };
     }
     deck.profile = deck.profiles.torpedo;
     deck.endPose = deck.endPoses.torpedo;
     g.userData.deck = deck;
     g.userData.deckPlane = plane.group;
-    g.userData.landingSpot = [0, FD + ON, landZ()];
+    g.userData.landingSpot = [0, deckAt(landZ()) + ON, landZ()];
     g.userData.step = (t) => stepDeck(deck, t);
-    g.userData.launch = (t, role, dur = DECK_RUN) => {
+    g.userData.launch = (t, role, dur = DECK_RUN, kind = null, index = null, load = null) => {
       deck.launchAt = t; deck.landAt = null; deck.stowed = false; deck.airborne = false; deck.engine = {}; deck.dur = dur;
-      plane.pick(role);
+      plane.pick(role, load);
       deck.profile = deck.profiles[plane.role];
       deck.endPose = deck.endPoses[plane.role];
       plane.group.visible = true;
@@ -665,7 +731,7 @@ export function carrier({ id, data: D, lifts: LIFTS, hangar: H, citadel: CIT, pa
     return {
       group: g, turrets, lifts, deckPlane: plane.group,
       length: LOA, beam: BEAM, deckY: HANGAR, flightDeckY: FD,
-      secMounts: [], aaMounts: g.userData.aaMounts || [], torpMounts: [],
+      secMounts: g.userData.secMounts || [], aaMounts: g.userData.aaMounts || [], torpMounts: [],
     };
   }
   function parts() {

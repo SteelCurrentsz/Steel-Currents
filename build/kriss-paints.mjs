@@ -191,3 +191,22 @@ export function rnSubPaint(f) {
   if (f.up && f.cy < 2.0) return 'deck';
   return 'grey';
 }
+
+// The Shokaku's paint, as her model is textured and as shokaku.js draws her,
+// for the carriers of her navy drawn off untextured models (the Sōryū and the
+// Akagi): her grey over hull, island and galleries -- the median of the
+// Shokaku's own sides -- her steel decks and gallery floors the grey of hers,
+// and the red of her bottom straight up to her waterline, with no band at it.
+export const SHOKAKU_PAINTS = {
+  grey: 0x898b9f,
+  deck: 0x848897,
+  dark: 0x55595f,
+  bottom: 0xa74535,
+};
+export function shokakuPaint(f) {
+  if (f.kind === 'screw') return 'dark';
+  if (f.cy < -0.02) return 'bottom';
+  if (f.kind) return 'grey';
+  if (f.up && f.cy > 2) return 'deck';
+  return 'grey';
+}

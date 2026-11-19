@@ -57,6 +57,7 @@ import {
   worksTarget, worksTargets, wallMiddle, isWorksTarget,
 } from '../../shared/works.js';
 import { MISSILE_SHAPES } from './render/missiles.js';
+import { EventLog } from './eventlog.js';
 
 /** What each missile code is called on the banner. */
 const MISSILE_NAMES = Object.fromEntries(Object.entries(MISSILE_SHAPES).map(([k, S]) => [k, S.name]));
@@ -268,6 +269,9 @@ const SEABED = -34;
 /** What to call a flight on screen: the machine, not the job she is on. */
 const FLIGHT_NAME = {
   seafire: 'her Seafires',
+  a5m: 'her A5Ms',
+  b4y: 'her B4Ys',
+  val: 'her Vals',
   firefly: 'her Fireflies',
   hellcat: 'her Hellcats',
   wildcat: 'her fighters',
@@ -298,6 +302,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
   seafire: 'Supermarine Seafire', firefly: 'Fairey Firefly',
+  a5m: 'Mitsubishi A5M', b4y: 'Yokosuka B4Y1', val: 'Aichi D3A1 Val',
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
   f18: 'F/A-18 Super Hornet', f35: 'F-35C Lightning', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
@@ -317,6 +322,9 @@ const ROLE_NAME = {
 /** What each machine's forward guns are, so the tracer is the right tracer. */
 const GUN_CALIBRE = {
   seafire: 20,        // two Hispanos and four Brownings in the wings
+  a5m: 7.7,           // two Type 89s in the top of her fuselage
+  b4y: 7.7,           // her gunner's Type 92: she has no gun forward
+  val: 7.7,           // two Type 97s in the top of her cowling
   firefly: 20,        // four Hispanos in the wings
   hellcat: 12.7,      // six fifties in the wings
   wildcat: 12.7,      // four fifties in the wings
@@ -361,7 +369,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  seafire: 2, firefly: 4,
+  seafire: 2, firefly: 4, a5m: 2, b4y: 1, val: 2,
   hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
@@ -746,6 +754,8 @@ export class Battle {
     }
     this.hud = new Hud({ team, world, onLeave: () => this.leave() });
     this.hud.buildFor(classId);
+    // The event log in the corner: sinkings, hits and air strikes, by name.
+    this.eventLog = new EventLog({ team, who: (id) => this.whoIs(id) });
     this.hud.setSelected(shipId);
     // The damage board builds its own little renderer the first time the
     // wrench is pressed, and is fed her compartments every frame after.
@@ -3004,6 +3014,21 @@ export class Battle {
     return best;
   }
 
+  /** A ship in the battle by her id: her captain, her name, her side. */
+  whoIs(id) {
+    if (id == null) return null;
+    const r = (this.roster || []).find((q) => q.id === id);
+    if (!r) return null;
+    return { captain: r.name, ship: SHIP_CLASSES[r.cls]?.name || r.cls, team: r.team, cls: r.cls };
+  }
+
+  /** What fired from a gun position ashore, for the event log. */
+  batteryName(id) {
+    const snap = this.snapshots && this.snapshots[this.snapshots.length - 1];
+    const g = snap && (snap.batteries || []).find((q) => q.i === id);
+    return g ? (BATTERIES[g.b]?.name || 'Shore battery') : null;
+  }
+
   onEvents(events, late = false) {
     const fx = this.scene.effects;
     // The bridge you are standing on.
@@ -3443,6 +3468,7 @@ export class Battle {
             }
             break;
           }
+          this.eventLog?.impact(ev, this.batteryName(ev.owner));
           // A round that got into her goes off inside her: an explosion, as
           // big as the damage it did. One that did not get in is a flash and
           // a puff against her armour. Neither leaves a mark on the ship.
@@ -3561,6 +3587,7 @@ export class Battle {
           // than anything a gun makes, which is why one hit ends an argument.
           fx.splash(ev.x, ev.z, 620, { kind: 'torp' });
           audio.torpHit({ x: ev.x, y: -1, z: ev.z });
+          if (ev.air) this.eventLog?.air(ev.owner, 'torpedo', ev.victim);
           if (ev.owner === this.shipId) this.hud.ribbon('TORPEDO HIT', 'cit');
           if (ev.victim === this.shipId) {
             this.hud.alert('Torpedo hit');
@@ -3609,6 +3636,7 @@ export class Battle {
           break;
         }
         case 'sinking': {
+          this.eventLog?.sinking(ev.ship);
           // She is going. Not gone: whatever is still above the water goes on
           // fighting, and she has as long as the sea gives her.
           const who = ev.ship === this.shipId ? 'We are' : `${this.names.get(ev.ship) || 'A ship'} is`;
@@ -3713,6 +3741,8 @@ export class Battle {
           // of her heaves the sea up white over her.
           this.sinkInfo = this.sinkInfo || new Map();
           this.sinkInfo.set(ev.ship, ev);
+          // Said once a ship: a sinking she was not seen to begin is said here.
+          this.eventLog?.sinking(ev.ship);
           fx.splash(ev.x, ev.z, 300, { kind: 'dc' });
           audio.founder({ x: ev.x, y: -1, z: ev.z });
           const victim = this.names.get(ev.ship) || 'A ship';
@@ -3932,7 +3962,7 @@ export class Battle {
           // Which of her three types is going, and how long the deck has to get
           // her off: the first of a strike comes up from the hangar with the
           // whole evolution to go through, and the ones after her are quicker.
-          v.group.userData.launch?.(this.deckClock(v), ev.r, ev.d, ev.k, ev.n);
+          v.group.userData.launch?.(this.deckClock(v), ev.r, ev.d, ev.k, ev.n, ev.ld);
           break;
         }
         case 'trap': {
@@ -3976,6 +4006,12 @@ export class Battle {
           break;
         }
         case 'bomb': {
+          // On a ship, it goes in the event log as it lands, not as it leaves
+          // the rack.
+          if (ev.hit && ev.victim != null && this.whoIs(ev.victim)) {
+            const { owner, victim } = ev;
+            setTimeout(() => { if (!this.disposed) this.eventLog?.air(owner, 'bomb', victim); }, 2600);
+          }
           // One bomb away, and where she is going. The arc is flown by the
           // scene; whether she hits was settled the moment the pilot let go.
           const from = (this.planesNow || []).find((q) => q.i === ev.i);
@@ -7103,7 +7139,11 @@ export class Battle {
   releaseOf(id) {
     const d = this.planeDrawn.get(id);
     if (!d || !d.n || this.time - d.at > 1) return null;
-    const st = storeOf(d.kind);
+    // What falls is what she went out with: a B4Y's torpedo or her bombs.
+    const tr = this.planeTrim.get(id);
+    const load = (tr && tr.load) || null;
+    const st = storeOf(d.kind, load);
+    const shapeKey = st && load && storeOf(d.kind, load) !== storeOf(d.kind) ? `${d.kind}:${load}` : d.kind;
     const m = d.mats[d.next % d.n];
     d.next++;
     const p = st ? new THREE.Vector3().fromArray(st.at) : new THREE.Vector3(0, 0.2, 0.4);
@@ -7113,7 +7153,7 @@ export class Battle {
       q.multiply(st.q);
       // Her own weapon, which is what falls.
       if (st.geo) {
-        this.scene.bombs.shape(d.kind, st.geo.clone().translate(-st.mid.x, -st.mid.y, -st.mid.z),
+        this.scene.bombs.shape(shapeKey, st.geo.clone().translate(-st.mid.x, -st.mid.y, -st.mid.z),
           st.mats.length > 1 ? st.mats : st.mats[0]);
       }
     }
@@ -7136,7 +7176,7 @@ export class Battle {
     return {
       p, v: d.v.clone(), q,
       len: st ? st.len : 1.75, r: st ? st.r : 0.2,
-      shape: st && st.geo ? d.kind : null,
+      shape: st && st.geo ? shapeKey : null,
       extra,
     };
   }
@@ -8104,6 +8144,7 @@ export class Battle {
       if (this.troop) this.stepTroopCommand();
     }
     if (this.showScores) this.hud.showScoreboard(this.roster, this.shipId, true);
+    this.eventLog?.update(dt);
   }
 
   /** Where the guns are laid: the sea point under the crosshair. */
@@ -10242,6 +10283,8 @@ export class Battle {
     // this one still in memory.
     try { this.scene.dispose(); } catch (e) { console.error('Steel Currents: clearing the battle', e); }
     this.hud.dispose?.();
+    this.eventLog?.dispose();
+    this.eventLog = null;
     this.abort?.abort();
     for (const b of [this.board, this.armsBoard, this.planeBoard]) { try { b?.dispose(); } catch { /* gone */ } }
     this.board = this.armsBoard = this.planeBoard = null;

@@ -368,6 +368,25 @@ const HULLS = {
     <rect x="69" y="2" width="1.2" height="25"/>
     <rect x="71.6" y="24.8" width="4.2" height="5.2"/>
     <rect x="76.1" y="26.9" width="4.2" height="3.1"/>`,
+  // The Tone: a cruiser's long low hull with all four of her twin turrets
+  // forward -- No.2 superfiring over No.1, Nos.3 and 4 behind them trained
+  // astern -- her pagoda bridge, one great trunked funnel raked aft, a
+  // mainmast with her aircraft crane, and her whole after part a flat
+  // aircraft deck.
+  tone: `
+    <path d="M2 28 L14 30 L94 30 L98 31.4 L95 37 L6 37 Z"/>
+    <rect x="12" y="27.4" width="4.2" height="2.6"/>
+    <rect x="17" y="25.2" width="4.2" height="4.8"/>
+    <rect x="22" y="27.4" width="4.2" height="2.6"/>
+    <rect x="28.5" y="27.4" width="4.2" height="2.6"/>
+    <rect x="34" y="26.2" width="24" height="3.8"/>
+    <rect x="35.5" y="18.5" width="4.3" height="8"/>
+    <rect x="36.4" y="15.6" width="3" height="3.2"/>
+    <rect x="38.4" y="9.8" width="1.2" height="9"/>
+    <path d="M42.5 26.2 L47 18.2 L51 18.2 L50.5 26.2 Z"/>
+    <rect x="56" y="5" width="1.2" height="22"/>
+    <path d="M57 24 L65 19.5 L65.6 20.2 L57.4 25.2 Z"/>
+    <rect x="58" y="28.2" width="36" height="1.8"/>`,
   // The Ajax: a Leander, a low cruiser hull with two twin turrets at each
   // end, the inner ones superfiring, a tall bridge forward, one great
   // trunked funnel amidships and a tripod mast at each end of her.
@@ -506,6 +525,41 @@ const HULLS = {
     <rect x="32" y="15" width="4" height="4"/>
     <rect x="33.4" y="7" width="1.4" height="8"/>
     <path d="M41 30 L49 30 L50 34 L42 34 Z"/>`,
+  // The Soryu: a light, fine hull under a long flight deck overhanging both
+  // ends of her, a small island forward of amidships, and her two funnels
+  // trunked out of her side under her deck and curving down abaft it.
+  soryu: `
+    <path d="M97 29.5 L90 30.5 L6 30.5 L8 37 L88 37 Z"/>
+    <path d="M96 27 L3 27 L3 30 L96 30 Z"/>
+    <rect x="34" y="21" width="6" height="6"/>
+    <rect x="35.5" y="17.5" width="3" height="3.5"/>
+    <rect x="36.2" y="10" width="1.2" height="7.5"/>
+    <path d="M53 30.5 L46 30.5 L45 34 L52 34 Z"/>`,
+  // The Akagi: a battlecruiser's long hull built up two hangars high under
+  // her flight deck, which runs down to her stern; her island amidships, her
+  // great funnel trunked out of her side and turned down to the water, and
+  // her casemate guns low aft.
+  akagi: `
+    <path d="M96 26 L88 26.5 L10 26.5 L4 25 L7 37 L91 37 Z"/>
+    <path d="M98 24.6 L88 23.2 L2 23.2 L2 26 L88 26 L98 27 Z"/>
+    <rect x="44.5" y="17" width="6.5" height="6.2"/>
+    <rect x="46" y="13" width="3.5" height="4"/>
+    <rect x="47.2" y="6" width="1.2" height="7"/>
+    <path d="M60 27 L51 27 L50 32 L59 32 Z"/>
+    <rect x="85" y="30" width="3" height="1.2"/>
+    <rect x="80" y="30" width="3" height="1.2"/>
+    <rect x="75" y="30" width="3" height="1.2"/>`,
+  // The Hosho: flush-decked, no island, her flight deck carried out over her
+  // bow and her stern on trusses and running down to her stern, and the
+  // radio mast at its forward end.
+  hosho: `
+    <path d="M12 29 L91 29 L89 36 L15 36 Z"/>
+    <path d="M11 26.2 L91 26.2 L91 29.2 L11 29.2 Z"/>
+    <path d="M3 27.6 L12 24.2 L98 24.2 L98 25.9 L12 25.9 L3 28.8 Z"/>
+    <path d="M5 28.4 L12 25.9 L12 27 Z"/>
+    <path d="M91 25.9 L96 25.9 L91 28 Z"/>
+    <rect x="77.4" y="9" width="1.1" height="15.2"/>
+    <rect x="75" y="12" width="6" height="0.8"/>`,
 };
 
 // Badges that say what a hull icon does when it is a button rather than a
