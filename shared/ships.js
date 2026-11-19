@@ -17843,6 +17843,90 @@ export const SHIP_CLASSES = {
     },
   },
 
+  monsterone: {
+    // Monster One: not a ship at all. A creature a hundred metres tall to the
+    // tips of the plates down her back, out of the sea -- drawn from the
+    // owner's model, "Godzilla Minus One" by ArachnoBoy, rigged so she moves
+    // (see build/prepare-monster.mjs and render/monster.js), and fought by
+    // shared/monster.js, which is where everything she does that a ship does
+    // not is.
+    //
+    // She swims deep, where nothing on the surface can see her or reach her
+    // with a shell; on the surface with her plates out of the water; or
+    // standing up in it to her waist. She takes ships in her hands, crushes
+    // them and throws them; she smashes them with her tail; and her atomic
+    // breath -- after a long windup, her plates lighting crystal blue from
+    // her tail to her head -- strikes with the force of a megaton, once every
+    // two and a half minutes.
+    id: 'monsterone',
+    name: 'Monster One',
+    fullName: 'Monster One',
+    className: 'Monster One',
+    type: 'MO',
+    typeName: 'Kaiju',
+    nation: 'jpn',
+    premium: true,
+    special: true,
+    blurb: 'A hundred metres of her out of the sea. She swims deep or on the surface with her plates out, crushes and throws ships with her hands, smashes them with her tail, and her atomic breath strikes with the force of a megaton.',
+    // Her length swimming, nose to tail, and her breadth across the
+    // shoulders; her "freeboard" is how much of her stands out of the sea.
+    hull: { length: 170, beam: 26, draft: 30, superstructure: 6, heavePeriod: 14 },
+    // Hard to kill. Not impossible.
+    hp: 380000,
+    // Her best is set by how she is going about (see MONSTER.speed): this is
+    // the most of it, deep.
+    maxSpeed: 32 * KNOTS,
+    reverseSpeed: 4 * KNOTS,
+    accel: 0.9,
+    // She turns as a living thing does, not as a hull with a rudder: in a
+    // little over her own length, and on the spot when she is standing.
+    turnRate: 0.12,
+    rudderShift: 1.2,
+    speedLossInTurn: 0.1,
+    pivots: true,
+    // She is seen from a long way off, out of the water.
+    concealment: 15000,
+    fireDetectPenalty: 0,
+    radarRange: 0,
+    repairCooldown: 9999,
+    repairHeal: 0,
+    smokeCharges: 0,
+    lampSpots: [],
+    // Her hide, for the shells that have to get through it.
+    armor: { belt: 300, deck: 220, citadel: 320, bow: 300, superstructure: 260 },
+    // Deep, as a boat is: but she does not run out of air, and she is fast.
+    dive: {
+      periscope: 12, max: 60,
+      rate: 10, blow: 30,
+      oxygen: 99999, recharge: 1,
+      speed: 32 * KNOTS,
+      concealment: 1400,
+    },
+    monster: true,
+    turrets: [],
+    // Nothing that fires a shell: the figures below are for what in the
+    // battle asks a hull how far she reaches -- her breath's reach.
+    gun: {
+      name: 'Atomic breath', role: 'surface',
+      elev: { min: -0.1, max: 0.6 },
+      reach: 0.5,
+      caliber: 0, reload: 9999, traverse: 1, range: 12000, sigma: 1,
+      shells: shells(20, 1, 1, 1, 800, 0),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: { range: 0, dps: 0, guns: [] },
+    planes: null,
+    datasheet: {
+      displacement: 90000,
+      aircraft: 0,
+      mainRounds: 0,
+      torpedoesCarried: 0,
+      secondary: null,
+      tertiary: [],
+    },
+  },
+
 };
 
 // The Yamato off her own model, as she sailed on her last sortie in April 1945:
@@ -18209,8 +18293,14 @@ export const CIVIL_ORDER = SHIP_ORDER.filter((id) => CIVIL_SHIPS.has(id));
  */
 export const PREMIUM_ORDER = ['tillman', 'oregon'];
 
+/**
+ * What the store keeps in a department of its own, Special: things that sail
+ * with a fleet and are not ships. Monster One, so far.
+ */
+export const SPECIAL_ORDER = ['monsterone'];
+
 /** Every hull a fleet can have in it: the yard's and the store's. */
-export const PLAYABLE = [...SHIP_ORDER, ...PREMIUM_ORDER];
+export const PLAYABLE = [...SHIP_ORDER, ...PREMIUM_ORDER, ...SPECIAL_ORDER];
 
 export function getClass(id) {
   return SHIP_CLASSES[id] || SHIP_CLASSES.fletcher;

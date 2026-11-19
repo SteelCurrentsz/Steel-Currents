@@ -130,6 +130,9 @@ uniform float uBurstN;
 
 float nkWaveR(float age, float k) { return ${F(NUKE.waveReach)} * k * (1.0 - exp(-age / ${F(NUKE.waveTau)})); }
 float nkShockR(float age, float k) { return ${F(NUKE.reach)} * k * (1.0 - exp(-age / ${F(NUKE.tau)})); }
+// How much more water a burst of scale k throws up than the B-29's bomb:
+// waveHeight in shared/nuke.js, the square up to it and less past it.
+float nkGrow(float k) { return k <= 1.0 ? k * k : pow(k, 1.5); }
 
 // x: height, y: d(height)/d(range), z: the wave's own amplitude there.
 vec3 nkSwell(float age, float r, float kk) {
@@ -140,7 +143,7 @@ vec3 nkSwell(float age, float r, float kk) {
   if (s > lam * 1.2 || s < -lam * 4.2) return vec3(0.0);
   float grow = min(1.0, age / 5.0);
   float fade = clamp((${F(NUKE.life)} - age) / 60.0, 0.0, 1.0);
-  float H = ${F(NUKE.waveHigh)} * kk * kk * exp(-max(0.0, R) / (${F(NUKE.waveFall)} * kk)) + 1.5;
+  float H = ${F(NUKE.waveHigh)} * nkGrow(kk) * exp(-max(0.0, R) / (${F(NUKE.waveFall)} * kk)) + 1.5;
   float A = 0.5 * H * grow * grow * (3.0 - 2.0 * grow) * fade;
   float k = 6.2831853 / lam;
   float sig = s > 0.0 ? 0.3 * lam : 1.25 * lam;
@@ -432,6 +435,9 @@ uniform vec4 uBurst[${MAX_BURSTS}];
 uniform float uBurstN;
 float nkWaveR(float age, float k) { return ${F(NUKE.waveReach)} * k * (1.0 - exp(-age / ${F(NUKE.waveTau)})); }
 float nkShockR(float age, float k) { return ${F(NUKE.reach)} * k * (1.0 - exp(-age / ${F(NUKE.tau)})); }
+// How much more water a burst of scale k throws up than the B-29's bomb:
+// waveHeight in shared/nuke.js, the square up to it and less past it.
+float nkGrow(float k) { return k <= 1.0 ? k * k : pow(k, 1.5); }
 float nkHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float nkNoise(vec2 p) {
   vec2 i = floor(p), f = fract(p);
@@ -472,10 +478,13 @@ vec2 burstMarks(vec2 p) {
     float fade = clamp((${F(NUKE.life)} - age) / 60.0, 0.0, 1.0) * min(1.0, age / 4.0);
     float crest = exp(-(s + lam * 0.05) * (s + lam * 0.05) / (lam * lam * 0.018));
     float back = exp(-(s + lam * 0.55) * (s + lam * 0.55) / (lam * lam * 0.25)) * 0.55;
-    float h = clamp((${F(NUKE.waveHigh)} * b.w * b.w * exp(-R / (${F(NUKE.waveFall)} * b.w)) + 1.5) / 14.0, 0.15, 1.0);
+    float h = clamp((${F(NUKE.waveHigh)} * nkGrow(b.w) * exp(-R / (${F(NUKE.waveFall)} * b.w)) + 1.5) / 14.0, 0.15, 1.0);
     o.x = max(o.x, (crest + back * smoothstep(0.45, 0.8, lace)) * smoothstep(0.25, 0.65, lace + crest * 0.4) * fade * h);
     // And over the burst itself, the sea boiling white for a minute and more.
-    float pool = smoothstep(R * 0.9, R * 0.45, r) * max(0.0, 1.0 - age / 110.0);
+    // (A burst bigger than the B-29's -- Monster One's breath -- boils a
+    // patch the size of its own column, not half the sea inside its wave.)
+    float big = max(1.0, b.w);
+    float pool = smoothstep(R * 0.9 / big, R * 0.45 / big, r) * max(0.0, 1.0 - age / 110.0);
     o.x = max(o.x, pool * smoothstep(0.3, 0.75, lace + 0.25 * (1.0 - age / 110.0)));
   }
   return o;

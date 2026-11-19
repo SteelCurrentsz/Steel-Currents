@@ -31,6 +31,8 @@ import {
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
 import { setLamp } from '../shared/searchlights.js';
+import { stepMonsterBot } from '../shared/monster.js';
+import { MONSTER_HOOKS } from '../shared/sim.js';
 
 const SKILL = { rookie: 0.45, regular: 0.7, veteran: 0.9 };
 
@@ -228,6 +230,8 @@ function fireAssigned(state, ship, brain, cls, what) {
 export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
   if (!ship.alive) return;
   const cls = shipClass(ship);
+  // Monster One has a mind of her own, and it is not a ship captain's.
+  if (cls.monster) { stepMonsterBot(state, ship, brain, dt, conned, MONSTER_HOOKS); return; }
   brain.retarget -= dt;
   brain.fireTimer -= dt;
   brain.torpTimer -= dt;

@@ -43,6 +43,7 @@ import { loadDauntless } from './dauntlessModel.js';
  * background once the title screen is up, and waited for by the shipyard and
  * before a battle is joined.
  */
+let buildMonsterOne;
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildFord, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildBorgia, buildSuzuya, buildYodo, buildMogami, buildLouisiana, buildOregon, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
@@ -72,6 +73,8 @@ const SCULPTED = {
   hagen: () => import('./hagen.js').then((m) => { buildHagen = m.buildHagen; }),
   morosini: () => import('./morosini.js').then((m) => { buildMorosini = m.buildMorosini; }),
   tillman: () => import('./tillman.js').then((m) => { buildTillman = m.buildTillman; }),
+  // Monster One, out of the Premium Equipment store's Special department.
+  monsterone: () => import('./monster.js').then((m) => { buildMonsterOne = m.buildMonsterOne; }),
   missouri: () => import('./missouri.js').then((m) => { buildMissouri = m.buildMissouri; }),
   rodney: () => import('./rodney.js').then((m) => { buildRodney = m.buildRodney; }),
   baltimore: () => import('./baltimore.js').then((m) => { buildBaltimore = m.buildBaltimore; }),
@@ -1157,6 +1160,17 @@ function buildModel(classId) {
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: [],
+    };
+  }
+
+  // Monster One: the owner's model of her, rigged, and everything that
+  // drives it on her group (see monster.js).
+  if (cls.id === 'monsterone') {
+    const built = buildMonsterOne();
+    return {
+      group: built.group, turrets: [], monster: built.monster,
+      length: built.length, beam: built.beam, deckY: built.deckY,
+      secMounts: [], aaMounts: [], torpMounts: [],
     };
   }
 

@@ -30,6 +30,8 @@ import { footing } from '../../shared/infantry.js';
 import { getSettings } from './settings.js';
 import { Director } from './director.js';
 import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
+import { readMonsterWire, MONSTER } from '../../shared/monster.js';
+import { MonsterBar } from './monsterhud.js';
 import { stepLock, nextLock, lockLabel, rackLabel, hasRack } from './lockon.js';
 import {
   createState, addShip, applyInput, predictShip, MIN_NOTCH, MAX_NOTCH, solveBallistic,
@@ -883,6 +885,8 @@ export class Battle {
     // next snapshot -- a dive takes the better part of half a minute and a
     // captain who cannot see it start does not know he gave the order.
     this.hud.onDiveOrder?.(() => {
+      // Monster One goes down and comes up by her own orders.
+      if (this.conningMonster()) { this.monsterKey('KeyX'); return; }
       // The boat under orders: her own, or one being watched and conned.
       const id = this.conned();
       if (id !== this.shipId) {
@@ -1226,6 +1230,13 @@ export class Battle {
       // And the racks refusing. Either there is nothing left in the stowage or
       // the party has not finished reloading, and a captain who pressed the
       // key and saw nothing go over the stern is entitled to be told which.
+      // Monster One, saying why not.
+      this.net.on('nomo', (m) => {
+        const why = { cooling: 'not ready yet', busy: 'busy', none: 'nothing in reach', close: 'too close',
+          bad: 'cannot', dead: 'cannot' }[m?.why] || 'cannot';
+        const what = { breath: 'Atomic breath', tail: 'Tail', grab: 'Grab', throw: 'Throw', pose: 'Posture', roar: 'Roar' }[m?.a] || 'Order';
+        this.hud.alert(`${what}: ${why}`);
+      }),
       this.net.on('nomine', (m) => {
         this.hud.alert(m && m.why === 'empty' ? 'Mine rails empty'
           : m && m.why === 'under' ? 'Cannot lay mines submerged' : 'Next mine not yet aft');
@@ -1503,6 +1514,155 @@ export class Battle {
    * Take up a frame's worth of the last correction, and note where our own
    * hull has got to for the next snapshot to be held up against.
    */
+  /**
+   * Monster One, for a frame: where the battle has her, how she is going
+   * about and what she is doing, off her wire; her rig does the rest (see
+   * render/monster.js). A stand-in hull, before her model is in, is only
+   * put where she is.
+   */
+  driveMonster(view, s, a, x, z, h, speed, isSelf, dt, heard) {
+    const rig = view.group.userData.monster;
+    const w = readMonsterWire(s.mo) || {};
+    const sea = this.scene.ocean.attitude(x, z, h, 60, 30);
+    view.group.rotation.set(0, h, 0, 'YXZ');
+    // She swims in the sea, not on it: the swell lifts her a little.
+    view.group.position.set(x, (sea.heave || 0) * 0.35, z);
+    view.marker.visible = !isSelf && this.camMode === 'tactical';
+    if (!rig) { view.group.visible = !!s.a; return; }
+    rig.driven = true;
+    // How fast she is swinging, off how her heading moves.
+    const yr = view.monsterH == null || dt <= 0 ? 0 : angleDelta(view.monsterH, h) / dt;
+    view.monsterH = h;
+    view.monsterYaw = (view.monsterYaw || 0) + (clamp(yr, -0.5, 0.5) - (view.monsterYaw || 0)) * (1 - Math.exp(-dt / 0.4));
+    // Dead: her last roar and her going over and down, timed on this screen.
+    if (!s.a) view.monsterDie = (view.monsterDie || 0) + dt;
+    view.group.updateMatrixWorld(true);
+    const toLocal = (wx, wy, wz) => view.group.worldToLocal(new THREE.Vector3(wx, wy, wz));
+    const beamTo = w.beam ? toLocal(w.beam.x, 6, w.beam.z) : null;
+    // What she looks at: where her breath is going, or the nearest enemy
+    // ship in sight of her.
+    let look = beamTo;
+    if (!look && s.a) {
+      let best = null, bd = 2500;
+      for (const q of a.ships) {
+        if (!q.a || q.tm === s.tm || q.i === s.i) continue;
+        const d = Math.hypot(q.x - x, q.z - z);
+        if (d < bd) { bd = d; best = q; }
+      }
+      if (best) look = toLocal(best.x, 15, best.z);
+    }
+    rig.update(dt, {
+      pose: s.a ? w.pose : 'swim',
+      speed: Math.abs(speed || 0),
+      yawRate: view.monsterYaw,
+      act: s.a ? w.act : 'die',
+      actT: s.a ? w.actT : view.monsterDie,
+      side: w.side,
+      charge: w.charge,
+      glow: w.glow,
+      look,
+      beamTo: w.act === 'fire' ? beamTo : null,
+    });
+    // Gone under, she is not drawn.
+    view.group.visible = !s.un && !(!s.a && view.monsterDie > 45);
+    // Her wake: swimming on the surface she throws one; down, or standing
+    // in the water, she does not.
+    if (s.a && w.pose === 'swim' && Math.abs(speed) > 1) view.wake.update(dt, x, z, h, speed);
+    else view.wake.stop(dt);
+    if (view.group.visible) {
+      heard.push({ id: s.i, x, z, load: clamp(Math.abs(speed) / 14, 0, 1), len: 120, sub: true,
+        depth: w.pose === 'deep' ? 40 : 0, alive: !!s.a, sinking: !s.a });
+    }
+    // Her own ability bar, when she is the one being conned.
+    if (isSelf || s.i === this.conned()) this.monsterBar().update(w, s);
+  }
+
+  /**
+   * Monster One's keys: F (or Space) her breath, T her tail, G to take hold
+   * of the ship in front of her or throw the one she has, X down / up /
+   * standing, R to roar. True when the key was hers.
+   */
+  monsterKey(code) {
+    const pose = readMonsterWire(this.shownShip()?.mo)?.pose || 'swim';
+    switch (code) {
+      case 'KeyF': case 'Space': this.monsterOrder({ a: 'breath' }); return true;
+      case 'KeyT': this.monsterOrder({ a: 'tail' }); return true;
+      case 'KeyG': this.monsterOrder({ a: 'grab' }); return true;
+      case 'KeyX': this.monsterOrder({ a: 'pose', pose: { deep: 'swim', swim: 'stand', stand: 'deep' }[pose] }); return true;
+      case 'KeyR': this.monsterOrder({ a: 'roar' }); return true;
+      default: return false;
+    }
+  }
+
+  /** Her own controls: made the first time she is conned. */
+  monsterBar() {
+    if (!this.moBar) {
+      this.moBar = new MonsterBar(document.body, (o) => this.monsterOrder(o));
+    }
+    return this.moBar;
+  }
+
+  /** An order to Monster One, from her bar or a key. */
+  monsterOrder(o) {
+    const ship = this.conned();
+    if (o.a === 'breath') {
+      // At the ship picked off the plot, if an enemy is; at where the
+      // captain is looking, if not.
+      const snap = this.snapshots[this.snapshots.length - 1];
+      const sel = this.selected && this.selected !== ship ? snap?.ships?.find((q) => q.i === this.selected) : null;
+      if (sel && sel.tm !== this.team) o = { ...o, target: sel.i };
+      else o = { ...o, x: this.aimPoint.x, z: this.aimPoint.z };
+    }
+    if (o.a === 'throw') o = { ...o, x: this.aimPoint.x, z: this.aimPoint.z };
+    this.net.send({ t: 'monster', ship, o });
+    audio.click();
+  }
+
+  /** Is the ship being conned Monster One? */
+  conningMonster() {
+    const id = this.conned();
+    const s = id === this.shipId ? { c: this.localShip.classId } : this.shownShip();
+    return !!(s && getClass(s.c)?.monster);
+  }
+
+  /**
+   * Ships in Monster One's hands, carried in them; ships she has thrown, up
+   * in the air and tumbling.
+   */
+  holdInHands(ships, dt) {
+    const at = new THREE.Vector3();
+    for (const s of ships) {
+      const view = this.scene.shipViews.get(s.i);
+      if (!view) continue;
+      if (s.hb) {
+        const mv = this.scene.shipViews.get(s.hb);
+        const rig = mv?.group.userData.monster;
+        if (!rig) continue;
+        rig.handsPoint(at);
+        const cls = getClass(s.c);
+        view.group.position.x = at.x;
+        view.group.position.z = at.z;
+        if (s.hl) {
+          // Up out of the water in her hands, her keel in her palms.
+          view.group.position.y = at.y + cls.hull.draft * 0.6;
+          view.heldSway = (view.heldSway || 0) + dt;
+          view.group.rotation.z = 0.18 * Math.sin(view.heldSway * 1.7);
+          view.group.rotation.x = 0.1 * Math.sin(view.heldSway * 1.1);
+        }
+        view.wake.stop(dt);
+      }
+      if (s.ly) {
+        // Thrown: up and over, end over end.
+        view.group.position.y += s.ly;
+        view.flungSpin = (view.flungSpin || 0) + dt * 1.6;
+        view.group.rotation.z += view.flungSpin;
+        view.wake.stop(dt);
+      } else if (view.flungSpin) {
+        view.flungSpin = 0;
+      }
+    }
+  }
+
   takeUpFix(dt, now) {
     const ls = this.localShip;
     const f = this.fix;
@@ -1565,6 +1725,9 @@ export class Battle {
    */
   correctOwn(own, st) {
     const ls = this.localShip;
+    // Monster One's best speed is her posture's, and her posture is the
+    // server's: carried over, so the prediction runs her at the same speed.
+    if (own.mo) ls.mo = readMonsterWire(own.mo);
     const was = this.ownAt(st);
     const ex = own.x - was.x;
     const ez = own.z - was.z;
@@ -3364,6 +3527,46 @@ export class Battle {
           audio.explosion(Math.min(0.5, 0.12 + ev.cal / 600), { x: ev.x, y: ev.y, z: ev.z });
           break;
         case 'splash': fx.splash(ev.x, ev.z, ev.cal, { kind: ev.bomb ? 'bomb' : 'shell' }); audio.splash(ev.cal, { x: ev.x, y: 1, z: ev.z }, !!ev.bomb); break;
+        // Monster One. Her breath gathering is told to everybody: there is
+        // nobody on the sea who would not see her plates lighting up.
+        case 'moCharge': {
+          const ours = ev.tm === this.team;
+          this.hud.alert(ours ? 'Monster One is gathering her atomic breath' : 'Monster One is charging her atomic breath — take cover');
+          const v = this.scene.shipViews.get(ev.ship);
+          if (v) audio.breathCharge({ x: v.group.position.x, y: 60, z: v.group.position.z }, MONSTER.breath.climb + MONSTER.breath.throat);
+          break;
+        }
+        case 'moFire': {
+          this.hud.alert('Atomic breath');
+          const v = this.scene.shipViews.get(ev.ship);
+          if (v) audio.breathFire({ x: v.group.position.x, y: 60, z: v.group.position.z });
+          this.shake = Math.max(this.shake || 0, 0.6);
+          break;
+        }
+        case 'moRoar': audio.roar({ x: ev.x, y: 60, z: ev.z }); break;
+        case 'moTail': {
+          fx.splash(ev.x, ev.z, ev.at ? 900 : 600, { kind: 'bomb' });
+          audio.slam({ x: ev.x, y: 1, z: ev.z }, 2);
+          if (ev.at) audio.crash({ x: ev.x, y: 4, z: ev.z }, 12);
+          break;
+        }
+        case 'moGrab': {
+          audio.crash({ x: ev.x, y: 4, z: ev.z }, 9);
+          fx.splash(ev.x, ev.z, 500, { kind: 'bomb' });
+          if (ev.at === this.shipId) this.hud.alert('Monster One has you in her hands');
+          break;
+        }
+        case 'moSlam': {
+          fx.splash(ev.x, ev.z, ev.big ? 1400 : 700, { kind: 'bomb' });
+          audio.slam({ x: ev.x, y: 1, z: ev.z }, ev.big ? 2 : 1.2);
+          audio.crash({ x: ev.x, y: 4, z: ev.z }, 14);
+          break;
+        }
+        case 'moDie': {
+          this.hud.alert('Monster One has fallen');
+          audio.roar({ x: ev.x, y: 60, z: ev.z }, { level: 1, dur: 4.5 });
+          break;
+        }
         case 'landhit': {
           const g = groundHeight(this.scene.world, ev.x, ev.z);
           fx.hit(ev.x, g + 4, ev.z, 'he', ev.cal);
@@ -4454,6 +4657,8 @@ export class Battle {
       if (code === 'Escape') { this.leaveMan(); return; }
       if (['KeyW', 'KeyS', 'KeyA', 'KeyD'].includes(code)) return;
     }
+    // Monster One's own keys, when she is the one being conned.
+    if (this.conningMonster() && this.monsterKey(code)) return;
     switch (code) {
       case 'KeyW': this.setNotch(this.connedNotch() + 1); audio.click(); break;
       case 'KeyS': this.setNotch(this.connedNotch() - 1); audio.click(); break;
@@ -8313,6 +8518,9 @@ export class Battle {
       // at her bow, her stern and both beams, so a hull two hundred metres long
       // rides the swell rather than following every wave in it.
       const cls = getClass(s.c);
+      // Monster One is not a hull riding the sea: she is driven off her own
+      // wire and her own rig, and nothing below is anything to her.
+      if (cls.monster) { this.driveMonster(view, s, a, x, z, h, isSelf ? this.localShip.speed : pose.v, isSelf, dt, heard); continue; }
       const att = this.scene.ocean.attitude(x, z, h, cls.hull.length, cls.hull.beam);
       const speed = isSelf ? this.localShip.speed : pose.v;
       view.group.position.set(x, 0, z);       // her height is the seakeeping's
@@ -8581,6 +8789,10 @@ export class Battle {
       }
 
     }
+    // A ship in Monster One's hands is where her hands are, and one she has
+    // thrown is up in the air: after every ship has been put where the sea has
+    // her, and after Monster One has been posed.
+    this.holdInHands(a.ships, dt);
     audio.ships(heard);
 
     for (const [id] of this.scene.shipViews) {

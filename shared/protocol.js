@@ -10,6 +10,7 @@ import {
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
+import { monsterWire } from './monster.js';
 
 /** The part keys, in the order a hole report packs them. */
 const PART_KEYS = PARTS.map((p) => p.k);
@@ -89,6 +90,14 @@ export function shipSnapshot(ship, full, state = null) {
     // she actually is. Her air is hers alone and goes with the private block.
     d: cls.dive ? r1(ship.depth) : 0,
     to: cls.dive ? r1(ship.tubeOpen) : 0,
+    // Monster One: how she is going about, what she is doing and how far
+    // into it, how far up her the glow has climbed, the ship in her hands and
+    // where her breath strikes. Anyone who can see her can see all of it.
+    ...(cls.monster ? { mo: monsterWire(ship) } : {}),
+    // A ship in Monster One's hands -- whose, and whether she has been lifted
+    // out of the water -- or thrown, and how high in the air she is.
+    ...(ship.heldBy ? { hb: ship.heldBy, hl: ship.held?.lifted ? 1 : 0 } : {}),
+    ...(ship.liftY ? { ly: r1(ship.liftY) } : {}),
     // Which compartments have water in them and which are alight, in tenths,
     // so the fire and the water can be drawn where they actually are.
     wt: SECTIONS.map((k) => {

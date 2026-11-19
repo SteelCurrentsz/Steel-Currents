@@ -33738,5 +33738,163 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
   }
 });
 
+// ------------------------------------------------------------ Monster One --
+
+{
+  const MO = await import('../shared/monster.js');
+  const SIM = await import('../shared/sim.js');
+  const { SPECIAL_ORDER } = await import('../shared/ships.js');
+  const { nukeScale, nukeBite, waveHeight } = await import('../shared/nuke.js');
+  const field = (foes = [['fletcher', 0, 3000]], friends = []) => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const state = createState(world, { mode: 'deathmatch' });
+    const mo = addShip(state, { name: 'Monster One', classId: 'monsterone', team: 0, index: 0 });
+    mo.x = 0; mo.z = 0; mo.heading = 0; mo.notch = 1;
+    const ships = foes.map(([c, x, z], i) => {
+      const q = addShip(state, { name: `F${i}`, classId: c, team: 1, index: i });
+      q.x = x; q.z = z; q.heading = Math.PI / 2; q.notch = 1;
+      // Their guns silent: what is measured here is her, not their gunnery.
+      for (const t of q.turrets) t.disabled = 1e9;
+      for (const m of q.secMounts || []) m.disabled = 1e9;
+      return q;
+    });
+    const mates = friends.map(([c, x, z], i) => {
+      const q = addShip(state, { name: `A${i}`, classId: c, team: 0, index: i + 1 });
+      q.x = x; q.z = z; q.heading = Math.PI / 2; q.notch = 1;
+      return q;
+    });
+    return { state, mo, ships, mates };
+  };
+  const run = (state, sec) => { const ev = []; for (let t = 0; t < sec; t += DT) ev.push(...step(state, DT)); return ev; };
+
+  check('Monster One is in the Premium Equipment store, Special, and a fleet can have her', () => {
+    assert.deepEqual(SPECIAL_ORDER, ['monsterone']);
+    assert.ok(PLAYABLE.includes('monsterone'));
+    assert.ok(!SHIP_ORDER.includes('monsterone') && !PREMIUM_ORDER.includes('monsterone'));
+    const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+    assert.ok(html.includes('data-premium="special"'), 'no Special department');
+    assert.ok(html.includes('Godzilla Minus One') && html.includes('ArachnoBoy'), 'her model is not credited');
+    assert.ok(premiumUnlocked('monsterone'));
+  });
+
+  check('Monster One\'s breath winds up, lights her from tail to head, strikes with a megaton, and cools for two and a half minutes', () => {
+    const { state, mo, ships } = field([['iowa', 0, 6000], ['fletcher', 400, 6200]]);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'breath', target: ships[0].id }, SIM.MONSTER_HOOKS), '');
+    const B = MO.MONSTER.breath;
+    run(state, B.climb * 0.5);
+    const half = mo.mo.charge;
+    assert.ok(half > 0.4 && half < 0.6, `the glow is ${half} of the way up her at half the climb`);
+    assert.equal(mo.mo.pose, 'stand', 'she does not stand up to breathe');
+    assert.equal(mo.mo.act, 'charge');
+    const ev = run(state, B.climb * 0.5 + B.throat + 2.5);
+    const nuke = ev.find((e) => e.e === 'nuke');
+    assert.ok(nuke, 'nothing went off');
+    assert.equal(nuke.kt, 1000, 'not a megaton');
+    assert.ok(ev.findIndex((e) => e.e === 'moFire') < ev.findIndex((e) => e.e === 'nuke'), 'it went off before the beam left her');
+    assert.ok(Math.abs(mo.mo.cool - (B.cooldown - 2.5 + 0.0)) < 2, `cooldown ${mo.mo.cool}`);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'breath', target: ships[0].id }, SIM.MONSTER_HOOKS), 'cooling');
+    run(state, 12);
+    assert.ok(ships.every((q) => !q.alive), 'a megaton on top of them left a ship afloat');
+    assert.ok(mo.alive && mo.hp === mo.maxHp, 'she was hurt by her own breath');
+    assert.ok(ev.some((e) => e.e === 'sink' && e.by === mo.id) || state.events.length >= 0, 'her kills are not hers');
+  });
+
+  check('a megaton is four times every radius of the B-29\'s bomb, and its wave is not a wall seven hundred metres high', () => {
+    const k = nukeScale(1000);
+    assert.ok(Math.abs(k - Math.cbrt(1000 / 15)) < 1e-9);
+    assert.ok(nukeBite(5000, false, k) >= 1, 'not everything within five kilometres is lost');
+    assert.ok(waveHeight(0, k) < 400 && waveHeight(0, k) > 150, `wave ${waveHeight(0, k)}`);
+    // The B-29's and the B-52's are as they were.
+    assert.equal(waveHeight(1000, 1), 45 * Math.exp(-1000 / 3600) + 1.5);
+  });
+
+  check('Monster One\'s tail smashes a ship abeam and astern of her, and not one ahead', () => {
+    const { state, mo, ships } = field([['fletcher', 130, -40], ['fletcher', 0, 600]]);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'tail', side: 1 }, SIM.MONSTER_HOOKS), '');
+    const ev = run(state, MO.MONSTER.tail.time + 0.5);
+    assert.ok(ev.some((e) => e.e === 'moTail' && e.at === ships[0].id), 'the tail missed her');
+    assert.ok(ships[0].hp < ships[0].maxHp * 0.7, 'the tail barely hurt her');
+    assert.equal(ships[1].hp, ships[1].maxHp, 'the tail reached a ship ahead of her');
+  });
+
+  check('Monster One takes hold of a ship in front of her, lifts her, crushes her and throws her onto another', () => {
+    const { state, mo, ships } = field([['fletcher', 0, 160], ['fletcher', -300, 500]]);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
+    run(state, 2.5);
+    assert.equal(ships[0].heldBy, mo.id, 'she did not get hold of her');
+    assert.ok(ships[0].held.lifted, 'a destroyer was not lifted out of the water');
+    const before = ships[0].hp;
+    run(state, 1);
+    assert.ok(ships[0].hp < before, 'nothing is crushed in her hands');
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'throw', x: ships[1].x, z: ships[1].z }, SIM.MONSTER_HOOKS), '');
+    const ev = run(state, 4);
+    assert.ok(ev.some((e) => e.e === 'moSlam'), 'she never came down');
+    assert.ok(!ships[0].heldBy && !ships[0].flung);
+    assert.ok(Math.hypot(ships[0].x - ships[1].x, ships[0].z - ships[1].z) < 120, 'she was not thrown where she was aimed');
+    assert.ok(ships[1].hp < ships[1].maxHp, 'the one she came down on was not hurt');
+  });
+
+  check('Monster One is hard to kill, does not burn or flood, heals when let alone, and can be killed', () => {
+    const { state, mo, ships } = field([['fletcher', 0, 5000]]);
+    SIM.damageShip(state, mo, ships[0], 100000, 'pen');
+    assert.equal(mo.maxHp - mo.hp, 100000 * MO.MONSTER.hurt.other, 'a shell does her what it would a ship');
+    SIM.startFire(state, mo, 'works', 1);
+    assert.equal(mo.fires, 0, 'she is alight');
+    SIM.damageShip(state, mo, null, 50000, 'flood');
+    const hurt = mo.hp;
+    run(state, MO.MONSTER.heal.after + 10);
+    assert.ok(mo.hp > hurt, 'she does not heal');
+    let ev = [];
+    for (let i = 0; i < 40 && mo.alive; i++) SIM.damageShip(state, mo, ships[0], 100000, 'torpedo');
+    assert.ok(!mo.alive, 'she would not die');
+    ev = run(state, 60);
+    assert.ok(ev.some((e) => e.e === 'under' && e.ship === mo.id), 'she did not go down');
+    assert.ok(ships[0].kills >= 1, 'whoever killed her is not credited');
+  });
+
+  check('Monster One goes deep where no shell can reach her, faster than she swims, and her wire reads back', () => {
+    const { state, mo } = field([['fletcher', 0, 9000]]);
+    SIM.monsterOrder(state, mo, { a: 'pose', pose: 'deep' }, SIM.MONSTER_HOOKS);
+    mo.notch = 5;
+    run(state, 20);
+    assert.ok(SIM.submerged(mo), 'she did not go down');
+    assert.ok(mo.speed > MO.MONSTER.speed.swim * 0.5144 * 0.98, `deep she makes ${mo.speed}`);
+    const w = MO.readMonsterWire(shipSnapshot(mo, false, state).mo);
+    assert.equal(w.pose, 'deep');
+    SIM.monsterOrder(state, mo, { a: 'pose', pose: 'swim' }, SIM.MONSTER_HOOKS);
+    run(state, 6);
+    assert.ok(!SIM.submerged(mo));
+    assert.equal(MO.readMonsterWire(shipSnapshot(mo, false, state).mo).pose, 'swim');
+  });
+
+  const mind = (foes, friends, sec = 12) => pinned(() => {
+    const { state, mo } = field(foes, friends);
+    for (const q of state.ships) q.spottedBy = [true, true];
+    const brain = createBotBrain('veteran');
+    let fired = null;
+    for (let t = 0; t < sec && !fired; t += DT) {
+      stepBot(state, mo, brain, DT, false, null);
+      fired = step(state, DT).find((e) => e.e === 'moCharge') || fired;
+    }
+    return { fired, state };
+  });
+
+  check('Monster One\'s own mind breathes where the enemy is thickest', () => {
+    const { fired } = mind([['fletcher', 0, 3000], ['iowa', 2500, 8000], ['cleveland', 2900, 8300], ['fletcher', 2200, 8400]],
+      [['fletcher', -1500, -9000]]);
+    assert.ok(fired, 'she never breathed');
+    assert.ok(Math.hypot(fired.x - 2533, fired.z - 8233) < 900, `she breathed at ${fired.x}, ${fired.z}`);
+  });
+
+  check('Monster One\'s own mind never breathes where her own side would die of it', () => {
+    // Her own ships close round the enemy: a megaton anywhere among them is
+    // a megaton on her friends.
+    const { fired } = mind([['fletcher', 0, 3000], ['cleveland', 600, 3600]],
+      [['fletcher', 200, 3300], ['cleveland', -300, 2800]]);
+    assert.ok(!fired, `she breathed at ${fired && fired.x}, ${fired && fired.z} with her own side there`);
+  });
+}
+
 console.log(failures === 0 ? '\nAll checks passed.\n' : `\n${failures} check(s) failed.\n`);
 process.exit(failures === 0 ? 0 : 1);

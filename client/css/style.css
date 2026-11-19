@@ -196,7 +196,10 @@ html, body {
 }
 
 /* The store's departments: three doors in a row, stacked on a phone. */
-.premium-cats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.premium-cats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+.premium-special { border-color: rgba(88, 214, 255, 0.55); box-shadow: 0 0 18px rgba(47, 180, 255, 0.18) inset; }
+.premium-special b { color: #9fe6ff; }
+.premium-ship.special .type { color: #9fe6ff; }
 .premium-cat {
   display: flex; flex-direction: column; align-items: flex-start; gap: 0.45rem;
   padding: 1.4rem 1.2rem; cursor: pointer; text-align: left;

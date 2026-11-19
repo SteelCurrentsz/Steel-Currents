@@ -24,6 +24,7 @@ import { setGroup, fleetCourse, membersOf, vectorFlight } from '../shared/groups
 import { createBotBrain, stepBot, BOT_NAMES } from './bots.js';
 import { createStaff, stepStaff } from './command.js';
 import { createStage, stepStage, unitsOf, unitIds } from './stage.js';
+import { MONSTER_HOOKS, monsterOrder } from '../shared/sim.js';
 
 // How hard a side fights, as a number. The same three words the briefing
 // offers, and the staff is as good as its captains are.
@@ -831,6 +832,22 @@ export class Room {
       // bridge is on her bridge.
       case 'repair': { const to = this.conned(ship, msg); if (to) useRepair(this.state, to); break; }
       case 'smoke': { const to = this.conned(ship, msg); if (to) useSmoke(this.state, to); break; }
+      // Monster One's captain: her breath, her tail, her hands, how she goes
+      // about. What she cannot do is said back, so the button can say why.
+      case 'monster': {
+        const to = this.conned(ship, msg);
+        if (!to || !msg.o || typeof msg.o !== 'object') break;
+        const o = {
+          a: String(msg.o.a || ''),
+          x: Number(msg.o.x), z: Number(msg.o.z),
+          target: Number(msg.o.target) || 0,
+          side: msg.o.side === 1 || msg.o.side === -1 ? msg.o.side : 0,
+          pose: String(msg.o.pose || ''),
+        };
+        const why = monsterOrder(this.state, to, o, MONSTER_HOOKS);
+        if (why) player.send({ t: 'nomo', a: o.a, why });
+        break;
+      }
       // Into harbour, or out of it: the nearest quay with room for her, or the
       // one asked for. Ringing down for way casts her off as well.
       case 'dock': {

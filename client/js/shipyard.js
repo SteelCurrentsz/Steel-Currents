@@ -15,6 +15,7 @@ import { buildShip } from './render/ships.js';
 import { buildIowa } from './render/iowa.js';
 import { skyDome } from './render/scene.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
+import { MONSTER } from '../../shared/monster.js';
 
 // The stops on the range, as multiples of her own length. The rest range is
 // worked out from the field of view instead, so a destroyer and a battleship
@@ -152,7 +153,8 @@ export class ShipyardScene {
     this.wakes.add(this.wake);
     // Two thirds of her best speed: enough for a proper bow wave, short of the
     // great flat-out wash that would fill the frame behind a destroyer.
-    this.wakeSpeed = (cls?.maxSpeed || 15) * 0.66;
+    // (Monster One is shown standing in the sea, not under way.)
+    this.wakeSpeed = cls?.monster ? 0.4 : (cls?.maxSpeed || 15) * 0.66;
     // Steam her far enough for the wake to have reached its full length before
     // the screen is drawn once, rather than growing out behind her while she
     // is being looked over.
@@ -376,6 +378,7 @@ const tubes = (cls) => (cls.torpedoes?.mounts || []).reduce((n, m) => n + m.tube
 
 /** Weight, speed, aircraft and how thick she is where it counts. */
 export function hullSheet(cls, group = null, troops = null) {
+  if (cls.monster) return monsterBody(cls);
   const d = cls.datasheet;
   const rows = [
     ['Displacement', `${num(d.displacement)} t`],
@@ -419,6 +422,29 @@ export function hullSheet(cls, group = null, troops = null) {
   return rows;
 }
 
+/** Monster One's sheet, which is not a ship's: what she is. */
+function monsterBody(cls) {
+  const S = MONSTER.speed;
+  return [
+    ['Height', '100 m to the tips of her plates'],
+    ['Length', `${cls.hull.length} m, nose to tail`],
+    ['Speed', `${S.deep} kn deep · ${S.swim} kn swimming · ${S.stand} kn standing`],
+    ['Dives', `to ${MONSTER.deep} m, for as long as she likes`],
+    ['Hide', 'Shells do her half what they would a ship; nothing in her burns or floods'],
+    ['Healing', 'Heals when left alone, faster deep'],
+  ];
+}
+function monsterArms() {
+  const B = MONSTER.breath;
+  return [
+    ['Atomic breath', `1 megaton · ${B.range / 1000} km reach`],
+    ['Windup', `${B.climb + B.throat} s: plates light tail to head`],
+    ['Cooldown', `${Math.floor(B.cooldown / 60)}:${String(B.cooldown % 60).padStart(2, '0')}`],
+    ['Tail', 'Smashes ships beside and behind her'],
+    ['Hands', 'Seize, crush and throw a ship ahead of her'],
+  ];
+}
+
 /**
  * How far a mounting can be trained off its rest bearing, in words.
  *
@@ -434,6 +460,7 @@ function traverse(cls) {
 
 /** Every barrel she carries, with the magazine behind it. */
 export function armsSheet(cls, group = null, vls = null) {
+  if (cls.monster) return monsterArms();
   const d = cls.datasheet;
   const rows = [];
   // A hull with no guns at all -- the Landing Craft Mechanized -- says so.

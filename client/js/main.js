@@ -26,7 +26,8 @@ import { paintTitleChart } from './worldmap.js';
 import { audio } from './audio.js';
 import * as account from './account.js';
 import { getSettings, setSettings, QUALITY } from './settings.js';
-import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, WWI_ORDER, WWII_ORDER, MODERN_ORDER, CIVIL_ORDER } from '../../shared/ships.js';
+import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, SPECIAL_ORDER, WWI_ORDER, WWII_ORDER, MODERN_ORDER, CIVIL_ORDER } from '../../shared/ships.js';
+import { MONSTER } from '../../shared/monster.js';
 import { ADS_REQUIRED, premiumUnlocked, unlockWithAd } from './premium.js';
 import { KNOTS } from '../../shared/math.js';
 import { MAP_PRESETS } from '../../shared/world.js';
@@ -528,7 +529,7 @@ function rebuild() {
 
 // --------------------------------------------------------------- screens --
 
-const screens = ['gate', 'account', 'title', 'premium', 'premium-ships', 'pvp', 'custom', 'options', 'credits', 'fleet',
+const screens = ['gate', 'account', 'title', 'premium', 'premium-ships', 'premium-special', 'pvp', 'custom', 'options', 'credits', 'fleet',
   'yard', 'guns', 'bombers', 'map', 'lay', 'battle', 'result'];
 
 function show(name) {
@@ -839,7 +840,7 @@ function closeYard() {
  */
 function openRefit(side, i) {
   const id = briefing.state[side === 'ally' ? 'allyFleet' : 'enemyFleet'][i];
-  const order = PREMIUM_ORDER.includes(id) ? PREMIUM_ORDER
+  const order = PREMIUM_ORDER.includes(id) ? PREMIUM_ORDER : SPECIAL_ORDER.includes(id) ? SPECIAL_ORDER
     : MODERN_ORDER.includes(id) ? MODERN_ORDER : WWI_ORDER.includes(id) ? WWI_ORDER
       : CIVIL_ORDER.includes(id) ? CIVIL_ORDER : WWII_ORDER;
   const troops = SHIP_CLASSES[id]?.cargo?.adjustable;
@@ -1372,7 +1373,7 @@ function eraListOf(id) {
 function searchShips(text) {
   const words = fold(text).split(/\s+/).filter(Boolean);
   if (!words.length) return [];
-  const pool = yardUi.order === PREMIUM_ORDER ? PREMIUM_ORDER : [...ERA_LABEL.keys()].flat();
+  const pool = yardUi.order === PREMIUM_ORDER || yardUi.order === SPECIAL_ORDER ? yardUi.order : [...ERA_LABEL.keys()].flat();
   const hits = [];
   for (const id of pool) {
     const c = SHIP_CLASSES[id];
@@ -1411,7 +1412,7 @@ function showSearch() {
     name.textContent = c.fullName || c.name;
     const type = document.createElement('span');
     type.className = 'ys-type';
-    const era = yardUi.order === PREMIUM_ORDER ? null : ERA_LABEL.get(eraListOf(id));
+    const era = yardUi.order === PREMIUM_ORDER || yardUi.order === SPECIAL_ORDER ? null : ERA_LABEL.get(eraListOf(id));
     type.textContent = `${c.type}${era && eraListOf(id) !== yardUi.order ? ` · ${era}` : ''}`;
     li.append(name, type);
     // Chosen on the press, before the box loses focus and the list is put away.
@@ -1519,10 +1520,52 @@ for (const btn of document.querySelectorAll('[data-premium]')) {
     audio.resume();
     audio.click();
     if (btn.dataset.premium === 'ships') { renderPremiumShips(); show('premium-ships'); return; }
+    if (btn.dataset.premium === 'special') { renderPremiumSpecial(); show('premium-special'); return; }
     toast('This department is not stocked yet.');
   });
 }
 document.getElementById('premium-ships-back').onclick = () => { audio.click(); show('premium'); };
+document.getElementById('premium-special-back').onclick = () => { audio.click(); show('premium'); };
+
+/**
+ * The Special department: Monster One. Her card says what she is and what
+ * she does, and opens her in the yard for either fleet, as a store hull does.
+ */
+function renderPremiumSpecial() {
+  const list = document.getElementById('premium-special-list');
+  list.innerHTML = '';
+  for (const id of SPECIAL_ORDER) {
+    const c = SHIP_CLASSES[id];
+    const open = premiumUnlocked(id);
+    const B = MONSTER.breath;
+    const card = document.createElement('div');
+    card.className = 'ship-card premium-ship special';
+    card.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
+      <div class="nm">${c.fullName || c.name}</div>
+      <div class="bl">${c.blurb}</div>
+      <div class="ps-stats">100 m tall · ${MONSTER.speed.deep} kn deep · 1 Mt breath, ${B.range / 1000} km · `
+      + `${Math.floor(B.cooldown / 60)}:${String(B.cooldown % 60).padStart(2, '0')} cooldown</div>
+      <div class="ps-foot"><span class="ps-badge">${ADS_REQUIRED
+        ? (open ? 'Unlocked' : 'Watch an ad to unlock') : 'Free while the game is in development'}</span>
+      <span class="ps-btns"><button class="btn" type="button">${open ? 'Your fleet' : 'Watch ad'}</button>`
+      + `${open ? '<button class="btn ghost ps-enemy" type="button">Enemy fleet</button>' : ''}</span></div>`;
+    card.querySelector('.ps-enemy')?.addEventListener('click', () => {
+      audio.click();
+      openYard('enemy', { order: SPECIAL_ORDER, at: id, from: 'premium-special' });
+    });
+    card.querySelector('button').onclick = async () => {
+      audio.click();
+      if (!premiumUnlocked(id)) {
+        if (!(await unlockWithAd(id))) { toast('No advertisement could be played. Try again later.'); return; }
+        toast(`${c.fullName || c.name} is unlocked.`);
+        renderPremiumSpecial();
+        return;
+      }
+      openYard('ally', { order: SPECIAL_ORDER, at: id, from: 'premium-special' });
+    };
+    list.appendChild(card);
+  }
+}
 
 function renderPremiumShips() {
   const list = document.getElementById('premium-ships-list');

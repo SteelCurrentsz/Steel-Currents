@@ -124,7 +124,13 @@ export function nukeWave(age, k = 1) {
  * deal less water, and it falls away sooner.
  */
 export function waveHeight(r, k = 1) {
-  return NUKE.waveHigh * k * k * Math.exp(-Math.max(0, r) / (NUKE.waveFall * k)) + 1.5;
+  // As the square of the scale for anything up to the B-29's bomb; past it
+  // -- Monster One's breath is a megaton, four times every radius -- the
+  // water a burst can throw up stops growing as fast as the burst does: the
+  // column of a big one goes up into the air rather than out across the sea,
+  // and a square would stand a wall of water seven hundred metres high.
+  const grow = k <= 1 ? k * k : Math.pow(k, 1.5);
+  return NUKE.waveHigh * grow * Math.exp(-Math.max(0, r) / (NUKE.waveFall * k)) + 1.5;
 }
 
 /**

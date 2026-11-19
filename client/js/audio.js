@@ -452,6 +452,113 @@ export class Audio {
     this.play('splashLarge', at, { level: 0.9, ref: 9000, rate: 0.5, after: 2.4 });
   }
 
+  // ------------------------------------------------------- Monster One ----
+
+  /**
+   * Her roar: made here, not played, because nothing in the bank is a
+   * living thing a hundred metres tall. A low growl of detuned saws shaped
+   * by the resonances of a throat that big, rising into a scream as her
+   * jaw opens and falling away into a rumble, with breath under it all.
+   */
+  roar(at = null, { level = 1, dur = 3.2 } = {}) {
+    const ctx = this.ensure(); if (!ctx) return;
+    const h = this.hear(at, 4000);
+    if (!h) return;
+    const g0 = h.g * span(level, 0, 2, 1);
+    if (g0 < 0.003) return;
+    const t0 = ctx.currentTime + 0.02 + h.delay;
+    try {
+      const out = ctx.createGain();
+      out.gain.setValueAtTime(0.0001, t0);
+      out.gain.exponentialRampToValueAtTime(0.55 * g0, t0 + 0.25);
+      out.gain.setValueAtTime(0.55 * g0, t0 + dur * 0.55);
+      out.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = Math.min(h.fc, 5200);
+      let tail = out.connect(lp);
+      if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = h.pan; tail = tail.connect(p); }
+      tail.connect(this.sfx);
+      // The throat: three formants that open as the jaw does.
+      const formants = [[380, 820, 6], [900, 1500, 5], [2300, 2900, 7]].map(([a, b, q]) => {
+        const f = ctx.createBiquadFilter();
+        f.type = 'bandpass';
+        f.Q.value = q;
+        f.frequency.setValueAtTime(a, t0);
+        f.frequency.linearRampToValueAtTime(b, t0 + dur * 0.4);
+        f.frequency.linearRampToValueAtTime(a * 0.8, t0 + dur);
+        f.connect(out);
+        return f;
+      });
+      const stop = t0 + dur + 0.1;
+      // The voice: saws a little apart, gliding up and down again, roughened.
+      for (const [base, gain] of [[62, 0.5], [63.7, 0.45], [93, 0.32], [124.5, 0.22]]) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(base * 0.8, t0);
+        o.frequency.exponentialRampToValueAtTime(base * 2.1, t0 + dur * 0.35);
+        o.frequency.exponentialRampToValueAtTime(base * 0.7, t0 + dur);
+        const rough = ctx.createOscillator();
+        rough.frequency.value = 23 + Math.random() * 9;
+        const rg = ctx.createGain();
+        rg.gain.value = base * 0.18;
+        rough.connect(rg).connect(o.frequency);
+        const og = ctx.createGain();
+        og.gain.value = gain;
+        o.connect(og);
+        for (const f of formants) og.connect(f);
+        o.start(t0); o.stop(stop); rough.start(t0); rough.stop(stop);
+      }
+      // And breath through it.
+      const n = ctx.createBufferSource();
+      const len = Math.ceil(ctx.sampleRate * (dur + 0.2));
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      n.buffer = buf;
+      const ng = ctx.createGain();
+      ng.gain.value = 0.25;
+      n.connect(ng);
+      for (const f of formants) ng.connect(f);
+      n.start(t0); n.stop(stop);
+      // A low rumble under it, felt more than heard.
+      this.play('groan', at, { level: 0.6 * level, ref: 4000, rate: 0.4 });
+    } catch { /* not heard */ }
+  }
+
+  /** Her breath gathering: a hum rising under everything, and crackling. */
+  breathCharge(at = null, dur = 8) {
+    const ctx = this.ensure(); if (!ctx) return;
+    const h = this.hear(at, 5000);
+    if (!h || h.g < 0.003) return;
+    const t0 = ctx.currentTime + 0.02 + h.delay;
+    try {
+      const out = ctx.createGain();
+      out.gain.setValueAtTime(0.0001, t0);
+      out.gain.exponentialRampToValueAtTime(0.32 * h.g, t0 + dur * 0.9);
+      out.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + 0.3);
+      out.connect(this.sfx);
+      for (const [f0, f1, type] of [[40, 220, 'sawtooth'], [80, 440, 'square'], [1200, 2600, 'sine']]) {
+        const o = ctx.createOscillator();
+        o.type = type;
+        o.frequency.setValueAtTime(f0, t0);
+        o.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+        const g = ctx.createGain();
+        g.gain.value = type === 'sine' ? 0.08 : 0.2;
+        o.connect(g).connect(out);
+        o.start(t0); o.stop(t0 + dur + 0.4);
+      }
+    } catch { /* not heard */ }
+  }
+
+  /** Her breath let go: a tearing roar of light, heard across the sea. */
+  breathFire(at = null) {
+    this.play('rocket', at, { level: 1.3, ref: 6000, rate: 0.35 });
+    this.play('magazine', at, { level: 0.9, ref: 6000, rate: 0.8 });
+    this.play('vent', at, { level: 1.1, ref: 6000, rate: 0.5, after: 0.1 });
+    this.roar(at, { level: 0.6, dur: 3.6 });
+  }
+
   /** A rocket going off its rail. */
   rocket(at = null) {
     this.play('rocket', at, { level: 0.75, ref: 260, rate: 0.94 + Math.random() * 0.12 });

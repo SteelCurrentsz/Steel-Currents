@@ -25,6 +25,9 @@ import {
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
 import { stepInfantry, blastInfantry } from './infantry.js';
+import {
+  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder,
+} from './monster.js';
 import { planRoute } from './tankroute.js';
 import {
   BATTERIES, batteryGun, batteryArc, batteryHp, batteryAa, mortarFlight, isTank, tankRoom,
@@ -812,8 +815,8 @@ function stepMovement(state, ship, dt) {
   // A submarine under water is on her motors and her battery, and a Type VII
   // makes eight knots on them against eighteen on the diesels. The diesels
   // cannot be run under -- they need air the boat has not got.
-  const maxSpeed = submerged(ship) && cls.dive
-    ? Math.min(cls.maxSpeed, cls.dive.speed) : cls.maxSpeed;
+  const maxSpeed = cls.monster ? monsterTopSpeed(ship)
+    : submerged(ship) && cls.dive ? Math.min(cls.maxSpeed, cls.dive.speed) : cls.maxSpeed;
   // Rudder swings toward its commanded angle at the hull's rudder-shift rate.
   const shift = (ship.steeringDamage > 0 ? 2.4 : 1) * cls.rudderShift;
   ship.rudder = approach(ship.rudder, ship.rudderCmd, (2 / shift) * dt);
@@ -821,7 +824,8 @@ function stepMovement(state, ship, dt) {
   const speedFrac = clamp(Math.abs(ship.speed) / maxSpeed, 0, 1);
   // A hull barely answers the helm below steerage way, and bites hardest near
   // half speed, which is why full-ahead turns are wider than half-ahead turns.
-  const helm = Math.min(1, speedFrac * 2.4) * (1 - 0.25 * speedFrac);
+  // (A creature turns on the spot, which no hull does: she has legs.)
+  const helm = cls.pivots ? 0.7 + 0.3 * speedFrac : Math.min(1, speedFrac * 2.4) * (1 - 0.25 * speedFrac);
   // No rudder at all once her stern has gone.
   const rudderGone = ship.cut && ship.sections.stern.lost ? 0 : 1;
   const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1) * rudderGone;
@@ -1551,6 +1555,9 @@ function stepCollisions(state, dt) {
       const a = hulls[i], b = hulls[j];
       // Two wrecks drifting into each other is nobody's business.
       if (!a.alive && !b.alive) continue;
+      // Nor is a ship in Monster One's hands, or in the air where she threw
+      // her, running into anything: she is not in the water to run into it.
+      if (a.heldBy || b.heldBy || a.flung || b.flung) continue;
       const ca = shipClass(a), cb = shipClass(b);
       const reach = (ca.hull.length + cb.hull.length) * 0.5 + FOUL_GAP;
       if (dist2(a.x, a.z, b.x, b.z) > reach * reach) continue;
@@ -2018,6 +2025,7 @@ function scrape(state, a, b, ca, cb, pa, pb, vrel, out) {
  */
 export function cutHer(state, ship, at, by = 0, why = 'ram') {
   if (!ship.alive || ship.cut || ship.broke != null) return false;
+  if (shipClass(ship).monster) return false;
   const cls = shipClass(ship);
   at = Math.round(clamp(at, -0.82, 0.82) * 1000) / 1000;
   const keep = bridgeStation(cls) >= at ? 1 : -1;
@@ -7859,7 +7867,9 @@ export function nukeBlast(state, x, y, z, sh = null, kt = NUKE.kt) {
   const sea = groundHeight(state.world, x, z) <= 0.5;
   // How big it is: every radius of it, against the B-29's bomb (see nukeScale).
   const k = nukeScale(kt);
-  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0, sea, land: !sea, k, kt };
+  const n = { id, x, y, z, t0: state.t, r: 0, w: 0, team, from: sh ? sh.bomber || 0 : 0, sea, land: !sea, k, kt,
+    // Monster One's breath: she is not hurt by her own.
+    by: sh ? sh.monster || 0 : 0 };
   (state.nukes || (state.nukes = [])).push(n);
   const ashore = groundHeight(state.world, x, z) > 0.5;
   // With the moment on the battle's clock, which is the clock the sea runs on:
@@ -7883,6 +7893,22 @@ export function nukeBlast(state, x, y, z, sh = null, kt = NUKE.kt) {
   stepNukes(state, 0);
   return n;
 }
+
+/**
+ * What Monster One needs of the battle that the battle owns (see
+ * shared/monster.js): to hurt a ship, to set off her breath, to know whom
+ * she may hurt, to take a ship out of the fight, to steer, and what a
+ * megaton does at a distance.
+ */
+const MONSTER_HOOKS = {
+  damageShip: (...a) => damageShip(...a),
+  nukeBlast: (...a) => nukeBlast(...a),
+  mayHurt: (...a) => mayHurt(...a),
+  founder: (...a) => founder(...a),
+  steerToward: (...a) => steerToward(...a),
+  bite: (d) => nukeBite(d, false, nukeScale(1000)),
+};
+export { MONSTER_HOOKS, monsterOrder };
 
 /**
  * The shock of every atomic burst, going out, and what it finds.
@@ -7932,12 +7958,20 @@ function stepNukes(state, dt) {
       const cls = shipClass(s);
       const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
       if (!crossed(d)) continue;
+      // Monster One takes somebody else's burst as she takes anything (see
+      // monsterHurt), and her own not at all; it neither burns nor shoves her.
+      if (cls.monster) {
+        if (n.by !== s.id) damageShip(state, s, null, cls.hp * nukeBite(d, n.land, k), 'nuke');
+        continue;
+      }
+      // Her breath's work is hers, in the book.
+      const src = n.by ? state.ships.find((q) => q.id === n.by) || null : null;
       // A boat deep under is spared a little of it by the water over her;
       // not much, because a shock in water is worse than one in air.
       const deep = (s.depth || 0) > 8 ? 0.7 : 1;
       const bite = nukeBite(d, n.land, k) * deep;
       if (bite <= 0) continue;
-      damageShip(state, s, null, cls.hp * bite, 'nuke');
+      damageShip(state, s, src, cls.hp * bite, 'nuke');
       if (s.alive) blastMounts(state, s, cls, n, bite);
       if (s.alive) {
         // Everything on her upper deck that will burn is alight.
@@ -8013,6 +8047,8 @@ function stepNukes(state, dt) {
       for (const s of state.ships) {
         if (!s.alive || (s.depth || 0) > 8) continue;
         const cls = shipClass(s);
+        // She swims through it.
+        if (cls.monster) continue;
         const d = Math.max(0, Math.hypot(s.x - n.x, s.z - n.z) - cls.hull.beam * 0.5);
         if (d <= w0 || d > w1) continue;
         const h = waveHeight(d, k);
@@ -8321,6 +8357,7 @@ export function magazineFireScale(bore) {
  * it reaches and the more it wrecks.
  */
 export function magazineFire(state, ship, where, owner, bore = 0) {
+  if (shipClass(ship).monster) return;
   const cls = shipClass(ship);
   const c = ship.sections[where];
   if (!c || !ship.alive) return;
@@ -8362,6 +8399,7 @@ export function magazineFire(state, ship, where, owner, bore = 0) {
 
 export function detonate(state, ship, where, owner, { force = false, bore = 0 } = {}) {
   const cls = shipClass(ship);
+  if (cls.monster) return;
   const c = ship.sections[where];
   if (!c) return;
   // Only a big-gun magazine ends her; anything smaller is a huge fire -- the
@@ -8441,6 +8479,7 @@ export function detonate(state, ship, where, owner, { force = false, bore = 0 } 
  */
 function wreckContents(state, ship, where, bore, kind, at) {
   const cls = shipClass(ship);
+  if (cls.monster) return;
   const room = sectionVolume(cls, where);
   // How much of the compartment the burst filled. The bursting charge goes as
   // the cube of the bore, so that is what this goes as.
@@ -18075,6 +18114,7 @@ export function leadPoint(fromX, fromZ, target, projSpeed) {
  * superstructure, which is where most fires start.
  */
 export function startFire(state, ship, where = 'works', strength = 0.35) {
+  if (shipClass(ship).monster) return;
   const c = ship.sections[where] || ship.sections.works;
   if (!c || c.lost) return;
   const was = c.fire;
@@ -18707,6 +18747,8 @@ export function standsAbove(cls) {
  */
 export function startSinking(state, ship, kind, by = 0) {
   if (!ship.alive || ship.sinking) return;
+  // She dies of her hurts and nothing else (see monsterHurt).
+  if (shipClass(ship).monster) return;
   const cls = shipClass(ship);
   const wrecked = 1 - clamp(ship.hp / Math.max(1, cls.hp), 0, 1);
   const b = buoyancy(ship);
@@ -18746,6 +18788,7 @@ export function startSinking(state, ship, kind, by = 0) {
  * she is a girder across the sea with nothing under the middle of it.
  */
 export function breakHer(state, ship, at, why) {
+  if (shipClass(ship).monster) return;
   // A ship that has already had a piece cut off her has parted once, at the
   // cut: what is left of her goes down as one piece.
   if (ship.broke != null || ship.cut) return;
@@ -19071,7 +19114,7 @@ export function breakStation(ship) {
  * is whatever her water and her wreckage make her do, and the clients read
  * that off her trim, her heel, and whether her back went.
  */
-function founder(state, ship, kind) {
+export function founder(state, ship, kind) {
   if (!ship.alive) return;
   ship.alive = false;
   ship.speed = 0;
@@ -19515,6 +19558,7 @@ export function hullIntegrity(ship) {
 
 export function damageShip(state, ship, source, amount, kind, where = null) {
   if (!ship.alive || amount <= 0) return;
+  if (shipClass(ship).monster) { monsterHurt(state, ship, source, amount, kind, MONSTER_HOOKS); return; }
   // A submarine is a pressure hull: breached, she goes. The toughness and
   // the two-bar rule are for surface ships.
   const boat = shipClass(ship).type === 'SS';
@@ -20911,6 +20955,16 @@ export function step(state, dt = DT) {
   }
   stepSurges(state);
   for (const ship of state.ships) {
+    // Monster One is a creature, and nothing a ship's compartments, guns or
+    // machinery do is anything to her: she dives, she moves, and she does
+    // what she does (see shared/monster.js).
+    if (shipClass(ship).monster) {
+      if (!ship.alive) { stepMonsterDead(state, ship, dt); continue; }
+      stepDive(state, ship, dt);
+      stepMovement(state, ship, dt);
+      stepMonster(state, ship, dt, MONSTER_HOOKS);
+      continue;
+    }
     if (!ship.alive) {
       // A wreck still going down goes on going down.
       if (ship.sinking && !ship.sinking.under) stepSinking(state, ship, dt);
@@ -20941,6 +20995,9 @@ export function step(state, dt = DT) {
     stepSwamp(state, ship, dt);
   }
   stepCollisions(state, dt);
+  // A ship in Monster One's hands is where her hands are, and one she has
+  // thrown is where it has got to: after everything else has moved her.
+  stepHeld(state, dt, MONSTER_HOOKS);
   stepBatteries(state, dt);
   stepShells(state, dt);
   stepBullets(state, dt);
