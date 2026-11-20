@@ -139,7 +139,25 @@ export function shipSnapshot(ship, full, state = null) {
     ...(ship.fell ? { dn: Object.keys(ship.fell) } : {}),
     // And the ones a bomb came down on and wrecked where they stand.
     ...(ship.ko ? { wk: Object.keys(ship.ko) } : {}),
+    // And the ones thrown off her altogether -- lifted by the magazine under
+    // them, or torn out by Monster One -- of which there is nothing left.
+    ...(ship.toss ? { tz: Object.keys(ship.toss) } : {}),
   };
+  // What state each of her guns is in, main battery then secondaries, one
+  // digit a mounting: anyone with a glass can see a turret with its guns down
+  // on the stops and smoke coming out of its roof. Only sent when one of them
+  // is anything but sound.
+  {
+    let gs = '';
+    let any = false;
+    const put = (v) => { gs += String(v); if (v) any = true; };
+    ship.turrets.forEach((t) => put(gunState(ship, cls, cls.turrets[t.id], t, true)));
+    if (cls.secondary) {
+      gs += '/';
+      ship.secMounts.forEach((m) => put(gunState(ship, cls, cls.secondary.mounts[m.id], m, true)));
+    }
+    if (any) s.gs = gs;
+  }
   // Where her secondary battery and her torpedo tubes are trained. Everyone
   // sees these, friend or enemy: a destroyer swinging her tubes onto your beam
   // is the most important thing on the horizon, and it is visible through a

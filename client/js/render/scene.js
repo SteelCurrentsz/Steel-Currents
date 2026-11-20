@@ -38,6 +38,8 @@ import { prepareSoup, clearSoups } from './section.js';
 import { cutMaterial, cutUniforms } from './sever.js';
 import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
+import { applyGunLook, LOOK } from './gunlooks.js';
+import { Tossed, plateSlab } from './toss.js';
 import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import { renderCulled } from './pixelcull.js';
@@ -1034,64 +1036,52 @@ export class ShipView {
   wreckMount(m) {
     if (m.userData.wrecked) return;
     m.userData.wrecked = true;
-    m.userData.laid = false;
-    // Its own copy of every material, so putting out a wrecked turret's
-    // lights does not put out the same turret on every other ship of the
-    // class. Her paint is left the colour it is (see NO_MARKS): a turret
-    // used to be blackened here, and a ship going down with her guns
-    // knocked out came out of it patched in black.
-    m.traverse((o) => {
-      if (!o.isMesh || !o.material) return;
-      if (!o.userData.ownMat) {
-        o.material = Array.isArray(o.material)
-          ? o.material.map((q) => q.clone()) : o.material.clone();
-        o.userData.ownMat = true;
-      }
-      for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
-        // Her running lights and her gun flashes are out with everything else
-        // in it, and the colour they were is kept so damage control can put
-        // them back.
-        if (q.emissive) {
-          q.userData = q.userData || {};
-          if (q.userData.lit === undefined) q.userData.lit = q.emissive.getHex();
-          q.emissive.setHex(0x000000);
-        }
-      }
-    });
-    // Knocked off its bearings, and far enough off them to be seen from the
-    // bridge: a turret that has been through this is never square again.
-    // Deterministic in where it stands, so two clients wreck the same turret
-    // the same way.
-    const wob = ((Math.abs(m.position.z) * 37) % 100) / 100;
-    const way = wob < 0.5 ? 1 : -1;
-    m.userData.fair = { x: m.rotation.x, z: m.rotation.z };
-    m.rotation.x += way * (0.07 + wob * 0.1);
-    m.rotation.z += -way * (0.09 + wob * 0.13);
-    // And the guns down. There is nobody to hold them up.
-    const node = m.userData.gunNode;
-    if (node && node !== m) node.rotation.x = 0.16 + wob * 0.12;
+    // The deck under it gone: the one thing short of its magazine that
+    // knocks a mounting off its bearings. See gunlooks.js.
+    this.lookMount(m, 'gone', LOOK.WRECKED);
   }
 
   /** Damage control got to it after all: it trains again. */
   mendMount(m) {
     if (!m.userData.wrecked) return;
     m.userData.wrecked = false;
-    m.userData.laid = true;
-    m.traverse((o) => {
-      if (!o.isMesh || !o.material) return;
-      for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
-        if (q.emissive && q.userData && q.userData.lit !== undefined) {
-          q.emissive.setHex(q.userData.lit);
-        }
-      }
-    });
-    if (m.userData.fair) {
-      m.rotation.x = m.userData.fair.x;
-      m.rotation.z = m.userData.fair.z;
-      // And the guns back up off the stops. The lay code takes them from here.
-      const node = m.userData.gunNode;
-      if (node && node !== m) node.rotation.x = m.userData.elevRest || 0;
-    }
+    this.lookMount(m, 'gone', 0);
+  }
+
+  /** Which list a mounting is in, by the wire's name for it. */
+  mountList(kind) {
+    return kind === 'main' ? this.turrets : kind === 'sec' ? this.secMounts
+      : kind === 'aa' ? this.aaMounts : null;
+  }
+
+  /**
+   * What one of the things that can happen to a mounting says about it, and
+   * the mounting drawn as the worst of them: `src` is who says (the wire's
+   * gun states, a bomb through its roof, the deck under it gone) and `lv` how
+   * bad (see LOOK in gunlooks.js).
+   */
+  lookMount(m, src, lv) {
+    if (!m || m.userData.gone) return;
+    const said = m.userData.said || (m.userData.said = {});
+    said[src] = lv;
+    let worst = 0;
+    for (const k in said) worst = Math.max(worst, said[k]);
+    const kind = this.turrets.includes(m) ? 'main' : this.secMounts.includes(m) ? 'sec'
+      : this.aaMounts.includes(m) ? 'aa' : '';
+    if ((m.userData.look ?? 0) === worst) return;
+    applyGunLook(m, worst, kind, this.classId);
+  }
+
+  /**
+   * What state each of her guns is in, off the wire: `gs` is a digit a
+   * mounting, main battery then a slash then secondaries. Absent is all sound.
+   */
+  setGunStates(gs) {
+    if (gs === this.gsWas) return;
+    this.gsWas = gs;
+    const [main, sec] = (gs || '').split('/');
+    this.turrets.forEach((m, i) => this.lookMount(m, 'wire', Number((main || '')[i]) || 0));
+    this.secMounts.forEach((m, i) => this.lookMount(m, 'wire', Number((sec || '')[i]) || 0));
   }
 
   /**
@@ -1136,8 +1126,197 @@ export class ShipView {
       const list = kind === 'main' ? this.turrets : kind === 'sec' ? this.secMounts
         : kind === 'aa' ? this.aaMounts : null;
       const m = list && list[Number(key.slice(c + 1))];
-      if (m && !m.userData.gone) this.wreckMount(m);
+      // Finished where it stands -- out of action, burnt, its guns on the
+      // stops -- but not lifted off its roller path.
+      if (m && !m.userData.gone) this.lookMount(m, 'ko', LOOK.DISABLED);
     }
+  }
+
+  /**
+   * A mounting thrown off her: lifted by the magazine under it (`how` 'mag'),
+   * or torn out by Monster One's jaws or claws ('bite', 'claw') and flung
+   * along (dx, dz) in the world. It goes up as itself, turns over, and comes
+   * down in the sea. See toss.js.
+   */
+  tossMount(kind, i, how = 'mag', dx = 0, dz = 0, seed = 0) {
+    if (this.rupture) return false;
+    const list = this.mountList(kind);
+    const m = list && list[i];
+    if (!m || m.userData.gone) return false;
+    const world = this.group.parent;
+    if (!world) return false;
+    // Wrecked by what threw it: blackened, the gunhouse stove in, the guns
+    // bent in the cradle.
+    applyGunLook(m, LOOK.WRECKED, kind, this.classId);
+    m.userData.gone = true;
+    m.userData.laid = false;
+    const rnd = (() => { let q = (seed % 2147483646) + 1; return () => ((q = (q * 16807) % 2147483647) / 2147483647); })();
+    // Its own way, and the ship's.
+    const h = this.group.rotation.y;
+    const v = this.speedNow || 0;
+    let vx = Math.sin(h) * v, vz = Math.cos(h) * v;
+    this.group.updateMatrixWorld(true);
+    const at = m.getWorldPosition(new THREE.Vector3());
+    const box = new THREE.Box3().setFromObject(m);
+    const r = box.isEmpty() ? 2 : box.getSize(new THREE.Vector3()).length() / 2;
+    const big = r > 4;
+    let vy, out;
+    if (how === 'mag') {
+      // Straight up off its roller path, and far enough over the side to
+      // come down in the sea and not on her deck.
+      vy = big ? 15 + rnd() * 7 : 20 + rnd() * 10;
+      const flight = (2 * vy) / 9.81;
+      const local = this.group.worldToLocal(at.clone());
+      const clear = Math.max(0, this.cls.hull.beam / 2 - Math.abs(local.x)) + r + 4;
+      out = clear / flight * (1.2 + rnd() * 0.5);
+    } else {
+      // Flung: low and hard, away from her.
+      vy = 7 + rnd() * 7;
+      out = 14 + rnd() * 12;
+    }
+    const dl = Math.hypot(dx, dz);
+    if (dl < 1e-3) {
+      const side = new THREE.Vector3(1, 0, 0).applyQuaternion(this.group.quaternion);
+      dx = side.x; dz = side.z;
+    } else { dx /= dl; dz /= dl; }
+    vx += dx * out;
+    vz += dz * out;
+    const tossed = this.tossed || (this.tossed = new Tossed());
+    tossed.add(m, world, {
+      vx, vy, vz,
+      // A thousand tons turns over slowly; a light mounting goes end over end.
+      spin: (rnd() < 0.5 ? -1 : 1) * (big ? 0.5 + rnd() * 0.7 : 1.5 + rnd() * 2.5),
+      axis: new THREE.Vector3(-dz, (rnd() - 0.5) * 0.6, dx),
+      sink: big ? 3.5 : 2.5,
+    });
+    return true;
+  }
+
+  /**
+   * A light mounting that was welded into her model rather than built as its
+   * own object, thrown all the same: whatever of her stands where it stood
+   * (the world point `x, y, z`) is torn off and thrown up and over the side.
+   */
+  tossWelded(x, y, z, how = 'mag', dx = 0, dz = 0) {
+    if (this.rupture || !this.fittings || !this.wreck) return false;
+    this.group.updateMatrixWorld(true);
+    const p = this.group.worldToLocal(TMP.set(x, y, z));
+    const cuts = this.fittings.blast(p.x, p.y + 0.5, p.z, 3.5, how === 'mag' ? 9 : 7);
+    if (!cuts) return false;
+    const h = this.group.rotation.y;
+    const v = this.speedNow || 0;
+    const dl = Math.hypot(dx, dz);
+    const out = how === 'mag' ? 4 : 14;
+    for (const cut of cuts) {
+      cut.force = Math.max(cut.force || 0, how === 'mag' ? 4.5 : 2.5);
+      this.wreck.add(cut, this.group,
+        Math.sin(h) * v + (dl > 1e-3 ? (dx / dl) * out : 0),
+        Math.cos(h) * v + (dl > 1e-3 ? (dz / dl) * out : 0));
+    }
+    return true;
+  }
+
+  /**
+   * Mountings the battle says were thrown off her: `tz` off the wire. Thrown
+   * by the event when it came (see tossMount); one that never had its event
+   * -- we were not watching -- is simply not there.
+   */
+  setTossed(tz) {
+    if (!tz || !tz.length || this.rupture) return;
+    const now = performance.now();
+    for (const key of tz) {
+      const c = key.indexOf(':');
+      const list = this.mountList(key.slice(0, c));
+      const m = list && list[Number(key.slice(c + 1))];
+      if (!m || m.userData.gone) continue;
+      // A moment's grace for the event that throws it, which can come a
+      // frame or two after the state that says it has gone.
+      if (!m.userData.tossSeen) { m.userData.tossSeen = now; continue; }
+      if (now - m.userData.tossSeen < 1500) continue;
+      m.visible = false;
+      m.userData.gone = true;
+      m.userData.laid = false;
+    }
+  }
+
+  /**
+   * Monster One's teeth or claws in her: a rent torn out of her side at
+   * (lx, ly, lz) in her own frame, `r` across, the plating and whatever was
+   * standing on it coming away in slabs and flung along (dx, dz).
+   */
+  tearOut(lx, ly, lz, r, seed = 0, dx = 0, dz = 0, claw = false) {
+    if (this.rupture || !this.group.parent) return;
+    let went = 0;
+    if (this.plating) {
+      went = this.plating.tear(lx, ly, lz, r, seed);
+      // Torn twice, a little apart: teeth and claws are more than one point.
+      went += this.plating.tear(lx, ly + r * 0.3, lz + r * (seed % 2 ? 0.6 : -0.6), r * 0.7, seed + 7);
+      if (went > 0) {
+        this.dropUnsupported(lx, ly, lz, r * 1.4);
+        this.opened(lx, ly, lz, r);
+      }
+    }
+    // Whatever was standing near it, torn off with it.
+    const h = this.group.rotation.y;
+    const v = this.speedNow || 0;
+    if (this.fittings && this.wreck) {
+      const cuts = this.fittings.blast(lx, ly + 1, lz, r * 1.6, claw ? 8 : 6);
+      if (cuts) {
+        const dl = Math.hypot(dx, dz) || 1;
+        for (const cut of cuts) {
+          this.wreck.add(cut, this.group, Math.sin(h) * v + (dx / dl) * 10, Math.cos(h) * v + (dz / dl) * 10);
+        }
+      }
+    }
+    // And the plating itself, in slabs, out of her jaws or her fingers.
+    const world = this.group.parent;
+    let q = (seed % 2147483646) + 1;
+    const rnd = () => ((q = (q * 16807) % 2147483647) / 2147483647);
+    let color = new THREE.Color(0x6f7478);
+    for (const p of (this.plating && this.plating.parts) || []) {
+      const mat = Array.isArray(p.material) ? p.material[0] : p.material;
+      if (mat && mat.color) { color = mat.color.clone(); break; }
+    }
+    this.group.updateMatrixWorld(true);
+    const tossed = this.tossed || (this.tossed = new Tossed());
+    const dl = Math.hypot(dx, dz);
+    const n = (claw ? 3 : 2) + Math.floor(rnd() * 2);
+    for (let i = 0; i < n; i++) {
+      const w = r * (0.5 + rnd() * 0.6);
+      const slab = plateSlab(w, w * (0.4 + rnd() * 0.5), color, rnd);
+      const side = lx >= 0 ? 1 : -1;
+      slab.position.set(lx + side * 0.3, ly + (rnd() - 0.5) * r * 0.6, lz + (rnd() - 0.5) * r);
+      slab.rotation.set(0, side * Math.PI / 2, (rnd() - 0.5) * 0.8);
+      this.group.add(slab);
+      let ox = dx, oz = dz;
+      if (dl < 1e-3) {
+        const s = new THREE.Vector3(side, 0, 0).applyQuaternion(this.group.quaternion);
+        ox = s.x; oz = s.z;
+      } else { ox /= dl; oz /= dl; }
+      const out = 8 + rnd() * 14;
+      tossed.add(slab, world, {
+        vx: Math.sin(h) * v + ox * out + (rnd() - 0.5) * 6,
+        vy: 6 + rnd() * 10,
+        vz: Math.cos(h) * v + oz * out + (rnd() - 0.5) * 6,
+        spin: (rnd() < 0.5 ? -1 : 1) * (2 + rnd() * 4),
+        sink: 2,
+        own: true,
+      });
+    }
+  }
+
+  /**
+   * Taken apart by an atomic burst at (bx, bz) in the world: not a burnt-out
+   * hull but pieces -- her length broken into three, four or five, each
+   * thrown away from the burst, rolled over and going down on its own, and
+   * every gun on her torn off and scattered. See Rupture's shatter.
+   */
+  shatter(bx, bz) {
+    if (this.rupture || this.halves || this.severed || !this.group.parent) return false;
+    this.rupture = new Rupture(this, 0, 0, {
+      v: this.speedNow || 0, h: this.group.rotation.y,
+    }, { shatter: { x: bx, z: bz } });
+    return true;
   }
 
   /** Every mounting the battle says has gone through her deck: `dn` off the wire. */
@@ -1220,7 +1399,10 @@ export class ShipView {
 
   /** Once a frame, after she is posed. The splashes what was thrown made. */
   stepRupture(dt) {
-    return this.rupture ? this.rupture.step(dt) : null;
+    const a = this.rupture ? this.rupture.step(dt) : null;
+    const ocean = this.ocean;
+    const b = this.tossed ? this.tossed.step(dt, ocean && ocean.heightAt ? (x, z) => ocean.heightAt(x, z) : null) : null;
+    return a && b ? a.concat(b) : a || b;
   }
 
   /**
@@ -1928,15 +2110,18 @@ export class ShipView {
         if (!node || node === t) continue;
         // Barrels run out along +Z of the cradle, so raising them is a
         // negative rotation about X.
-        const wantEl = -turretElev[i];
+        // A knocked cradle sits a little off what it is laid at.
+        const wantEl = -turretElev[i] + (t.userData.gunSag || 0);
         node.rotation.x += clamp(wantEl - node.rotation.x, -0.35 * dt, 0.35 * dt);
       }
     }
     if (sec) {
       for (let i = 0; i < this.secMounts.length && i < sec.length; i++) {
         if (this.secMounts[i].userData.laid === false) continue;
+        const sag = this.secMounts[i].userData.gunSag || 0;
+        const el = secElev ? secElev[i] : null;
         layMount(this.secMounts[i], sec[i],
-          secElev ? secElev[i] : null, 0.9 * dt, 0.7 * dt);
+          sag && el !== null && el !== undefined ? el - sag : el, 0.9 * dt, 0.7 * dt);
       }
     }
     if (torp) {
@@ -2181,6 +2366,7 @@ export class ShipView {
   dispose(scene) {
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
+    if (this.tossed) this.tossed.dispose();
     scene.remove(this.group);
     if (this.wakes) this.wakes.remove(this.wake);
     this.wake.dispose();

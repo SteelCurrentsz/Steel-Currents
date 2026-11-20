@@ -310,8 +310,9 @@ export class Rupture {
    * `zc` is the middle of the magazine, metres along her in her own frame;
    * `tons` what was in it; `motion` { v, h } the way she had on her.
    */
-  constructor(view, zc, tons, motion = { v: 0, h: 0 }) {
+  constructor(view, zc, tons, motion = { v: 0, h: 0 }, how = {}) {
     this.view = view;
+    if (how.shatter) { this.shatterHer(view, how.shatter, motion); return; }
     const cls = view.cls;
     const len = cls.hull.length;
     const beam = cls.hull.beam;
@@ -418,13 +419,33 @@ export class Rupture {
     // Torn up a few at a time over the next frames, inside the fireball:
     // done all at once it was most of a second of one frame.
     this.wreck = { rnd, P, vx, vz, side, fwd, world, todo: [] };
+    // The turret standing over the magazine, now and then, goes up whole:
+    // lifted clean off its roller path by the charges under it, turning over
+    // at the top of its climb and coming down into the sea as a turret.
+    let whole = null;
+    if (Math.random() < 0.55) {
+      let best = 0;
+      for (const m of chunk.thrown) {
+        if (!m.visible || m.userData.gone || !m.userData.gunNode) continue;
+        const b = new THREE.Box3().setFromObject(m);
+        const r = b.isEmpty() ? 0 : b.getSize(TMP).length();
+        if (r > best) { best = r; whole = m; }
+      }
+    }
     for (const m of chunk.thrown) {
+      // Already gone from her -- down through the deck -- and not there to throw.
+      if (!m.visible || m.userData.gone) continue;
       // Where it stood: it was taken off the copy before the copy was put on
       // her, so it is placed on her own frame.
       m.updateMatrix();
       m.matrix.premultiply(group.matrixWorld);
       m.matrix.decompose(m.position, m.quaternion, m.scale);
       m.updateMatrixWorld(true);
+      if (m === whole) {
+        world.add(m);
+        this.throwWhole(m, world, vx, vz, side, 13 + 8 * Math.min(1, P) + Math.random() * 6, 2 + 5 * Math.random());
+        continue;
+      }
       m.traverse((o) => {
         if (!o.isMesh || o.isInstancedMesh || !o.geometry || !o.visible) return;
         if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
@@ -439,6 +460,173 @@ export class Rupture {
     // broken by her main magazine stands both ends up out of the sea.
     this.lean = 0.12 + 0.3 * Math.min(1, P);
     this.apart = 1.2 + 6 * P;
+  }
+
+  /**
+   * A mounting thrown whole: hung about its own middle in the world and
+   * given `up` metres a second upward and `out` over the side along `side`.
+   */
+  throwWhole(m, world, vx, vz, side, up, out) {
+    m.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(m);
+    const c = b.isEmpty() ? m.position.clone() : b.getCenter(new THREE.Vector3());
+    const r = b.isEmpty() ? 3 : b.getSize(new THREE.Vector3()).length() / 2;
+    const pivot = new THREE.Object3D();
+    pivot.position.copy(c);
+    world.add(pivot);
+    pivot.updateMatrixWorld(true);
+    pivot.attach(m);
+    // Its guns down and askew in the cradle, and its lights out.
+    const node = m.userData && m.userData.gunNode;
+    if (node && node !== m) {
+      node.rotation.x = 0.2 + Math.random() * 0.3;
+      node.rotation.z = (Math.random() - 0.5) * 0.3;
+    }
+    m.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      o.material = scorched(o.material);
+      o.userData.cutMat = true;
+    });
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    this.flyers.push({
+      obj: pivot, hull: r > 3.5,
+      vx: vx * 0.5 + side.x * out * dir,
+      vy: up,
+      vz: vz * 0.5 + side.z * out * dir,
+      axis: new THREE.Vector3(side.x, (Math.random() - 0.5) * 0.5, side.z).normalize(),
+      spin: (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.8),
+      size: Math.min(14, 2 + r),
+      wet: false,
+    });
+  }
+
+  /**
+   * Taken apart by an atomic burst at `from` ({ x, z } in the world).
+   *
+   * Her whole length is the chunk: torn across in two to four places along
+   * the same wandering tear the magazine uses, each piece of her its own copy
+   * of her model and each thrown in the world -- away from the burst, rolled
+   * over by it, and dropping into the sea to go down on its own. Every
+   * mounting on her is torn off: her main turrets whole, everything else in
+   * fragments with the scrap.
+   */
+  shatterHer(view, from, motion) {
+    const cls = view.cls;
+    const len = cls.hull.length;
+    const beam = cls.hull.beam;
+    const half = len / 2;
+    this.len = len;
+    this.power = 1.4;
+    const P = this.power;
+    this.jag = Math.min(9, 1.5 + beam * 0.16);
+    this.fore = null;
+    this.aft = null;
+    this.flyers = [];
+    this.t = 0;
+    const group = view.group;
+    group.updateMatrixWorld(true);
+    const world = group.parent;
+    this.hidden = group.children.filter((c) => c !== view.marker && c.visible);
+
+    // Where she is torn across: evenly along her, give or take.
+    const n = len > 200 ? 4 : len > 120 ? 3 : len > 60 ? 2 : 1;
+    const cuts = [];
+    for (let k = 1; k <= n; k++) {
+      const z = -half + (len * k) / (n + 1) + (Math.random() - 0.5) * len / (n + 1) * 0.5;
+      cuts.push(THREE.MathUtils.clamp(z, -half + this.jag + 4, half - this.jag - 4));
+    }
+    cuts.sort((a, b) => a - b);
+    const seeds = cuts.map((_, k) => 3.7 + k * 11.3);
+
+    // Away from the burst, in the world.
+    group.getWorldPosition(TMP);
+    const away = new THREE.Vector3(TMP.x - from.x, 0, TMP.z - from.z);
+    if (away.lengthSq() < 1) away.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+    away.normalize();
+    const along = new THREE.Vector3(-away.z, 0, away.x);
+    const vx = Math.sin(motion.h || 0) * (motion.v || 0);
+    const vz = Math.cos(motion.h || 0) * (motion.v || 0);
+
+    const isMountOf = (o) => isMount(o);
+    const mounts = [];
+    for (let k = 0; k <= n; k++) {
+      const lo = k === 0 ? null : cuts[k - 1];
+      const hi = k === n ? null : cuts[k];
+      let U, inside;
+      if (lo === null) { U = cutUniforms(hi, -1, this.jag, { seed: seeds[k] }); inside = (z) => z <= hi; }
+      else if (hi === null) { U = cutUniforms(lo, 1, this.jag, { seed: seeds[k - 1] }); inside = (z) => z >= lo; }
+      else {
+        U = cutUniforms(lo, 0, this.jag, { seed: seeds[k - 1], z2: hi, seed2: seeds[k], band: true });
+        inside = (z) => z >= lo && z <= hi;
+      }
+      const piece = copyOf(view);
+      piece.position.set(0, 0, 0);
+      piece.quaternion.identity();
+      piece.scale.set(1, 1, 1);
+      for (const m of piece.children.filter(isMountOf)) {
+        piece.remove(m);
+        // Each mounting is taken once, off the piece of her it stood on.
+        if (inside(m.position.z) && m.visible && !m.userData.gone) mounts.push(m);
+      }
+      cutTree(piece, U, inside, null);
+      group.add(piece);
+      const zc = ((lo === null ? -half : lo) + (hi === null ? half : hi)) / 2;
+      const pivot = new THREE.Object3D();
+      group.localToWorld(pivot.position.set(0, cls.hull.draft * 0.2, zc));
+      group.getWorldQuaternion(pivot.quaternion);
+      world.add(pivot);
+      pivot.updateMatrixWorld(true);
+      pivot.attach(piece);
+      // Thrown away from it, the nearer end of her harder; up a little, not
+      // much -- a thousand tons of hull is heaved, not flown -- and rolled
+      // over away from it, end over end a little.
+      const out = 5 + Math.random() * 9;
+      const slide = (Math.random() - 0.5) * 6;
+      const axis = new THREE.Vector3(along.x, 0, along.z)
+        .add(new THREE.Vector3((Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.8))
+        .normalize();
+      this.flyers.push({
+        obj: pivot, piece, U, hull: true,
+        vx: vx * 0.3 + away.x * out + along.x * slide,
+        vy: 3 + Math.random() * 6,
+        vz: vz * 0.3 + away.z * out + along.z * slide,
+        axis,
+        spin: (Math.random() < 0.5 ? -1 : 1) * (0.12 + Math.random() * 0.3),
+        size: Math.max(8, (hi === null ? half : hi) - (lo === null ? -half : lo)),
+        sink: 0.9 + Math.random() * 0.8,
+        wet: false,
+      });
+    }
+    for (const c of this.hidden) c.visible = false;
+
+    // Her mountings: the main turrets thrown whole, the rest torn up.
+    const seed = { s: Math.floor(Math.random() * 1e9) + 1 };
+    const rnd = () => ((seed.s = (seed.s * 16807) % 2147483647) / 2147483647);
+    const wpos = new THREE.Vector3(), wq = new THREE.Quaternion(), wsc = new THREE.Vector3();
+    const inv = new THREE.Matrix4().copy(world.matrixWorld).invert();
+    this.wreck = { rnd, P, vx, vz, side: away, fwd: along, world, todo: [] };
+    const mains = new Set(view.turrets.map((t) => `${t.position.x.toFixed(2)},${t.position.z.toFixed(2)}`));
+    for (const m of mounts) {
+      // Still in her own frame here, where her turrets stand.
+      const main = mains.has(`${m.position.x.toFixed(2)},${m.position.z.toFixed(2)}`);
+      m.updateMatrix();
+      m.matrix.premultiply(group.matrixWorld);
+      m.matrix.decompose(m.position, m.quaternion, m.scale);
+      m.updateMatrixWorld(true);
+      if (main || (m.userData.gunNode && rnd() < 0.35)) {
+        world.add(m);
+        this.throwWhole(m, world, vx, vz, away, 12 + rnd() * 14, (6 + rnd() * 14) * (rnd() < 0.8 ? 1 : -1));
+        continue;
+      }
+      m.traverse((o) => {
+        if (!o.isMesh || o.isInstancedMesh || !o.geometry || !o.visible) return;
+        if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+        o.matrixWorld.decompose(wpos, wq, wsc);
+        const r = o.geometry.boundingSphere.radius * Math.max(wsc.x, wsc.y, wsc.z);
+        if (r < 0.45) return;
+        this.wreck.todo.push({ o, r, local: new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld) });
+      });
+    }
   }
 
   /**
@@ -525,7 +713,7 @@ export class Rupture {
         // In the water: stopped dead, and going down.
         const k = Math.exp(-dt * 2.5);
         f.vx *= k; f.vz *= k;
-        f.vy = f.vy * k + (-2.5 - (f.hull ? 1.5 : 3)) * (1 - k);
+        f.vy = f.vy * k - (f.sink ?? (2.5 + (f.hull ? 1.5 : 3))) * (1 - k);
         f.spin *= Math.exp(-dt * 1.2);
       }
       o.position.x += f.vx * dt;

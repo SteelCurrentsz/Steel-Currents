@@ -7916,8 +7916,74 @@ const MONSTER_HOOKS = {
   founder: (...a) => founder(...a),
   steerToward: (...a) => steerToward(...a),
   bite: (d) => nukeBite(d, false, nukeScale(1000)),
+  tear: (...a) => monsterTear(...a),
 };
 export { MONSTER_HOOKS, monsterOrder };
+
+/**
+ * Monster One's jaws or claws in a hull: what comes away in them.
+ *
+ * Not only hurt on the board. Her teeth close on a piece of the ship and take
+ * it -- the plating and the frames behind it are torn out of her side in a
+ * rent bigger than any shell makes, and the sea comes in through it -- and a
+ * gun standing where her jaws or her hands closed is torn off its roller
+ * path by the roots and flung away into the sea.
+ *
+ * `mo` is Monster One and `how` 'bite' or 'claw'. Returns where on her it
+ * was, in her own frame, for the picture to tear the same hole: { lx, ly,
+ * lz, r, sd }.
+ */
+function monsterTear(state, t, mo, how) {
+  const cls = shipClass(t);
+  if (!t || cls.monster) return null;
+  const half = cls.hull.length / 2;
+  const beam = cls.hull.beam / 2;
+  const fb = freeboardOf(cls);
+  const held = t.gripBy === mo.id;
+  let lx, lz;
+  if (how === 'bite' && !held) {
+    // The part of her nearest the jaws: her head is well forward of her middle.
+    const hx = mo.x + Math.sin(mo.heading) * 60;
+    const hz = mo.z + Math.cos(mo.heading) * 60;
+    const l = worldToLocal(hx - t.x, hz - t.z, t.heading);
+    lx = clamp(l.x, -beam, beam);
+    lz = clamp(l.z, -half * 0.85, half * 0.85);
+    if (Math.abs(lx) < beam * 0.3) lx = (lx >= 0 ? 1 : -1) * beam * 0.3;
+  } else {
+    // In her hands: wherever the teeth or the fingers closed.
+    lz = (state.rng() * 2 - 1) * half * (how === 'bite' ? 0.5 : 0.7);
+    lx = (state.rng() < 0.5 ? -1 : 1) * beam * (0.5 + state.rng() * 0.5);
+  }
+  const claw = how === 'claw';
+  const rad = clamp(beam * (claw ? 0.6 : 0.5), claw ? 3.5 : 3, claw ? 11 : 9);
+  // Her claws close round the hull low down, below the waterline as often as
+  // not; her teeth go in over the gunwale.
+  const ly = claw ? -cls.hull.draft * 0.4 + state.rng() * (fb * 0.5 + cls.hull.draft * 0.4)
+    : fb * (0.5 + state.rng() * 0.6);
+  const where = sectionAt(clamp(lz / half, -1, 1), 'deck');
+  if (t.sections && t.sections[where]) {
+    openHull(state, t, where, rad * rad * (claw ? 0.5 : 0.3), lx >= 0 ? 1 : -1,
+      Math.max(0, -ly), { x: lx, y: ly, z: lz });
+  }
+  // A gun where she closed on her, torn out and flung.
+  const odds = claw ? 0.55 : 0.65;
+  const reach = rad * 1.3 + 3;
+  const near = standing(t, cls)
+    .filter((g) => !mountFell(t, g.k, g.i))
+    .map((g) => ({ g, d: Math.hypot((g.s.x || 0) - lx, g.s.z - lz) }))
+    .filter((q) => q.d <= reach + footOf(q.g.bore))
+    .sort((a, b) => a.d - b.d);
+  const takes = claw ? 2 : 1;
+  for (let k = 0; k < Math.min(takes, near.length); k++) {
+    if (state.rng() >= odds) continue;
+    // Away from her, flung to one side or the other of where she is facing.
+    const turn = (state.rng() - 0.5) * 2.2;
+    const away = headingTo(mo.x, mo.z, t.x, t.z) + turn;
+    tossMount(state, t, cls, near[k].g, how, { x: Math.sin(away), z: Math.cos(away) });
+  }
+  const r1 = (v) => Math.round(v * 10) / 10;
+  return { lx: r1(lx), ly: r1(ly), lz: r1(lz), r: r1(rad), sd: Math.floor(state.rng() * 1e6) };
+}
 
 /**
  * The shock of every atomic burst, going out, and what it finds.
@@ -7992,7 +8058,18 @@ function stepNukes(state, dt) {
       // The shock is a blow, not a wave: it jolts her and that is all. The
       // water comes later (see the wave, below).
       nukeShove(s, cls, n, 0.45 * Math.max(0, 1 - d / (NUKE.reach * k * (n.land ? NUKE.landReach : 1))));
-      state.events.push({ e: 'nukeHit', ship: s.id, i: n.id, b: Math.round(bite * 100) / 100 });
+      // Close in, she is not left a burnt-out hull: the shock takes her apart
+      // where she lies, and what comes down into the sea is pieces of her.
+      const shatter = bite >= NUKE_SHATTER && !(cls.dive && (s.depth || 0) > 8);
+      if (shatter) {
+        s.shattered = 1;
+        // There is nothing left of her to go down slowly: she is gone now.
+        if (s.alive) {
+          if (s.sinking && src) s.sinking.by = src.id;
+          founder(state, s, 'nuke');
+        }
+      }
+      state.events.push({ e: 'nukeHit', ship: s.id, i: n.id, b: Math.round(bite * 100) / 100, ...(shatter ? { sh: 1 } : {}) });
     }
     // In the air.
     const air = (q) => Math.hypot(q.x - n.x, (q.y ?? 220) - n.y, q.z - n.z);
@@ -8155,6 +8232,13 @@ function waveRoll(state, s, cls, n, h) {
  * through a roof is (see bombOnMount): every screen shows it canted over,
  * guns down, burnt out.
  */
+/**
+ * How hard an atomic burst has to hit a ship, as nukeBite has it, to take her
+ * apart rather than wreck her: inside the lethal radius, the fireball and the
+ * wall of overpressure round it.
+ */
+export const NUKE_SHATTER = 1.5;
+
 function blastMounts(state, s, cls, n, bite) {
   if (bite < 0.12) return;
   const lx = worldToLocal(n.x - s.x, n.z - s.z, s.heading).x;
@@ -8391,16 +8475,24 @@ export function magazineFire(state, ship, where, owner, bore = 0) {
   if (!ship.alive) return;
   openHull(state, ship, where, (4 + state.rng() * 6) * k, state.rng() < 0.5 ? 1 : -1, -cls.hull.draft * 0.2);
   // Every mounting it fed is out while the handling rooms under it burn.
+  // And the one standing right over it can be lifted off her by it.
+  const lift = clamp(0.22 * k, 0.15, 0.55);
   for (const t of ship.turrets) {
     if (magazineOf(cls, cls.turrets[t.id] || {}) !== where) continue;
     t.disabled = Math.max(t.disabled || 0, 40 * k);
     hurtMount(state, t, 1.6 * k);
+    if (state.rng() < lift) {
+      tossMount(state, ship, cls, { k: 'main', i: t.id, s: cls.turrets[t.id], m: t, bore: (cls.gun?.caliber || 150) / 1000 }, 'mag');
+    }
   }
   if (cls.secondary) {
     for (const m of ship.secMounts) {
       if (magazineOf(cls, cls.secondary.mounts[m.id] || {}) !== where) continue;
       m.disabled = Math.max(m.disabled || 0, 40 * k);
       hurtMount(state, m, 1.6 * k);
+      if (state.rng() < lift * 0.8) {
+        tossMount(state, ship, cls, { k: 'sec', i: m.id, s: cls.secondary.mounts[m.id], m, bore: (cls.secondary.caliber || 100) / 1000 }, 'mag');
+      }
     }
   }
   state.events.push({ e: 'magFire', ship: ship.id, at: where, x: r(ship.x), z: r(ship.z), k: Math.round(k * 100) / 100 });
@@ -8622,7 +8714,55 @@ function standing(ship, cls) {
 /** Whether a mounting has gone down through her deck. */
 export function mountFell(ship, kind, i) {
   const key = `${kind}:${i}`;
-  return !!(ship && ((ship.fell && ship.fell[key]) || (ship.ko && ship.ko[key])));
+  return !!(ship && ((ship.fell && ship.fell[key]) || (ship.ko && ship.ko[key])
+    || (ship.toss && ship.toss[key])));
+}
+
+/** Whether a mounting has been thrown off her altogether (see tossMount). */
+export function mountTossed(ship, kind, i) {
+  return !!(ship && ship.toss && ship.toss[`${kind}:${i}`]);
+}
+
+/**
+ * A mounting lifted clean off her and thrown into the sea.
+ *
+ * What a magazine under a gun does when it goes -- the charges in the hoist
+ * and the handling room let go and the gunhouse, the shield, the whole
+ * mounting is lifted off its roller path and comes down in the water -- and
+ * what Monster One's jaws and claws do when they close on one: it is torn
+ * out of her by the roots. Either way it is not on her any more. There is a
+ * hole where it stood, and it is out of action for good.
+ *
+ * `how` is 'mag' (blown up and out), 'bite' or 'claw' (torn out and flung).
+ * `dir` is which way it goes, in the world, when something threw it; for a
+ * magazine it goes up and over whichever side it stood nearest.
+ */
+function tossMount(state, ship, cls, g, how, dir = null) {
+  if (!ship || !g) return false;
+  const key = `${g.k}:${g.i}`;
+  if ((ship.fell && ship.fell[key]) || (ship.toss && ship.toss[key])) return false;
+  (ship.toss || (ship.toss = {}))[key] = 1;
+  if (g.m) {
+    g.m.hurt = 3;
+    g.m.laid = false;
+    g.m.disabled = Math.max(g.m.disabled || 0, 9999);
+  }
+  const top = g.s.my ?? freeboardOf(cls) + 1;
+  const w = localToWorld(g.s.x || 0, g.s.z, ship.heading);
+  // Over the side it stood nearest to, unless something threw it.
+  let dx = 0, dz = 0;
+  if (dir) { dx = dir.x; dz = dir.z; } else {
+    const out = localToWorld((g.s.x || 0) >= 0 ? 1 : -1, 0, ship.heading);
+    dx = out.x; dz = out.z;
+  }
+  const dl = Math.hypot(dx, dz) || 1;
+  state.events.push({
+    e: 'toss', ship: ship.id, k: g.k, i: g.i, how,
+    x: r(ship.x + w.x), y: r(top), z: r(ship.z + w.z),
+    dx: Math.round((dx / dl) * 100) / 100, dz: Math.round((dz / dl) * 100) / 100,
+    sd: Math.floor(state.rng() * 1e6),
+  });
+  return true;
 }
 
 /**
@@ -8796,6 +8936,11 @@ function readyUse(state, ship, cls, g, owner, depth) {
   };
   hurt(ship.turrets, cls.turrets);
   hurt(ship.secMounts, cls.secondary ? cls.secondary.mounts : null);
+  // And the mounting itself, sat on top of what went: sometimes the charges
+  // in its gunhouse and its hoist take it clean off her and into the sea.
+  // A light mounting goes most easily; a heavy turret only now and then.
+  const lifts = g.k === 'aa' ? 0.5 : g.k === 'sec' ? 0.4 : 0.3;
+  if (state.rng() < lifts) tossMount(state, ship, cls, g, 'mag');
   const hole = 1 + g.bore * 4;
   if ((g.s.my ?? deckY) <= deckY + 3) holeDeck(state, ship, where, Math.PI * hole * hole * 0.25, at);
   const w = localToWorld(at.x, at.z, ship.heading);

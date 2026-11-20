@@ -754,7 +754,9 @@ function stepCrush(state, ship, m, hooks) {
   if (!m.crushHit && m.actT >= C.hitAt) {
     m.crushHit = true;
     hooks.damageShip(state, t, ship, t.maxHp * C.share + C.flat, 'ram');
-    state.events.push({ e: 'moCrush', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z) });
+    // What her fingers tore out of the hull, and any gun they closed on.
+    const torn = hooks.tear ? hooks.tear(state, t, ship, 'claw') : null;
+    state.events.push({ e: 'moCrush', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z), ...(torn ? { tr: torn } : {}) });
     if (!t.alive) { letGo(state, ship, hooks); m.act = ''; return; }
   }
   if (m.actT >= C.time) startAct(m, 'hold');
@@ -771,7 +773,9 @@ function stepBite(state, ship, m, hooks) {
     if (lands) {
       hooks.damageShip(state, t, ship, t.maxHp * B.share + B.flat, 'ram');
       if (t.gripBy !== ship.id) t.rockRate = (t.rockRate || 0) + 0.15;
-      state.events.push({ e: 'moBite', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z) });
+      // A mouthful of her: hull torn out, and sometimes a gun with it.
+      const torn = hooks.tear ? hooks.tear(state, t, ship, 'bite') : null;
+      state.events.push({ e: 'moBite', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z), ...(torn ? { tr: torn } : {}) });
     } else {
       state.events.push({ e: 'moBite', ship: ship.id, at: 0, x: Math.round(ship.x + Math.sin(ship.heading) * 120), z: Math.round(ship.z + Math.cos(ship.heading) * 120) });
     }
