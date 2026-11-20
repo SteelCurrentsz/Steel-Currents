@@ -3359,8 +3359,10 @@ check('the Hood is commissioned after the Sovetsky Soyuz, and the King George V 
   const i = SHIP_ORDER.indexOf('hood');
   assert.ok(i >= 0, 'the Hood is not in the yard');
   assert.equal(SHIP_ORDER[i - 1], 'soyuz', `before the Hood comes ${SHIP_ORDER[i - 1]}`);
-  assert.equal(SHIP_ORDER[i + 1], 'kgv', `after the Hood comes ${SHIP_ORDER[i + 1]}`);
-  assert.equal(SHIP_ORDER[i + 2], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 2]}`);
+  // The Renown and the Repulse, her near-contemporaries, between her and the KGV.
+  assert.deepEqual(SHIP_ORDER.slice(i + 1, i + 3), ['renown', 'repulse'], `after the Hood come ${SHIP_ORDER.slice(i + 1, i + 3)}`);
+  assert.equal(SHIP_ORDER[i + 3], 'kgv', `after the Repulse comes ${SHIP_ORDER[i + 3]}`);
+  assert.equal(SHIP_ORDER[i + 4], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 4]}`);
   const cls = SHIP_CLASSES.hood;
   assert.equal(cls.fullName, 'HMS Hood');
   assert.equal(cls.nation, 'gbr');
@@ -8303,8 +8305,8 @@ check('the KMS Bismarck is commissioned before her sister, and her sister before
   assert.equal(SHIP_ORDER[i + 1], 'tirpitz', `after the Bismarck comes ${SHIP_ORDER[i + 1]}`);
   assert.equal(SHIP_ORDER[i + 2], 'soyuz', `after the Tirpitz comes ${SHIP_ORDER[i + 2]}`);
   assert.equal(SHIP_ORDER[i + 3], 'hood', `after the Sovetsky Soyuz comes ${SHIP_ORDER[i + 3]}`);
-  assert.equal(SHIP_ORDER[i + 4], 'kgv', `after the Hood comes ${SHIP_ORDER[i + 4]}`);
-  assert.equal(SHIP_ORDER[i + 5], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 5]}`);
+  assert.equal(SHIP_ORDER[i + 6], 'kgv', `after the Repulse comes ${SHIP_ORDER[i + 6]}`);
+  assert.equal(SHIP_ORDER[i + 7], 'rodney', `after the King George V comes ${SHIP_ORDER[i + 7]}`);
   const cls = SHIP_CLASSES.bismarck;
   assert.equal(cls.fullName, 'KMS Bismarck');
   assert.equal(cls.type, 'BB', 'she is not a battleship');
