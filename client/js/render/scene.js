@@ -32,7 +32,7 @@ import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
 import { Breakers } from './breakers.js';
-import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
+import { lampPlanAsync, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
 import { prepareSoup, clearSoups } from './section.js';
 import { cutMaterial, cutUniforms } from './sever.js';
@@ -2364,6 +2364,7 @@ export class ShipView {
   }
 
   dispose(scene) {
+    this.disposed = true;
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
     if (this.tossed) this.tossed.dispose();
@@ -2770,10 +2771,15 @@ export class BattleScene {
     const v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
       this.wakes, this.wreck);
     // Her searchlights, found off her own model and dark until somebody
-    // switches one on. See searchlights.js.
-    try {
-      v.lamps = new ShipLamps(v, lampPlan(v, this.renderer), this.lampHaze);
-    } catch { v.lamps = null; }
+    // switches one on. See searchlights.js. Her plan is read back from the
+    // card in the background (lampPlanAsync) and her lamps are fitted when it
+    // is in, rather than the page standing still while it is fetched.
+    v.lamps = null;
+    const haze = this.lampHaze;
+    v.lampsDue = lampPlanAsync(v, this.renderer).then((plan) => {
+      if (v.disposed) return;
+      try { v.lamps = new ShipLamps(v, plan, haze); } catch { v.lamps = null; }
+    }, () => {});
     return v;
   }
 

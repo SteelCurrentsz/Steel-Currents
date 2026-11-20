@@ -10598,12 +10598,22 @@ export class Battle {
     this.building = true;
     return new Promise((resolve) => {
       let i = 0;
-      const finish = () => { this.building = false; resolve(); };
+      const due = [];
+      // Every ship's searchlight plan is still coming back from the card when
+      // the last of them is built (see lampPlanAsync); the battle waits for
+      // them a moment, so her lamps are fitted before she is shown, but never
+      // long.
+      const finish = () => {
+        const done = () => { this.building = false; resolve(); };
+        if (!due.length) return done();
+        Promise.race([Promise.all(due), new Promise((r) => { setTimeout(r, 3000); })]).then(done, done);
+      };
       const next = () => {
         if (this.disposed || !this.scene || i >= list.length) return finish();
         const r = list[i++];
         try {
-          if (shipReady(r.cls)) this.scene.prebuild(r.id, r.cls, r.team, r.id === this.shipId);
+          const v = shipReady(r.cls) ? this.scene.prebuild(r.id, r.cls, r.team, r.id === this.shipId) : null;
+          if (v?.lampsDue) due.push(v.lampsDue);
         } catch (e) {
           console.warn('Steel Currents: a ship could not be built ahead', e);
         }

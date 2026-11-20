@@ -231,6 +231,18 @@ function holdBackground(d) {
     clear = null;
   }
 }
+/**
+ * Hold everything fetched only for later -- the offline worker saving every
+ * hull, the preload -- for as long as a battle is being fought. A hull the
+ * battle itself is waiting on (a stand-in being replaced) still comes down.
+ */
+let quiet = false;
+export function quietDuringBattle(on) {
+  on = !!on;
+  if (on === quiet) return;
+  quiet = on;
+  holdBackground(on ? +1 : -1);
+}
 function lineClear() {
   if (!wantedNow) return Promise.resolve();
   return new Promise((resolve) => {

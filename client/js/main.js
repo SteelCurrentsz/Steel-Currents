@@ -6,7 +6,7 @@ import { GPU, setGpuLevel } from './render/gpusafe.js';
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
-import { loadShips, shipReady, fleetReady, preloadShips } from './render/ships.js';
+import { loadShips, shipReady, fleetReady, preloadShips, quietDuringBattle } from './render/ships.js';
 import { BatteryScene, mountingSheet, ordnanceSheet, tankSheet } from './battery.js';
 import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER, TANK_ORDER, TANKS, tankRoom } from '../../shared/batteries.js';
@@ -312,8 +312,35 @@ window.__net = net;   // a handle for the console, like __battle
  * forty megabytes of every ship in the game. A battle that fills itself with
  * bots of no particular class could have any of them.
  */
-function fleetOf(m) {
+/**
+ * Every bot hull a battle will sail, named before it is asked for.
+ *
+ * A quick battle used to leave its bots' classes to the room, which drew
+ * each from the whole list -- so before it could be joined, every ship in the
+ * game had to be fetched, forty-odd megabytes, for the eight that would
+ * actually sail. The same draw is made here instead, and the battle is asked
+ * for with the fleets named: only their hulls come down.
+ */
+function namedFleet(m) {
+  const draw = (n) => Array.from({ length: Math.max(0, n) },
+    () => SHIP_ORDER[Math.floor(Math.random() * SHIP_ORDER.length)]);
+  if (m.t === 'quickmatch' || m.t === 'joinRoom') {
+    return {
+      ...m,
+      allyClasses: Array.isArray(m.allyClasses) ? m.allyClasses : draw(3),
+      enemyClasses: Array.isArray(m.enemyClasses) ? m.enemyClasses : draw(4),
+    };
+  }
   if (m.t === 'custom') {
+    const out = { ...m };
+    if (!Array.isArray(m.allyClasses)) out.allyClasses = draw(m.allies ?? 3);
+    if (!Array.isArray(m.enemyClasses)) out.enemyClasses = draw(Math.max(1, m.enemies ?? 4));
+    return out;
+  }
+  return m;
+}
+function fleetOf(m) {
+  if (m.t === 'custom' || m.t === 'quickmatch' || m.t === 'joinRoom') {
     const allies = Array.isArray(m.allyClasses) ? m.allyClasses : null;
     const enemies = Array.isArray(m.enemyClasses) ? m.enemyClasses : null;
     const named = allies && enemies
@@ -353,16 +380,19 @@ function staleBuild(e) {
 // signal, or one too weak to bring five megabytes in -- is drawn as the hull
 // generated off her class (see buildModel), and the battle goes ahead.
 //
-// How long, once the aircraft are in, a battle waits for its hulls before it
-// sails with stand-ins for the rest; and how long it waits for the aircraft,
+// How long, from the moment a battle is asked for, it waits for its hulls
+// before it sails with stand-ins for the rest (each keeps coming down, and is
+// put in her place the moment it lands); and how long it waits for the aircraft,
 // which it cannot sail without, before telling the captain so rather than
 // leaving him at the loading screen.
-const HULL_GRACE = 8000;
+const HULL_GRACE = 10000;
 const PLANE_PATIENCE = 45000;
 {
   const send = net.send.bind(net);
   net.send = (m) => {
     if (!(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom'))) return send(m);
+    m = namedFleet(m);
+    const asked = Date.now();
     const go = () => send({ ...m, ff: getSettings().friendlyFire === true, ur: getSettings().ultraRealism === true });
     const need = fleetOf(m);
     if (fleetReady(need)) return go();
@@ -387,10 +417,17 @@ const PLANE_PATIENCE = 45000;
         : 'The connection is too weak to bring the aircraft in yet. They are still coming down -- try again in a moment.');
     };
     const patience = setTimeout(() => fail(new Error('timed out')), PLANE_PATIENCE);
-    const ships = loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
+    // Her own hull first: it is the one the captain is looking at, and on a
+    // slow line it should not be sharing it with seven others.
+    const own = m.classId ? loadShips([m.classId]).catch(() => {}) : Promise.resolve();
+    const ships = own.then(() => loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of))))
       .catch((e) => { console.warn('Steel Currents: some hulls would not load', e); });
     loadShips([]).then(() => {
-      Promise.race([ships, new Promise((r) => { setTimeout(r, HULL_GRACE); })]).then(sail);
+      // One budget, counted from the moment Sortie was pressed -- not a fresh
+      // one after the aircraft -- so no battle waits more than ten seconds on
+      // a hull.
+      const left = Math.max(0, HULL_GRACE - (Date.now() - asked));
+      Promise.race([ships, new Promise((r) => { setTimeout(r, left); })]).then(sail);
     }, fail);
   };
 }
@@ -563,6 +600,9 @@ const screens = ['gate', 'account', 'title', 'premium', 'premium-ships', 'premiu
 
 function show(name) {
   current = name;
+  // Nothing is fetched for later while a battle is being fought: the line
+  // and the processor are the battle's.
+  quietDuringBattle(name === 'battle');
   for (const s of screens) {
     document.getElementById(`screen-${s}`).classList.toggle('active', s === name);
   }
