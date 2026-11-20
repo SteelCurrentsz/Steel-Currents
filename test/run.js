@@ -291,12 +291,6 @@ import {
 import {
   bismarckSurfaceY, buildBismarckHull, MOUNT_SEATS as BISMARCK_SEATS,
 } from '../client/js/render/bismarckHull.js';
-import {
-  buildRichelieu, richelieuParts, CAT_Z as RICHELIEU_CAT_Z, deckEdge as richelieuDeckEdge, BREAK_Z as RICHELIEU_BREAK_Z,
-} from '../client/js/render/richelieu.js';
-import {
-  richelieuSurfaceY, MOUNT_SEATS as RICHELIEU_SEATS, buildRichelieuHull,
-} from '../client/js/render/richelieuHull.js';
 import { buildShinano, shinanoParts, LINES as shinanoLines, stepLifts as shinanoLifts }
   from '../client/js/render/shinano.js';
 import {
@@ -312,6 +306,7 @@ import {
 } from '../client/js/render/hosho.js';
 import * as SORYU_SHIP from '../client/js/render/soryu.js';
 import * as AKAGI_SHIP from '../client/js/render/akagi.js';
+import * as TAIHO_SHIP from '../client/js/render/taiho.js';
 import { b4y as planekitB4y } from '../client/js/render/planekit.js';
 import { val as planekitVal } from '../client/js/render/planekit.js';
 import {
@@ -488,13 +483,6 @@ import {
   clevelandParts, buildCleveland, deckAt as clevelandDeckAt,
   halfDeck as clevelandHalfDeck,
 } from '../client/js/render/cleveland.js';
-import {
-  buildHipper, hipperParts, LOA as HIPPER_LOA,
-  deckAt as hipperDeckAt, halfDeck as hipperHalfDeck,
-  sheer as hipperSheer, shellAt as hipperShellAt, zAt as hipperZAt,
-  sdeck as hipperSDeck, sHalf as hipperSHalf, LOW_TIER as HIPPER_LOW_TIER,
-  lowHalf as hipperLowHalf,
-} from '../client/js/render/hipper.js';
 import {
   buildIowa, LOA as IOWA_LOA, BEAM as IOWA_BEAM, SCALE as IOWA_SCALE,
   sheerAt as iowaSheer, keelAt as iowaKeel, shellAt as iowaShell,
@@ -1481,8 +1469,8 @@ check('every catapult hands her scout over where and the way the plot has her, a
     ['baltimore', buildBaltimore], ['brooklyn', buildBrooklyn], ['massachusetts', buildMassachusetts],
     // Not the Yamatos: their catapults are their models' own, and do not train.
     ['fuso', buildFuso], ['kongo', buildKongo],
-    ['bismarck', buildBismarck], ['richelieu', buildRichelieu],
-    ['hipper', buildHipper], ['spee', buildSpee], ['scheer', buildScheer], ['soyuz', () => buildSoyuz().group],
+    ['bismarck', buildBismarck],
+    ['spee', buildSpee], ['scheer', buildScheer], ['soyuz', () => buildSoyuz().group],
   ];
   const fwd = new THREE.Vector3();
   for (const [id, build] of ships) {
@@ -4529,6 +4517,85 @@ check('the Tone comes in the yard just before the Takao, armed as she was and as
   assert.equal(built.aaMounts.length, mounts.length);
   assert.equal(built.torpMounts.length, 4);
   surveyedArcsHold('tone');
+});
+
+// ---- the Aoba, the Agano, the Renown, the Repulse and the Taihō, and the Hipper and the Richelieu redrawn
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs, put
+// together by krissShip.js or carrier.js.
+const NEWEST = [
+  { id: 'aoba', after: 'agano', link: 'pGu8Y', title: 'IJN Aoba (War Thunder)', by: 'KojfDiscord', nation: 'jpn', type: 'CA' },
+  { id: 'agano', after: 'yodo', link: 'owptN', title: 'Japanese Light Cruiser 5-阿贺野（Agano）', by: '全斗焕', nation: 'jpn', type: 'CL' },
+  { id: 'renown', after: 'hood', link: 'pBB8o', title: 'HMS Renown (War Thunder)', by: 'KojfDiscord', nation: 'gbr', type: 'BB' },
+  { id: 'repulse', after: 'renown', link: 'pBB86', title: 'HMS Repulse (War Thunder)', by: 'KojfDiscord', nation: 'gbr', type: 'BB' },
+  { id: 'taiho', after: 'akagi', link: 'oEKon', title: 'IJN Hakuryuu', by: 'SB-129', nation: 'jpn', type: 'CV' },
+  { id: 'hipper', link: 'oo7OI', title: 'Admiral Hipper', by: 'pepijn.dv', nation: 'ger', type: 'CA' },
+  { id: 'richelieu', link: 'oEK7F', title: 'Richelieu', by: 'SB-129', nation: 'fra', type: 'BB' },
+];
+check('the Aoba, the Agano, the Renown, the Repulse and the Taihō come in the yard, and they and the Hipper and the Richelieu build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of NEWEST) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    if (m.after) assert.equal(SHIP_ORDER.indexOf(m.id), SHIP_ORDER.indexOf(m.after) + 1, `${m.id} is not after the ${m.after} in the yard`);
+    const at = screen.indexOf(`${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(`https://skfb.ly/${m.link}`) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal((built.torpMounts || []).length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+  // Their silhouettes are their own.
+  for (const [a, b] of [['aoba', 'tone'], ['agano', 'yodo'], ['renown', 'repulse'], ['renown', 'hood'], ['taiho', 'shokaku']]) {
+    assert.notEqual(silhouette(a), silhouette(b), `the ${a} is drawn as the ${b} in the yard`);
+  }
+  // The Aoba's three twin 20.3 cm, two forward and one aft; the Agano's three
+  // twin 15.2 cm; the battlecruisers' three twin 15-inch.
+  assert.deepEqual(SHIP_CLASSES.aoba.turrets.map((t) => t.guns), [2, 2, 2]);
+  assert.equal(SHIP_CLASSES.aoba.gun.caliber, 203);
+  assert.deepEqual(SHIP_CLASSES.agano.turrets.map((t) => t.guns), [2, 2, 2]);
+  assert.equal(SHIP_CLASSES.agano.gun.caliber, 152);
+  for (const id of ['renown', 'repulse']) {
+    assert.deepEqual(SHIP_CLASSES[id].turrets.map((t) => t.guns), [2, 2, 2]);
+    assert.equal(SHIP_CLASSES[id].gun.caliber, 381);
+  }
+  // The Hipper's four twin 20.3 cm and the Richelieu's two quadruple 380 mm.
+  assert.deepEqual(SHIP_CLASSES.hipper.turrets.map((t) => t.guns), [2, 2, 2, 2]);
+  assert.deepEqual(SHIP_CLASSES.richelieu.turrets.map((t) => t.guns), [4, 4]);
+});
+
+check('the Taihō flies a hundred and twenty-six Zeros, Suiseis and Tenzans off her two lifts', () => {
+  const cls = SHIP_CLASSES.taiho;
+  assert.equal(cls.planes.group.total, 126);
+  assert.deepEqual(cls.planes.types, { fighter: 'zero', dive: 'suisei', torpedo: 'tenzan' });
+  const d = cls.planes.group.default;
+  assert.equal(d.fighters + d.dive + d.torpedo, 126);
+  assert.equal(gunsOf('tenzan').length, 1, 'her Tenzan does not have her gun');
+  const built = buildShip('taiho');
+  assert.equal(built.lifts.length, 2);
+  const ud = built.group.userData;
+  const ys = (t) => { ud.step(t); return built.lifts.map((l) => l.group.position.y); };
+  const a = ys(0), b = ys(21);
+  assert.ok(a.some((y, i) => Math.abs(y - b[i]) > 1), 'no lift of hers moved');
+  for (let t = 0; t < 42; t += 0.5) {
+    ud.step(t);
+    for (const l of built.lifts) {
+      assert.ok(l.group.position.y <= TAIHO_SHIP.fdY(l.group.position.z) + 0.01, 'a lift of hers rose over her deck');
+      assert.ok(l.group.position.y >= TAIHO_SHIP.HANGAR - 0.01, 'a lift of hers went through her hangar deck');
+    }
+  }
+  const P = cls.planes;
+  for (const role of ['fighter', 'dive', 'torpedo']) {
+    const e = ud.deck.endPoses[role];
+    assert.ok(Math.abs(P.runOut[role] - e.z) < 6 && Math.abs(P.runHeight[role] - e.y) < 1.5,
+      `her deck leaves her ${role}s at ${e.z.toFixed(0)}, ${e.y.toFixed(1)} up, and the simulation puts them up at ${P.runOut[role]}, ${P.runHeight[role]}`);
+  }
 });
 
 // ---- the ships of the owner's eight new models ---------------------------------------
@@ -9083,114 +9150,6 @@ check('every gun on the Richelieu trains inside its stops and fires only where h
   surveyedArcsHold('richelieu');
 });
 
-check('the Richelieu\'s quarterdeck is a deck under her upper deck, and the break between them is closed', () => {
-  // The sculpt drew her flush-decked to her stern; she was built with her
-  // quarterdeck -- catapults, crane and hangar hatch -- a deck lower than her
-  // upper deck for the last thirty-nine metres of her, and a bulkhead across
-  // her at the break.
-  const upper = richelieuSurfaceY(0, -80);
-  const quarter = richelieuSurfaceY(-2.0, -101);
-  assert.ok(Math.abs(upper - RICHELIEU_SEATS.upperDeck) < 0.3, `her upper deck is at ${upper.toFixed(2)} m`);
-  assert.ok(upper - quarter > 2.3 && upper - quarter < 3.0,
-    `her quarterdeck is ${(upper - quarter).toFixed(2)} m under her upper deck`);
-  assert.ok(RICHELIEU_BREAK_Z < -80 && RICHELIEU_BREAK_Z > -90, `her break is at ${RICHELIEU_BREAK_Z} m`);
-  for (const z of [-90, -100, -110]) {
-    assert.ok(Math.abs(richelieuSurfaceY(-1.0, z) - quarter) < 0.6, `her quarterdeck is not level at ${z} m`);
-  }
-  // Looking forward along her quarterdeck at the bulkhead, anywhere across
-  // her, the eye meets it at the break and does not see into her.
-  const built = buildRichelieu();
-  const g = built.group;
-  g.updateMatrixWorld(true);
-  const solids = [];
-  g.traverse((o) => {
-    if (!o.isMesh) return;
-    for (let n = o; n; n = n.parent) if (n.userData && (n.userData.dynamic || n.userData.inside)) return;
-    solids.push(o);
-  });
-  const rc = new THREE.Raycaster();
-  const half = richelieuDeckEdge(RICHELIEU_BREAK_Z - 1);
-  let open = 0;
-  for (let x = -half + 1.0; x <= half - 1.0; x += 1.0) {
-    for (const y of [quarter + 0.5, (quarter + upper) / 2, upper - 0.4]) {
-      rc.set(new THREE.Vector3(x, y, RICHELIEU_BREAK_Z - 6), new THREE.Vector3(0, 0, 1));
-      rc.far = 12;
-      const hit = rc.intersectObjects(solids, false)[0];
-      if (!hit || hit.point.z > RICHELIEU_BREAK_Z + 0.6) open++;
-    }
-  }
-  assert.equal(open, 0, `${open} sightlines forward along her quarterdeck pass the break without meeting its bulkhead`);
-});
-
-check('the Richelieu\'s gunhouses clear her superstructure wherever they train', () => {
-  // Her 152 mm and her 100 mm stand on platforms and the decks of her after
-  // superstructure, close to its walls; the back of a gunhouse swings a circle
-  // as it trains, and anywhere inside its arc it must not go into her
-  // plating. A point of a gunhouse is inside her where the first face over
-  // it, within a deck or two, is the top of something seen from underneath.
-  // (Only within a deck or two: her upperworks sculpt has a melted plate
-  // here and there twenty metres up with no underside to it, which is not a
-  // roof over anything.)
-  const built = buildRichelieu();
-  const g = built.group;
-  g.updateMatrixWorld(true);
-  const solids = [];
-  g.traverse((o) => {
-    if (!o.isMesh) return;
-    for (let n = o; n; n = n.parent) if (n.userData && (n.userData.dynamic || n.userData.inside)) return;
-    solids.push(o);
-  });
-  const mats = new Set();
-  for (const o of solids) for (const q of [].concat(o.material)) mats.add(q);
-  const was = [...mats].map((q) => q.side);
-  for (const q of mats) q.side = THREE.DoubleSide;
-  const rc = new THREE.Raycaster();
-  const up = new THREE.Vector3(0, 1, 0);
-  const inside = (v) => {
-    rc.set(v, up);
-    rc.far = 8;
-    const hit = rc.intersectObjects(solids, false)[0];
-    return !!hit && hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y > 0.2;
-  };
-  const cls = SHIP_CLASSES.richelieu;
-  const mounts = [
-    ...cls.turrets.map((spec, i) => [spec, built.turrets[i], '380 mm']),
-    ...cls.secondary.mounts.map((spec, i) => [spec, built.secMounts[i], '152 mm']),
-    ...cls.aa.guns[0].mounts.map((spec, i) => [spec, built.aaMounts[i], '100 mm']),
-  ];
-  const bad = [];
-  try {
-    for (const [spec, m, what] of mounts) {
-      const node = m.userData.gunNode;
-      const pts = [];
-      m.traverse((o) => {
-        if (!o.isMesh) return;
-        for (let n = o; n && n !== m; n = n.parent) if (n === node) return;
-        const pos = o.geometry.attributes.position;
-        for (let i = 0; i < pos.count; i += 4) pts.push([o, new THREE.Vector3().fromBufferAttribute(pos, i)]);
-      });
-      const rest = m.rotation.y;
-      for (let k = -4; k <= 4; k++) {
-        m.rotation.y = spec.angle + (k / 4) * spec.arc;
-        m.updateMatrixWorld(true);
-        let n = 0;
-        for (const [o, p] of pts) {
-          const v = p.clone().applyMatrix4(o.matrixWorld);
-          if (v.y < m.position.y + 0.3) continue;
-          if (richelieuSurfaceY(v.x, v.z) - v.y < 0.15) continue;
-          if (inside(v)) n++;
-        }
-        if (n > 3) bad.push(`the ${what} at ${spec.x}, ${spec.z} trained to ${((m.rotation.y * 180) / Math.PI).toFixed(0)} degrees`);
-      }
-      m.rotation.y = rest;
-      m.updateMatrixWorld(true);
-    }
-  } finally {
-    [...mats].forEach((q, k) => { q.side = was[k]; });
-  }
-  assert.equal(bad.length, 0, `${bad.length} gunhouse positions go into her: ${bad.slice(0, 4).join('; ')}`);
-});
-
 check('a layer standing at a Richelieu gun looks out over it, round its arc and nowhere else', () => {
   const { b, cls } = layerLooksOut('richelieu');
   for (const [kind, specs] of [['main', cls.turrets], ['sec', cls.secondary.mounts]]) {
@@ -9201,71 +9160,6 @@ check('a layer standing at a Richelieu gun looks out over it, round its arc and 
         `${kind} ${i} is taken laid on ${((start * 180) / Math.PI).toFixed(0)} degrees, where it cannot fire`);
     });
   }
-});
-
-check('the Richelieu throws a Loire 130 off either quarter from her catapults, on the simulation\'s clock', () => {
-  // A catapult either side of her quarterdeck on a turntable at its forward
-  // end, stowed pointing aft along her side and trained out over her quarter
-  // to shoot. The starboard one goes first and they take turns. Each Loire
-  // leaves the quarter her catapult trained over, on the tick the simulation
-  // puts her flight on the plot, where it puts it.
-  const built = buildRichelieu();
-  const g = built.group;
-  const deck = g.userData.deck;
-  const cats = deck.cats;
-  assert.equal(cats.length, 2, `she has ${cats.length} catapults`);
-  g.userData.step(0);
-  g.updateMatrixWorld(true);
-  for (const c of cats) {
-    const p = c.group.position;
-    assert.ok(Math.abs(p.z - RICHELIEU_CAT_Z) < 0.01, `a catapult stands at ${p.z.toFixed(1)}, not on her quarterdeck`);
-    assert.ok(p.z < RICHELIEU_BREAK_Z - 5, 'a catapult stands on her upper deck');
-    // Stowed pointing aft, inside her deck edge all the way to its end.
-    const r = c.group.rotation.y;
-    assert.ok(Math.cos(r) < -0.95, 'a catapult is not stowed pointing aft');
-    const ex = p.x + Math.sin(r) * deck.rig.FRONT;
-    const ez = p.z + Math.cos(r) * deck.rig.FRONT;
-    assert.ok(Math.abs(ex) < richelieuDeckEdge(ez),
-      `a girder stowed reaches ${Math.abs(ex).toFixed(1)} m out, over her side at ${richelieuDeckEdge(ez).toFixed(1)}`);
-  }
-  assert.ok(cats[0].group.position.x < 0 && cats[1].group.position.x > 0, 'her starboard catapult is not the first');
-  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane));
-  assert.ok(!boxes[0].intersectsBox(boxes[1]), 'her two Loires stand in each other');
-  const shots = [];
-  for (let n = 0; n < 2; n++) {
-    const t0 = n * 100;
-    g.userData.launch(t0);
-    const live = deck.live;
-    let away = null;
-    let out = 0;
-    for (let t = t0; t <= t0 + 20; t += 1 / 600) {
-      g.userData.step(t);
-      g.updateMatrixWorld(true);
-      // Trained out over her own quarter, never across her.
-      out = Math.max(out, Math.sign(live.group.position.x) * Math.sin(live.group.rotation.y));
-      if (deck.airborne && away === null) away = t - t0;
-    }
-    assert.ok(out > 0.6, 'her catapult never trained out over her quarter');
-    const want = SHIP_CLASSES.richelieu.planes.deckRun;
-    assert.ok(away !== null && Math.abs(away - want) < 0.2,
-      `she was off the track at ${away === null ? 'never' : away.toFixed(2)}s against ${want}s on the plot`);
-    assert.ok(deck.endMatrix, 'nothing latched where the shot left her');
-    const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
-    const off = launchOffset(SHIP_CLASSES.richelieu, n === 0 ? -1 : 1);
-    const plot = [Math.sin(off.bearing) * off.out, Math.cos(off.bearing) * off.out];
-    assert.ok(Math.sign(end.x) === Math.sign(live.group.position.x), 'the Loire went off the other quarter');
-    assert.ok(end.z < 0, 'the Loire went off forward');
-    assert.ok(Math.hypot(end.x - plot[0], end.z - plot[1]) < 3,
-      `the model leaves her at ${end.x.toFixed(0)},${end.z.toFixed(0)} and the plot puts her at `
-      + `${plot[0].toFixed(0)},${plot[1].toFixed(0)}`);
-    assert.ok(Math.abs(end.y - SHIP_CLASSES.richelieu.planes.runHeight) < 3,
-      `the shot leaves her ${end.y.toFixed(1)} m up`);
-    shots.push(live);
-    g.userData.recover();
-    g.userData.step(t0 + 60);
-    for (const c of cats) assert.ok(!c.gone && c.plane.visible, 'she never got her Loire back');
-  }
-  assert.notEqual(shots[0], shots[1], 'she shot both Loires off the same catapult');
 });
 
 check('the Richelieu launches her scouts, and nothing flies before she has shot it off', () => {
@@ -9281,112 +9175,6 @@ check('the Richelieu launches her scouts, and nothing flies before she has shot 
   for (let i = 0; i < Math.ceil(1.0 / DT); i++) step(state, DT);
   assert.ok(state.planes.length > 0, 'nothing left the catapult at all');
   assert.ok(state.planes.every((p) => p.torp === 0), 'her Loires went off carrying torpedoes');
-});
-
-check('the Richelieu is built the same on both sides', () => {
-  // Her hull and upperworks are the sculpts, checked slice by slice;
-  // everything built on her is paired with its opposite number. (Her guns
-  // are not: a light gun's splinter tub is open at the back on one quarter,
-  // so the two of a pair are each other turned round rather than reflected.)
-  const parts = richelieuParts();
-  const slices = parts.filter((p) => p.from === 'hullModel');
-  assert.ok(slices.length >= 40, `only ${slices.length} slices of her hull were found`);
-  for (const p of slices) {
-    const off = (p.min[0] + p.max[0]) / 2;
-    assert.ok(Math.abs(off) < 0.3,
-      `her hull at station ${((p.min[2] + p.max[2]) / 2).toFixed(0)} is `
-      + `${Math.abs(off).toFixed(2)} m wider to ${off > 0 ? 'port' : 'starboard'}`);
-  }
-  const list = parts.filter((p) => {
-    if (p.from === 'hullModel' || p.from === 'mountings' || p.moving) return false;
-    const [w, h, d] = p.size;
-    return Math.max(w, h, d) >= 0.5 && w * h * d >= 0.0015;
-  });
-  const key = (p) => `${p.from}|${p.min[1].toFixed(2)}|${p.min[2].toFixed(2)}|`
-    + `${p.max[2].toFixed(2)}|${(p.max[0] - p.min[0]).toFixed(2)}`;
-  const shelf = new Map();
-  for (const p of list) {
-    const k = key(p);
-    if (!shelf.has(k)) shelf.set(k, []);
-    shelf.get(k).push((p.min[0] + p.max[0]) / 2);
-  }
-  const lone = [];
-  for (const p of list) {
-    const cx = (p.min[0] + p.max[0]) / 2;
-    if (Math.abs(cx) < 0.25) continue;
-    if (!shelf.get(key(p)).some((x) => Math.abs(x + cx) < 0.12)) {
-      lone.push(`${p.from} at x ${cx.toFixed(1)}, y ${p.min[1].toFixed(1)}, z ${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
-    }
-  }
-  assert.ok(list.length > 100, `only ${list.length} pieces of her were compared`);
-  assert.equal(lone.length, 0, `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
-});
-
-check('the open air between the Richelieu\'s tower and her mack is clear, and her mainmast stands on her mack', () => {
-  // The upperworks sculpt fused her aerials, a yard and the struts it hung off
-  // into her as bars a metre thick slung between her tower and her mack, and
-  // melted the pole mast on her mack together with its yards. They come off
-  // (RIGGED in build/prepare-richelieu-hull.mjs), and the mast is stepped
-  // afresh. The gap is taken half a metre inside where they were cut.
-  const g = new THREE.Group();
-  buildRichelieuHull(g);
-  g.updateMatrixWorld(true);
-  const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-  let left = 0;
-  let first = '';
-  g.traverse((o) => {
-    if (!o.isMesh) return;
-    const pos = o.geometry.attributes.position;
-    const idx = o.geometry.index;
-    const n = idx ? idx.count : pos.count;
-    for (let i = 0; i < n; i += 3) {
-      v.forEach((p, k) => p.fromBufferAttribute(pos, idx ? idx.getX(i + k) : i + k).applyMatrix4(o.matrixWorld));
-      const y = (v[0].y + v[1].y + v[2].y) / 3;
-      const z = (v[0].z + v[1].z + v[2].z) / 3;
-      if (z > -33.3 && z < -23.1 && y > 21.1) {
-        if (!left) first = `${y.toFixed(1)} m up at ${z.toFixed(1)} m`;
-        left++;
-      }
-    }
-  });
-  assert.equal(left, 0, `${left} triangles of rigging are left between her tower and her mack, first ${first}`);
-  const mast = richelieuParts().filter((p) => p.from === 'mast');
-  assert.ok(mast.length > 0, 'she has no mainmast');
-  const foot = Math.min(...mast.map((p) => p.min[1]));
-  const top = Math.max(...mast.map((p) => p.max[1]));
-  const roof = richelieuSurfaceY(RICHELIEU_SEATS.mast.x, RICHELIEU_SEATS.mast.z);
-  assert.ok(Math.abs(foot - roof) < 0.4, `her mainmast stands at ${foot.toFixed(2)} m on a roof at ${roof.toFixed(2)} m`);
-  assert.ok(top > 40, `her mainmast reaches only ${top.toFixed(1)} m`);
-});
-
-check('there is no daylight under the Richelieu\'s superstructure', () => {
-  // The sculpt melted the feet of her walls off, and her tower stood a metre
-  // clear of her superstructure deck with the sky under it; a gun abreast her
-  // tower could see, and shoot, straight across her through the slot. Wherever
-  // anything of hers stands over her superstructure deck, a line across her
-  // just above that deck meets her.
-  const g = new THREE.Group();
-  buildRichelieuHull(g);
-  g.updateMatrixWorld(true);
-  const meshes = [];
-  g.traverse((o) => { if (o.isMesh) meshes.push(o); });
-  const rc = new THREE.Raycaster();
-  const up = new THREE.Vector3(0, 1, 0);
-  const across = new THREE.Vector3(1, 0, 0);
-  // Her superstructure deck, which her forward 100 mm stand on.
-  const base = RICHELIEU_SEATS.dp.find((d) => d.name.startsWith('fwd')).seat;
-  const through = [];
-  for (let z = -60; z <= 8; z += 0.5) {
-    rc.set(new THREE.Vector3(0, base + 0.05, z), up);
-    rc.far = 3;
-    if (!rc.intersectObjects(meshes, false).length) continue;
-    for (const dy of [0.15, 0.5, 0.9]) {
-      rc.set(new THREE.Vector3(-17, base + dy, z), across);
-      rc.far = 34;
-      if (!rc.intersectObjects(meshes, false).length) through.push(`${dy} m up at ${z} m`);
-    }
-  }
-  assert.equal(through.length, 0, `daylight under her superstructure in ${through.length} places, first ${through[0]}`);
 });
 
 check('the elevation her guns are laid at goes over the wire', () => {
@@ -12942,257 +12730,6 @@ check('nothing on the cruiser stands inside a gun barrel', () => {
   }
 });
 
-check("the Hipper's shell has no holes in it", () => {
-  // The one thing a hull has to be is closed. Every station of her plating is
-  // fired at from abeam at the height and the fore-and-aft position her own
-  // lines put it at -- her stem is raked eight metres and her counter
-  // overhangs, so where the shell is depends on how high up you look -- and
-  // there has to be steel there. And a ray dropped anywhere on her deck has to
-  // land on something.
-  const built = buildHipper();
-  built.group.updateMatrixWorld(true);
-  const meshes = [];
-  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
-  const ray = new THREE.Raycaster();
-  const inward = new THREE.Vector3(1, 0, 0);
-  const down = new THREE.Vector3(0, -1, 0);
-
-  let tested = 0;
-  const holes = [];
-  for (let t = -0.97; t <= 0.97; t += 0.045) {
-    const top = hipperSheer(t);
-    for (let y = -7; y <= top - 0.4; y += 1.4) {
-      const half = hipperShellAt(t, y);
-      if (half < 0.35) continue;
-      tested++;
-      ray.set(new THREE.Vector3(-40, y, hipperZAt(t, y)), inward);
-      if (!ray.intersectObjects(meshes, false).length) {
-        holes.push(`t ${t.toFixed(2)} y ${y.toFixed(1)}`);
-      }
-    }
-  }
-  assert.ok(tested > 300, `only ${tested} stations of plating were tested`);
-  assert.equal(holes.length, 0, `${holes.length} hole(s) in her shell: ${holes[0]}`);
-
-  // And a deck over the whole of her, from the stem to the transom.
-  const bare = [];
-  for (let z = -HIPPER_LOA / 2 + 3; z <= HIPPER_LOA / 2 - 3; z += 2.5) {
-    for (const u of [0, 0.4, 0.75, -0.4, -0.75]) {
-      const x = u * hipperHalfDeck(z) * 0.92;
-      ray.set(new THREE.Vector3(x, 70, z), down);
-      if (!ray.intersectObjects(meshes, false).length) bare.push(`${x.toFixed(0)}, ${z.toFixed(0)}`);
-    }
-  }
-  assert.equal(bare.length, 0, `${bare.length} hole(s) in her deck: ${bare[0]}`);
-});
-
-check("you cannot see through the Hipper's topsides", () => {
-  // Fire at the near side of her from abeam, anywhere along the
-  // superstructure and at any height from the boot topping to the boat deck,
-  // and the first steel the ray meets has to be on the near side of her: her
-  // own shell plating below the deck edge, her deckhouse side above it.
-  //
-  // The failure this catches is not a missing piece: it is plating wound the
-  // wrong way round. A triangle whose normal points inboard is culled from
-  // outside and drawn from inside, so the near side is invisible, the far
-  // side's inner face shows through the gap, and the whole superstructure
-  // reads as hanging in the air over a hull that is not there.
-  const built = buildHipper();
-  built.group.updateMatrixWorld(true);
-  const meshes = [];
-  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
-  const ray = new THREE.Raycaster();
-  const inward = new THREE.Vector3(-1, 0, 0);
-
-  let tested = 0;
-  const through = [];
-  // From the after end of the superstructure to its fore end. It stops at
-  // forty-one and a half abaft amidships so that Cäsar can train round inside
-  // her own circle; abaft that is open weather deck with a barbette on it,
-  // and open deck is meant to be open.
-  for (let z = -41; z <= 40; z += 1.5) {
-    const t = z / (HIPPER_LOA / 2);
-    for (let y = -3; y <= hipperDeckAt(z) + 2.9; y += 0.35) {
-      tested++;
-      ray.set(new THREE.Vector3(60, y, z), inward);
-      const hit = ray.intersectObjects(meshes, false)[0];
-      // The ray is fired at a fixed station rather than along her rake, so
-      // how far out the shell is at that exact point is only approximate:
-      // what is asked is that the ray stops in the near half of her. Above
-      // the deck edge, anything to starboard of the centreline will do -- the
-      // deckhouse stands inboard of the edge and the walkway between them is
-      // meant to be open. Where the plating itself has to be is asked, station
-      // by station and to the centimetre, by the check above.
-      const want = y < hipperSheer(t) ? hipperShellAt(t, y) * 0.5 : 1.0;
-      if (!hit || hit.point.x < want) {
-        through.push(`z ${z.toFixed(0)} y ${y.toFixed(1)} -> `
-          + `${hit ? hit.point.x.toFixed(2) : 'nothing'}`);
-      }
-    }
-  }
-  assert.ok(tested > 700, `only ${tested} points of her side were fired at`);
-  assert.equal(through.length, 0,
-    `${through.length} shot(s) went through her near side, first ${through[0]}`);
-});
-
-check('nothing on the Hipper is standing in mid-air', () => {
-  // A sponson under every beam mounting, a boat deck under every boat, a
-  // platform under every searchlight. Anything with its feet above the deck
-  // and nothing underneath it is a thing floating in the air.
-  const parts = hipperParts();
-  const floating = [];
-  for (const p of parts) {
-    if (p.size[0] * p.size[1] * p.size[2] < 0.4) continue;   // rails, rigging, rungs
-    // An aeroplane's wings overhang whatever she is standing on -- that is what
-    // a wing is -- so she is checked below instead, by her floats and her
-    // trolley rather than by her wingtips.
-    if (p.from === 'aircraft') continue;
-    // Nor is a spar: a yard, a gun barrel, a davit and a boat boom are all
-    // thin sticks lying across the air on purpose, held at one end. A mast is
-    // not one of these -- it stands up, and it does have to stand on something.
-    const thin = [p.size[0], p.size[1], p.size[2]].filter((v) => v < 0.7).length >= 2;
-    if (thin && p.max[1] - p.min[1] < 1.0) continue;
-    const cx = (p.min[0] + p.max[0]) / 2;
-    const cz = (p.min[2] + p.max[2]) / 2;
-    if (Math.abs(cz) > HIPPER_LOA / 2 - 2) continue;
-    const foot = p.min[1];
-    if (foot < hipperDeckAt(cz) + 0.4) continue;             // on or below the weather deck
-    // Or standing on the superstructure deck, inside its edge. Both decks run
-    // the length of her as one mesh apiece, so their boxes say nothing about
-    // whether a particular thing is over them -- they have to be asked.
-    if (foot < hipperSDeck(cz) + 0.4 && Math.abs(cx) <= hipperSHalf(cz) + 0.35) continue;
-    // Standing on it, or run through it: a mast is stepped through a deck. And
-    // it has to be under most of her, not touching one corner -- a mounting
-    // hanging a metre and a half outboard of the deck it is bolted to has the
-    // deck edge within a whisker of it and is still in the air.
-    // Something has to be genuinely under her footprint -- a deck, a sponson, a
-    // stanchion, a house she is bolted to the side of. Not merely near it: a
-    // mounting hanging a metre outboard of the deck edge has the deck within a
-    // whisker and is still standing in the air.
-    // Something has to be under a fifth of her, and it has to come from below:
-    // a thing that starts above her foot is not holding her up, and two poles
-    // cannot hold each other up. A fifth rather than a touch, because a
-    // mounting hanging outboard of the deck edge has the deck's own coaming
-    // within a few centimetres of it and is still standing in the air.
-    const span = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
-    const area = Math.max(0.05, (p.max[0] - p.min[0]) * (p.max[2] - p.min[2]));
-    let under = 0;
-    for (const q of parts) {
-      if (q === p) continue;
-      // Anything that runs the length of her -- the shell bands, the weather
-      // deck, the knuckle -- has a box the size of the ship and would "hold
-      // up" a mounting hanging over the side. Those two decks are asked
-      // directly above instead.
-      if (q.size[2] > 40) continue;
-      const over = span(p.min[0], p.max[0], q.min[0], q.max[0])
-        * span(p.min[2], p.max[2], q.min[2], q.max[2]);
-      if (over <= 0) continue;
-      // Standing on it: it comes up from below her feet.
-      const stands = q.min[1] < foot + 0.1
-        && q.max[1] > foot - 0.7 && q.min[1] < p.max[1] - 0.1;
-      // Or hanging from it: a bracket under a sponson is welded to the
-      // platform it carries, and there is nothing under a bracket by design.
-      const hangs = q.min[1] <= p.max[1] + 0.2 && q.max[1] > p.max[1];
-      if (!stands && !hangs) continue;
-      under += over;
-      if (under > area * 0.2) break;
-    }
-    const held = under > area * 0.2;
-    if (!held) floating.push(`${p.from} at ${cx.toFixed(1)}, ${foot.toFixed(1)}, ${cz.toFixed(1)}`);
-  }
-  assert.equal(floating.length, 0,
-    `${floating.length} thing(s) in the air: ${floating.slice(0, 6).join('; ')}`);
-
-  // And her aircraft: the one on the catapult is on a trolley on a girder on a
-  // training ring standing on the deck, and the one struck down beside the
-  // hangar is on the deck.
-  const air = parts.filter((p) => p.from === 'aircraft');
-  assert.ok(air.length > 40, 'she has no aircraft aboard at all');
-  const floats = air.filter((p) => p.min[1] < 15 && p.size[2] > 6 && p.size[0] < 2);
-  // One of them is struck down on the boat deck rather than up on the
-  // catapult, which is where the spare aeroplane lives.
-  assert.ok(air.some((p) => p.min[1] < hipperSDeck(-2) + 1.2),
-    'nothing of hers is anywhere near the deck');
-  // The catapult girder reaches across her, which is the whole point of an
-  // athwartships catapult.
-  const girder = air.reduce((a, p) => (p.max[0] - p.min[0] > (a ? a.max[0] - a.min[0] : 0) ? p : a), null);
-  assert.ok(girder && girder.max[0] - girder.min[0] > 18,
-    'her catapult does not reach across her');
-  assert.ok(floats.length >= 2, 'her Arados are not standing on floats');
-});
-
-check("the Hipper's bridge is a tower and her funnel is a boiler room's", () => {
-  // The two things you look at on a German heavy cruiser. The bridge is a
-  // tower built in levels -- block, admiral's bridge, navigating bridge,
-  // trunk, foretop -- and each of them has a deck of its own; the foretop
-  // carries the seven-metre rangefinder that is the reason the tower is that
-  // tall. The funnel is the top of three boiler rooms: uptakes inside a
-  // casing, the fire rooms' air cowls outside it, and the flat cap on struts
-  // over the mouth that tells her from Prinz Eugen.
-  const parts = hipperParts();
-  const bridge = parts.filter((p) => p.from === 'bridge');
-  assert.ok(bridge.length > 90, `her bridge is only ${bridge.length} pieces`);
-
-  // Levels: flat plates, wide, at rising heights up the tower.
-  const decks = bridge
-    .filter((p) => p.size[1] < 0.4 && p.max[0] - p.min[0] > 4 && p.max[2] - p.min[2] > 4)
-    .map((p) => p.min[1])
-    .sort((a, b) => a - b);
-  const levels = [];
-  for (const y of decks) if (!levels.length || y - levels[levels.length - 1] > 1.5) levels.push(y);
-  assert.ok(levels.length >= 4,
-    `her bridge is ${levels.length} level(s), not a tower`);
-  assert.ok(levels[levels.length - 1] - levels[0] > 12,
-    'her tower is not tall enough to be a tower');
-
-  // The rangefinder across the top of it: seven metres of base.
-  const wide = bridge.reduce((a, p) => ((p.max[0] - p.min[0]) > (a ? a.max[0] - a.min[0] : 0)
-    && p.min[1] > levels[levels.length - 1] - 1 ? p : a), null);
-  assert.ok(wide && wide.max[0] - wide.min[0] > 6.5,
-    'there is no rangefinder across her foretop');
-
-  // The funnel: a cap standing clear over the mouth on struts.
-  const fun = parts.filter((p) => p.from === 'funnel');
-  assert.ok(fun.length > 70, `her funnel and casing are only ${fun.length} pieces`);
-  const top = fun.reduce((a, p) => (p.max[1] > (a ? a.max[1] : 0) ? p : a), null);
-  const capY = top.max[1];
-  // Something wide right at the top -- the cap -- and a gap under it.
-  const cap = fun.filter((p) => p.max[1] > capY - 0.8 && p.max[0] - p.min[0] > 6);
-  assert.ok(cap.length, 'her funnel has no cap on it');
-  const mouth = fun.filter((p) => p.max[1] < capY - 1.0 && p.max[1] > capY - 3.5
-    && p.max[0] - p.min[0] > 4);
-  assert.ok(mouth.length, 'the cap is sitting straight on the funnel');
-
-  // And the fire rooms breathe: big cowls outboard of the casing, two a side.
-  const cowls = fun.filter((p) => Math.abs((p.min[0] + p.max[0]) / 2) > 4
-    && p.max[0] - p.min[0] > 1.4 && p.size[1] > 0.9 && p.size[1] < 1.6);
-  assert.ok(cowls.length >= 4, `she has ${cowls.length} boiler-room cowls, not four`);
-});
-
-check("the Hipper's beam mountings are bracketed down to the house", () => {
-  // A sponson is a platform carried outboard of the deckhouse on knees, and a
-  // knee has to stand on something. Hung under the platform at a lean, as they
-  // were, their inboard ends stopped half a metre clear of the house they were
-  // meant to be bolted to: every gun on her beam was held up by brackets
-  // standing in the air.
-  const cls = SHIP_CLASSES.hipper;
-  const parts = hipperParts().filter((p) => p.from === 'sponsons');
-  const beam = [...cls.secondary.mounts, ...cls.aa.guns.flatMap((g) => g.mounts)]
-    .filter((m) => m.x !== 0);
-  const unheld = [];
-  for (const m of beam) {
-    const house = hipperDeckAt(m.z) + HIPPER_LOW_TIER;
-    const side = parts.filter((p) => Math.abs((p.min[2] + p.max[2]) / 2 - m.z) < 3.2
-      && Math.sign((p.min[0] + p.max[0]) / 2) === Math.sign(m.x));
-    if (!side.some((p) => Math.abs(p.min[1] - house) < 0.06)) {
-      unheld.push(`${m.x.toFixed(1)}, ${m.z}`);
-    }
-  }
-  assert.ok(beam.length >= 16, `only ${beam.length} mountings stand on her beam`);
-  assert.equal(unheld.length, 0,
-    `${unheld.length} beam mounting(s) on nothing, first at ${unheld[0]}`);
-});
-
 check("the Iowa's shell has no holes in it", () => {
   // The one thing a hull has to be is closed, and hers is lofted rather than
   // boxed, so a mistake in the lofting is a hole rather than a wrong number.
@@ -13736,532 +13273,6 @@ check("you cannot see through the Iowa's side", () => {
     `${through.length} shot(s) went through her near side, first ${through[0]}`);
 });
 
-check('the Hipper has an Atlantic bow', () => {
-  // The bow the class was rebuilt with after the first winter in the North
-  // Sea, and the reason she could keep the sea in weather her original straight
-  // stem could not: the sheer lifts hard forward, the stem rakes well out over
-  // the forefoot, and the waterline stays fine under a deck edge carried well
-  // outboard of it -- so she rises to a head sea instead of burying herself.
-  //
-  // What she had was a wall-sided wedge: two metres of lift over her whole
-  // length, a stem that met the forefoot in a corner, and a deck edge barely
-  // wider than the waterline under it.
-  const rise = hipperSheer(1) - hipperSheer(0);
-  assert.ok(rise > 3.0,
-    `her deck edge lifts ${rise.toFixed(2)} m from amidships to the stem`);
-
-  // Raked: her stem head stands well forward of where her stem cuts the water.
-  const rake = hipperZAt(1, hipperSheer(1)) - hipperZAt(1, 0);
-  assert.ok(rake > 3.5,
-    `her stem rakes ${rake.toFixed(2)} m between the waterline and the deck`);
-  // And it is a sweep, not a corner: the rake grows smoothly all the way down
-  // rather than being flat for the bottom half of its height and then bending.
-  const steps = [];
-  for (let i = 0; i <= 8; i++) {
-    const y = -6 + (i / 8) * (hipperSheer(1) + 6);
-    steps.push(hipperZAt(1, y));
-  }
-  let worst = 0;
-  for (let i = 2; i < steps.length; i++) {
-    const a = steps[i - 1] - steps[i - 2];
-    const b = steps[i] - steps[i - 1];
-    worst = Math.max(worst, Math.abs(b - a));
-  }
-  // A proper sweep changes its rake by under a tenth of a metre a step over
-  // this height; a curve that lies flat and then bends changes it by half.
-  assert.ok(worst < 0.25,
-    `her stem changes rake by ${worst.toFixed(2)} m in one step: it has a `
-    + 'corner in it rather than a sweep');
-
-  // Flared: the deck edge stands well outboard of the waterline forward, and
-  // more so the closer to the stem you look.
-  const flareAt = (t) => hipperShellAt(t, hipperSheer(t))
-    / Math.max(0.01, hipperShellAt(t, 0));
-  const fwd = flareAt(0.88);
-  const mid = flareAt(0.0);
-  assert.ok(fwd > 1.30,
-    `her deck edge is only ${fwd.toFixed(2)} times her waterline breadth `
-    + 'thirty metres from the stem: she has no flare forward');
-  assert.ok(fwd > mid * 1.15,
-    `she flares ${fwd.toFixed(2)} forward against ${mid.toFixed(2)} amidships, `
-    + 'which is a wall-sided hull and not an Atlantic bow');
-  assert.ok(flareAt(0.95) > fwd,
-    'her flare does not go on opening toward the stem');
-
-  // And fair. Her offsets are read as a curve through the stations, not as a
-  // chain of ramps between them: taken with a smoothstep the line stops dead
-  // at every offset in the table and hurries to the next one, so her deck edge
-  // came out scalloped -- a bulge at each station with a flat between, which
-  // is the one thing a shipwright will not pass.
-  //
-  // A fair entrance narrows faster the closer to the stem you get, and it does
-  // it smoothly: step along her deck edge and the amount she comes in each
-  // step must never grow again on the way forward.
-  const edge = [];
-  for (let d = 0; d <= 60; d += 2.5) edge.push(hipperHalfDeck(101.5 - d));
-  let lumpy = 0;
-  let lumpyAt = 0;
-  for (let i = 2; i < edge.length; i++) {
-    const a = edge[i - 1] - edge[i - 2];
-    const b = edge[i] - edge[i - 1];
-    // b is how much she gains going aft over this step, a over the one before.
-    // A fair entrance gains less each step aft, never more.
-    if (b - a > lumpy) { lumpy = b - a; lumpyAt = 101.5 - i * 2.5; }
-  }
-  assert.ok(lumpy < 0.12,
-    `her deck edge gains ${lumpy.toFixed(2)} m more in one step than in the `
-    + `one before it, ${lumpyAt.toFixed(0)} m from amidships: the line is `
-    + 'scalloped rather than fair');
-});
-
-check('every turret aboard the Hipper trains right round clear of her', () => {
-  // A gunhouse is nine metres long and swings about its barbette, so it needs
-  // a circle six metres across kept empty round every turret in the ship --
-  // and a turret superfiring over another one is up at the height of the
-  // deckhouses, which is exactly where that circle is hardest to keep.
-  //
-  // Cäsar's rear corners went a metre and a half into the after superstructure
-  // and Anton's went into the trunk under Bruno's barbette, so both of them
-  // ground through the ship as they trained.
-  const built = buildHipper();
-  built.group.updateMatrixWorld(true);
-  // Everything that does not train: the ship she has to swing inside of.
-  const moving = new Set();
-  built.group.traverse((o) => {
-    if (o.userData && o.userData.dynamic) o.traverse((c) => moving.add(c));
-  });
-  const statics = [];
-  built.group.traverse((o) => { if (o.isMesh && !moving.has(o)) statics.push(o); });
-  const ray = new THREE.Raycaster();
-  const N = 72;
-  const v = new THREE.Vector3();
-  const names = ['Anton', 'Bruno', 'Cäsar', 'Dora'];
-  for (const [i, t] of built.turrets.entries()) {
-    // The gunhouse, which is the turret without her barrels -- a gun trains
-    // out over the deckhouses on purpose and is meant to.
-    const gunsGroup = t.userData.guns;
-    const house = [];
-    t.traverse((o) => {
-      if (!o.isMesh) return;
-      for (let n = o; n; n = n.parent) if (n === gunsGroup) return;
-      house.push(o);
-    });
-    const cz = t.position.z;
-    // Her own silhouette, bearing by bearing, off her own vertices. The skirt
-    // is left out: it comes down over the barbette at deck level, and the deck
-    // is meant to be there.
-    const rad = new Array(N).fill(0);
-    let ylo = 1e9;
-    let yhi = -1e9;
-    for (const o of house) {
-      const pa = o.geometry.getAttribute('position');
-      for (let k = 0; k < pa.count; k++) {
-        v.fromBufferAttribute(pa, k).applyMatrix4(o.matrixWorld);
-        if (v.y < t.position.y + 0.9) continue;
-        const b = Math.floor(
-          (((Math.atan2(v.x, v.z - cz) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)) * N) % N;
-        rad[b] = Math.max(rad[b], Math.hypot(v.x, v.z - cz));
-        ylo = Math.min(ylo, v.y);
-        yhi = Math.max(yhi, v.y);
-      }
-    }
-    assert.ok(yhi - ylo > 2.0, `${names[i]} has no gunhouse to swing`);
-    let foul = null;
-    for (let b = 0; b < N; b++) {
-      const a = ((b + 0.5) / N) * Math.PI * 2;
-      const dir = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
-      for (let k = 0; k <= 8; k++) {
-        const y = ylo + 0.1 + ((yhi - ylo - 0.2) * k) / 8;
-        ray.set(new THREE.Vector3(0, y, cz), dir);
-        ray.far = rad[b];
-        const hit = ray.intersectObjects(statics, false)[0];
-        if (!hit) continue;
-        const into = rad[b] - hit.distance;
-        if (!foul || into > foul.into) {
-          foul = { into, bearing: Math.round((a * 180) / Math.PI),
-            at: `${hit.point.x.toFixed(1)}, ${hit.point.y.toFixed(1)}, ${hit.point.z.toFixed(1)}` };
-        }
-      }
-    }
-    assert.ok(!foul,
-      foul && `${names[i]} goes ${foul.into.toFixed(2)} m into the ship at `
-        + `${foul.bearing} degrees of training, at ${foul.at}`);
-  }
-});
-
-check("the Hipper's 10.5 cm are guns in a shield, not tubes in a box", () => {
-  // A C/31 twin is a stabilised carriage with a splinter shield on it, open at
-  // the back: the plate covers the guns and the layers and nothing else, and
-  // the breeches, the fuse setter, the loading trays and the ready-use racks
-  // all stand out behind it in the weather. That open back is most of what the
-  // mounting looks like, and a shield closed all round is a little turret,
-  // which this is not.
-  const built = buildHipper();
-  built.group.updateMatrixWorld(true);
-  assert.equal(built.secMounts.length, 6, 'she does not carry six 10.5 cm twins');
-  const m = built.secMounts[0];
-  m.updateWorldMatrix(true, false);
-  const inv = new THREE.Matrix4().copy(m.matrixWorld).invert();
-  // How far she reaches, in her own frame.
-  let front = -1e9;
-  let backEnd = 1e9;
-  const v = new THREE.Vector3();
-  m.traverse((o) => {
-    if (!o.isMesh || !o.geometry) return;
-    const pa = o.geometry.getAttribute('position');
-    for (let k = 0; k < pa.count; k++) {
-      v.fromBufferAttribute(pa, k).applyMatrix4(o.matrixWorld).applyMatrix4(inv);
-      front = Math.max(front, v.z);
-      backEnd = Math.min(backEnd, v.z);
-    }
-  });
-  // She is a gun: barrels well out in front of the carriage.
-  assert.ok(front > 5.0,
-    `her barrels reach only ${front.toFixed(2)} m out: a 10.5 cm L/65 is over `
-    + 'six metres of gun');
-  // And she has a working end behind the plate.
-  assert.ok(backEnd < -1.8,
-    `there is only ${(-backEnd).toFixed(2)} m of mounting abaft her trunnions: `
-    + 'the loading numbers have nowhere to stand');
-
-  // Open at the back. Look straight down on her, in her own frame: over the
-  // guns there is plate, and two metres abaft them there is not.
-  const ray = new THREE.Raycaster();
-  const down = new THREE.Vector3(0, -1, 0);
-  const roofAt = (lx, lz) => {
-    const from = m.localToWorld(new THREE.Vector3(lx, 40, lz));
-    ray.set(from, down);
-    ray.far = 80;
-    const hit = ray.intersectObject(m, true)[0];
-    if (!hit) return null;
-    return hit.point.clone().applyMatrix4(inv).y;
-  };
-  const over = roofAt(0.9, 0.2);
-  const abaft = roofAt(0.9, -1.9);
-  assert.ok(over !== null && over > 3.0,
-    `there is nothing over her guns at ${over === null ? 'all' : over.toFixed(2)}: `
-    + 'she has no shield');
-  assert.ok(abaft === null || abaft < over - 0.9,
-    `her plating stands ${abaft && abaft.toFixed(2)} high two metres abaft the `
-    + `trunnions against ${over.toFixed(2)} over the guns: the shield is closed `
-    + 'at the back');
-
-  // The muzzles are published, and they are two, and they are apart.
-  const muz = m.userData.muzzles;
-  assert.ok(muz && muz.length === 2, 'she is not a twin');
-  assert.ok(Math.abs(muz[0].x - muz[1].x) > 0.7 && Math.abs(muz[0].x - muz[1].x) < 1.5,
-    `her two bores are ${Math.abs(muz[0].x - muz[1].x).toFixed(2)} m apart`);
-});
-
-check("everything on the Hipper's sides is on both of them", () => {
-  // She is a ship and not half a ship. Anything substantial off her centreline
-  // has a twin to match it, because a fitting drawn on one side only is a hole
-  // in her from the other -- and the two sides of her are seen one at a time.
-  //
-  // Two things are hers alone and stay that way: the aircraft crane, which
-  // stood on her starboard side and of which she had one, and the trolley on
-  // her catapult, which is likewise one trolley on one track. Everything else
-  // pairs off.
-  const parts = hipperParts().filter((p) => p.size[0] * p.size[1] * p.size[2] > 0.5);
-  const r = (v) => Math.round(v * 2) / 2;
-  const key = (p) => [r(Math.abs((p.min[0] + p.max[0]) / 2)),
-    r((p.min[1] + p.max[1]) / 2), r((p.min[2] + p.max[2]) / 2)].join('|');
-  // The two that are hers alone, and nothing else: her crane, which stands a
-  // metre abaft amidships up on the superstructure deck, and the trolley on
-  // her catapult, which is up on the track twelve metres further aft. The
-  // aeroplanes struck down beside the hangar are on the deck below both and
-  // are not exempt -- there is one a side and they have to pair.
-  const singular = (p) => {
-    if (p.from !== 'aircraft') return false;
-    const cz = (p.min[2] + p.max[2]) / 2;
-    const cy = (p.min[1] + p.max[1]) / 2;
-    if (cz > -4 && cz < 6) return true;                  // the crane
-    return cz > -18 && cz < -7 && cy > 13.8;             // the catapult trolley
-  };
-  const side = { p: [], s: [] };
-  for (const p of parts) {
-    const cx = (p.min[0] + p.max[0]) / 2;
-    if (Math.abs(cx) < 1.0) continue;
-    side[cx < 0 ? 's' : 'p'].push(p);
-  }
-  const lone = [];
-  for (const [here, there] of [[side.s, side.p], [side.p, side.s]]) {
-    const keys = new Set(there.map(key));
-    for (const p of here) {
-      if (keys.has(key(p)) || singular(p)) continue;
-      lone.push(`${p.from} at ${((p.min[0] + p.max[0]) / 2).toFixed(1)}, `
-        + `${((p.min[1] + p.max[1]) / 2).toFixed(1)}, `
-        + `${((p.min[2] + p.max[2]) / 2).toFixed(1)}`);
-    }
-  }
-  assert.deepEqual(lone, [],
-    `${lone.length} thing(s) on one side of her and not the other: `
-    + lone.slice(0, 6).join('; '));
-
-  // And she stows the three aircraft her datasheet gives her: one on the
-  // catapult and one struck down each side of the hangar, on the deck below.
-  const stowed = parts.filter((p) => p.from === 'aircraft'
-    && (p.min[1] + p.max[1]) / 2 < 13
-    && (p.min[2] + p.max[2]) / 2 < -6 && (p.min[2] + p.max[2]) / 2 > -18);
-  const onSide = (sign) => stowed.some((p) =>
-    Math.sign((p.min[0] + p.max[0]) / 2) === sign
-    && Math.abs((p.min[0] + p.max[0]) / 2) > 3);
-  assert.ok(onSide(-1) && onSide(1),
-    'she has an aeroplane struck down beside her hangar on one side only, '
-    + `and her datasheet gives her ${SHIP_CLASSES.hipper.datasheet.aircraft}`);
-});
-
-check("the Hipper's boats and her crane are on deck, not inside it", () => {
-  // Both were modelled and neither could be seen, because both were built
-  // inside her deckhouse.
-  //
-  // Her boats were stowed at six and a half metres of half-breadth on a
-  // casing seven and a half wide, so they were buried to their gunwales in
-  // the funnel casing. Her crane -- eighteen metres of lattice jib, the
-  // biggest single thing on her upper deck and the whole of how a scout gets
-  // back aboard -- stood on a pedestal at the same station, entirely inside
-  // the same house.
-  const parts = hipperParts();
-
-  // The boats: seven metres and up, and every one of them clear of the house
-  // it is stowed beside.
-  // Boat-shaped: seven metres and up, a couple across, and with depth in her.
-  // The deck she is chocked down on is the same length and breadth and is a
-  // sheet of plate two hundred millimetres thick.
-  const boats = parts.filter((p) => p.from === 'funnel'
-    && p.size[2] > 6 && p.size[2] < 11
-    && p.size[0] > 1.5 && p.size[0] < 3.5 && p.size[1] > 0.5);
-  assert.ok(boats.length, 'nothing boat-sized anywhere on her boat deck');
-  // Counted as boats and not as pieces: a hull, her gunwales and her cabin top
-  // are all boat-sized and all the same boat, so they are grouped by where
-  // along her they lie.
-  const countSide = (side) => {
-    const zs = boats.filter((p) => (side < 0 ? p.max[0] < 0 : p.min[0] > 0))
-      .map((p) => (p.min[2] + p.max[2]) / 2).sort((a, b) => a - b);
-    let n = 0;
-    let last = -Infinity;
-    for (const z of zs) if (z - last > 3) { n++; last = z; }
-    return n;
-  };
-  const port = countSide(-1);
-  const stbd = countSide(1);
-  assert.ok(port >= 2 && stbd >= 2,
-    `${port} boats to port and ${stbd} to starboard, and she stows two a side`);
-  for (const b of boats) {
-    const cz = (b.min[2] + b.max[2]) / 2;
-    const inboard = Math.min(Math.abs(b.min[0]), Math.abs(b.max[0]));
-    assert.ok(inboard > hipperLowHalf(cz) - 0.4,
-      `a boat reaches in to ${inboard.toFixed(1)} m of the centreline where `
-      + `the deckhouse is ${hipperLowHalf(cz).toFixed(1)} m wide: she is inside it`);
-  }
-
-  // The crane: a jib of real length, out on the beam, standing above the deck.
-  //
-  // Measured in her own frame rather than off the piece's own geometry: her
-  // catapult is a twenty-two metre girder too, and it lies across the ship.
-  const jib = parts.filter((p) => p.from === 'aircraft'
-    && p.max[2] - p.min[2] > 12 && p.max[0] - p.min[0] < 4
-    && p.min[1] > 14);
-  assert.ok(jib.length, 'she has no crane jib at all');
-  const arm = jib.reduce((a, b) =>
-    (a.max[2] - a.min[2] > b.max[2] - b.min[2] ? a : b));
-  const reach = arm.max[2] - arm.min[2];
-  assert.ok(reach > 14,
-    `her crane jib is ${reach.toFixed(1)} m long, which will not reach the water`);
-  const cx = (arm.min[0] + arm.max[0]) / 2;
-  const cz = (arm.min[2] + arm.max[2]) / 2;
-  assert.ok(Math.abs(cx) > hipperLowHalf(cz) - 0.5,
-    `her crane stands at ${Math.abs(cx).toFixed(1)} m of half-breadth inside a `
-    + `house ${hipperLowHalf(cz).toFixed(1)} m wide: it is built in the deckhouse`);
-  // And it is on her starboard side, which is the side she had it.
-  assert.ok(cx < 0, 'her crane is stepped to port, and she carried it to starboard');
-});
-
-check("the Hipper shows her bridge windows from straight ahead", () => {
-  // A German cruiser's bridge is a band of glass carried unbroken round the
-  // bullnose and back down both sides, and it is the single thing that says
-  // "bridge" at any range you can see a ship at.
-  //
-  // Hers were drawn as flat boxes laid across the centreline. The plan of the
-  // house is a rounded bullnose, so a box across it is inside the plating
-  // everywhere except right amidships -- and from ahead, which is the only
-  // angle anybody looks at a bridge from, she had no windows at all.
-  //
-  // So it is asked the way it is looked at: sightlines from right ahead,
-  // swept up her bridge front from the roof of B turret to the foot of her
-  // foretop, and what has to come back is glass.
-  const GLASS = 0x1f252b;      // her window colour, off her own palette
-  const built = buildHipper();
-  built.group.updateMatrixWorld(true);
-  const meshes = [];
-  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
-
-  const ray = new THREE.Raycaster();
-  const fwd = new THREE.Vector3(0, 0, -1);
-  const isGlass = (h) => h && h.object.material && h.object.material.color
-    && h.object.material.color.getHex() === GLASS;
-  const look = (x, y) => {
-    ray.set(new THREE.Vector3(x, y, 140), fwd);
-    return ray.intersectObjects(meshes, false)[0];
-  };
-  const hits = [];
-  const shots = 56;
-  for (let i = 0; i < shots; i++) {
-    const y = 12 + ((i + 0.5) / shots) * 14;
-    if (isGlass(look(0, y))) hits.push(y);
-  }
-  assert.ok(hits.length >= 4,
-    `looking at her bows on, only ${hits.length} of ${shots} sightlines up her `
-    + 'bridge front found glass: her windows are buried inside her plating');
-
-  // Two decks of them, not one: the admiral's bridge and the navigating bridge
-  // over it, with a deck between.
-  const decks = hits.filter((y, i) => i === 0 || y - hits[i - 1] > 0.8).length;
-  assert.ok(decks >= 2,
-    `her bridge windows are all in one band ${hits.length} sightlines deep, `
-    + 'and she has two decks of them');
-
-  // And they wrap: the band is carried round on to her bridge wings, so it is
-  // still there when you look at the corner of the house rather than the nose.
-  const y0 = hits[0];
-  let wide = 0;
-  for (const x of [-4.2, -2.6, 2.6, 4.2]) {
-    for (const dy of [-0.3, 0, 0.3]) if (isGlass(look(x, y0 + dy))) { wide++; break; }
-  }
-  assert.ok(wide >= 3,
-    `her window band is only there on ${wide} of 4 sightlines off the `
-    + 'centreline: it is a pane across her front, not a band round her');
-});
-
-check("the Hipper's cap is built on to her funnel, not balanced over it", () => {
-  // The Kappe fitted in 1940 is part of the funnel. Her mouth is cut on a
-  // rake -- high forward, low aft, so the smoke goes up and away from the
-  // foretop -- and the cap is a band welded round the top of it.
-  //
-  // What was here was a lid on four legs, with the better part of a metre of
-  // daylight under its forward edge: from abeam you could see clean through
-  // the top of her funnel, which is neither what she carried nor what a smoke
-  // cap is. So: no gap anywhere between the casing and the rim, and a cap that
-  // still stands proud of the trunk it is built on.
-  const built = buildHipper();
-  built.group.updateMatrixWorld(true);
-  // Plating only. Her aerials are slung over the funnel from masthead to
-  // masthead and her grab rails are bolted to it, and a wire counts for
-  // nothing when the question is whether there is steel there.
-  const meshes = [];
-  built.group.traverse((o) => {
-    if (!o.isMesh || !o.geometry) return;
-    o.geometry.computeBoundingBox();
-    const b = o.geometry.boundingBox;
-    const d = [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z];
-    if (d.filter((v) => v > 0.35).length < 2) return;
-    meshes.push(o);
-  });
-  const ray = new THREE.Raycaster();
-  const dir = new THREE.Vector3(1, 0, 0);
-  // Her funnel's own side, and nothing else: between a metre and a half and
-  // five and a half metres off the centreline at these stations. Inboard of
-  // that are the uptake trunks standing in her mouth and the aerials slung
-  // over her from masthead to masthead; outboard is her boat deck, which is
-  // wider than this and lower than anything looked at here.
-  const skin = (y, z) => {
-    ray.set(new THREE.Vector3(-60, y, z), dir);
-    let out = null;
-    for (const h of ray.intersectObjects(meshes, false)) {
-      const r = Math.abs(h.point.x);
-      if (r > 1.5 && r < 5.5) out = Math.max(out === null ? 0 : out, r);
-    }
-    return out;
-  };
-  const topAt = (z) => {
-    for (let y = 29; y > 18; y -= 0.05) if (skin(y, z) !== null) return y;
-    return null;
-  };
-  for (const z of [5.3, 6.8, 8.3, 9.8, 11.3]) {
-    const top = topAt(z);
-    assert.ok(top !== null, `no funnel at all at station ${z}`);
-    // Straight down through her from the rim: plating the whole way, no
-    // daylight anywhere between the cap and the casing under it.
-    let gap = 0;
-    let run = 0;
-    for (let y = top - 0.05; y > top - 4.0; y -= 0.05) {
-      if (skin(y, z) === null) { run += 0.05; gap = Math.max(gap, run); } else run = 0;
-    }
-    assert.ok(gap < 0.15,
-      `${gap.toFixed(2)} m of daylight under her cap at station ${z}: it is `
-      + 'standing over the mouth rather than built on to it');
-  }
-
-  // Raked: the top of her funnel stands a good deal higher forward than aft.
-  const aft = topAt(5.3);
-  const fwd = topAt(11.3);
-  assert.ok(fwd > aft + 1.0,
-    `her mouth is ${fwd.toFixed(2)} forward against ${aft.toFixed(2)} aft: it is `
-    + 'cut off square rather than on the rake');
-
-  // And the cap is still a cap: a band standing proud of the trunk under it by
-  // a twentieth or so -- not flush, which is a plain pipe, and not half as
-  // wide again, which is a mushroom.
-  const mid = topAt(8.3);
-  const rim = skin(mid - 0.4, 8.3);
-  const trunk = skin(mid - 2.4, 8.3);
-  assert.ok(rim !== null && trunk !== null, 'her funnel has no side to measure');
-  const over = rim / trunk;
-  assert.ok(over > 1.01 && over < 1.25,
-    `her cap is ${over.toFixed(3)} times the width of the funnel under it`);
-});
-
-check("the Hipper's funnel stands plumb under a cap raked aft", () => {
-  // Her funnel is upright and her cap is not, and it is that way round.
-  //
-  // The Kappe fitted in 1940 is a raked hood: its forward edge stands high and
-  // its after edge comes down over the mouth, so the smoke is thrown up and
-  // aft, clear of the foretop and the rangefinders eight metres above it. What
-  // she had here was the opposite of both halves -- the trunk leant eight
-  // degrees aft, which is a destroyer's funnel, and the cap sat square on top
-  // of it -- so from abeam her funnel raked the wrong way and her cap did not
-  // rake at all.
-  const built = buildHipper();
-  built.group.updateMatrixWorld(true);
-  const meshes = [];
-  built.group.traverse((o) => { if (o.isMesh) meshes.push(o); });
-
-  // Plumb: every band and ring round the trunk is a ring of the same funnel,
-  // so they all have to stand over one another. A raked trunk walks them aft.
-  // Flat rings only: measured on the piece as it stands in her, so the stays
-  // and the raked cap -- which are not level and are not meant to be -- do not
-  // come into it.
-  // A ring of her funnel, and nothing else built in the same breath: as wide
-  // across as the trunk is and deeper fore and aft, which the boat deck
-  // alongside her -- eighteen metres long and under four across -- is not.
-  const rings = hipperParts().filter((p) => p.from === 'funnel'
-    && p.max[1] - p.min[1] < 0.7 && p.max[1] > 12
-    && p.max[0] - p.min[0] > 6 && p.max[0] - p.min[0] < 9
-    && p.max[2] - p.min[2] > 7 && p.max[2] - p.min[2] < 11);
-  assert.ok(rings.length >= 3, `only ${rings.length} rings round her funnel`);
-  const zc = (p) => (p.min[2] + p.max[2]) / 2;
-  const base = zc(rings.reduce((a, b) => (a.min[1] < b.min[1] ? a : b)));
-  const span = rings.reduce((w, p) => Math.max(w, Math.abs(zc(p) - base)), 0);
-  assert.ok(span < 0.25,
-    `her funnel leans: its rings are spread ${span.toFixed(2)} m fore and aft`);
-
-  // And raked: the cap is measurably higher forward than aft. Read off the
-  // quarters rather than the centreline, which has rigging over it.
-  const ray = new THREE.Raycaster();
-  const down = new THREE.Vector3(0, -1, 0);
-  const capAt = (z) => {
-    ray.set(new THREE.Vector3(2.8, 90, z), down);
-    const hit = ray.intersectObjects(meshes, false)
-      .find((i) => i.point.y > 20 && i.point.y < 27);
-    return hit ? hit.point.y : null;
-  };
-  const aft = capAt(4.9);
-  const fwd = capAt(11.7);
-  assert.ok(aft != null && fwd != null, 'her cap is not over her funnel');
-  assert.ok(fwd > aft + 1.2,
-    `her cap stands ${fwd.toFixed(2)} m forward against ${aft.toFixed(2)} aft`);
-});
-
 check('a hull on flat water settles level', () => {
   // Every hull in the game takes her attitude from the water under her, through
   // one spring. Given water that is not doing anything -- a berth, a flat calm
@@ -14294,90 +13305,6 @@ check('a hull on flat water settles level', () => {
     assert.ok(Math.abs(sea.heave) < 0.02,
       `${id} still floats ${sea.heave.toFixed(2)} m off her marks on flat water`);
   }
-});
-
-check('the Hipper is built the same on both sides', () => {
-  // Her structure stands in pairs about the centreline. What she carries need
-  // not -- one crane, one Arado struck down beside the hangar, one ladder up
-  // the funnel casing are all as she was -- but a deckhouse cut back on one
-  // side and not the other, a sponson bracketed to port and hung in the air to
-  // starboard, or a row of cowls staggered down alternate sides is the sort of
-  // thing you only see from right ahead, and then cannot stop seeing.
-  //
-  // Handled gear is left out, and so is anything small enough to be a fitting
-  // -- a door, a rung, a stay -- rather than a piece of the ship.
-  const parts = hipperParts().filter((p) => {
-    if (p.from === 'aircraft') return false;                 // crane, catapult, Arados
-    // Measured on the piece itself rather than on its box in the ship: a
-    // ladder raked up the funnel casing has a box a metre deep and is still a
-    // ladder.
-    const [w, h, d] = p.size;
-    if (w * h * d < 0.5) return false;                       // doors, cleats, eyeplates
-    return [w, h, d].filter((v) => v < 0.5).length < 2;      // ladders, rails, rigging
-  });
-  // Two pieces are a pair if they stand at the same height and station, the
-  // same size, and the same distance out on opposite sides.
-  const shelf = new Map();
-  const key = (p) => `${p.from}|${p.min[1].toFixed(2)}|${p.min[2].toFixed(2)}|`
-    + `${p.max[2].toFixed(2)}|${(p.max[0] - p.min[0]).toFixed(2)}`;
-  for (const p of parts) {
-    const k = key(p);
-    if (!shelf.has(k)) shelf.set(k, []);
-    shelf.get(k).push((p.min[0] + p.max[0]) / 2);
-  }
-  const lone = [];
-  for (const p of parts) {
-    const cx = (p.min[0] + p.max[0]) / 2;
-    if (Math.abs(cx) < 0.25) continue;                       // on the centreline
-    if (!shelf.get(key(p)).some((x) => Math.abs(x + cx) < 0.12)) {
-      lone.push(`${p.from} at ${cx.toFixed(1)}, ${p.min[1].toFixed(1)}, `
-        + `${((p.min[2] + p.max[2]) / 2).toFixed(0)}`);
-    }
-  }
-  assert.ok(parts.length > 250, `only ${parts.length} pieces of her were compared`);
-  assert.equal(lone.length, 0,
-    `${lone.length} piece(s) of her have no opposite number, first ${lone[0]}`);
-});
-
-check('the Hipper mounts what her datasheet says she mounts', () => {
-  // The model and the simulation have to agree about where her guns are, or
-  // the arcs the arsenal panel draws are for a different ship.
-  const cls = SHIP_CLASSES.hipper;
-  const built = buildHipper();
-  assert.equal(built.turrets.length, 4, 'she has four twin eight-inch turrets');
-  assert.equal(built.secMounts.length, cls.secondary.mounts.length);
-  assert.equal(built.torpMounts.length, cls.torpedoes.mounts.length);
-  const aaWanted = cls.aa.guns.reduce((n, g) => n + g.mounts.length, 0);
-  assert.equal(built.aaMounts.length, aaWanted, 'her light battery is the wrong size');
-
-  const at = (o) => { const v = new THREE.Vector3(); o.getWorldPosition(v); return v; };
-  cls.turrets.forEach((spec, i) => {
-    const p = at(built.turrets[i]);
-    assert.ok(Math.abs(p.z - spec.z) < 1.5,
-      `turret ${spec.name} is drawn at ${p.z.toFixed(1)} and fought at ${spec.z}`);
-  });
-  cls.secondary.mounts.forEach((spec, i) => {
-    const p = at(built.secMounts[i]);
-    assert.ok(Math.abs(p.x - spec.x) < 1 && Math.abs(p.z - spec.z) < 1.5,
-      `a ten-point-five is drawn away from where she is fought`);
-  });
-  cls.torpedoes.mounts.forEach((spec, i) => {
-    const p = at(built.torpMounts[i]);
-    assert.ok(Math.abs(p.x - spec.x) < 1 && Math.abs(p.z - spec.z) < 1.5,
-      'a bank of tubes is drawn away from where it is fought');
-  });
-  // Superfiring: Bruno stands above Anton, and Cäsar above Dora.
-  assert.ok(at(built.turrets[1]).y > at(built.turrets[0]).y + 2,
-    'Bruno does not superfire over Anton');
-  assert.ok(at(built.turrets[2]).y > at(built.turrets[3]).y + 2,
-    'C\u00e4sar does not superfire over Dora');
-  // And she floats at her own draft rather than on top of the sea.
-  built.group.updateMatrixWorld(true);
-  const bb = new THREE.Box3().setFromObject(built.group);
-  assert.ok(Math.abs(-bb.min.y - cls.hull.draft) < 1.2,
-    `she draws ${(-bb.min.y).toFixed(1)} m where her datasheet says ${cls.hull.draft}`);
-  assert.ok(Math.abs(bb.max.z - bb.min.z - cls.hull.length) < 3,
-    'she is not the length she is fought at');
 });
 
 check('nothing on the cruiser is buried inside anything else', () => {
@@ -19448,51 +18375,6 @@ check('an aeroplane has a height, and gravity has her', () => {
     + `against the torpedo bombers' ${(high.get('torpedo') || 0).toFixed(0)}`);
   assert.ok(low.get('dive') > low.get('torpedo'),
     'the dive bombers went as low as the torpedo bombers');
-});
-
-check("the Admiral Hipper flies her Arados off her catapult", () => {
-  // She had a catapult, a hangar, a crane and three aeroplanes on her
-  // datasheet, and no way whatever to use any of it.
-  const cls = SHIP_CLASSES.hipper;
-  assert.ok(cls.planes, 'she still has no air group');
-  assert.ok(cls.planes.catapult, 'she is not a catapult ship');
-
-  const st = createState(generateWorld(606, 'open_ocean'), { mode: 'deathmatch' });
-  const ca = addShip(st, { name: 'Hipper', classId: 'hipper', team: 0, index: 0 });
-  const foe = addShip(st, { name: 'Foe', classId: 'fletcher', team: 1, index: 0 });
-  foe.x = ca.x + 5000; foe.z = ca.z;
-  ca.aimX = foe.x; ca.aimZ = foe.z;
-  assert.ok(launchStrike(st, ca), 'she would not launch');
-  for (let i = 0; i < 30 * 40; i++) {
-    for (const s of st.ships) s.spottedBy = [true, true];
-    step(st, DT);
-  }
-  assert.ok(st.planes.length > 0, 'nothing came off her catapult');
-
-  // Her catapult goes off the beam, not off the bow: the girder lies across
-  // her. So her scout appears out on her side, and putting her a hundred and
-  // fifty metres dead ahead instead would be a scout appearing a long way from
-  // where you watched her go.
-  const off = launchOffset(cls, 1);
-  assert.ok(Math.abs(off.bearing) > 1.0,
-    `her catapult shoots ${(off.bearing * 57.3).toFixed(0)} degrees off her head`);
-  assert.ok(off.out > 60 && off.out < 200, `her shot ends ${off.out} m out`);
-
-  // And the model works: the ring trains, the trolley runs out, and the
-  // aeroplane is away and out of sight by the time the flight is on the plot.
-  const built = buildHipper();
-  const deck = built.group.userData.deck;
-  assert.ok(deck, 'her model has no catapult to work');
-  assert.equal(deck.run, cls.planes.deckRun,
-    'her catapult is paced to something other than her own launch');
-  built.group.userData.step(0);
-  built.group.userData.launch(0);
-  const car = () => deck.cat.car.position.z;
-  const at0 = car();
-  built.group.userData.step(deck.run * 0.75);
-  assert.ok(car() > at0 + 8, 'her trolley never left the breech');
-  built.group.userData.step(deck.run + 0.5);
-  assert.equal(deck.cat.plane.visible, false, 'her scout is still on the girder');
 });
 
 check('a hole is only a hole, and she can be holed anywhere on her', () => {

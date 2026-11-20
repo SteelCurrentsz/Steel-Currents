@@ -5,7 +5,6 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { buildEnterprise } from './enterprise.js';
-import { buildHipper } from './hipper.js';
 import { buildCleveland } from './cleveland.js';
 import { buildIowa } from './iowa.js';
 import { buildUboat } from './uboat.js';
@@ -45,7 +44,7 @@ import { loadDauntless } from './dauntlessModel.js';
  */
 let buildMonsterOne;
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina,
-  buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildRichelieu, buildMatsu, buildYukikaze,
+  buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildMatsu, buildYukikaze,
   buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildFord, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildBorgia, buildSuzuya, buildYodo, buildMogami, buildLouisiana, buildOregon, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
 /**
  * The ships put together by krissShip.js off the owner's whole-ship models,
@@ -126,7 +125,8 @@ const SCULPTED = {
   bismarck: () => import('./bismarck.js')
     .then((m) => { buildBismarck = m.buildBismarck; buildTirpitz = m.buildTirpitz; }),
   scharnhorst: () => import('./scharnhorst.js').then((m) => { buildScharnhorst = m.buildScharnhorst; }),
-  richelieu: () => import('./richelieu.js').then((m) => { buildRichelieu = m.buildRichelieu; }),
+  richelieu: () => import('./richelieu.js').then((m) => { KRISS.richelieu = m.buildRichelieu; }),
+  hipper: () => import('./hipper.js').then((m) => { KRISS.hipper = m.buildHipper; }),
   grafzeppelin: () => import('./grafzeppelin.js').then((m) => { buildGrafZeppelin = m.buildGrafZeppelin; }),
   shokaku: () => import('./shokaku.js').then((m) => { buildShokaku = m.buildShokaku; }),
   hornet: () => import('./hornet.js').then((m) => { buildHornet = m.buildHornet; }),
@@ -783,22 +783,6 @@ function buildModel(classId) {
     };
   }
 
-  // And the Hipper: a flush-decked German heavy cruiser with a tower bridge, a
-  // capped funnel, an athwartships catapult and four twin eight-inch turrets is
-  // not a length and a beam either.
-  if (cls.id === 'hipper') {
-    const built = buildHipper();
-    Object.assign(built.group.userData, {
-      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
-    });
-    return {
-      group: built.group, turrets: built.turrets,
-      length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
-      torpMounts: built.torpMounts || [],
-    };
-  }
-
   // And the two Panzerschiffe, the Graf Spee and the Admiral Scheer: the
   // owner's model of the Scheer, each armed off her own datasheet.
   if (cls.id === 'spee' || cls.id === 'scheer') {
@@ -823,21 +807,6 @@ function buildModel(classId) {
   // mattered.
   if (cls.id === 'iowa') {
     const built = buildIowa({ breakaway: false });
-    Object.assign(built.group.userData, {
-      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
-    });
-    return {
-      group: built.group, turrets: built.turrets,
-      length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
-      torpMounts: [],
-    };
-  }
-
-  // And the Richelieu: the owner's sculpts of her hull, her upperworks and
-  // her guns, with her quarterdeck and its aviation built to her plans.
-  if (cls.id === 'richelieu') {
-    const built = buildRichelieu();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
     });
