@@ -27,7 +27,7 @@ import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { installTroops } from './troops.js';
 import { footing } from '../../shared/infantry.js';
-import { getSettings } from './settings.js';
+import { getSettings, qualityName } from './settings.js';
 import { Director } from './director.js';
 import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
 import { readMonsterWire, MONSTER } from '../../shared/monster.js';
@@ -744,7 +744,7 @@ export class Battle {
     this.roster = roster || [];
     this.names = new Map(this.roster.map((r) => [r.id, r.name]));
 
-    this.scene = new BattleScene(renderer, world, getSettings().quality);
+    this.scene = new BattleScene(renderer, world, qualityName());
     // A bomb arrives where the scene flew it to, so the scene is what says
     // when. See bombThrough.
     this.scene.bombs.onHit = (x, y, z) => this.bombThrough(x, y, z);

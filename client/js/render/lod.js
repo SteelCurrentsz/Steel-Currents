@@ -28,6 +28,9 @@ import * as THREE from '../../../vendor/three.module.js';
 
 /** How far, in pixels of the drawing buffer, a copy may put anything. */
 export const LOD_PX = 0.4;
+let lodPx = LOD_PX;
+/** How far a copy may put anything, in pixels -- higher is coarser and cheaper. */
+export function setLodPx(px) { lodPx = Number.isFinite(px) && px > 0 ? px : LOD_PX; }
 // Only meshes this big are worth the copies.
 const MIN_TRIS = 3000;
 // The cubes the copies are welded in, as fractions of the mesh's radius.
@@ -146,7 +149,7 @@ export function pickLod(object, g, d, k, scale) {
   const px = (k * scale) / d;
   let pick = g;
   for (const l of e.levels) {
-    if (l.err * px <= LOD_PX) pick = l.geo;
+    if (l.err * px <= lodPx) pick = l.geo;
     else break;
   }
   return pick;
