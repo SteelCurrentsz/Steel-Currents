@@ -21,7 +21,8 @@
 //     behind her.
 //
 //   * Her hands: a ship within arm's length in front of her is taken hold
-//     of. A transport, a destroyer, a destroyer escort or a submarine she
+//     of. A transport (anything in the yard's Transport tab), a destroyer,
+//     a destroyer escort or a submarine she
 //     lifts out of the water, crushes, bites and throws; anything bigger --
 //     a cruiser, a battleship, a carrier -- is too much for her to lift, and
 //     she holds it where it lies, crushes it and bites it, and lets it go.
@@ -32,7 +33,7 @@
 //     her half of what they would do a ship -- and she heals, slowly, when
 //     she is left alone long enough. But she can be killed.
 import { clamp, dist, headingTo, angleDelta } from './math.js';
-import { getClass } from './ships.js';
+import { getClass, CIVIL_SHIPS } from './ships.js';
 
 const shipClass = (ship) => getClass(ship.classId);
 
@@ -97,10 +98,11 @@ export const MONSTER = {
     arc: 55,
     toss: 450,
     cooldown: 6,
-    // The ships she can lift: transports, destroyers and destroyer escorts
-    // (both DD on the plot), and submarines. Anything else she can only
-    // hold where it is.
-    liftable: ['AK', 'DD', 'SS'],
+    // The ships she can lift: every ship in the yard's Transport tab
+    // (CIVIL_SHIPS: the cargo ships and the landing craft), destroyers and
+    // destroyer escorts (both DD on the plot), and submarines. Anything else
+    // she can only hold where it is.
+    liftable: ['AK', 'LC', 'DD', 'SS'],
     // A thrown ship coming down: how long she takes to come back up out of
     // the water she has gone into, where she went in.
     splash: 2.6,
@@ -145,7 +147,9 @@ const KNOT = 0.514444;
 export function isMonster(ship) { return !!shipClass(ship).monster; }
 
 /** Whether she can lift this ship out of the water, or only hold it down. */
-export function liftable(t) { return MONSTER.grab.liftable.includes(shipClass(t).type); }
+export function liftable(t) {
+  return CIVIL_SHIPS.has(shipClass(t).id) || MONSTER.grab.liftable.includes(shipClass(t).type);
+}
 
 /**
  * How far a point is from the nearest of a hull: her length laid along her

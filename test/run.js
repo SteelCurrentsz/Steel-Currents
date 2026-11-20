@@ -32747,7 +32747,7 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
   });
 
   check('Monster One lifts transports, destroyers, destroyer escorts and submarines, and only holds anything bigger', () => {
-    for (const [c, lifts] of [['liberty', true], ['evarts', true], ['fletcher', true], ['type7c', true],
+    for (const [c, lifts] of [['liberty', true], ['victory', true], ['higgins', true], ['lcm', true], ['evarts', true], ['fletcher', true], ['type7c', true],
       ['cleveland', false], ['iowa', false], ['essex', false]]) {
       const { state, mo, ships } = field([[c, 0, 45]]);
       assert.equal(MO.liftable(ships[0]), lifts, `${c} liftable`);
