@@ -14,6 +14,10 @@
 import { prepare } from './kriss-hull.mjs';
 import { KM_PAINTS, kmPaint, BOOT } from './kriss-paints.mjs';
 
+/** Her paint: the Kriegsmarine's greys, and her weather deck planked. */
+const PAINTS = { ...KM_PAINTS, wood: 0x9c8a6a };
+const paint = (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 10 && f.ny > 0.97 ? 'wood' : kmPaint(f));
+
 const TURRETS = [55, 56];
 /** A mounting standing in the box the model draws round it, a hand clear all round. */
 const around = (nodes, pad = 0.25) => (x0, x1, y0, y1, z0, z1) => ({ x: [x0 - pad, x1 + pad], y: [y0 - 0.15, y1 + 0.25], z: [z0 - pad, z1 + pad], nodes, hullToo: true });
@@ -26,7 +30,7 @@ await prepare({
   credit: '"Admiral Hipper" by pepijn.dv (https://skfb.ly/oo7OI), CC BY 4.0',
   // 205.9 m over all with her Atlantic bow, 7.2 m draught.
   loa: 205.9, draught: 7.2, bow: '+z', groupDepth: 2,
-  paints: KM_PAINTS, paint: kmPaint, paintLines: [0, BOOT],
+  paints: PAINTS, paint, paintLines: [0, BOOT],
   deckFallback: 7, hullTris: 80000, rigging: { y: 13 },
   kinds: {
     // Her four twin 20.3 cm SK C/34: Anton on her forecastle and Bruno
