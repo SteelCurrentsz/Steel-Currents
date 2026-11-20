@@ -3502,7 +3502,16 @@ export class Battle {
           // Worked a little a frame (see stepBlasts).
           const view = this.scene.shipViews.get(ev.ship);
           const at = this.nukeAt && this.nukeAt.get(ev.i);
-          if (view && at && view.blastSteps) {
+          // Close in, taken apart: her hull in pieces and her guns scattered.
+          if (view && ev.sh && view.shatter) {
+            const p = view.group.position;
+            const from = at || { x: p.x + 300, z: p.z };
+            if (view.shatter(from.x, from.z)) {
+              fx.explosion(p.x, p.y + 10, p.z, 4);
+              this.scene.debris.burst(p.x, p.y + 12, p.z, 26, 1.6);
+              fx.splash(p.x, p.z, 900);
+            }
+          } else if (view && at && view.blastSteps) {
             const q = this.blasts || (this.blasts = []);
             // Her own first: it is the ship the captain is looking at.
             const g = view.blastSteps(at.x, at.z, ev.b || 0);
@@ -3582,6 +3591,14 @@ export class Battle {
           const bite = ev.e === 'moBite';
           const v = ev.at ? this.scene.shipViews.get(ev.at) : null;
           const p = v ? v.group.position : { x: ev.x, y: 6, z: ev.z };
+          // What came away in her teeth or her fingers: a rent in the hull,
+          // and slabs of it flung off.
+          if (v && ev.tr) {
+            const mo = this.scene.shipViews.get(ev.ship);
+            const from = mo ? mo.group.position : { x: ev.x, z: ev.z };
+            v.tearOut(ev.tr.lx, ev.tr.ly, ev.tr.lz, ev.tr.r, ev.tr.sd || 0,
+              p.x - from.x, p.z - from.z, !bite);
+          }
           if (ev.at) {
             fx.hit(p.x, p.y + 8, p.z, 'he', bite ? 300 : 406);
             fx.debris(p.x, p.y + 6, p.z, bite ? 18 : 30);
@@ -4108,6 +4125,30 @@ export class Battle {
           if (ev.ship === this.shipId) {
             this.hud.alert(ev.k === 'main' ? 'Turret has gone through the deck'
               : ev.k === 'sec' ? 'Secondary mount through the deck' : 'AA mount through the deck');
+          }
+          break;
+        }
+        case 'toss': {
+          // A mounting thrown off her: by the magazine under it going up, or
+          // torn out of her by Monster One and flung.
+          const view = this.scene.shipViews.get(ev.ship);
+          if (view && (view.tossMount(ev.k, ev.i, ev.how, ev.dx || 0, ev.dz || 0, ev.sd || 0)
+            || view.tossWelded(ev.x, ev.y, ev.z, ev.how, ev.dx || 0, ev.dz || 0))) {
+            if (ev.how === 'mag') {
+              const size = ev.k === 'main' ? 2.6 : ev.k === 'sec' ? 1.8 : 1.2;
+              fx.explosion(ev.x, ev.y + 2, ev.z, size);
+              this.scene.debris.burst(ev.x, ev.y + 3, ev.z, 3 + size * 2, 0.7 + size * 0.2);
+              audio.explosion(Math.min(1.6, size * 0.6), { x: ev.x, y: ev.y + 2, z: ev.z });
+            } else {
+              this.scene.debris.burst(ev.x, ev.y + 2, ev.z, ev.k === 'main' ? 4 : 2, 0.5);
+              audio.crash({ x: ev.x, y: ev.y + 2, z: ev.z }, ev.k === 'main' ? 14 : 8);
+            }
+          }
+          if (ev.ship === this.shipId) {
+            const name = ev.k === 'main' ? 'Turret' : ev.k === 'sec' ? 'Secondary mount' : 'AA mount';
+            this.hud.alert(ev.how === 'mag' ? `${name} blown overboard by its magazine`
+              : `${name} torn off by Monster One`);
+            this.shake = Math.max(this.shake || 0, ev.how === 'mag' ? 0.8 : 0.6);
           }
           break;
         }
@@ -8666,6 +8707,9 @@ export class Battle {
       // And whatever has gone down through a hole in her deck.
       if (s.dn) view.setFallen(s.dn);
       if (s.wk) view.setKnocked(s.wk);
+      // Thrown off her altogether, and what state the guns still on her are in.
+      if (s.tz) view.setTossed(s.tz);
+      if (!view.rupture) view.setGunStates(s.gs);
 
       // Anything on her that works itself -- a carrier's lifts, so far.
       view.group.userData.step?.(this.deckClock(view));
