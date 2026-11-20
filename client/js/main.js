@@ -25,7 +25,9 @@ import { DeployMap } from './deploy.js';
 import { paintTitleChart } from './worldmap.js';
 import { audio } from './audio.js';
 import * as account from './account.js';
-import { getSettings, setSettings, QUALITY } from './settings.js';
+import { getSettings, setSettings, currentQuality } from './settings.js';
+import { setCullPixels } from './render/pixelcull.js';
+import { setLodPx } from './render/lod.js';
 import { SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, WWI_ORDER, WWII_ORDER, MODERN_ORDER, CIVIL_ORDER } from '../../shared/ships.js';
 import { ADS_REQUIRED, premiumUnlocked, unlockWithAd } from './premium.js';
 import { KNOTS } from '../../shared/math.js';
@@ -143,7 +145,10 @@ setGpuLevel(safeState().level);
  * canvas in its place, asking for less each time.
  */
 function makeRenderer(at = document.getElementById('stage')) {
-  const asks = safeGraphics()
+  // Potato mode gives up antialiasing too: it is a whole extra multisampled
+  // buffer resolved every frame. (Decided when the context is made, so a
+  // change to it takes a reload.)
+  const asks = safeGraphics() || getSettings().potato
     ? [{ antialias: false }, { antialias: false, powerPreference: 'low-power' }]
     : [
       { antialias: true, powerPreference: 'high-performance' },
@@ -391,9 +396,18 @@ let current = 'title';
 // ------------------------------------------------------------------ view --
 
 function applyQuality() {
-  const q = QUALITY[getSettings().quality] || QUALITY.medium;
+  const q = currentQuality();
+  const potato = getSettings().potato === true;
   governor.base = Math.min(window.devicePixelRatio || 1, q.pixelRatio, GPU.level >= 3 ? 1 : Infinity);
   governor.scale = 1;
+  // How far the governor may take the resolution down when frames run long.
+  governor.floor = q.floor || 0.75;
+  // Small pieces left out, and coarser copies of big ones at range.
+  setCullPixels(q.cullPx || 0.5);
+  setLodPx(q.lodPx);
+  // No dents or scrapes where shells strike: each is a buffer rewritten.
+  GPU.marks = GPU.level < 2 && !potato;
+  document.body.classList.toggle('potato', potato);
   renderer.setPixelRatio(governor.base);
   resize();
 }
@@ -1856,6 +1870,7 @@ const optSens = document.getElementById('opt-sens');
 const optSkill = document.getElementById('opt-skill');
 const optQuality = document.getElementById('opt-quality');
 const optShadows = document.getElementById('opt-shadows');
+const optPotato = document.getElementById('opt-potato');
 const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
 const optFF = document.getElementById('opt-ff');
@@ -1867,6 +1882,7 @@ optSens.value = Math.round(settings.sensitivity * 100);
 optSkill.value = settings.botSkill;
 optQuality.value = settings.quality;
 optShadows.checked = settings.shadows;
+if (optPotato) optPotato.checked = settings.potato === true;
 optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
 if (optFF) optFF.checked = settings.friendlyFire === true;
@@ -1888,6 +1904,15 @@ optSens.oninput = () => {
 optSkill.onchange = () => setSettings({ botSkill: optSkill.value });
 optQuality.onchange = () => { setSettings({ quality: optQuality.value }); applyQuality(); toast('Quality applies to the next battle.'); };
 optShadows.onchange = () => setSettings({ shadows: optShadows.checked });
+if (optPotato) {
+  optPotato.onchange = () => {
+    setSettings({ potato: optPotato.checked });
+    applyQuality();
+    toast(optPotato.checked
+      ? 'Potato mode on — resolution drops now, the rest from the next battle (reload to drop antialiasing).'
+      : 'Potato mode off — full detail from the next battle (reload to bring back antialiasing).');
+  };
+}
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
 if (optUR) optUR.onchange = () => { setSettings({ ultraRealism: optUR.checked }); toast(optUR.checked ? 'Ultra-Realism Mechanics on from the next battle.' : 'Ultra-Realism Mechanics off from the next battle.'); };
@@ -2102,6 +2127,8 @@ function frame(now) {
   }
 }
 
+let potatoSkip = false;
+let titleDt = 0;
 function drawFrame(dt) {
   if (battle && current === 'battle' && battle.building) {
     // Its fleet is still being built behind the loading screen (see
@@ -2132,7 +2159,14 @@ function drawFrame(dt) {
     // is queued several frames deep, and the chart waits for all of them.
     // Nothing here is drawn at less detail; it is simply not drawn twice.
   } else if (title) {
-    title.update(dt);
+    // Potato mode: behind a menu panel the harbour is only a backdrop, so it
+    // is drawn every other frame and the menus stay quick.
+    if (getSettings().potato && current !== 'title' && (potatoSkip = !potatoSkip)) {
+      titleDt += dt;
+      return;
+    }
+    title.update(dt + titleDt);
+    titleDt = 0;
     title.render();
   }
 }

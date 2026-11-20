@@ -58,6 +58,11 @@ THREE.Frustum.prototype.intersectsObject = function intersectsObject(object) {
   return true;
 };
 const swapped = [];
+/**
+ * How many pixels across (in radius) a solid piece has to cover to be drawn.
+ * Half a pixel is invisible; potato mode raises it and gives up the specks.
+ */
+export function setCullPixels(px) { state.min = Number.isFinite(px) && px > 0 ? px : 0.5; }
 let lastSwaps = 0;
 /** For the console: how many meshes the last frame drew with a coarser copy. */
 export function lodSwaps() { return lastSwaps; }

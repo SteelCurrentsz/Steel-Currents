@@ -21,7 +21,7 @@ import { Flak, Bombs } from './render/ordnance.js';
 import { Flames } from './render/flames.js';
 import { WakeField } from './render/wakefield.js';
 import { Strike, LOOP } from './render/strike.js';
-import { getSettings, QUALITY } from './settings.js';
+import { currentQuality } from './settings.js';
 
 /** Which way the sun is: an afternoon sun, low enough to light the smoke from the side. */
 const SUN = new THREE.Vector3(0.62, 0.42, -0.66).normalize();
@@ -96,7 +96,7 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 export class TitleScene {
   constructor(renderer) {
     this.renderer = renderer;
-    this.quality = QUALITY[getSettings().quality] || QUALITY.medium;
+    this.quality = currentQuality();
     const q = this.quality;
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(HAZE, 0.000085);
