@@ -17519,14 +17519,16 @@ export const SHIP_CLASSES = {
       guns: [
         // Her six eight-barrelled pom-poms: two on the platforms forward of
         // her island, one on it, one abaft it, and two at her port deck edge.
+        // The two on and abaft her island have it between them and her bow,
+        // and bear from her beam aft.
         { name: 'QF 2-pdr Mk VIII octuple', caliber: 40, role: 'aa', reload: 0.3, range: 3200, piece: 'pp8',
           mounts: [
             { x: -14.834, z: 52.45, angle: -1.57, arc: 1.92, rest: -2.0246, guns: 8, my: 14.58 },
             { x: -14.834, z: 40.997, angle: -1.57, arc: 1.92, rest: -2.0246, guns: 8, my: 14.59 },
             { x: 14.425, z: 22.797, angle: 1.57, arc: 1.92, rest: 1.117, guns: 8, my: 12.62 },
             { x: 14.427, z: 2.044, angle: 1.57, arc: 1.92, rest: 1.117, guns: 8, my: 12.62 },
-            { x: -14.977, z: 0.974, angle: -1.57, arc: 1.92, rest: -2.0246, guns: 8, my: 18.96 },
-            { x: -13.506, z: -7.632, angle: -1.57, arc: 1.92, rest: -2.0246, guns: 8, my: 14.58 },
+            { x: -14.977, z: 0.974, angle: -2.0, arc: 1.5, rest: -2.0246, guns: 8, my: 18.96 },
+            { x: -13.506, z: -7.632, angle: -2.0, arc: 1.5, rest: -2.0246, guns: 8, my: 14.58 },
           ] },
       ],
     },
