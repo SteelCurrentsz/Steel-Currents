@@ -30,7 +30,7 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { DECK_RUN, lightMounts } from '../../../shared/sim.js';
 import { box, cyl, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly, a5m, b4y, zero, b5n, val, suisei, tenzan } from './planekit.js';
+import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly, a5m, b4y, zero, b5n, val, suisei, tenzan, corsair } from './planekit.js';
 import { ZERO } from './zeroModel.js';
 import { B5N } from './b5nModel.js';
 import { SUISEI } from './suiseiModel.js';
@@ -61,6 +61,10 @@ const TYPES = {
   // either side of the Merlin's and the Griffon's cowlings.
   seafire: { spread: 5.9, folded: 5.9, build: (g, x, y, z, ry, f, o) => seafire(g, x, y, z, ry, false, o),
     exhaust: () => [[0.42, 2.18, 3.25], [-0.42, 2.18, 3.25]] },
+  // The Illustrious's Corsair, off the owner's model: spotted wings spread.
+  // Her exhausts are the stubs down either side under her cowling.
+  corsair: { spread: 6.2, folded: 6.2, build: (g, x, y, z, ry, f, o) => corsair(g, x, y, z, ry, false, o),
+    exhaust: () => [[0.55, 2.3, 3.6], [-0.55, 2.3, 3.6]] },
   firefly: { spread: 6.9, folded: 6.9, build: (g, x, y, z, ry, f, o) => firefly(g, x, y, z, ry, false, { load: 'bombs', ...o }),
     exhaust: () => [[0.46, 2.72, 3.95], [-0.46, 2.72, 3.95]] },
   // The Hosho's, off the owner's models: neither folds. A B4Y on the deck

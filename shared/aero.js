@@ -81,6 +81,17 @@ export const AERO = {
     thrust: 17500, vMax: 160, name: 'Seafire L.III',
     helix: 0.090, gLimit: 7.5,
   },
+  // The Illustrious's fighter, the Vought Corsair II: two thousand
+  // horsepower on the biggest airscrew of any fighter of the war, her wings
+  // bent down at the root to keep it off the deck, six fifties, and a bomb
+  // or rockets under her wings when she went strafing. Faster than anything
+  // the Fleet Air Arm had, and a long nose that hid the deck from her pilot
+  // all the way down the approach.
+  corsair: {
+    mass: 5400, wing: 29.2, span: 12.5, clMax: 1.5, cd0: 0.0235,
+    thrust: 23000, vMax: 182, name: 'Corsair II',
+    helix: 0.082, gLimit: 7.0,
+  },
   // And her strike fighter, the Fairey Firefly F.I: a two-seat Griffon
   // fighter with four 20 mm and Youngman flaps that let her turn inside
   // fighters half her weight, and the rails and racks under her wings for

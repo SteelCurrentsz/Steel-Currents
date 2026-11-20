@@ -271,6 +271,7 @@ const SEABED = -34;
 /** What to call a flight on screen: the machine, not the job she is on. */
 const FLIGHT_NAME = {
   seafire: 'her Seafires',
+  corsair: 'her Corsairs',
   a5m: 'her A5Ms',
   b4y: 'her B4Ys',
   val: 'her Vals',
@@ -304,7 +305,7 @@ const PART_ORDER = ['engine', 'tanks', 'wings', 'tail', 'crew', 'body'];
 
 /** What the aeroplane herself is called, for the pilot's own corner. */
 const PLANE_NAME = {
-  seafire: 'Supermarine Seafire', firefly: 'Fairey Firefly',
+  seafire: 'Supermarine Seafire', firefly: 'Fairey Firefly', corsair: 'Vought Corsair',
   a5m: 'Mitsubishi A5M', b4y: 'Yokosuka B4Y1', val: 'Aichi D3A1 Val', tenzan: 'Nakajima B6N2 Tenzan',
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
@@ -325,6 +326,7 @@ const ROLE_NAME = {
 /** What each machine's forward guns are, so the tracer is the right tracer. */
 const GUN_CALIBRE = {
   seafire: 20,        // two Hispanos and four Brownings in the wings
+  corsair: 12.7,      // six fifties in the wings
   a5m: 7.7,           // two Type 89s in the top of her fuselage
   b4y: 7.7,           // her gunner's Type 92: she has no gun forward
   val: 7.7,           // two Type 97s in the top of her cowling
@@ -373,7 +375,7 @@ const GUN_CALIBRE = {
  * we have got round to drawing her.
  */
 const GUN_COUNT = {
-  seafire: 2, firefly: 4, a5m: 2, b4y: 1, val: 2, tenzan: 1,
+  seafire: 2, firefly: 4, corsair: 6, a5m: 2, b4y: 1, val: 2, tenzan: 1,
   hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,

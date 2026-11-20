@@ -17471,7 +17471,7 @@ export const SHIP_CLASSES = {
     type: 'CV',
     typeName: 'Armoured Carrier',
     nation: 'gbr',
-    blurb: 'Fifty-seven aircraft under an armoured flight deck: Taranto, the Malta convoys, and the kamikazes off Okinawa.',
+    blurb: 'Fifty-seven Corsairs and Avengers under an armoured flight deck: Taranto, the Malta convoys, and the kamikazes off Okinawa.',
     hull: { length: 225.6, beam: 29.2, draft: 8.8, superstructure: 0.55, flightDeck: true },
     hp: 46000,
     // A hundred and eleven thousand horsepower on three shafts.
@@ -17537,14 +17537,14 @@ export const SHIP_CLASSES = {
       // Where her aircraft put their wheels down coming home: just up the
       // deck from her round-down.
       touchdown: { z: -76, y: 13.5 },
-      // Martlets over the fleet, and Avengers with a torpedo or with bombs:
-      // the Grumman fighter she flew at Madagascar and Salerno, and the
-      // Grumman bomber of her Pacific air group.
-      types: { fighter: 'wildcat', dive: 'avenger', torpedo: 'avenger' },
+      // Her air group of 1945 with the British Pacific Fleet: Corsairs over
+      // the fleet and over the strike, and Avengers with a torpedo or with
+      // bombs.
+      types: { fighter: 'corsair', dive: 'avenger', torpedo: 'avenger' },
       // Where and how high her deck run leaves each of her types, off the
       // integrated launch from her own deck (see carrier.js).
-      runOut: { fighter: 256.3, dive: 239.3, torpedo: 239.3 },
-      runHeight: { fighter: 17.7, dive: 14.8, torpedo: 14.8 },
+      runOut: { fighter: 264.1, dive: 239.3, torpedo: 239.3 },
+      runHeight: { fighter: 18.1, dive: 14.8, torpedo: 14.8 },
       rearm: 42, torpDamage: 8600, torpSpeed: 33 * KNOTS, torpRange: 4200,
       floodChance: 0.27, hp: 1300, dropSpread: 0.05,
       // An Avenger's four 500 lb bombs, from a glide.
@@ -17562,8 +17562,8 @@ export const SHIP_CLASSES = {
       // What each of her two types is, and what the Avenger is loaded with:
       // her torpedo, or her bombs.
       slots: {
-        fighters: { type: 'wildcat', label: 'Grumman Martlet', role: 'fighter',
-          note: 'Martlet IV: six .50 calibre guns, over the fleet and over the strike' },
+        fighters: { type: 'corsair', label: 'Vought Corsair', role: 'fighter',
+          note: 'Corsair II: six .50 calibre guns and two thousand horsepower, over the fleet and over the strike' },
         dive: {
           type: 'avenger', label: 'TBF Avenger', rowLabel: 'TBF Avenger', default: 'torpedo',
           loadouts: {

@@ -4614,13 +4614,16 @@ check('the Warspite and the Illustrious come in the yard, are credited, and buil
   for (const m of W.secondary.mounts) assert.ok(Math.sign(m.angle) === Math.sign(m.x) && Math.abs(m.angle) - m.arc > -0.35, 'a casemate of hers bears across her');
 });
 
-check('the Illustrious flies fifty-seven Martlets and Avengers off her two lifts', () => {
+check('the Illustrious flies fifty-seven Corsairs and Avengers off her two lifts', () => {
   const cls = SHIP_CLASSES.illustrious;
   assert.equal(cls.planes.group.total, 57);
   assert.equal(cls.planes.squadrons * cls.planes.perSquadron, 57);
   const d = cls.planes.group.default;
   assert.equal(d.fighters + d.dive + d.torpedo, 57);
-  assert.deepEqual(cls.planes.types, { fighter: 'wildcat', dive: 'avenger', torpedo: 'avenger' });
+  assert.deepEqual(cls.planes.types, { fighter: 'corsair', dive: 'avenger', torpedo: 'avenger' });
+  // Her Corsair is her own, off the owner's model.
+  flightModels();
+  assert.equal(gunsOf('corsair').length, 6, 'her Corsair does not have her six fifties');
   assert.equal(cls.turrets.length, 8);
   const built = buildShip('illustrious');
   assert.equal(built.lifts.length, 2);
