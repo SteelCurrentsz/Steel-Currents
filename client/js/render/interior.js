@@ -48,6 +48,14 @@ const mat = (c) => {
 };
 const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
 
+/** Whether a material is one her insides are drawn with -- they are welded
+ *  in with the rest of her, so this is how they are told apart. */
+export function isInteriorMaterial(m) {
+  if (!m) return false;
+  for (const k in MATS) if (MATS[k] === m) return true;
+  return false;
+}
+
 /** One of the materials her insides are drawn with: every one is the same shader. */
 export function interiorMaterial() { return mat(P.red); }
 

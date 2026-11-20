@@ -7,6 +7,7 @@ import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
 import { loadShips, shipReady, fleetReady, preloadShips, quietDuringBattle } from './render/ships.js';
+import { paintGateHulls } from './gatehulls.js';
 import { BatteryScene, mountingSheet, ordnanceSheet, tankSheet } from './battery.js';
 import { BomberScene } from './bomberyard.js';
 import { BATTERIES, BATTERY_ORDER, TANK_ORDER, TANKS, tankRoom } from '../../shared/batteries.js';
@@ -615,6 +616,8 @@ function show(name) {
   if (name === 'battle') touchControls?.show();
   else touchControls?.hide();
   if (name !== 'battle') input.enabled = false;
+  // The gate's three ships, drawn as their own models once they are in.
+  if (name === 'gate') paintGateHulls();
 }
 
 const fsBtn = document.getElementById('btn-fullscreen');

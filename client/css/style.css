@@ -2610,6 +2610,16 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
 .gate-ship .wash { fill: rgba(219, 228, 236, 0.5); }
 .gate-ship:hover .deck, .gate-ship:focus-visible .deck { fill: #9aa2ab; }
 .gate-ship:hover .isle, .gate-ship:focus-visible .isle { fill: #c3cbd3; }
+/* Her own model, once it is in: the still is drawn with a clear sky, so the
+   chart shows round her, and she brightens a little under the finger. */
+.gate-ship .hull-3d {
+  aspect-ratio: 720 / 300; object-fit: contain;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55)) brightness(0.94);
+  transition: filter 0.16s ease;
+}
+.gate-ship:hover .hull-3d, .gate-ship:focus-visible .hull-3d {
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55)) brightness(1.12);
+}
 
 .gate-name {
   font-family: var(--ui); font-weight: 700;

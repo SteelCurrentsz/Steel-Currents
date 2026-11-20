@@ -10131,6 +10131,9 @@ export class Battle {
 
   updateCamera(dt) {
     const cam = this.scene.camera;
+    // A hit being shown: the camera is at the ship it struck, which is glass
+    // while it is (see render/pencam.js).
+    if (this.penCam?.busy && this.penCam.aim(cam)) return;
     const ls = this.localShip;
     // Riding your own bombs down.
     //
@@ -10639,6 +10642,7 @@ export class Battle {
     this.leaveSoldier(true, false);
     this.infantry?.dispose();
     this.infantry = null;
+    this.penCam?.stop();
     this.penCam?.el.remove();
     this.lens?.dispose();
     this.lens = null;
