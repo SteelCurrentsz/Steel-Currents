@@ -8017,7 +8017,7 @@ export const SHIP_CLASSES = {
             { x: 8.873, z: -42.646, angle: 1.57, arc: 2.6, rest: -0.7854, guns: 1, my: 5.99 },
             { x: -1.996, z: -44.149, angle: -1.57, arc: 2.6, rest: 0, guns: 1, my: 12.98 },
             { x: 1.996, z: -44.149, angle: 1.57, arc: 2.6, rest: 0, guns: 1, my: 12.98 },
-            { x: 0, z: -87.201, angle: 0, arc: 3.14, rest: 0, guns: 1, my: 6.11 },
+            { x: 0, z: -87.201, angle: 3.14, arc: 2.9, rest: 3.1416, guns: 1, my: 6.11 },
           ] },
       ],
     },
