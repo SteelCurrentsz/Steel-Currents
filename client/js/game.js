@@ -1669,17 +1669,28 @@ export class Battle {
         if (rig) {
           rig.handsPoint(at);
           const cls = getClass(s.c);
-          // Up out of the water in her hands, her keel in her palms -- eased
-          // into them from where she was, over the moment her hands close.
-          view.carryK = Math.min(1, (view.carryK || 0) + dt / 0.6);
+          // Where the hull sits in her hands once she has it up: her palms
+          // under her keel, a little up from it.
+          const rest = cls.hull.draft * 0.6;
+          // Taken from where her hands closed on her and lifted with them:
+          // at the moment they close the hull is wherever it was against
+          // them (her palms on its rail, in the water), and it goes where
+          // they go from then on -- what was between them and where it
+          // rests in them taken up as she straightens with it, so it neither
+          // floats up ahead of her hands nor sinks through them.
+          if (!view.carryFrom) {
+            view.carryFrom = { x: g.position.x - at.x, y: g.position.y - at.y, z: g.position.z - at.z };
+            view.carryK = 0;
+          }
+          view.carryK = Math.min(1, view.carryK + dt / 0.9);
           const k = view.carryK * view.carryK * (3 - 2 * view.carryK);
-          const ox = (at.x - g.position.x) * k;
-          const oy = (at.y + cls.hull.draft * 0.6 - g.position.y) * k;
-          const oz = (at.z - g.position.z) * k;
-          g.position.x += ox; g.position.y += oy; g.position.z += oz;
+          const f = view.carryFrom;
+          g.position.set(at.x + f.x * (1 - k), at.y + f.y + (rest - f.y) * k, at.z + f.z * (1 - k));
           view.heldSway = (view.heldSway || 0) + dt;
-          view.carryRoll = 0.12 * Math.sin(view.heldSway * 1.7) * k;
-          view.carryPitch = 0.07 * Math.sin(view.heldSway * 1.1) * k;
+          // A gentle sway in her hands: rolled no further than keeps her
+          // masts out of her face.
+          view.carryRoll = 0.06 * Math.sin(view.heldSway * 1.7) * k;
+          view.carryPitch = 0.05 * Math.sin(view.heldSway * 1.1) * k;
           g.rotation.z += view.carryRoll;
           g.rotation.x += view.carryPitch;
           // Kept, so that when her hands let go the hull goes on from where
@@ -1690,6 +1701,7 @@ export class Battle {
         view.wake.stop(dt);
       } else {
         view.carryK = 0;
+        view.carryFrom = null;
         if (s.hb) view.wake.stop(dt);
       }
       const lerpOf = (key, other) => (next ? (s[key] || 0) + ((next[key] ?? other) - (s[key] || 0)) * t : (s[key] || 0));

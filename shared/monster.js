@@ -83,10 +83,12 @@ export const MONSTER = {
     // While her hands are on their way down a ship can steam a little out
     // from under them: this much more, and she has missed.
     slip: 8,
-    // A ship she has lifted, carried in front of her chest, and where her
-    // hands let go of her at the top of the throw, ahead and up.
-    carry: 26,
-    release: { at: 0.68, ahead: 27, up: 37 },
+    // A ship she has lifted, held out at arm's length in front of her chest
+    // (clear of her head, which is drawn back over it), and where her hands
+    // let go of her at the top of the throw, ahead and up -- both measured
+    // off her rig (ARMS.hold and ARMS.release in client/js/render/monster.js).
+    carry: 35,
+    release: { at: 0.68, ahead: 34, up: 36 },
     // The longest she holds on before she throws, or lets go of a ship she
     // could not lift, and how far she throws.
     hold: 10,
