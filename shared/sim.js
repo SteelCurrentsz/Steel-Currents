@@ -26,7 +26,7 @@ import {
 } from './airframe.js';
 import { stepInfantry, blastInfantry } from './infantry.js';
 import {
-  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder,
+  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody,
 } from './monster.js';
 import { planRoute } from './tankroute.js';
 import {
@@ -1424,6 +1424,15 @@ function standsUp(ship) {
 
 /** Her hull as the box the collision is worked on: centre, axes and half-sizes. */
 function hullBox(ship, cls) {
+  // Monster One is not a box her own length whatever she is doing: standing
+  // in the water she is her legs and her belly, with her tail out behind
+  // her, and a ship can lie right under her hands.
+  if (cls.monster) {
+    const { front, back } = monsterBody(ship);
+    const ux = Math.sin(ship.heading), uz = Math.cos(ship.heading);
+    const off = (front + back) / 2;
+    return { x: ship.x + ux * off, z: ship.z + uz * off, ux, uz, vx: uz, vz: -ux, hl: (front - back) / 2, hb: cls.hull.beam * 0.45 };
+  }
   const half = cls.hull.length / 2;
   const sp = hullSpan(ship);
   const off = ((sp.lo + sp.hi) / 2) * half;
@@ -1557,7 +1566,7 @@ function stepCollisions(state, dt) {
       if (!a.alive && !b.alive) continue;
       // Nor is a ship in Monster One's hands, or in the air where she threw
       // her, running into anything: she is not in the water to run into it.
-      if (a.heldBy || b.heldBy || a.flung || b.flung) continue;
+      if (a.gripBy || b.gripBy || a.flung || b.flung || a.splash || b.splash) continue;
       const ca = shipClass(a), cb = shipClass(b);
       const reach = (ca.hull.length + cb.hull.length) * 0.5 + FOUL_GAP;
       if (dist2(a.x, a.z, b.x, b.z) > reach * reach) continue;

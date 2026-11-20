@@ -132,8 +132,10 @@ export class MonsterBar {
     else set('breath', `Ready · ${B.kt} kt`, { fill: 1 });
     set('tail', w.act === 'tail' ? 'Swinging' : w.tailCool > 0 ? `${w.tailCool}s` : w.pose === 'deep' ? 'Surface first' : 'Ready',
       { wait: w.tailCool > 0 || w.pose === 'deep', live: w.act === 'tail' });
-    if (w.holdId) set('grab', 'Throw it', { live: true, label: 'Throw' });
-    else set('grab', w.act === 'reach' ? 'Reaching' : w.grabCool > 0 ? `${w.grabCool}s` : 'Ship ahead',
+    // A small ship in her hands is thrown; a big one held down is let go.
+    if (w.holdId && w.pin) set('grab', 'Too big to lift', { live: true, label: 'Let go' });
+    else if (w.holdId) set('grab', 'Throw it', { live: true, label: 'Throw' });
+    else set('grab', w.act === 'reach' ? 'Reaching' : w.grabCool > 0 ? `${w.grabCool}s` : 'Arm\'s length',
       { wait: w.grabCool > 0, live: w.act === 'reach', label: 'Grab' });
     const POSE = { deep: ['Deep', 'Surface ↑'], swim: ['Swimming', 'Stand ↑'], stand: ['Standing', 'Dive ↓'] }[w.pose] || ['Swimming', ''];
     set('pose', POSE[1], { label: POSE[0] });

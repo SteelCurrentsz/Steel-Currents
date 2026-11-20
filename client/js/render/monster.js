@@ -37,6 +37,53 @@ const lerp = (a, b, t) => a + (b - a) * t;
 /** Up from nothing to one over [a0, a1] and back down over [b0, b1]. */
 const window01 = (x, a0, a1, b0, b1) => smooth(a0, a1, x) * (1 - smooth(b0, b1, x));
 
+// Her back, neck and arms in each of the moments of taking hold of a ship
+// and throwing it, on top of her standing pose. Each was set by measuring
+// where it puts her palms on the rig (and so where the battle has to put the
+// ship: MONSTER.grab in shared/monster.js), standing in the water to her
+// waist:
+//   rest     her hands at her sides, out in front of her hips
+//   reach    bent at the waist, her arms out, her palms at deck height
+//            38 m ahead of her middle -- arm's length
+//   pin      the same, her weight on them: a ship too big to lift held down
+//   hold     a lifted ship up in front of her chest, 33 m up, 25 m ahead
+//   wind     swung back up over her head
+//   release  the heave forward, her hands 31 m up and 32 m ahead as they open
+//   follow   the follow-through, her arms down in front of her
+const ARMS = {
+  rest:    { spine1: 0, spine2: 0, chest: 0, neck1: 0, neck2: 0, ua: 0, uaZ: 0, fa: 0, faY: 0, hand: 0 },
+  reach:   { spine1: 0.14, spine2: 0.35, chest: 0.28, neck1: -0.21, neck2: -0.21, ua: -0.95, uaZ: 0, fa: 0.45, faY: 0, hand: 0.3 },
+  pin:     { spine1: 0.15, spine2: 0.37, chest: 0.3, neck1: -0.22, neck2: -0.22, ua: -0.95, uaZ: 0.04, fa: 0.5, faY: 0.05, hand: 0.35 },
+  hold:    { spine1: 0, spine2: -0.06, chest: -0.05, neck1: 0, neck2: 0, ua: -0.55, uaZ: 0.12, fa: -0.6, faY: 0.25, hand: 0.25 },
+  wind:    { spine1: -0.04, spine2: -0.18, chest: -0.15, neck1: 0, neck2: -0.05, ua: -1.6, uaZ: 0.12, fa: -0.55, faY: 0.25, hand: 0.2 },
+  release: { spine1: 0.04, spine2: 0.1, chest: 0.12, neck1: 0, neck2: 0, ua: -1.0, uaZ: 0.08, fa: -0.1, faY: 0.1, hand: 0 },
+  follow:  { spine1: 0.05, spine2: 0.15, chest: 0.18, neck1: 0, neck2: 0, ua: -0.4, uaZ: 0, fa: 0.1, faY: 0, hand: 0 },
+};
+const ARM_KEYS = Object.keys(ARMS.rest);
+const _kf = {};
+/** Between the keyframes [[t, pose], ...] at time `x`, eased in and out of each. */
+function keyframes(x, list) {
+  let i = 0;
+  while (i < list.length - 2 && x >= list[i + 1][0]) i++;
+  const [t0, a] = list[i], [t1, b] = list[i + 1];
+  const u = smooth(t0, t1, x);
+  for (const k of ARM_KEYS) _kf[k] = a[k] + (b[k] - a[k]) * u;
+  return _kf;
+}
+/** Lay one of ARMS (or a blend of them) onto her bones. */
+function poseArms(add, k, shake) {
+  add('spine1', k.spine1);
+  add('spine2', k.spine2);
+  add('chest', k.chest);
+  add('neck1', k.neck1);
+  add('neck2', k.neck2);
+  for (const [n, sg] of [['L', 1], ['R', -1]]) {
+    add(`upperArm.${n}`, k.ua + shake, 0, k.uaZ * sg);
+    add(`foreArm.${n}`, k.fa, k.faY * sg);
+    add(`hand.${n}`, k.hand);
+  }
+}
+
 // The crystal blue her plates and her breath burn.
 export const BREATH_BLUE = new THREE.Color(0x2fb4ff);
 const CORE_WHITE = new THREE.Color(0xe8fbff);
@@ -294,6 +341,7 @@ const UP = new THREE.Vector3(0, 1, 0);
  *   look     a point in her own frame to look at, or null
  *   beamTo   a point in her own frame the breath strikes, or null
  *   holding  whether she has a ship in her hands
+ *   pinned   whether that ship is one too big to lift, held down in the water
  */
 export class MonsterRig {
   constructor(built) {
@@ -464,30 +512,51 @@ export class MonsterRig {
       add('neck2', 0, -twist * side * 0.6);
       jaw += window01(at, 0.7, 1.0, 1.6, 2.2) * 0.25;
     } else if (act === 'reach' || act === 'hold' || act === 'throw') {
-      // Reaching down for a ship, lifting her, holding her up, and flinging
-      // her away or crushing her.
-      const reach = act === 'reach' ? window01(at, 0, 0.9, 1.1, 2.0) : 0;
-      const up = act === 'reach' ? smooth(1.1, 2.0, at) : act === 'hold' ? 1 : 1 - smooth(0.5, 1.2, at);
-      const fling = act === 'throw' ? window01(at, 0.15, 0.55, 0.7, 1.4) : 0;
-      const shake = act === 'hold' ? Math.sin(t * 5.3) * 0.04 : 0;
-      add('spine2', 0.22 * reach - 0.06 * up);
-      add('chest', 0.18 * reach - 0.05 * up + 0.1 * fling);
-      for (const [n, sg] of [['L', 1], ['R', -1]]) {
-        add(`upperArm.${n}`, 0.75 * reach - 0.55 * up - 0.4 * fling + shake, 0, -0.18 * sg * reach + 0.12 * sg * up);
-        add(`foreArm.${n}`, 0.3 * reach - 0.6 * up + 0.7 * fling, 0.25 * sg * up);
-        add(`hand.${n}`, 0.2 * reach + 0.25 * up);
+      // Leaning down for a ship, her hands down on her at deck height out
+      // ahead of her (see ARMS); a small one lifted up to her chest and
+      // held there, then swung back over her head and flung; a big one held
+      // down where it lies, her weight on it.
+      const pin = !!S.pinned;
+      let k;
+      if (act === 'reach') {
+        k = pin
+          ? keyframes(at, [[0, ARMS.rest], [0.9, ARMS.reach], [1.4, ARMS.pin]])
+          : keyframes(at, [[0, ARMS.rest], [0.9, ARMS.reach], [1.1, ARMS.reach], [2.0, ARMS.hold]]);
+      } else if (act === 'hold') {
+        k = pin ? ARMS.pin : ARMS.hold;
+      } else {
+        // The throw: back over her head, the heave forward and up, and the
+        // hands opening at the top of it (MONSTER.grab.release), then the
+        // follow-through down and back to rest.
+        k = keyframes(at, [[0, ARMS.hold], [0.5, ARMS.wind], [0.68, ARMS.release], [1.0, ARMS.follow], [1.4, ARMS.rest]]);
       }
-      add('neck2', 0.15 * up);
-      add('head', 0.12 * up + 0.2 * fling);
-      jaw += 0.2 * up + 0.35 * fling;
+      const shake = act === 'hold' ? Math.sin(t * 5.3) * 0.03 : 0;
+      poseArms(add, k, shake);
+      const lift = act === 'hold' && !pin ? 1 : 0;
+      add('neck2', 0.1 * lift);
+      add('head', 0.08 * lift + (act === 'throw' ? 0.15 * window01(at, 0.45, 0.65, 0.8, 1.2) : 0));
+      jaw += 0.2 * lift + (act === 'throw' ? 0.35 * window01(at, 0.4, 0.62, 0.8, 1.3) : 0) + (pin && act !== 'reach' ? 0.15 : 0);
       // Her hands open wide as she reaches and close on the ship; open again
-      // as she lets go.
-      for (const n of ['L', 'R']) add(`fingers.${n}`, -0.35 * reach + 0.7 * up * (1 - fling) - 0.4 * fling);
+      // as she lets go at the top of the throw.
+      const open = act === 'reach' ? window01(at, 0.1, 0.6, 0.85, 1.05) : act === 'throw' ? smooth(0.6, 0.72, at) * (1 - smooth(1.0, 1.4, at)) : 0;
+      const shut = act === 'reach' ? smooth(0.9, 1.1, at) : act === 'throw' ? 1 - smooth(0.62, 0.7, at) : 1;
+      for (const n of ['L', 'R']) add(`fingers.${n}`, -0.4 * open + 0.75 * shut);
     } else if (act === 'crush') {
       // Her hands driven together on the hull, her shoulders hunched over it,
       // her head down to it, snarling; then easing back to holding it.
       const sq = window01(at, 0.3, 0.85, 1.1, 1.6);
       const shake = Math.sin(t * 24) * 0.05 * sq;
+      if (S.pinned) {
+        // Down on the hull where it lies: her weight driven into her hands.
+        poseArms(add, ARMS.pin, shake);
+        add('spine2', 0.06 * sq);
+        add('chest', 0.06 * sq);
+        for (const n of ['L', 'R']) { add(`hand.${n}`, 0.15 * sq); add(`fingers.${n}`, 0.8 + 0.35 * sq); }
+        add('neck1', 0.1 * sq);
+        add('neck2', 0.1 * sq);
+        add('head', 0.1 * sq + shake * 0.5);
+        jaw += 0.2 + 0.25 * sq;
+      } else {
       add('spine2', -0.06 + 0.1 * sq);
       add('chest', -0.05 + 0.12 * sq);
       for (const [n, sg] of [['L', 1], ['R', -1]]) {
@@ -500,6 +569,7 @@ export class MonsterRig {
       add('neck2', 0.15 + 0.1 * sq);
       add('head', 0.12 + 0.1 * sq + shake * 0.5);
       jaw += 0.2 + 0.25 * sq;
+      }
     } else if (act === 'bite') {
       // Her head drawn back, her jaws open, and the lunge: down and forward
       // onto whatever is in front of her, or in her hands, the jaws snapping
@@ -509,6 +579,16 @@ export class MonsterRig {
       const wrench = window01(at, 0.55, 0.7, 0.95, 1.2) * Math.sin(t * 14) * 0.12;
       const open = window01(at, 0.05, 0.35, 0.5, 0.58);
       const holding = !!S.holding;
+      if (S.pinned) {
+        // Bent over the ship she is holding down, her head driven down onto
+        // her between her hands.
+        poseArms(add, ARMS.pin, 0);
+        add('neck1', -0.12 * draw + 0.45 * lunge, wrench * 0.5);
+        add('neck2', -0.12 * draw + 0.45 * lunge, wrench);
+        add('head', -0.15 * draw + 0.36 * lunge, wrench * 0.6, wrench * 0.8);
+        for (const n of ['L', 'R']) add(`fingers.${n}`, 0.9);
+        jaw += 0.65 * open;
+      } else {
       add('spine2', 0.08 * lunge * (holding ? 0.5 : 1));
       add('chest', -0.05 * draw + 0.14 * lunge);
       add('neck1', -0.15 * draw + 0.25 * lunge);
@@ -517,6 +597,7 @@ export class MonsterRig {
       for (const n of ['L', 'R']) add(`fingers.${n}`, holding ? 0.8 : -0.2 * draw);
       if (holding) for (const [n, sg] of [['L', 1], ['R', -1]]) { add(`upperArm.${n}`, -0.45, 0, 0.12 * sg); add(`foreArm.${n}`, -0.55, 0.25 * sg); }
       jaw += 0.65 * open;
+      }
     } else if (act === 'charge') {
       // Gathering it: her head down and her body drawn in while the light
       // climbs her, then her head going back as it reaches her neck, and her

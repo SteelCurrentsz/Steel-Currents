@@ -1553,18 +1553,30 @@ export class Battle {
       }
       if (best) look = toLocal(best.x, 15, best.z);
     }
+    // How far into what she is doing, run on this screen's own clock: the
+    // wire has it in tenths and only as often as a snapshot comes, and a
+    // throw stepped along like that judders. Kept to the wire's, pulled
+    // gently back toward it, and started afresh with each new act.
+    if (view.moAct !== w.act || Math.abs((view.moActT ?? 0) - (w.actT || 0)) > 0.35) {
+      view.moAct = w.act;
+      view.moActT = w.actT || 0;
+    } else {
+      view.moActT += dt;
+      view.moActT += ((w.actT || 0) - view.moActT) * (1 - Math.exp(-dt / 0.5));
+    }
     rig.update(dt, {
       pose: s.a ? w.pose : 'swim',
       speed: Math.abs(speed || 0),
       yawRate: view.monsterYaw,
       act: s.a ? w.act : 'die',
-      actT: s.a ? w.actT : view.monsterDie,
+      actT: s.a ? view.moActT : view.monsterDie,
       side: w.side,
       charge: w.charge,
       glow: w.glow,
       look,
       beamTo: w.act === 'fire' ? beamTo : null,
       holding: !!w.holdId,
+      pinned: !!w.pin,
     });
     // Gone under, she is not drawn.
     view.group.visible = !s.un && !(!s.a && view.monsterDie > 45);
@@ -1636,39 +1648,86 @@ export class Battle {
   }
 
   /**
-   * Ships in Monster One's hands, carried in them; ships she has thrown, up
-   * in the air and tumbling.
+   * Ships in Monster One's hands: a small one carried in them, eased up into
+   * them from where they closed on her; a big one held down where she lies.
+   * Ships she has thrown: up in the air on the arc the battle has them on,
+   * rolled over and back as they go, and, once down, into the water and back
+   * up out of it in the same place. Everything here is drawn between the
+   * snapshots either side of the moment on screen (`b`, `t`), and leaves her
+   * hands where they were, so nothing about her jumps.
    */
-  holdInHands(ships, dt) {
+  holdInHands(ships, dt, b = null, t = 0) {
     const at = new THREE.Vector3();
     for (const s of ships) {
       const view = this.scene.shipViews.get(s.i);
       if (!view) continue;
-      if (s.hb) {
+      const next = b ? b.ships.find((q) => q.i === s.i) : null;
+      const g = view.group;
+      if (s.hb && s.hl) {
         const mv = this.scene.shipViews.get(s.hb);
         const rig = mv?.group.userData.monster;
-        if (!rig) continue;
-        rig.handsPoint(at);
-        const cls = getClass(s.c);
-        view.group.position.x = at.x;
-        view.group.position.z = at.z;
-        if (s.hl) {
-          // Up out of the water in her hands, her keel in her palms.
-          view.group.position.y = at.y + cls.hull.draft * 0.6;
+        if (rig) {
+          rig.handsPoint(at);
+          const cls = getClass(s.c);
+          // Up out of the water in her hands, her keel in her palms -- eased
+          // into them from where she was, over the moment her hands close.
+          view.carryK = Math.min(1, (view.carryK || 0) + dt / 0.6);
+          const k = view.carryK * view.carryK * (3 - 2 * view.carryK);
+          const ox = (at.x - g.position.x) * k;
+          const oy = (at.y + cls.hull.draft * 0.6 - g.position.y) * k;
+          const oz = (at.z - g.position.z) * k;
+          g.position.x += ox; g.position.y += oy; g.position.z += oz;
           view.heldSway = (view.heldSway || 0) + dt;
-          view.group.rotation.z = 0.18 * Math.sin(view.heldSway * 1.7);
-          view.group.rotation.x = 0.1 * Math.sin(view.heldSway * 1.1);
+          view.carryRoll = 0.12 * Math.sin(view.heldSway * 1.7) * k;
+          view.carryPitch = 0.07 * Math.sin(view.heldSway * 1.1) * k;
+          g.rotation.z += view.carryRoll;
+          g.rotation.x += view.carryPitch;
+          // Kept, so that when her hands let go the hull goes on from where
+          // they had it and not from where the battle reckons it.
+          view.carryAt = { x: g.position.x, y: g.position.y, z: g.position.z, r: view.carryRoll, p: view.carryPitch };
+          view.carryOff = null;
         }
         view.wake.stop(dt);
+      } else {
+        view.carryK = 0;
+        if (s.hb) view.wake.stop(dt);
       }
-      if (s.ly) {
-        // Thrown: up and over, end over end.
-        view.group.position.y += s.ly;
-        view.flungSpin = (view.flungSpin || 0) + dt * 1.6;
-        view.group.rotation.z += view.flungSpin;
+      const lerpOf = (key, other) => (next ? (s[key] || 0) + ((next[key] ?? other) - (s[key] || 0)) * t : (s[key] || 0));
+      if (s.fu != null || s.su != null || s.ly) {
+        // How high she is, between the two snapshots, not stepped from one
+        // to the next.
+        g.position.y += lerpOf('ly', 0);
         view.wake.stop(dt);
-      } else if (view.flungSpin) {
-        view.flungSpin = 0;
+      }
+      if (s.fu != null) {
+        // In the air: rolled over to one side and back, nose up as she
+        // climbs and down as she falls, and level again as she comes down.
+        const u = next && next.fu != null ? lerpOf('fu', 1) : next ? s.fu + (1 - s.fu) * t : s.fu;
+        const arc = Math.sin(Math.PI * u);
+        g.rotation.z += (s.fo ?? 1) * 0.55 * arc;
+        g.rotation.x += 0.22 * arc * (1 - 2 * u);
+      } else if (s.su != null) {
+        // Back up out of the water she went into: a roll that dies away.
+        const u = next && next.su != null ? lerpOf('su', 1) : s.su;
+        g.rotation.z += (s.so ?? 1) * 0.14 * Math.sin(Math.PI * 2.5 * u) * (1 - u);
+        g.rotation.x += -0.06 * Math.sin(Math.PI * u) * (1 - u);
+      }
+      // Just out of her hands: what was between where she was drawn in them
+      // and where the battle now has her, taken up over a quarter of a
+      // second or so.
+      if (view.carryAt && !(s.hb && s.hl)) {
+        const c = view.carryAt;
+        view.carryOff = { x: c.x - g.position.x, y: c.y - g.position.y, z: c.z - g.position.z, r: c.r, p: c.p };
+        view.carryAt = null;
+        view.carryAge = 0;
+      }
+      if (view.carryOff) {
+        view.carryAge += dt;
+        const d = Math.exp(-view.carryAge / 0.28);
+        const o = view.carryOff;
+        g.position.x += o.x * d; g.position.y += o.y * d; g.position.z += o.z * d;
+        g.rotation.z += o.r * d; g.rotation.x += o.p * d;
+        if (d < 0.01) view.carryOff = null;
       }
     }
   }
@@ -8826,7 +8885,7 @@ export class Battle {
     // A ship in Monster One's hands is where her hands are, and one she has
     // thrown is up in the air: after every ship has been put where the sea has
     // her, and after Monster One has been posed.
-    this.holdInHands(a.ships, dt);
+    this.holdInHands(a.ships, dt, b, t);
     audio.ships(heard);
 
     for (const [id] of this.scene.shipViews) {
