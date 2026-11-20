@@ -27,6 +27,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { cutUniforms, cutTree, copyOf, disposeCut, cloneMaterial } from './sever.js';
+import { inWater } from './toss.js';
 
 const G = 9.81;
 const TMP = new THREE.Vector3();
@@ -443,7 +444,7 @@ export class Rupture {
       m.updateMatrixWorld(true);
       if (m === whole) {
         world.add(m);
-        this.throwWhole(m, world, vx, vz, side, 13 + 8 * Math.min(1, P) + Math.random() * 6, 2 + 5 * Math.random());
+        this.throwWhole(m, world, vx, vz, side, 9 + 8 * Math.min(1, P) + Math.random() * 4, 2 + 4 * Math.random());
         continue;
       }
       m.traverse((o) => {
@@ -494,8 +495,10 @@ export class Rupture {
       vy: up,
       vz: vz * 0.5 + side.z * out * dir,
       axis: new THREE.Vector3(side.x, (Math.random() - 0.5) * 0.5, side.z).normalize(),
-      spin: (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.8),
+      // Turning over slowly, as a thousand tons does.
+      spin: (Math.random() < 0.5 ? -1 : 1) * (r > 3.5 ? 0.2 + Math.random() * 0.35 : 0.4 + Math.random() * 0.6),
       size: Math.min(14, 2 + r),
+      foot: Math.max(1, r * 0.6),
       wet: false,
     });
   }
@@ -580,18 +583,21 @@ export class Rupture {
       // Thrown away from it, the nearer end of her harder; up a little, not
       // much -- a thousand tons of hull is heaved, not flown -- and rolled
       // over away from it, end over end a little.
-      const out = 5 + Math.random() * 9;
-      const slide = (Math.random() - 0.5) * 6;
+      // Pushed bodily away by the wave of the burst, not thrown: a few metres
+      // a second, and the water takes it off them.
+      const out = 2 + Math.random() * 4;
+      const slide = (Math.random() - 0.5) * 2;
       const axis = new THREE.Vector3(along.x, 0, along.z)
         .add(new THREE.Vector3((Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.8))
         .normalize();
       this.flyers.push({
         obj: pivot, piece, U, hull: true,
         vx: vx * 0.3 + away.x * out + along.x * slide,
-        vy: 3 + Math.random() * 6,
+        vy: 0.8 + Math.random() * 2.2,
         vz: vz * 0.3 + away.z * out + along.z * slide,
         axis,
-        spin: (Math.random() < 0.5 ? -1 : 1) * (0.12 + Math.random() * 0.3),
+        // Rolled over away from it, slowly, and going on rolling as she fills.
+        spin: (Math.random() < 0.5 ? -1 : 1) * (0.05 + Math.random() * 0.12),
         size: Math.max(8, (hi === null ? half : hi) - (lo === null ? -half : lo)),
         sink: 0.9 + Math.random() * 0.8,
         wet: false,
@@ -615,7 +621,7 @@ export class Rupture {
       m.updateMatrixWorld(true);
       if (main || (m.userData.gunNode && rnd() < 0.35)) {
         world.add(m);
-        this.throwWhole(m, world, vx, vz, away, 12 + rnd() * 14, (6 + rnd() * 14) * (rnd() < 0.8 ? 1 : -1));
+        this.throwWhole(m, world, vx, vz, away, 6 + rnd() * 8, (4 + rnd() * 8) * (rnd() < 0.8 ? 1 : -1));
         continue;
       }
       m.traverse((o) => {
@@ -655,8 +661,8 @@ export class Rupture {
         // Placed where its own middle was.
         piece.position.add(fr.at.clone().multiply(piece.scale).applyQuaternion(piece.quaternion));
         world.add(piece);
-        const tup = heavy ? 2 + (4 + 8 * P) * rnd() : 6 + (8 + 20 * P) * rnd();
-        const tout = (rnd() - 0.5) * (heavy ? 3 + 4 * P : 8 + 20 * P);
+        const tup = heavy ? 1.5 + (3 + 6 * P) * rnd() : 4 + (6 + 14 * P) * rnd();
+        const tout = (rnd() - 0.5) * (heavy ? 3 + 4 * P : 6 + 14 * P);
         const along = (rnd() - 0.5) * (heavy ? 2 : 4 + 10 * P);
         this.flyers.push({
           obj: piece, hull: false,
@@ -664,8 +670,9 @@ export class Rupture {
           vy: tup,
           vz: vz * 0.5 + side.z * tout + fwd.z * along,
           axis: new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(),
-          spin: heavy ? 0.3 + rnd() * 0.9 : 1.5 + rnd() * 4,
+          spin: heavy ? 0.2 + rnd() * 0.5 : 0.8 + rnd() * 2,
           size: Math.min(12, 1.5 + r),
+          foot: Math.max(0.4, r * 0.5),
           wet: false,
         });
       }
@@ -710,17 +717,23 @@ export class Rupture {
         f.vx *= Math.exp(-dt * 0.08);
         f.vz *= Math.exp(-dt * 0.08);
       } else {
-        // In the water: stopped dead, and going down.
-        const k = Math.exp(-dt * 2.5);
-        f.vx *= k; f.vz *= k;
-        f.vy = f.vy * k - (f.sink ?? (2.5 + (f.hull ? 1.5 : 3))) * (1 - k);
-        f.spin *= Math.exp(-dt * 1.2);
+        // In the water: going on in at the pace it hit it, the sea taking
+        // its way off it, and down at the pace that much steel sinks (see
+        // toss.js). A hull piece fills and goes slowly, still rolling.
+        if (f.U) {
+          const k = Math.exp(-dt * 0.9);
+          f.vx *= k; f.vz *= k;
+          f.vy += (-(f.sink ?? 1.4) - f.vy) * (1 - Math.exp(-dt * 0.8));
+          f.spin *= Math.exp(-dt * 0.35);
+        } else inWater(f, dt, f.sink ?? (2.5 + (f.hull ? 1.5 : 3)));
       }
       o.position.x += f.vx * dt;
       o.position.y += f.vy * dt;
       o.position.z += f.vz * dt;
       o.quaternion.premultiply(TMPQ.setFromAxisAngle(f.axis, f.spin * dt));
-      if (!f.wet && f.vy < 0 && o.position.y < 1) {
+      // In the water when its lowest point is, not its middle: a turret
+      // does not hang above the sea with its keel in it.
+      if (!f.wet && f.vy < 0 && o.position.y - (f.U ? 0 : (f.foot ?? 0.5)) < 0.5) {
         f.wet = true;
         splashes.push({ x: o.position.x, z: o.position.z, size: f.size, hull: f.hull, fall: -f.vy });
       }

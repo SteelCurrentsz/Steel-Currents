@@ -730,13 +730,18 @@ class HudBase {
     if (!pick) return;
     const n = pick.units.length;
     if (what) {
-      what.textContent = n
+      what.textContent = pick.breath
+        ? `Monster One · tap enemy ships to mark them for her atomic breath${pick.marked ? ` (${pick.marked} marked)` : ''}`
+        : n
         ? `${n} picked · now tap an enemy, a town or a wall`
         : 'Tap your own ships, aircraft or batteries';
     }
     const cease = document.getElementById('attack-cease');
     if (cease) cease.disabled = n < 1;
   }
+
+  /** The ships marked for Monster One's breath, in order, for the plot to ring. */
+  setBreathMarks(ids) { this.breathMarks = ids && ids.length ? ids : null; }
 
   /** Which contact the camera is watching, so the plot can ring it. */
   setWatching(watch) { this.watching = watch; }
@@ -3636,6 +3641,28 @@ class HudBase {
         ctx.arc(m.x, m.y, 16 * k, 0, Math.PI * 2);
         ctx.stroke();
       }
+    }
+    // Ships marked for Monster One's atomic breath: a blue ring and a cross
+    // on each, numbered in the order she will breathe at them.
+    if (this.breathMarks && this.breathMarks.length) {
+      ctx.strokeStyle = '#58d6ff';
+      ctx.fillStyle = '#58d6ff';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([]);
+      ctx.font = `${Math.round(10 * k)}px sans-serif`;
+      this.breathMarks.forEach((id, n) => {
+        const m = marks.find((q) => q.kind === 'ship' && q.id === id);
+        if (!m) return;
+        const r = 18 * k;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, r, 0, Math.PI * 2);
+        for (const [ax, ay] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          ctx.moveTo(m.x + ax * r * 0.6, m.y + ay * r * 0.6);
+          ctx.lineTo(m.x + ax * r * 1.35, m.y + ay * r * 1.35);
+        }
+        ctx.stroke();
+        ctx.fillText(String(n + 1), m.x + r * 0.9, m.y - r * 0.9);
+      });
     }
     ctx.restore();
 

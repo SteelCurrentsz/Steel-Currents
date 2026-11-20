@@ -421,6 +421,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       rk: sh.rocket ? 1 : undefined,
       // An atomic bomb: drawn as itself, and followed down by anyone watching.
       nk: sh.atomic ? 1 : undefined,
+      // What kind of round, for the stripe painted round it: armour-piercing
+      // goes as nothing (it is most of what is fired), anything else by name.
+      k: !sh.bomb && !sh.rocket && sh.spec && sh.spec.type && sh.spec.type !== 'ap' ? sh.spec.type : undefined,
     });
   }
   const torps = [];

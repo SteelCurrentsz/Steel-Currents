@@ -559,14 +559,27 @@ export class MonsterRig {
     } else if (act === 'crush') {
       // Her hands driven together on the hull, her shoulders hunched over it,
       // her head down to it, snarling; then easing back to holding it.
-      const sq = window01(at, 0.3, 0.85, 1.1, 1.6);
-      const shake = Math.sin(t * 24) * 0.05 * sq;
+      // Her claws driven in (to about 0.7, when the battle says they are in),
+      // held there straining while the steel cracks between them -- a slow
+      // heavy tremble, not a shake -- and then the wrench that breaks the
+      // piece off (clawtear.js: CLAW_BREAK after they went in), and easing
+      // back to holding it.
+      const sq = window01(at, 0.25, 0.7, 1.9, 2.4);
+      const shake = Math.sin(t * 7.5) * 0.012 * sq * smooth(0.7, 1.0, at);
+      const rip = window01(at, 1.85, 2.05, 2.15, 2.5);
       if (S.pinned) {
         // Down on the hull where it lies: her weight driven into her hands.
         poseArms(add, ARMS.pin, shake);
         add('spine2', 0.06 * sq);
         add('chest', 0.06 * sq);
-        for (const n of ['L', 'R']) { add(`hand.${n}`, 0.15 * sq); add(`fingers.${n}`, 0.8 + 0.35 * sq); }
+        for (const [n, sg] of [['L', 1], ['R', -1]]) {
+          add(`hand.${n}`, 0.15 * sq - 0.25 * rip);
+          add(`fingers.${n}`, 0.8 + 0.35 * sq);
+          // The wrench: her hands torn back up and out, with the piece.
+          add(`upperArm.${n}`, -0.18 * rip, 0, 0.12 * sg * rip);
+          add(`foreArm.${n}`, 0.2 * rip);
+        }
+        add('spine2', -0.08 * rip);
         add('neck1', 0.05 * sq);
         add('neck2', 0.05 * sq);
         add('head', 0.08 * sq + shake * 0.5);
@@ -578,9 +591,9 @@ export class MonsterRig {
         poseArms(add, ARMS.hold, shake);
         add('chest', 0.05 * sq);
         for (const [n, sg] of [['L', 1], ['R', -1]]) {
-          add(`upperArm.${n}`, 0, 0, 0.18 * sg * sq);
-          add(`foreArm.${n}`, 0, 0.3 * sg * sq);
-          add(`hand.${n}`, 0.2 * sq);
+          add(`upperArm.${n}`, 0, 0, 0.18 * sg * sq - 0.2 * sg * rip);
+          add(`foreArm.${n}`, 0.15 * rip, 0.3 * sg * sq - 0.35 * sg * rip);
+          add(`hand.${n}`, 0.2 * sq - 0.3 * rip);
           add(`fingers.${n}`, 0.7 + 0.35 * sq);
         }
         add('neck1', -0.05 * sq);
@@ -588,43 +601,49 @@ export class MonsterRig {
         jaw += 0.2 + 0.25 * sq;
       }
     } else if (act === 'bite') {
-      // Her head drawn back, her jaws open, and the lunge: down and forward
-      // onto whatever is in front of her, or in her hands, the jaws snapping
-      // shut on it and her head wrenching side to side.
-      const draw = window01(at, 0, 0.3, 0.4, 0.55);
-      const lunge = window01(at, 0.4, 0.55, 0.85, 1.3);
-      const wrench = window01(at, 0.55, 0.7, 0.95, 1.2) * Math.sin(t * 14) * 0.12;
-      const open = window01(at, 0.05, 0.35, 0.5, 0.58);
+      // Not a snap. Her head drawn up and back, slowly, her jaws opening
+      // wide as it goes; then the strike, down and forward with her whole
+      // neck behind it, her jaws closing as they meet steel (when the battle
+      // has them close, at MONSTER.bite.hitAt); then, her teeth set in it,
+      // the tear: one long heavy heave of her head back and away to one side,
+      // her shoulders turning into it, and what she has bitten coming with it.
+      const draw = window01(at, 0, 0.38, 0.42, 0.56);
+      const lunge = window01(at, 0.4, 0.56, 0.75, 1.3);
+      const tear = window01(at, 0.6, 0.95, 1.05, 1.3);
+      const tw = (S.side || 1) * tear;
+      // Wide open as she draws back, shut on it as she strikes, and held shut.
+      const open = smooth(0.05, 0.4, at) * (1 - smooth(0.5, 0.58, at));
+      const clamp1 = smooth(0.52, 0.6, at) * (1 - smooth(1.0, 1.3, at));
       const holding = !!S.holding;
       if (S.pinned) {
         // Bent over the ship she is holding down, her head driven down onto
         // her between her hands.
         poseArms(add, ARMS.pin, 0);
         // (From her head held up and back in ARMS.pin, down to the deck.)
-        add('neck1', -0.12 * draw + 0.78 * lunge, wrench * 0.5);
-        add('neck2', -0.12 * draw + 0.78 * lunge, wrench);
-        add('head', -0.15 * draw + 0.36 * lunge, wrench * 0.6, wrench * 0.8);
+        add('neck1', -0.14 * draw + 0.78 * lunge - 0.2 * tear, 0.12 * tw);
+        add('neck2', -0.14 * draw + 0.78 * lunge - 0.2 * tear, 0.18 * tw);
+        add('head', -0.18 * draw + 0.36 * lunge - 0.1 * tear, 0.12 * tw, 0.1 * tw);
+        add('chest', 0, 0.06 * tw);
         for (const n of ['L', 'R']) add(`fingers.${n}`, 0.9);
-        jaw += 0.65 * open;
       } else if (holding) {
         // The ship up in her hands, held out where she holds it (ARMS.hold):
         // her head drawn further back, and the lunge down onto the near side
         // of the hull -- her jaws on its rail, not through it.
         poseArms(add, ARMS.hold, 0);
-        add('neck1', -0.1 * draw + BITE_HELD.neck * lunge, wrench * 0.5);
-        add('neck2', -0.1 * draw + BITE_HELD.neck * lunge, wrench);
-        add('head', -0.12 * draw + BITE_HELD.head * lunge, wrench * 0.6, wrench * 0.8);
+        add('neck1', -0.12 * draw + BITE_HELD.neck * lunge - 0.15 * tear, 0.1 * tw);
+        add('neck2', -0.12 * draw + BITE_HELD.neck * lunge - 0.15 * tear, 0.16 * tw);
+        add('head', -0.14 * draw + BITE_HELD.head * lunge - 0.08 * tear, 0.1 * tw, 0.08 * tw);
+        add('chest', 0, 0.05 * tw);
         for (const n of ['L', 'R']) add(`fingers.${n}`, 0.8);
-        jaw += 0.65 * open;
       } else {
-        add('spine2', 0.08 * lunge);
-        add('chest', -0.05 * draw + 0.14 * lunge);
-        add('neck1', -0.15 * draw + 0.25 * lunge);
-        add('neck2', -0.15 * draw + 0.25 * lunge, wrench);
-        add('head', -0.2 * draw + 0.22 * lunge, wrench * 0.6, wrench * 0.8);
+        add('spine2', 0.08 * lunge - 0.04 * draw);
+        add('chest', -0.06 * draw + 0.14 * lunge - 0.05 * tear, 0.07 * tw);
+        add('neck1', -0.18 * draw + 0.25 * lunge - 0.12 * tear, 0.1 * tw);
+        add('neck2', -0.18 * draw + 0.25 * lunge - 0.12 * tear, 0.16 * tw);
+        add('head', -0.22 * draw + 0.22 * lunge - 0.06 * tear, 0.1 * tw, 0.08 * tw);
         for (const n of ['L', 'R']) add(`fingers.${n}`, -0.2 * draw);
-        jaw += 0.65 * open;
       }
+      jaw += 0.7 * open - 0.03 * clamp1;
     } else if (act === 'charge') {
       // Gathering it: her head down and her body drawn in while the light
       // climbs her, then her head going back as it reaches her neck, and her
@@ -677,6 +696,24 @@ export class MonsterRig {
       for (let i = 0; i <= 8; i++) add(`tail${i}`, -0.03 * limp, 0.04 * limp);
       jaw = lerp(jaw + 0.5 * roar, 0.22, limp);
     }
+    // Something in her jaws (a gun torn off a deck, a piece of a hull): she
+    // works at it, her jaw chewing slowly and her head shaking it, heavy and
+    // short, and then throws it away with a toss of her head to one side --
+    // the moment the piece leaves her (Tossed.addMouth) is when she opens
+    // her jaws at the top of it.
+    if (this.mouthFull > 0 && act !== 'charge' && act !== 'fire' && act !== 'die') {
+      const left = this.mouthFull;
+      const gnaw = smooth(0, 0.3, 2.6 - left) * smooth(0.75, 1.0, left);
+      const flick = window01(left, 0.25, 0.4, 0.55, 0.9);
+      const side = this.mouthSide || 1;
+      add('neck2', 0.05 * gnaw * Math.sin(t * 3.1), 0.07 * gnaw * Math.sin(t * 2.3) + 0.35 * side * flick);
+      add('head', 0.04 * gnaw * Math.sin(t * 3.1 + 0.8), 0.05 * gnaw * Math.sin(t * 2.3 + 0.5) + 0.2 * side * flick, 0.12 * side * flick);
+      add('neck1', -0.1 * flick, 0.15 * side * flick);
+      add('chest', 0, 0.06 * side * flick);
+      // Chewing: shut on it, opening a little and biting down again; open
+      // wide as it goes.
+      jaw = Math.min(jaw, 0.12) + 0.1 * gnaw * Math.max(0, Math.sin(t * 4.2)) + 0.45 * smooth(0.5, 0.42, left) * (left > 0.2 ? 1 : 0);
+    }
     // Her look, which is her head's and her neck's: added below in the
     // world's up, not here. Her jaw, eased.
     this.jawNow += (jaw - this.jawNow) * (1 - Math.exp(-dt / 0.12));
@@ -686,6 +723,12 @@ export class MonsterRig {
   update(dt, S = {}) {
     dt = Math.min(0.1, Math.max(0, dt));
     this.t += dt;
+    // A mouthful: how long she goes on gnawing it before she throws it.
+    if (this.mouthFull > 0) {
+      if (!this.mouthSide) this.mouthSide = Math.random() < 0.5 ? -1 : 1;
+      this.mouthFull = Math.max(0, this.mouthFull - dt);
+      if (!this.mouthFull) this.mouthSide = 0;
+    }
     const ease = (tau) => 1 - Math.exp(-dt / tau);
     this.speedNow += ((S.speed || 0) - this.speedNow) * ease(0.6);
     this.yawRateNow += ((S.yawRate || 0) - this.yawRateNow) * ease(0.5);
@@ -700,7 +743,12 @@ export class MonsterRig {
     const want = pose === 'stand' ? 1 : 0;
     this.upright += (want - this.upright) * ease(1.1);
     let y = BODY_Y[pose] ?? BODY_Y.swim;
-    if (act === 'die') y = lerp(y, BODY_Y.deep * 1.4, smooth(3, 20, S.actT || 0));
+    // Her feet on the ground under her: wading up a beach she rises out of
+    // the water a step at a time, and ashore she stands on the land itself.
+    const ground = S.ground ?? -1e3;
+    if (ground > y) y = ground;
+    this.ashore = ground > -6;
+    if (act === 'die') y = lerp(y, this.ashore ? ground - 10 : BODY_Y.deep * 1.4, smooth(3, 20, S.actT || 0));
     this.bodyY += (y - this.bodyY) * ease(pose === 'deep' || act === 'die' ? 2.2 : 1.4);
     this.pose(S, dt);
     // Each footfall settles her a little in the water.

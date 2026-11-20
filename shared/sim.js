@@ -150,6 +150,8 @@ function berth(world, team, index, at, cls) {
  * the bottom before the battle has begun.
  */
 export function afloatAt(world, cls, x, z, heading = 0) {
+  // Monster One walks: a berth ashore is as good to her as one at sea.
+  if (cls.monster) return true;
   if (islandAt(world, x, z, shipClearance(cls))) return false;
   return keelContact(world, { depth: 0 }, cls, x, z, heading).pen <= 0;
 }
@@ -908,7 +910,10 @@ function stepMovement(state, ship, dt) {
   }
   // The bottom. She draws so many metres and the sea is so deep here; where
   // the ground comes up higher than her keel she is on it.
-  if (!touchBottom(state, ship, cls, h0, nx, nz, dt)) { ship.x = nx; ship.z = nz; }
+  // (Monster One has legs: she wades out of the sea and walks on over the
+  // land, and nothing under her holds her.)
+  if (cls.monster) { ship.x = nx; ship.z = nz; ship.aground = 0; }
+  else if (!touchBottom(state, ship, cls, h0, nx, nz, dt)) { ship.x = nx; ship.z = nz; }
   // A landing craft run up on the beach lets her ramp go.
   if (cls.ramp) rampStep(state, ship, cls);
 
@@ -2371,6 +2376,14 @@ export function orderAttack(state, team, kind, id, foeKind, targetId) {
     if (!cease && air) return 0;
     const all = ship.fleet ? state.ships.filter((s) => s.alive && s.fleet === ship.fleet) : [ship];
     for (const s of all) {
+      // Monster One has no guns to lay: the ship is marked for her atomic
+      // breath, which goes at it as soon as it is ready (see monster.js).
+      if (shipClass(s).monster) {
+        if (cease) { monsterOrder(state, s, { a: 'mark', target: 0 }, MONSTER_HOOKS); n++; continue; }
+        if (foeKind !== 'ship') continue;
+        if (monsterOrder(state, s, { a: 'mark', target: targetId, add: 1 }, MONSTER_HOOKS) === '') { s.ordered = targetId; n++; }
+        continue;
+      }
       if (cease) {
         s.assign = {};
         s.ordered = 0;
@@ -7917,6 +7930,8 @@ const MONSTER_HOOKS = {
   steerToward: (...a) => steerToward(...a),
   bite: (d) => nukeBite(d, false, nukeScale(1000)),
   tear: (...a) => monsterTear(...a),
+  // How high the ground is under her: below nought the sea bed, above it land.
+  ground: (state, x, z) => groundHeight(state.world, x, z),
 };
 export { MONSTER_HOOKS, monsterOrder };
 
@@ -7979,7 +7994,7 @@ function monsterTear(state, t, mo, how) {
     // Away from her, flung to one side or the other of where she is facing.
     const turn = (state.rng() - 0.5) * 2.2;
     const away = headingTo(mo.x, mo.z, t.x, t.z) + turn;
-    tossMount(state, t, cls, near[k].g, how, { x: Math.sin(away), z: Math.cos(away) });
+    tossMount(state, t, cls, near[k].g, how, { x: Math.sin(away), z: Math.cos(away) }, how === 'claw' ? 0.3 : 0.7, mo.id);
   }
   const r1 = (v) => Math.round(v * 10) / 10;
   return { lx: r1(lx), ly: r1(ly), lz: r1(lz), r: r1(rad), sd: Math.floor(state.rng() * 1e6) };
@@ -8482,7 +8497,7 @@ export function magazineFire(state, ship, where, owner, bore = 0) {
     t.disabled = Math.max(t.disabled || 0, 40 * k);
     hurtMount(state, t, 1.6 * k);
     if (state.rng() < lift) {
-      tossMount(state, ship, cls, { k: 'main', i: t.id, s: cls.turrets[t.id], m: t, bore: (cls.gun?.caliber || 150) / 1000 }, 'mag');
+      tossMount(state, ship, cls, { k: 'main', i: t.id, s: cls.turrets[t.id], m: t, bore: (cls.gun?.caliber || 150) / 1000 }, 'mag', null, 0.2 + 0.35 * k * state.rng());
     }
   }
   if (cls.secondary) {
@@ -8491,7 +8506,7 @@ export function magazineFire(state, ship, where, owner, bore = 0) {
       m.disabled = Math.max(m.disabled || 0, 40 * k);
       hurtMount(state, m, 1.6 * k);
       if (state.rng() < lift * 0.8) {
-        tossMount(state, ship, cls, { k: 'sec', i: m.id, s: cls.secondary.mounts[m.id], m, bore: (cls.secondary.caliber || 100) / 1000 }, 'mag');
+        tossMount(state, ship, cls, { k: 'sec', i: m.id, s: cls.secondary.mounts[m.id], m, bore: (cls.secondary.caliber || 100) / 1000 }, 'mag', null, 0.25 + 0.4 * k * state.rng());
       }
     }
   }
@@ -8737,7 +8752,7 @@ export function mountTossed(ship, kind, i) {
  * `dir` is which way it goes, in the world, when something threw it; for a
  * magazine it goes up and over whichever side it stood nearest.
  */
-function tossMount(state, ship, cls, g, how, dir = null) {
+function tossMount(state, ship, cls, g, how, dir = null, pw = 0.5, by = 0) {
   if (!ship || !g) return false;
   const key = `${g.k}:${g.i}`;
   if ((ship.fell && ship.fell[key]) || (ship.toss && ship.toss[key])) return false;
@@ -8761,6 +8776,13 @@ function tossMount(state, ship, cls, g, how, dir = null) {
     x: r(ship.x + w.x), y: r(top), z: r(ship.z + w.z),
     dx: Math.round((dx / dl) * 100) / 100, dz: Math.round((dz / dl) * 100) / 100,
     sd: Math.floor(state.rng() * 1e6),
+    // How hard what took it off was, nought to one: a big magazine throws a
+    // turret up and over; a small one, or charges burning rather than going
+    // off, only shifts it off its ring, and it slides off her into the sea.
+    pw: Math.round(clamp(pw, 0, 1) * 100) / 100,
+    // Monster One, when it is she that has it: in her jaws, it is carried in
+    // them, gnawed and thrown away with a toss of her head.
+    ...(by ? { by } : {}),
   });
   return true;
 }
@@ -8940,7 +8962,7 @@ function readyUse(state, ship, cls, g, owner, depth) {
   // in its gunhouse and its hoist take it clean off her and into the sea.
   // A light mounting goes most easily; a heavy turret only now and then.
   const lifts = g.k === 'aa' ? 0.5 : g.k === 'sec' ? 0.4 : 0.3;
-  if (state.rng() < lifts) tossMount(state, ship, cls, g, 'mag');
+  if (state.rng() < lifts) tossMount(state, ship, cls, g, 'mag', null, 0.15 + 0.6 * state.rng());
   const hole = 1 + g.bore * 4;
   if ((g.s.my ?? deckY) <= deckY + 3) holeDeck(state, ship, where, Math.PI * hole * hole * 0.25, at);
   const w = localToWorld(at.x, at.z, ship.heading);

@@ -32886,6 +32886,66 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.equal(MO.readMonsterWire(shipSnapshot(mo, false, state).mo).pose, 'swim');
   });
 
+  check('Monster One walks up out of the sea and over the land on her own legs, and can be berthed ashore', () => {
+    const world = generateWorld(77, 'archipelago');
+    // Somewhere well inland on one of its islands.
+    let land = null;
+    for (let x = -6800; x <= 6800 && !land; x += 100) {
+      for (let z = -6800; z <= 6800; z += 100) {
+        if (groundHeight(world, x, z) > 15 && groundHeight(world, x, z + 300) > 8 && groundHeight(world, x, z + 150) > 8) { land = { x, z }; break; }
+      }
+    }
+    assert.ok(land, 'no land in the world to walk on');
+    const cls = SHIP_CLASSES.monsterone;
+    assert.ok(afloatAt(world, cls, land.x, land.z, 0), 'a berth ashore is refused her');
+    const state = createState(world, { mode: 'deathmatch' });
+    const mo = addShip(state, { name: 'Monster One', classId: 'monsterone', team: 0, index: 0, at: { x: land.x, z: land.z, h: 0 } });
+    assert.ok(Math.hypot(mo.x - land.x, mo.z - land.z) < 1, `she was moved off her berth ashore to ${mo.x}, ${mo.z}`);
+    mo.heading = 0; mo.notch = 3;
+    run(state, 1);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'pose', pose: 'deep' }, SIM.MONSTER_HOOKS), 'ashore');
+    const z0 = mo.z;
+    run(state, 6);
+    assert.ok(mo.alive, 'the land killed her');
+    assert.ok(mo.z - z0 > 10, `she did not walk: ${mo.z - z0} m`);
+    assert.ok(!mo.aground, 'she is aground');
+    const w = MO.readMonsterWire(shipSnapshot(mo, false, state).mo);
+    assert.equal(w.pose, 'stand');
+    assert.ok(w.ashore, 'her wire does not say she is ashore');
+    // And her tail, standing on land.
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'tail', side: 1 }, SIM.MONSTER_HOOKS), '');
+    assert.equal(mo.mo.act, 'tail');
+  });
+
+  check('Monster One\'s Attack key marks ships for her breath, and each gets it as soon as it is ready', () => {
+    const { state, mo, ships } = field([['fletcher', 0, 3000], ['fletcher', 2500, 5000], ['fletcher', 0, 40000]]);
+    const [a, b, far] = ships;
+    assert.equal(orderAttack(state, 0, 'ship', mo.id, 'ship', a.id), 1);
+    assert.equal(orderAttack(state, 0, 'ship', mo.id, 'ship', b.id), 1);
+    let ev = run(state, 0.2);
+    const first = ev.find((e) => e.e === 'moCharge');
+    assert.ok(first, 'the first marked ship was not breathed at');
+    assert.equal(mo.mo.aimId, a.id);
+    assert.deepEqual(mo.mo.marks, [b.id]);
+    assert.deepEqual(MO.readMonsterWire(shipSnapshot(mo, false, state).mo).marks, [b.id]);
+    run(state, MO.MONSTER.breath.climb + MO.MONSTER.breath.throat + MO.MONSTER.breath.fire + 0.5);
+    // Not again until it is ready: then at the next.
+    assert.ok(mo.mo.cool > 0);
+    mo.mo.cool = 0;
+    ev = run(state, 0.3);
+    assert.ok(ev.find((e) => e.e === 'moCharge'), 'the second marked ship was not breathed at');
+    assert.ok(!b.alive || mo.mo.aimId === b.id);
+    // A ship beyond the beam's reach asked for by name is refused, not
+    // breathed at the empty sea short of her.
+    mo.mo.act = ''; mo.mo.cool = 0;
+    far.x = mo.x; far.z = mo.z + MO.MONSTER.breath.range + 1500;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'breath', target: far.id }, SIM.MONSTER_HOOKS), 'far');
+    // Cease clears them.
+    SIM.monsterOrder(state, mo, { a: 'mark', target: far.id }, SIM.MONSTER_HOOKS);
+    assert.equal(orderAttack(state, 0, 'ship', mo.id, null, 0), 1);
+    assert.deepEqual(mo.mo.marks, []);
+  });
+
   const mind = (foes, friends, sec = 12) => pinned(() => {
     const { state, mo } = field(foes, friends);
     for (const q of state.ships) q.spottedBy = [true, true];

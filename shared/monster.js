@@ -116,7 +116,10 @@ export const MONSTER = {
     heavyToss: 0.4,
   },
   // Her hands closed hard on the ship she holds: the hull buckled in them.
-  crush: { time: 1.6, hitAt: 0.85, share: 0.22, flat: 9000, cooldown: 4 },
+  // Her claws go in at `hitAt`; the steel cracks between them and the piece
+  // breaks off a second and a half later (see client/js/render/clawtear.js),
+  // and she eases back to holding it by `time`.
+  crush: { time: 2.5, hitAt: 0.7, share: 0.22, flat: 9000, cooldown: 4 },
   // Her jaws: on the ship in her hands, or on one in front of her.
   // Her jaws are where her head is: standing, a little ahead of her chest,
   // and lunging down to the water; swimming, out at the front of her. A hull
@@ -137,6 +140,9 @@ export const MONSTER = {
   speed: { deep: 36, swim: 30, stand: 11 },
   // How long a change of posture takes before she can act out of it.
   settle: 1.6,
+  // Ground higher than this under her (metres, the sea bed below nought) is
+  // too shallow to swim or dive in: she stands, and walks.
+  wade: -30,
 };
 
 export const POSES = ['deep', 'swim', 'stand'];
@@ -228,6 +234,9 @@ export function monsterOf(ship) {
       // What the beam is doing: where it struck and whether it has.
       beam: null,
       roarT: 0,
+      // Ships her captain has marked for her breath (the Attack key): each
+      // gets the next one as soon as it is ready, in the order marked.
+      marks: [],
     };
   }
   return ship.mo;
@@ -249,6 +258,9 @@ export function monsterTopSpeed(ship) {
 
 function setPose(ship, pose) {
   const m = monsterOf(ship);
+  // Ashore, or in water too shallow to swim in, she can only stand: she
+  // walks on her own legs until there is sea deep enough to go down in.
+  if (m.ashore && pose !== 'stand') pose = 'stand';
   if (m.pose === pose) return;
   m.pose = pose;
   m.poseT = 0;
@@ -292,6 +304,7 @@ export function monsterOrder(state, ship, o, hooks) {
   switch (o.a) {
     case 'pose': {
       if (!POSES.includes(o.pose)) return 'bad';
+      if (m.ashore && o.pose !== 'stand') return 'ashore';
       if (m.act === 'charge' || m.act === 'fire') return 'busy';
       // Going down with a ship in her hands, she lets go of her.
       if (o.pose === 'deep' && m.holdId) letGo(state, ship, hooks);
@@ -303,6 +316,12 @@ export function monsterOrder(state, ship, o, hooks) {
     case 'breath': {
       if (m.cool > 0) return 'cooling';
       if (m.act === 'charge' || m.act === 'fire') return 'busy';
+      // A ship asked for by name that is beyond the reach of the beam is
+      // refused, not breathed at the empty sea short of her.
+      if (o.target) {
+        const t = state.ships.find((s) => s.id === o.target && s.alive);
+        if (t && dist(ship.x, ship.z, t.x, t.z) > MONSTER.breath.range) return 'far';
+      }
       const { aim, aimId } = breathAim(state, ship, o);
       // Whatever is in her hands goes first.
       if (m.holdId) letGo(state, ship, hooks);
@@ -313,6 +332,19 @@ export function monsterOrder(state, ship, o, hooks) {
       m.charge = 0;
       m.queued = null;
       state.events.push({ e: 'moCharge', ship: ship.id, tm: ship.team, x: Math.round(aim.x), z: Math.round(aim.z) });
+      return '';
+    }
+    case 'mark': {
+      // Mark a ship for her breath, or with no target clear the marks.
+      if (!o.target) { m.marks = []; return ''; }
+      const t = state.ships.find((q) => q.id === o.target && q.alive && q.team !== ship.team && !shipClass(q).monster);
+      if (!t) return 'none';
+      if (!m.marks) m.marks = [];
+      if (!o.add) m.marks = [];
+      if (!m.marks.includes(t.id)) m.marks.push(t.id);
+      if (m.marks.length > 6) m.marks.shift();
+      // Ready now: at the first of them, at once.
+      breatheAtMark(state, ship, m, hooks);
       return '';
     }
     case 'cancel': {
@@ -327,7 +359,9 @@ export function monsterOrder(state, ship, o, hooks) {
       const side = o.side === -1 || o.side === 1 ? o.side : tailSide(state, ship);
       // From the surface: standing, her tail is too deep to swing out of the
       // sea, and she drops forward onto the water first.
-      if (!settled(ship, 'swim')) { setPose(ship, 'swim'); m.queued = { a: 'tail', side }; return ''; }
+      // Ashore her tail is out of the water behind her, and she swings it
+      // standing.
+      if (!m.ashore && !settled(ship, 'swim')) { setPose(ship, 'swim'); m.queued = { a: 'tail', side }; return ''; }
       m.side = side;
       startAct(m, 'tail');
       m.tailHit = false;
@@ -404,6 +438,39 @@ export function monsterOrder(state, ship, o, hooks) {
   }
 }
 
+/**
+ * Her breath at the first ship marked for it that is still afloat, if it is
+ * ready and she is free to: not with a ship in her hands or her breath
+ * already gathering. A mark too far off waits until she has closed it.
+ */
+function breatheAtMark(state, ship, m, hooks) {
+  if (!m.marks || !m.marks.length) return false;
+  m.marks = m.marks.filter((id) => state.ships.some((q) => q.id === id && q.alive));
+  if (!m.marks.length || m.cool > 0 || m.holdId) return false;
+  if (m.act && m.act !== 'roar' && m.act !== '') return false;
+  const B = MONSTER.breath;
+  for (const id of m.marks) {
+    const t = state.ships.find((q) => q.id === id);
+    const d = dist(ship.x, ship.z, t.x, t.z);
+    if (d > B.range) continue;
+    if (monsterOrder(state, ship, { a: 'breath', target: id }, hooks) === '') {
+      m.marks = m.marks.filter((q) => q !== id);
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The first ship marked for her breath that is still afloat, for her to close. */
+export function markedFoe(state, ship) {
+  const m = monsterOf(ship);
+  for (const id of m.marks || []) {
+    const t = state.ships.find((q) => q.id === id && q.alive);
+    if (t) return t;
+  }
+  return null;
+}
+
 /** Which side of her the nearest enemy ship is, for her tail. */
 function tailSide(state, ship) {
   let best = null, bd = Infinity;
@@ -474,7 +541,7 @@ function breathAim(state, ship, o) {
   else if (Number.isFinite(o.x) && Number.isFinite(o.z)) aim = { x: o.x, z: o.z };
   if (aim && !aimId) {
     // Near an enemy ship: at her.
-    let best = null, bd = 700;
+    let best = null, bd = 1200;
     for (const s of state.ships) {
       if (!s.alive || s.team === ship.team || shipClass(s).monster) continue;
       const d = dist(aim.x, aim.z, s.x, s.z);
@@ -536,9 +603,19 @@ export function stepMonster(state, ship, dt, hooks) {
   ship.sink = 0; ship.heel = 0; ship.trim = 0;
   // She does not run out of air: she comes up when she chooses.
   ship.oxygen = cls.dive.oxygen;
+  // What is under her feet: the sea bed, or the land she has walked up
+  // onto. Too shallow to swim in -- a beach, a shoal, an island -- and she is
+  // up on her legs, walking, whatever she was doing in the water.
+  const ground = hooks.ground ? hooks.ground(state, ship.x, ship.z) : -1e3;
+  m.ground = ground;
+  m.ashore = ground > MONSTER.wade;
+  if (m.ashore && m.pose !== 'stand') {
+    if (m.act === 'tail' && m.pose === 'swim') { /* finishes where it is */ } else setPose(ship, 'stand');
+  }
   // Deep is the dive, and the dive is hers to order: the dive's own
   // order is kept in step with her posture.
   ship.depthCmd = m.pose === 'deep' ? MONSTER.deep : 0;
+  if (m.ashore) ship.depth = Math.min(ship.depth, 0.5);
 
   // Healing, when she has been let alone.
   if (state.t - m.hurtAt > MONSTER.heal.after && ship.hp < ship.maxHp) {
@@ -556,6 +633,9 @@ export function stepMonster(state, ship, dt, hooks) {
       m.queued = null;
     }
   }
+
+  // A ship marked for her breath gets it the moment it is ready.
+  if (m.marks && m.marks.length && !m.act && m.cool <= 0) breatheAtMark(state, ship, m, hooks);
 
   // The glow dies away when she is not gathering the breath.
   if (m.act !== 'charge' && m.act !== 'fire') m.glow = Math.max(0, m.glow - dt / 3);
@@ -1036,6 +1116,10 @@ export function monsterWire(ship) {
     Math.ceil(m.crushCool),
     // The ship in her hands is one she is holding down, not lifting.
     m.holdId && m.pin ? 1 : 0,
+    // On her feet ashore, or in water too shallow to swim.
+    m.ashore ? 1 : 0,
+    // The ships marked for her breath, in order.
+    (m.marks || []).slice(0, 6),
   ];
 }
 
@@ -1057,6 +1141,8 @@ export function readMonsterWire(w) {
     biteCool: w[13] || 0,
     crushCool: w[14] || 0,
     pin: !!w[15],
+    ashore: !!w[16],
+    marks: Array.isArray(w[17]) ? w[17] : [],
   };
 }
 
@@ -1179,8 +1265,14 @@ function plan(state, ship, m, B, foes, seen, friends, hpFrac, hooks) {
     return { go: away, pose: 'deep', notch: 5 };
   }
 
+  // A ship her side has marked for her breath: closed to within reach of it.
+  const mark = markedFoe(state, ship);
+  if (mark && dist(ship.x, ship.z, mark.x, mark.z) > MONSTER.breath.range * 0.9) {
+    return { go: lead(ship, mark), pose: 'swim', notch: 5 };
+  }
+
   // The breath, where it pays.
-  if (m.cool <= 0 && !m.holdId && seen.length) {
+  if (m.cool <= 0 && !m.holdId && seen.length && !mark) {
     const best = breathTarget(state, ship, seen, friends, hooks);
     if (best) return { order: { a: 'breath', target: best.id }, go: null, pose: 'stand', notch: 1 };
   }
