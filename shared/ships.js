@@ -16584,6 +16584,151 @@ export const SHIP_CLASSES = {
     },
   },
 
+  taiho: {
+    // IJN Taihō, the one armoured carrier Japan finished: thirty-seven
+    // thousand tonnes at full load, thirty-three knots, a hangar under a
+    // flight deck plated with seventy-five millimetres of steel between her
+    // two lifts so that a 500 lb bomb would not go through it, and a big
+    // island to starboard with her funnel raked out over the water in the
+    // manner of the Junyō's. She was Ozawa's flagship in the Philippine Sea
+    // and on the morning of 19 June 1944 took one torpedo from the submarine
+    // Albacore; her damage control vented the fumes from her split aviation
+    // fuel tanks through her ship, and six and a half hours later a spark set
+    // them off and she blew up and sank.
+    //
+    // She is drawn from the owner's model of the Taihō as she was to have
+    // been repeated -- "IJN Hakuryuu" by SB-129, under Creative Commons
+    // Attribution 4.0, credited on the Credits screen (see taiho.js and
+    // build/prepare-taiho-hull.mjs) -- painted as the Shokaku is, at the
+    // Taihō's own 260.6 m and floated at her 9.59 m, and armed as the model
+    // arms her: twelve twin 10 cm/65 Type 98 in sponsons under her deck edge,
+    // six a side, and twenty-two triple 25 mm. She flies a hundred and twenty-
+    // six aircraft: Zeros, Suiseis and Tenzans.
+    id: 'taiho',
+    name: 'Taihō',
+    fullName: 'IJN Taihō',
+    className: 'Taihō',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'jpn',
+    blurb: 'A hundred and twenty-six Zeros, Suiseis and Tenzans under an armoured flight deck: Ozawa\'s flagship in the Philippine Sea.',
+    // Her 260.6 m over all, stem to stern; 9.59 m draught.
+    hull: { length: 260.6, beam: 27.7, draft: 9.59, superstructure: 0.6, flightDeck: true },
+    hp: 58000,
+    maxSpeed: 33.3 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.48,
+    turnRate: 0.055,
+    rudderShift: 12.0,
+    speedLossInTurn: 0.17,
+    concealment: 15900,
+    fireDetectPenalty: 5900,
+    radarRange: 15000,
+    repairCooldown: 95,
+    repairHeal: 0.11,
+    smokeCharges: 0,
+    // A cruiser's belt -- 55 mm abreast her machinery, 165 abreast her
+    // magazines -- and her flight deck itself armoured: 75 mm of steel over
+    // twenty of plating between her lifts, and 32 mm over her hangar deck.
+    armor: { belt: 165, deck: 75, citadel: 165, bow: 25, superstructure: 13 },
+    // Her twelve twin 10 cm/65 Type 98, the Akizukis' gun, in sponsons under
+    // her deck edge: three a side forward of her island and three a side
+    // aft. Each fires out over her own side.
+    turrets: [
+      { id: 0, name: 'S1', x: -13.692, z: 86.896, angle: -1.59, arc: 1.5, rest: -1.5862, guns: 2, my: 9.78 },
+      { id: 1, name: 'P1', x: 13.687, z: 86.752, angle: 1.56, arc: 1.5, rest: 1.5602, guns: 2, my: 9.78 },
+      { id: 2, name: 'S2', x: -14.992, z: 71.401, angle: -1.59, arc: 1.5, rest: -1.5867, guns: 2, my: 9.78 },
+      { id: 3, name: 'P2', x: 14.99, z: 71.253, angle: 1.56, arc: 1.5, rest: 1.5597, guns: 2, my: 9.78 },
+      { id: 4, name: 'S3', x: -16.285, z: 55.511, angle: -1.58, arc: 1.5, rest: -1.5805, guns: 2, my: 9.78 },
+      { id: 5, name: 'P3', x: 16.283, z: 55.361, angle: 1.55, arc: 1.5, rest: 1.5547, guns: 2, my: 9.78 },
+      { id: 6, name: 'S4', x: -14.605, z: -50.944, angle: -1.59, arc: 1.5, rest: -1.5866, guns: 2, my: 9.79 },
+      { id: 7, name: 'P4', x: 17.534, z: -51.096, angle: 1.55, arc: 1.5, rest: 1.5548, guns: 2, my: 9.79 },
+      { id: 8, name: 'S5', x: -14.433, z: -73.269, angle: -1.58, arc: 1.5, rest: -1.5815, guns: 2, my: 9.78 },
+      { id: 9, name: 'P5', x: 17.536, z: -73.413, angle: 1.56, arc: 1.5, rest: 1.5601, guns: 2, my: 9.78 },
+      { id: 10, name: 'S6', x: -13.72, z: -90.491, angle: -1.58, arc: 1.5, rest: -1.5804, guns: 2, my: 9.79 },
+      { id: 11, name: 'P6', x: 17.528, z: -90.64, angle: 1.55, arc: 1.5, rest: 1.5549, guns: 2, my: 9.79 },
+    ],
+    gun: {
+      name: '10 cm/65 Type 98', role: 'dp',
+      elev: { min: -0.175, max: 1.57 },
+      reach: 5.2,
+      caliber: 100, reload: 3.2, traverse: 0.28, range: 8500, sigma: 1.1,
+      shells: shells(100, 1300, 1150, 45, 1000, 0.06),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 3000, dps: 120,
+      guns: [
+        // Her twenty-two triple 25 mm Type 96: two on her island, seventeen
+        // in tubs along her galleries, and three on her quarterdeck under
+        // her round-down.
+        { name: '25 mm Type 96 triple', caliber: 25, role: 'aa', reload: 0.16, range: 3000, piece: 'aa3',
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+          { x: -14.853, z: 48.584, angle: 0, arc: 1.5, rest: 0, guns: 3, my: 13.71 },
+          { x: -15.681, z: 44.762, angle: 0, arc: 1.5, rest: 0.0006, guns: 3, my: 13.7 },
+          { x: -20.141, z: 40.041, angle: -1.57, arc: 1.5, rest: -1.5702, guns: 3, my: 11.09 },
+          { x: 18.115, z: 34.273, angle: 1.57, arc: 1.5, rest: 1.5708, guns: 3, my: 11.08 },
+          { x: -20.141, z: 34.262, angle: -1.57, arc: 1.5, rest: -1.5712, guns: 3, my: 11.08 },
+          { x: 18.38, z: 28.409, angle: 1.57, arc: 1.5, rest: 1.5708, guns: 3, my: 11.08 },
+          { x: -20.151, z: 28.413, angle: -1.57, arc: 1.5, rest: -1.5714, guns: 3, my: 11.08 },
+          { x: 18.373, z: 22.354, angle: 1.57, arc: 1.5, rest: 1.571, guns: 3, my: 11.08 },
+          { x: 18.36, z: 8.257, angle: 1.57, arc: 1.5, rest: 1.5717, guns: 3, my: 11.08 },
+          { x: 18.36, z: 2.212, angle: 1.57, arc: 1.5, rest: 1.5708, guns: 3, my: 11.08 },
+          { x: 18.36, z: -3.818, angle: 1.57, arc: 1.5, rest: 1.5708, guns: 3, my: 11.08 },
+          { x: -15.718, z: -15.162, angle: -1.57, arc: 1.5, rest: -1.57, guns: 3, my: 11.1 },
+          { x: -15.718, z: -20.464, angle: -1.57, arc: 1.5, rest: -1.5708, guns: 3, my: 11.1 },
+          { x: 18.36, z: -21.54, angle: 1.57, arc: 1.5, rest: 1.5708, guns: 3, my: 11.08 },
+          { x: -15.718, z: -25.773, angle: -1.57, arc: 1.5, rest: -1.5716, guns: 3, my: 11.1 },
+          { x: 18.366, z: -27.844, angle: 1.57, arc: 1.5, rest: 1.5711, guns: 3, my: 11.08 },
+          { x: -15.718, z: -31.061, angle: -1.57, arc: 1.5, rest: -1.5708, guns: 3, my: 11.1 },
+          { x: 18.366, z: -34.246, angle: 1.57, arc: 1.5, rest: 1.5708, guns: 3, my: 11.08 },
+          { x: -15.718, z: -36.359, angle: -1.57, arc: 1.5, rest: -1.5708, guns: 3, my: 11.1 },
+          { x: -3.338, z: -126.421, angle: -3.14, arc: 1.5, rest: -3.141, guns: 3, my: 11.26 },
+          { x: 3.336, z: -126.421, angle: -3.14, arc: 1.5, rest: -3.141, guns: 3, my: 11.26 },
+          { x: -0.017, z: -128.262, angle: 3.14, arc: 1.5, rest: 3.141, guns: 3, my: 11.26 },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 3, perSquadron: 18, cruiseSpeed: 82, strikeRange: 15800,
+      // Where her aircraft put their wheels down coming home: just up the
+      // deck from her round-down, short of her after lift.
+      touchdown: { z: -105, y: 10.82 },
+      // What she flew in 1944: the A6M Zero, the Suisei with her 500 kg bomb
+      // in her belly, and the Tenzan with a Type 91 under her.
+      types: { fighter: 'zero', dive: 'suisei', torpedo: 'tenzan' },
+      // Where her deck run hands each of her types over to the air, off the
+      // integrated launch from her own deck (see carrier.js).
+      runOut: { fighter: 298.5, dive: 289.0, torpedo: 273.5 },
+      runHeight: { fighter: 16.8, dive: 16.2, torpedo: 14.4 },
+      rearm: 42, torpDamage: 9800, torpSpeed: 29 * KNOTS, torpRange: 3000,
+      floodChance: 0.28, hp: 1350, dropSpread: 0.05,
+      // A Suisei's 500 kg bomb, from a steep dive at speed.
+      bombDamage: 4200, bombHit: 0.42, bombFire: 0.36, bombPen: 110, bombBore: 0.36,
+      // A hundred and twenty-six aircraft in her hangars and on her deck,
+      // split however her captain likes: any one type may fill all of them.
+      group: {
+        total: 126,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 126, dive: 126, torpedo: 126 },
+        minStrike: 0,
+        // Forty-eight Zeros, forty-two Suiseis and thirty-six Tenzans.
+        default: { fighters: 48, dive: 42, torpedo: 36 },
+      },
+    },
+    datasheet: {
+      displacement: 37270,
+      aircraft: 0,
+      mainRounds: 4800,
+      secondary: null,
+      tertiary: [
+        { caliber: 25, label: '25mm', barrels: 66, rounds: 99000 },
+      ],
+    },
+  },
+
   shinano: {
     // The third Yamato hull, converted on the slip into an armoured carrier
     // and the largest warship ever built to carry aircraft until the nuclear
@@ -18861,7 +19006,7 @@ for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'suzuya', 'yodo', 'agano', 'aoba', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
   'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
-  'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
+  'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the

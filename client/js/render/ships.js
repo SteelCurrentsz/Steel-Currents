@@ -119,6 +119,7 @@ const SCULPTED = {
   hosho: () => import('./hosho.js').then((m) => { CARRIERS.hosho = m.buildHosho; }),
   soryu: () => import('./soryu.js').then((m) => { CARRIERS.soryu = m.buildSoryu; }),
   akagi: () => import('./akagi.js').then((m) => { CARRIERS.akagi = m.buildAkagi; }),
+  taiho: () => import('./taiho.js').then((m) => { CARRIERS.taiho = m.buildTaiho; }),
   essex: () => import('./essex.js').then((m) => { CARRIERS.essex = m.buildEssex; }),
   lexington: () => import('./lexington.js').then((m) => { CARRIERS.lexington = m.buildLexington; }),
   victory: () => import('./victory.js').then((m) => { KRISS.victory = m.buildVictory; }),
@@ -172,7 +173,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'hornet', 'nimitz', 'ford', 'essex', 'lexington'].includes(classId) ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'essex', 'lexington'].includes(classId) ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */

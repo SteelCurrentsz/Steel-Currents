@@ -76,6 +76,7 @@ const inBox = (b, x, y, z, slack = 0) => (!b.x || (x >= b.x[0] - slack && x <= b
  *   floaters             { gap, near, keep }: take off whatever the export left adrift
  *   wound                the model's faces are wound to look out already: leave them
  *   cutAll               cut every face of her along her paint lines, not her shell's alone
+ *   shiftX               metres to move her across, onto her hull's own middle
  */
 export async function prepare(cfg) {
   const MeshoptSimplifier = await simplifier();
@@ -160,6 +161,11 @@ export async function prepare(cfg) {
     }
     console.log(`ends: over all ${((hi[2] - lo[2]) * SCALE).toFixed(2)} m with her staffs, ${LOA} m stem to stern`);
   }
+  // `shiftX`: a model whose centreline is not the middle of everything it
+  // draws -- an island and its sponsons hung out over one side wider than the
+  // galleries on the other -- is moved that many metres across, onto her
+  // hull's own middle.
+  if (cfg.shiftX) XC += cfg.shiftX / SCALE;
   // Floated at her draught: her keel -- the lowest of her -- that far under.
   const SINK = DRAUGHT + lo[1] * SCALE + (cfg.lift || 0);
   for (let i = 0; i < model.P.length; i += 3) {
@@ -168,6 +174,20 @@ export async function prepare(cfg) {
     model.P[i + 2] = (model.P[i + 2] - ZC) * SCALE;
   }
   const BEAM = (hi[0] - lo[0]) * SCALE;
+  if (process.env.MIDSHIPS) {
+    // Her sides a metre either side of her waterline, every twenty metres.
+    const out = [];
+    for (let z = -100; z <= 100; z += 20) {
+      let a = Infinity, b = -Infinity;
+      for (let i = 0; i < model.P.length; i += 3) {
+        if (Math.abs(model.P[i + 2] - z) > 3 || model.P[i + 1] < -1 || model.P[i + 1] > 1) continue;
+        a = Math.min(a, model.P[i]); b = Math.max(b, model.P[i]);
+      }
+      out.push(`${z}: ${((a + b) / 2).toFixed(2)} (${(b - a).toFixed(2)})`);
+    }
+    console.log('midships', out.join('  '));
+    process.exit(0);
+  }
   if (process.env.CENTRELINE) {
     // Her sides at the waterline, a metre up, at every tenth of her length.
     const out = [];

@@ -130,7 +130,7 @@ export function walkLayers(layers, pen, cosOf, fuseArm = 0) {
  */
 const TURRET_ROOF = {
   // The Standards' fourteen- and sixteen-inch gunhouses, the Ise's, and the Implacable's 4.5-inch.
-  texas: 102, newmexico: 127, maryland: 127, pennsylvania: 127, ise: 152, implacable: 6, hosho: 6, soryu: 6, akagi: 25, tone: 25, aoba: 25, agano: 25, renown: 229, repulse: 229,
+  texas: 102, newmexico: 127, maryland: 127, pennsylvania: 127, ise: 152, implacable: 6, hosho: 6, soryu: 6, akagi: 25, taiho: 25, tone: 25, aoba: 25, agano: 25, renown: 229, repulse: 229,
   fletcher: 3, evarts: 3, hclass: 3, tribal: 3, z1: 3, z57: 6, soldati: 3, matsu: 3, yukikaze: 3, fubuki: 3, shimakaze: 3, yugumo: 3, victory: 0, essex: 3, lexington: 3, dunkerque: 150, guangzhou: 10, sovremenny: 10, slava: 10, burke: 13, cleveland: 76, brooklyn: 51, county: 25, indianapolis: 64, desmoines: 102, hipper: 70, spee: 105, scheer: 105, u48: 0, type7c: 0, type7c41: 0, uclass3: 0, surcouf: 25, sboat: 0,
   tillman: 280, morosini: 200, richelieu: 170, scharnhorst: 150, hagen: 130, bismarck: 130, tirpitz: 130, soyuz: 230, hood: 127, kgv: 152, rodney: 184,
   northcarolina: 178, massachusetts: 184, iowa: 184, louisiana: 184, oregon: 250, missouri: 184, kongo: 152, amagi: 152, fuso: 152, mutsu: 152, agincourt: 76, musashi: 270, yamato: 270,

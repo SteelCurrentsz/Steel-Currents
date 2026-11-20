@@ -586,6 +586,17 @@ const HULLS = {
   // The Shokaku: her flight deck overhanging both ends of her, a small island
   // well forward, and her funnels trunked out of her side under her deck and
   // curving down to the water abaft it.
+  // The Taihō: a long carrier hull with a flush hurricane bow closed up to
+  // her flight deck, the deck running the whole of her, and a big island
+  // amidships with her funnel raked out from it and a mast over it.
+  taiho: `
+    <path d="M2 23 L97 23 L97 25 L94 31 L95 37 L7 37 L3 27 Z"/>
+    <rect x="2" y="21.6" width="95" height="1.6"/>
+    <rect x="40" y="12.5" width="14" height="9.3"/>
+    <path d="M44 12.6 L46 7.4 L51 7.4 L50 12.6 Z"/>
+    <rect x="47.5" y="2.5" width="1.1" height="5.2"/>
+    <rect x="13" y="25" width="5" height="2"/>
+    <rect x="80" y="25" width="5" height="2"/>`,
   shokaku: `
     <path d="M2 29 L9 30 L95 30 L93 37 L11 37 Z"/>
     <path d="M5 26 L97 26 L97 29.5 L5 29.5 Z"/>
