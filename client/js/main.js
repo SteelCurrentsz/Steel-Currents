@@ -1557,7 +1557,7 @@ function renderPremiumSpecial() {
     card.innerHTML = `<div class="type">${c.type} · ${c.typeName}</div>
       <div class="nm">${c.fullName || c.name}</div>
       <div class="bl">${c.blurb}</div>
-      <div class="ps-stats">100 m tall · ${MONSTER.speed.deep} kn deep · 1 Mt breath, ${B.range / 1000} km · `
+      <div class="ps-stats">100 m tall · ${MONSTER.speed.deep} kn deep · ${B.kt} kt breath, ${B.range / 1000} km · `
       + `${Math.floor(B.cooldown / 60)}:${String(B.cooldown % 60).padStart(2, '0')} cooldown</div>
       <div class="ps-foot"><span class="ps-badge">${ADS_REQUIRED
         ? (open ? 'Unlocked' : 'Watch an ad to unlock') : 'Free while the game is in development'}</span>

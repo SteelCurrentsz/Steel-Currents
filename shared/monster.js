@@ -14,15 +14,17 @@
 //   * Her atomic breath. A long windup -- her plates light up crystal blue
 //     from the tip of her tail to the back of her head, and then her throat --
 //     and then a beam out of her mouth to wherever she is looking, and where
-//     it strikes, a burst of a megaton. Two and a half minutes before she can
-//     do it again.
+//     it strikes, a burst of ten kilotons: a little smaller than the B-29's
+//     sixteen. Two and a half minutes before she can do it again.
 //
 //   * Her tail, swung up out of the sea and across whatever is beside or
 //     behind her.
 //
-//   * Her hands: a ship close enough in front of her is taken hold of, lifted
-//     out of the water if she is small enough and held down in it if she is
-//     not, crushed, and thrown.
+//   * Her hands: a ship close enough in front of her is taken hold of and
+//     lifted out of the water -- a battleship as well as a destroyer, though a
+//     heavy one is not thrown as far -- crushed, bitten, and thrown.
+//
+//   * Her jaws: a ship in front of her, or the one in her hands, bitten.
 //
 //   * She is hard to kill -- nothing in her burns or floods, and shells do
 //     her half of what they would do a ship -- and she heals, slowly, when
@@ -46,8 +48,8 @@ export const MONSTER = {
     // How far it reaches, and how close is too close to be worth it.
     range: 12000,
     min: 450,
-    // A megaton.
-    kt: 1000,
+    // Ten kilotons: a little under the B-29's sixteen.
+    kt: 10,
   },
   tail: {
     // The swing: up and away, across, and back (see the rig's 'tail').
@@ -65,7 +67,7 @@ export const MONSTER = {
     breach: 1.2,
     // How far out in front of her a ship can be and be taken: her hands are
     // a long way forward of her middle when she leans for one.
-    range: 190,
+    range: 200,
     arc: 1.0,
     // The longest she holds on before she throws, the crush meanwhile, and
     // how far she throws.
@@ -74,9 +76,17 @@ export const MONSTER = {
     flight: 2.2,
     toss: 650,
     cooldown: 6,
-    // A ship heavier than this is held down where she is, not lifted.
+    // Every ship she gets hold of is lifted out of the water; one heavier
+    // than this is thrown less far and less high, by the square root of how
+    // much heavier.
     lift: 26000,
+    // The least of a full throw a heavy ship still gets.
+    heavyToss: 0.4,
   },
+  // Her hands closed hard on the ship she holds: the hull buckled in them.
+  crush: { time: 1.6, hitAt: 0.85, share: 0.22, flat: 9000, cooldown: 4 },
+  // Her jaws: on the ship in her hands, or on one in front of her.
+  bite: { time: 1.3, hitAt: 0.55, reach: 165, arc: 0.95, share: 0.14, flat: 7000, cooldown: 5 },
   // How long, after the last thing that hurt her, before she starts to heal,
   // and how fast she does: a share of her whole life a second.
   heal: { after: 25, rate: 0.0016 },
@@ -89,13 +99,14 @@ export const MONSTER = {
   // Her three ways of going about: how deep the dive puts her, and her best
   // speed in each, in knots.
   deep: 60,
-  speed: { deep: 32, swim: 26, stand: 6 },
+  speed: { deep: 36, swim: 30, stand: 11 },
   // How long a change of posture takes before she can act out of it.
   settle: 1.6,
 };
 
 export const POSES = ['deep', 'swim', 'stand'];
-export const ACTS = ['', 'tail', 'reach', 'hold', 'throw', 'charge', 'fire', 'roar', 'die'];
+// (New ones go on the end: the wire carries the index.)
+export const ACTS = ['', 'tail', 'reach', 'hold', 'throw', 'charge', 'fire', 'roar', 'die', 'bite', 'crush'];
 
 const KNOT = 0.514444;
 
@@ -111,7 +122,7 @@ export function monsterOf(ship) {
       // The breath: where it is going, how far up her the glow has got, and
       // how long before she can do it again.
       aim: null, aimId: 0, charge: 0, cool: 0, glow: 0,
-      tailCool: 0, grabCool: 0,
+      tailCool: 0, grabCool: 0, biteCool: 0, crushCool: 0,
       // A ship in her hands.
       holdId: 0,
       // When she was last hurt, for her healing.
@@ -135,7 +146,7 @@ export function monsterTopSpeed(ship) {
   // his own screen, which knows her posture off the wire and not her depth.
   const pose = m ? m.pose : 'swim';
   // Standing and doing something, she is not going anywhere much.
-  const busy = m && (m.act === 'charge' || m.act === 'fire' || m.act === 'reach' || m.act === 'hold') ? 0.6 : 1;
+  const busy = m && (m.act === 'charge' || m.act === 'fire' || m.act === 'reach' || m.act === 'hold' || m.act === 'crush') ? 0.75 : 1;
   return MONSTER.speed[pose] * KNOT * busy;
 }
 
@@ -169,6 +180,8 @@ function startAct(m, act) {
  *   { a: 'tail', side }             her tail, to her left (+1) or right (-1)
  *   { a: 'grab', target }           take hold of a ship in front of her
  *   { a: 'throw', x, z }            throw the ship she has, toward a point
+ *   { a: 'crush' }                  crush the ship she has in her hands
+ *   { a: 'bite', target }           bite the ship in her hands, or in front of her
  *   { a: 'pose', pose }             'deep', 'swim' or 'stand'
  *   { a: 'roar' }
  *   { a: 'cancel' }                 stop gathering the breath
@@ -185,7 +198,7 @@ export function monsterOrder(state, ship, o, hooks) {
       if (m.act === 'charge' || m.act === 'fire') return 'busy';
       // Going down with a ship in her hands, she lets go of her.
       if (o.pose === 'deep' && m.holdId) letGo(state, ship, hooks);
-      if (m.act === 'reach' || m.act === 'hold' || m.act === 'throw') { if (o.pose === 'deep') m.act = ''; else return 'busy'; }
+      if (['reach', 'hold', 'throw', 'crush', 'bite'].includes(m.act)) { if (o.pose === 'deep') m.act = ''; else return 'busy'; }
       setPose(ship, o.pose);
       m.queued = null;
       return '';
@@ -193,19 +206,7 @@ export function monsterOrder(state, ship, o, hooks) {
     case 'breath': {
       if (m.cool > 0) return 'cooling';
       if (m.act === 'charge' || m.act === 'fire') return 'busy';
-      let aim = null, aimId = 0;
-      const t = o.target ? state.ships.find((s) => s.id === o.target && s.alive) : null;
-      if (t) { aim = { x: t.x, z: t.z }; aimId = t.id; }
-      else if (Number.isFinite(o.x) && Number.isFinite(o.z)) aim = { x: o.x, z: o.z };
-      if (!aim) return 'bad';
-      const d = dist(ship.x, ship.z, aim.x, aim.z);
-      if (d > MONSTER.breath.range) {
-        // Out of reach: she breathes as far as it reaches, along the line.
-        const k = MONSTER.breath.range / d;
-        aim = { x: ship.x + (aim.x - ship.x) * k, z: ship.z + (aim.z - ship.z) * k };
-        aimId = 0;
-      }
-      if (d < MONSTER.breath.min) return 'close';
+      const { aim, aimId } = breathAim(state, ship, o);
       // Whatever is in her hands goes first.
       if (m.holdId) letGo(state, ship, hooks);
       if (busy) m.act = '';
@@ -252,6 +253,35 @@ export function monsterOrder(state, ship, o, hooks) {
       m.grabCool = MONSTER.grab.cooldown;
       return '';
     }
+    case 'crush': {
+      if (!m.holdId) return 'none';
+      if (m.crushCool > 0) return 'cooling';
+      if (m.act === 'throw' || m.act === 'crush' || m.act === 'bite') return 'busy';
+      startAct(m, 'crush');
+      m.crushHit = false;
+      m.crushCool = MONSTER.crush.cooldown;
+      return '';
+    }
+    case 'bite': {
+      if (m.biteCool > 0) return 'cooling';
+      if (m.act === 'throw' || m.act === 'crush' || m.act === 'bite' || m.act === 'charge' || m.act === 'fire') return 'busy';
+      if (m.act && m.act !== 'roar' && m.act !== 'hold') return 'busy';
+      // The ship in her hands, if she has one; if not, one in front of her
+      // jaws, which she lunges for off the surface.
+      let at = m.holdId;
+      if (!at) {
+        const t = o.target ? state.ships.find((s) => s.id === o.target && s.alive) : null;
+        const b = t && biteable(state, ship, t) ? t : biteable(state, ship);
+        if (!b) return 'none';
+        at = b.id;
+        if (m.pose === 'deep') setPose(ship, 'swim');
+      }
+      m.biteId = at;
+      startAct(m, 'bite');
+      m.biteHit = false;
+      m.biteCool = MONSTER.bite.cooldown;
+      return '';
+    }
     case 'throw': {
       if (!m.holdId) return 'none';
       m.throwAt = Number.isFinite(o.x) && Number.isFinite(o.z) ? { x: o.x, z: o.z } : null;
@@ -296,6 +326,84 @@ export function grabbable(state, ship, team = ship.team) {
   return best;
 }
 
+/**
+ * A ship in front of her jaws: the nearest enemy within a bite of her head,
+ * or `t` if she is that one. Her head is well forward of her middle.
+ */
+function biteable(state, ship, t = null) {
+  const B = MONSTER.bite;
+  const ok = (s) => {
+    if (!s.alive || s.id === ship.id || s.team === ship.team || s.flung || shipClass(s).monster) return false;
+    if (s.heldBy && s.heldBy !== ship.id) return false;
+    if (s.depth > 8) return false;
+    const d = dist(ship.x, ship.z, s.x, s.z) - shipClass(s).hull.beam * 0.5;
+    const off = Math.abs(angleDelta(ship.heading, headingTo(ship.x, ship.z, s.x, s.z)));
+    return d <= B.reach && off <= B.arc;
+  };
+  if (t) return ok(t) ? t : null;
+  let best = null, bd = Infinity;
+  for (const s of state.ships) {
+    if (!ok(s)) continue;
+    const d = dist(ship.x, ship.z, s.x, s.z);
+    if (d < bd) { bd = d; best = s; }
+  }
+  return best;
+}
+
+/**
+ * Where her breath goes, off whatever she was given: a ship, a point, or
+ * nothing at all. It never refuses: a point too close for the beam is carried
+ * out along the same line to where it is not (and a point right under her, as
+ * the sea under a button at the foot of the screen is, out ahead of her); one
+ * too far is brought in to the end of its reach; one close beside an enemy
+ * ship is that ship; and nothing at all is the best enemy in front of her,
+ * or the sea ahead.
+ */
+function breathAim(state, ship, o) {
+  const B = MONSTER.breath;
+  let aim = null, aimId = 0;
+  const t = o.target ? state.ships.find((s) => s.id === o.target && s.alive && s.team !== ship.team) : null;
+  if (t) { aim = { x: t.x, z: t.z }; aimId = t.id; }
+  else if (Number.isFinite(o.x) && Number.isFinite(o.z)) aim = { x: o.x, z: o.z };
+  if (aim && !aimId) {
+    // Near an enemy ship: at her.
+    let best = null, bd = 700;
+    for (const s of state.ships) {
+      if (!s.alive || s.team === ship.team || shipClass(s).monster) continue;
+      const d = dist(aim.x, aim.z, s.x, s.z);
+      if (d < bd) { bd = d; best = s; }
+    }
+    if (best && dist(ship.x, ship.z, best.x, best.z) >= B.min) { aim = { x: best.x, z: best.z }; aimId = best.id; }
+  }
+  if (!aim) {
+    // Nothing given: the nearest enemy within forty-five degrees of where
+    // she faces, and in reach; or straight ahead.
+    let best = null, bd = Infinity;
+    for (const s of state.ships) {
+      if (!s.alive || s.team === ship.team || shipClass(s).monster) continue;
+      const d = dist(ship.x, ship.z, s.x, s.z);
+      if (d < B.min || d > B.range) continue;
+      if (Math.abs(angleDelta(ship.heading, headingTo(ship.x, ship.z, s.x, s.z))) > 0.8) continue;
+      if (d < bd) { bd = d; best = s; }
+    }
+    if (best) { aim = { x: best.x, z: best.z }; aimId = best.id; }
+    else aim = { x: ship.x + Math.sin(ship.heading) * B.range * 0.4, z: ship.z + Math.cos(ship.heading) * B.range * 0.4 };
+  }
+  let d = dist(ship.x, ship.z, aim.x, aim.z);
+  if (d > B.range) {
+    const k = B.range / d;
+    aim = { x: ship.x + (aim.x - ship.x) * k, z: ship.z + (aim.z - ship.z) * k };
+    aimId = 0;
+  } else if (d < B.min) {
+    // Too close: out along the same line, or ahead of her if it is under her.
+    const h = d > 20 ? headingTo(ship.x, ship.z, aim.x, aim.z) : ship.heading;
+    const far = B.min + 250;
+    aim = { x: ship.x + Math.sin(h) * far, z: ship.z + Math.cos(h) * far };
+    aimId = 0;
+  }
+  return { aim, aimId };
+}
+
 // ------------------------------------------------------------------ step --
 
 /**
@@ -310,6 +418,8 @@ export function stepMonster(state, ship, dt, hooks) {
   if (m.cool > 0) m.cool = Math.max(0, m.cool - dt);
   if (m.tailCool > 0) m.tailCool = Math.max(0, m.tailCool - dt);
   if (m.grabCool > 0) m.grabCool = Math.max(0, m.grabCool - dt);
+  if (m.biteCool > 0) m.biteCool = Math.max(0, m.biteCool - dt);
+  if (m.crushCool > 0) m.crushCool = Math.max(0, m.crushCool - dt);
   // A creature has no engine room, no steering gear and no magazine, and
   // nothing a ship's damage does to those is anything to her.
   ship.engineDamage = 0;
@@ -350,6 +460,8 @@ export function stepMonster(state, ship, dt, hooks) {
     case 'reach': stepReach(state, ship, m, hooks); break;
     case 'hold': stepHold(state, ship, m, dt, hooks); break;
     case 'throw': stepThrow(state, ship, m, hooks); break;
+    case 'crush': stepCrush(state, ship, m, hooks); break;
+    case 'bite': stepBite(state, ship, m, hooks); break;
     case 'roar': if (m.actT > 3) m.act = ''; break;
     default: break;
   }
@@ -392,7 +504,7 @@ function stepFire(state, ship, m, dt, hooks) {
   m.glow = 1;
   if (m.beam && !m.beam.hit && m.actT >= m.beam.hitT) {
     m.beam.hit = true;
-    // Where it strikes: a megaton.
+    // Where it strikes: ten kilotons.
     hooks.nukeBlast(state, m.beam.x, 0, m.beam.z, { team: ship.team, bomber: 0, monster: ship.id }, B.kt);
   }
   if (m.actT >= B.fire) {
@@ -451,7 +563,8 @@ function stepReach(state, ship, m, hooks) {
     if (t && t.alive && !t.heldBy && d <= G.range * 1.3 && off <= G.arc * 1.25) {
       m.holdId = t.id;
       t.heldBy = ship.id;
-      t.held = { t: 0, lifted: (shipClass(t).datasheet?.displacement || 10000) <= G.lift };
+      // Every ship she takes comes up out of the water in her hands.
+      t.held = { t: 0, lifted: true, heavy: heaviness(t) };
       t.speed = 0;
       state.events.push({ e: 'moGrab', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z) });
     } else {
@@ -480,17 +593,66 @@ function stepThrow(state, ship, m, hooks) {
     if (t && t.alive) {
       // Toward where she was told, or out ahead of her.
       let to = m.throwAt;
-      const reach = t.held?.lifted ? G.toss : G.toss * 0.25;
+      // A heavy ship goes less far and less high.
+      const heavy = t.held?.heavy ?? heaviness(t);
+      const reach = G.toss * heavy;
       if (!to) to = { x: ship.x + Math.sin(ship.heading) * reach, z: ship.z + Math.cos(ship.heading) * reach };
       const d = dist(ship.x, ship.z, to.x, to.z);
       if (d > reach) { const k = reach / d; to = { x: ship.x + (to.x - ship.x) * k, z: ship.z + (to.z - ship.z) * k }; }
-      t.flung = { t: 0, T: G.flight, x0: t.x, z0: t.z, x1: to.x, z1: to.z, h: t.held?.lifted ? 140 : 20, by: ship.id };
+      t.flung = { t: 0, T: G.flight * (0.75 + 0.25 * heavy), x0: t.x, z0: t.z, x1: to.x, z1: to.z, h: Math.max(60, 140 * heavy), by: ship.id };
       t.heldBy = 0;
       t.held = null;
     }
     m.holdId = 0;
   }
   if (m.actT >= G.throwTime) m.act = '';
+}
+
+/** How far a ship goes when she is thrown, against a destroyer's: 1 down to MONSTER.grab.heavyToss. */
+function heaviness(t) {
+  const G = MONSTER.grab;
+  const disp = shipClass(t).datasheet?.displacement || 10000;
+  return clamp(Math.sqrt(G.lift / Math.max(G.lift, disp)), G.heavyToss, 1);
+}
+
+/** Her hands closed hard on the ship she holds; back to holding her after. */
+function stepCrush(state, ship, m, hooks) {
+  const C = MONSTER.crush;
+  const t = state.ships.find((s) => s.id === m.holdId);
+  if (!t || !t.alive) { letGo(state, ship, hooks); m.act = ''; return; }
+  if (!m.crushHit && m.actT >= C.hitAt) {
+    m.crushHit = true;
+    hooks.damageShip(state, t, ship, t.maxHp * C.share + C.flat, 'ram');
+    state.events.push({ e: 'moCrush', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z) });
+    if (!t.alive) { letGo(state, ship, hooks); m.act = ''; return; }
+  }
+  if (m.actT >= C.time) startAct(m, 'hold');
+}
+
+/** Her jaws: on the ship in her hands, or lunging for one in front of her. */
+function stepBite(state, ship, m, hooks) {
+  const B = MONSTER.bite;
+  if (!m.biteHit && m.actT >= B.hitAt) {
+    m.biteHit = true;
+    const t = state.ships.find((s) => s.id === m.biteId);
+    // In her hands she cannot miss; in the water it has to be in front of her still.
+    const lands = t && t.alive && (t.heldBy === ship.id || biteable(state, ship, t));
+    if (lands) {
+      hooks.damageShip(state, t, ship, t.maxHp * B.share + B.flat, 'ram');
+      if (t.heldBy !== ship.id) t.rockRate = (t.rockRate || 0) + 0.15;
+      state.events.push({ e: 'moBite', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z) });
+    } else {
+      state.events.push({ e: 'moBite', ship: ship.id, at: 0, x: Math.round(ship.x + Math.sin(ship.heading) * 120), z: Math.round(ship.z + Math.cos(ship.heading) * 120) });
+    }
+    if (m.holdId) {
+      const h = state.ships.find((s) => s.id === m.holdId);
+      if (!h || !h.alive) letGo(state, ship, hooks);
+    }
+  }
+  if (m.actT >= B.time) {
+    if (m.holdId) startAct(m, 'hold');
+    else m.act = '';
+  }
 }
 
 /** Let go of whatever is in her hands, where it is. */
@@ -520,7 +682,7 @@ export function stepHeld(state, dt, hooks) {
       if (!mo || !mo.alive || !mo.mo || mo.mo.holdId !== s.id) { s.heldBy = 0; s.held = null; continue; }
       s.held.t += dt;
       // In front of her, across her.
-      const reach = s.held.lifted ? 34 : 70;
+      const reach = 34;
       s.x = mo.x + Math.sin(mo.heading) * reach;
       s.z = mo.z + Math.cos(mo.heading) * reach;
       s.heading = mo.heading + Math.PI / 2;
@@ -675,6 +837,8 @@ export function monsterWire(ship) {
     m.beam ? 1 : m.act === 'charge' ? 2 : 0,
     Math.ceil(m.tailCool),
     Math.ceil(m.grabCool),
+    Math.ceil(m.biteCool),
+    Math.ceil(m.crushCool),
   ];
 }
 
@@ -693,6 +857,8 @@ export function readMonsterWire(w) {
     beam: w[10] ? { x: w[8], z: w[9], live: w[10] === 1 } : null,
     tailCool: w[11] || 0,
     grabCool: w[12] || 0,
+    biteCool: w[13] || 0,
+    crushCool: w[14] || 0,
   };
 }
 
@@ -705,7 +871,7 @@ export function readMonsterWire(w) {
  *
  *   * The breath first, because it is worth more than everything else she
  *     does together -- but only where it pays: she reckons, for every enemy
- *     ship she can see as a place to put it, what a megaton there would do to
+ *     ship she can see as a place to put it, what her breath there would do to
  *     every ship of theirs and of her own side round it, by the same falloff
  *     the battle uses, and she does not breathe where her own side would pay
  *     for it. She breathes at a ship where the ships are thickest.
@@ -753,8 +919,15 @@ export function stepMonsterBot(state, ship, brain, dt, conned, hooks) {
     const why = monsterOrder(state, ship, P.order, hooks);
     if (!why || why === 'cooling' || why === 'none' || why === 'close') P.order = null;
   }
-  // While she has a ship in her hands, she looks for somewhere to put her.
-  if (m.act === 'hold' && m.actT > 2.5) {
+  // While she has a ship in her hands she crushes her, bites her, and then
+  // looks for somewhere to put her.
+  if (m.act === 'hold' && m.actT > 0.8 && m.crushCool <= 0 && !m.botCrushed) {
+    m.botCrushed = true;
+    monsterOrder(state, ship, { a: 'crush' }, hooks);
+  } else if (m.act === 'hold' && m.actT > 0.8 && m.biteCool <= 0 && !m.botBitten) {
+    m.botBitten = true;
+    monsterOrder(state, ship, { a: 'bite' }, hooks);
+  } else if (m.act === 'hold' && m.actT > 1.5) {
     const into = nearestOther(ship, seen, m.holdId);
     if (into && dist(ship.x, ship.z, into.x, into.z) < MONSTER.grab.toss * 1.1) {
       monsterOrder(state, ship, { a: 'throw', x: into.x, z: into.z }, hooks);
@@ -762,6 +935,7 @@ export function stepMonsterBot(state, ship, brain, dt, conned, hooks) {
       monsterOrder(state, ship, { a: 'throw' }, hooks);
     }
   }
+  if (!m.holdId) { m.botCrushed = false; m.botBitten = false; }
   // Her posture, when she is not in the middle of something that set it.
   if (!m.act && !m.queued && P.pose && m.pose !== P.pose) setPose(ship, P.pose);
   // Her helm and her telegraph, unless the breath has her turning to aim.
@@ -817,6 +991,9 @@ function plan(state, ship, m, B, foes, seen, friends, hpFrac, hooks) {
   // under her.
   const ahead = grabbable(state, ship);
   if (ahead && m.grabCool <= 0 && !m.act) return { order: { a: 'grab', target: ahead.id }, go: { x: ahead.x, z: ahead.z }, pose: null, notch: 3 };
+  // Her hands not ready: her jaws.
+  const jaws = ship.depth < 0.6 && m.biteCool <= 0 && !m.act ? biteable(state, ship) : null;
+  if (jaws) return { order: { a: 'bite', target: jaws.id }, go: { x: jaws.x, z: jaws.z }, pose: null, notch: 3 };
   // Up on the surface with ships beside or behind her: the tail.
   if (ship.depth < 0.6 && m.tailCool <= 0 && !m.act) {
     const flank = seen.find((s) => {
@@ -854,7 +1031,7 @@ function lead(ship, t) {
 
 /**
  * Where the breath does most, of the ships she can see: each one weighed as a
- * place to put a megaton by what it would do to all of them, less three times
+ * place to put her breath by what it would do to all of them, less three times
  * what it would do to her own side. Null when nothing is worth it.
  */
 function breathTarget(state, ship, seen, friends, hooks) {

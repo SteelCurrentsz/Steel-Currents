@@ -1234,9 +1234,9 @@ export class Battle {
       // key and saw nothing go over the stern is entitled to be told which.
       // Monster One, saying why not.
       this.net.on('nomo', (m) => {
-        const why = { cooling: 'not ready yet', busy: 'busy', none: 'nothing in reach', close: 'too close',
+        const why = { cooling: 'not ready yet', busy: 'busy', none: m?.a === 'crush' ? 'nothing in her hands' : 'nothing in reach', close: 'too close',
           bad: 'cannot', dead: 'cannot' }[m?.why] || 'cannot';
-        const what = { breath: 'Atomic breath', tail: 'Tail', grab: 'Grab', throw: 'Throw', pose: 'Posture', roar: 'Roar' }[m?.a] || 'Order';
+        const what = { breath: 'Atomic breath', tail: 'Tail', grab: 'Grab', throw: 'Throw', pose: 'Posture', roar: 'Roar', bite: 'Bite', crush: 'Crush' }[m?.a] || 'Order';
         this.hud.alert(`${what}: ${why}`);
       }),
       this.net.on('nomine', (m) => {
@@ -1581,8 +1581,8 @@ export class Battle {
 
   /**
    * Monster One's keys: F (or Space) her breath, T her tail, G to take hold
-   * of the ship in front of her or throw the one she has, X down / up /
-   * standing, R to roar. True when the key was hers.
+   * of the ship in front of her or throw the one she has, C to crush it, B to
+   * bite, X down / up / standing, R to roar, ` (backquote) to fold her bar away. True when the key was hers.
    */
   monsterKey(code) {
     const pose = readMonsterWire(this.shownShip()?.mo)?.pose || 'swim';
@@ -1592,6 +1592,9 @@ export class Battle {
       case 'KeyG': this.monsterOrder({ a: 'grab' }); return true;
       case 'KeyX': this.monsterOrder({ a: 'pose', pose: { deep: 'swim', swim: 'stand', stand: 'deep' }[pose] }); return true;
       case 'KeyR': this.monsterOrder({ a: 'roar' }); return true;
+      case 'KeyB': this.monsterOrder({ a: 'bite' }); return true;
+      case 'KeyC': this.monsterOrder({ a: 'crush' }); return true;
+      case 'Backquote': this.monsterBar().toggleHidden(); return true;
       default: return false;
     }
   }
@@ -3470,10 +3473,9 @@ export class Battle {
             : (Number.isFinite(this.scene.ocean.clock) ? this.scene.ocean.clock : null);
           // How big: the B-29's bomb is 1, the B-52's warheads a good deal less.
           const k = nukeScale(ev.kt);
-          // Drawn no bigger than two and a half times the B-29's: Monster
-          // One's megaton at its full four times hangs a sheet of cloud over
-          // every kilometre of sea in sight. What it does is the full
-          // megaton's (see stepNukes), and so is its wave.
+          // Drawn no bigger than two and a half times the B-29's, whatever
+          // the yield: a bigger cloud hangs a sheet over every kilometre of
+          // sea in sight.
           const kv = Math.min(k, 2.5);
           this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land, t0, kv);
           // Its wave is the sea from here on (see burstSwell).
@@ -3567,6 +3569,30 @@ export class Battle {
           fx.splash(ev.x, ev.z, ev.big ? 1400 : 700, { kind: 'bomb' });
           audio.slam({ x: ev.x, y: 1, z: ev.z }, ev.big ? 2 : 1.2);
           audio.crash({ x: ev.x, y: 4, z: ev.z }, 14);
+          break;
+        }
+        // Her hands closed on a hull, and her jaws in one: torn plating and
+        // whatever was on deck coming away, where the ship is now.
+        case 'moCrush': case 'moBite': {
+          const bite = ev.e === 'moBite';
+          const v = ev.at ? this.scene.shipViews.get(ev.at) : null;
+          const p = v ? v.group.position : { x: ev.x, y: 6, z: ev.z };
+          if (ev.at) {
+            fx.hit(p.x, p.y + 8, p.z, 'he', bite ? 300 : 406);
+            fx.debris(p.x, p.y + 6, p.z, bite ? 18 : 30);
+            audio.crash({ x: p.x, y: p.y + 4, z: p.z }, bite ? 11 : 16);
+            if (v && v.group.userData) {
+              // The hull dished in where she took it.
+              v.crushed = Math.min(1, (v.crushed || 0) + (bite ? 0.2 : 0.35));
+            }
+          } else {
+            fx.splash(ev.x, ev.z, 450, { kind: 'bomb' });
+          }
+          if (bite) audio.roar({ x: ev.x, y: 60, z: ev.z }, { level: 0.5, dur: 0.9 });
+          if (ev.at === this.shipId) {
+            this.hud.alert(bite ? 'Monster One has her jaws in you' : 'Monster One is crushing your hull');
+            this.shake = Math.max(this.shake || 0, bite ? 0.9 : 1.2);
+          }
           break;
         }
         case 'moDie': {

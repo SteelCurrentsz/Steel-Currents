@@ -7898,7 +7898,7 @@ export function nukeBlast(state, x, y, z, sh = null, kt = NUKE.kt) {
  * What Monster One needs of the battle that the battle owns (see
  * shared/monster.js): to hurt a ship, to set off her breath, to know whom
  * she may hurt, to take a ship out of the fight, to steer, and what a
- * megaton does at a distance.
+ * burst of her breath does at a distance.
  */
 const MONSTER_HOOKS = {
   damageShip: (...a) => damageShip(...a),

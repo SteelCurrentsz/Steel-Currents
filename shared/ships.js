@@ -1292,7 +1292,7 @@ export const SHIP_CLASSES = {
     maxSpeed: 36 * KNOTS,
     reverseSpeed: 9 * KNOTS,
     accel: 1.15,
-    turnRate: 0.12,
+    turnRate: 0.16,
     rudderShift: 2.9,
     speedLossInTurn: 0.25,
     concealment: 6600,
@@ -2625,7 +2625,7 @@ export const SHIP_CLASSES = {
     },
     hp: 22000,
     // Thirty-two knots out of two steam turbines on two shafts.
-    maxSpeed: 32 * KNOTS,
+    maxSpeed: 36 * KNOTS,
     reverseSpeed: 8 * KNOTS,
     accel: 1.0,
     turnRate: 0.105,
@@ -2822,7 +2822,7 @@ export const SHIP_CLASSES = {
     },
     hp: 32000,
     // Thirty-two knots out of her gas turbines on two shafts.
-    maxSpeed: 32 * KNOTS,
+    maxSpeed: 36 * KNOTS,
     reverseSpeed: 8 * KNOTS,
     accel: 0.8,
     turnRate: 0.088,
@@ -3508,7 +3508,7 @@ export const SHIP_CLASSES = {
     // light ship's handiness.
     maxSpeed: 32.5 * KNOTS,
     reverseSpeed: 8 * KNOTS,
-    accel: 0.9,
+    accel: 1.3,
     turnRate: 0.094,
     rudderShift: 6.0,
     speedLossInTurn: 0.19,
@@ -4103,7 +4103,7 @@ export const SHIP_CLASSES = {
       // model: what she makes smoke from. See funnelsOf in game.js.
       funnels: [[0, 10, 25]], length: 205.9, beam: 21.3, draft: 7.2, superstructure: 1.2 },
     hp: 34400,
-    maxSpeed: 32 * KNOTS,
+    maxSpeed: 36 * KNOTS,
     reverseSpeed: 8 * KNOTS,
     accel: 0.78,
     turnRate: 0.079,
@@ -4869,7 +4869,7 @@ export const SHIP_CLASSES = {
     maxSpeed: 11.25 * KNOTS,
     reverseSpeed: 5 * KNOTS,
     accel: 0.58,
-    turnRate: 0.12,
+    turnRate: 0.16,
     rudderShift: 3.0,
     speedLossInTurn: 0.16,
     // Smaller still than a Type VII, and painted dark for the Mediterranean.
@@ -5617,7 +5617,7 @@ export const SHIP_CLASSES = {
     hp: 74500,
     // Thirty-two knots on her trials, out of four shafts; a long, fine hull
     // that turned wide.
-    maxSpeed: 32 * KNOTS,
+    maxSpeed: 36 * KNOTS,
     reverseSpeed: 7 * KNOTS,
     accel: 0.44,
     turnRate: 0.05,
@@ -15269,7 +15269,7 @@ export const SHIP_CLASSES = {
     hp: 46000,
     // Thirty-two knots out of four shafts, and she turns like the big ship
     // she is.
-    maxSpeed: 32 * KNOTS,
+    maxSpeed: 36 * KNOTS,
     reverseSpeed: 8 * KNOTS,
     accel: 0.6,
     turnRate: 0.065,
@@ -17093,7 +17093,7 @@ export const SHIP_CLASSES = {
     hull: { length: 233.5, beam: 29.2, draft: 8.94, superstructure: 0.55, flightDeck: true },
     hp: 50000,
     // A hundred and forty-eight thousand horsepower on four shafts.
-    maxSpeed: 32 * KNOTS,
+    maxSpeed: 36 * KNOTS,
     reverseSpeed: 7 * KNOTS,
     accel: 0.5,
     turnRate: 0.058,
@@ -18357,7 +18357,7 @@ export const SHIP_CLASSES = {
     hp: 2600,
     maxSpeed: 9 * KNOTS,
     reverseSpeed: 4 * KNOTS,
-    accel: 0.9,
+    accel: 1.3,
     turnRate: 0.2,
     rudderShift: 1.6,
     speedLossInTurn: 0.2,
@@ -18429,7 +18429,7 @@ export const SHIP_CLASSES = {
     // standing up in it to her waist. She takes ships in her hands, crushes
     // them and throws them; she smashes them with her tail; and her atomic
     // breath -- after a long windup, her plates lighting crystal blue from
-    // her tail to her head -- strikes with the force of a megaton, once every
+    // her tail to her head -- strikes with the force of ten kilotons, once every
     // two and a half minutes.
     id: 'monsterone',
     name: 'Monster One',
@@ -18440,7 +18440,7 @@ export const SHIP_CLASSES = {
     nation: 'jpn',
     premium: true,
     special: true,
-    blurb: 'A hundred metres of her out of the sea. She swims deep or on the surface with her plates out, crushes and throws ships with her hands, smashes them with her tail, and her atomic breath strikes with the force of a megaton.',
+    blurb: 'A hundred metres of her out of the sea. She swims deep or on the surface with her plates out, crushes and throws ships with her hands, smashes them with her tail, bites them, and her atomic breath strikes with the force of ten kilotons.',
     // Her length swimming, nose to tail, and her breadth across the
     // shoulders; her "freeboard" is how much of her stands out of the sea.
     hull: { length: 170, beam: 26, draft: 30, superstructure: 6, heavePeriod: 14 },
@@ -18448,12 +18448,12 @@ export const SHIP_CLASSES = {
     hp: 380000,
     // Her best is set by how she is going about (see MONSTER.speed): this is
     // the most of it, deep.
-    maxSpeed: 32 * KNOTS,
+    maxSpeed: 36 * KNOTS,
     reverseSpeed: 4 * KNOTS,
-    accel: 0.9,
+    accel: 1.3,
     // She turns as a living thing does, not as a hull with a rudder: in a
     // little over her own length, and on the spot when she is standing.
-    turnRate: 0.12,
+    turnRate: 0.16,
     rudderShift: 1.2,
     speedLossInTurn: 0.1,
     pivots: true,
@@ -18472,7 +18472,7 @@ export const SHIP_CLASSES = {
       periscope: 12, max: 60,
       rate: 10, blow: 30,
       oxygen: 99999, recharge: 1,
-      speed: 32 * KNOTS,
+      speed: 36 * KNOTS,
       concealment: 1400,
     },
     monster: true,

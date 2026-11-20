@@ -25,7 +25,7 @@ export const NUKE = {
    * warhead (the B-52's AGM-86B, see nukeScale) has every radius cut down by
    * the cube root of how much smaller it is, the way blast scales.
    */
-  kt: 15,
+  kt: 16,
   /** Radius of the fireball, metres: inside it nothing survives. */
   fireball: 380,
   /** Everything afloat within this is lost. */
@@ -74,7 +74,8 @@ export const NUKE = {
 /**
  * How much smaller every radius of a burst of `kt` kilotons is than the
  * B-29's: blast distances go as the cube root of the yield. 1 for the B-29's
- * bomb (or when no yield is given), about 0.69 for a 5 kt warhead.
+ * bomb (or when no yield is given), about 0.68 for a 5 kt warhead, about 0.85
+ * for Monster One's ten-kiloton breath.
  */
 export function nukeScale(kt) {
   return kt > 0 ? Math.cbrt(kt / NUKE.kt) : 1;
@@ -125,8 +126,7 @@ export function nukeWave(age, k = 1) {
  */
 export function waveHeight(r, k = 1) {
   // As the square of the scale for anything up to the B-29's bomb; past it
-  // -- Monster One's breath is a megaton, four times every radius -- the
-  // water a burst can throw up stops growing as fast as the burst does: the
+  // the water a burst can throw up stops growing as fast as the burst does: the
   // column of a big one goes up into the air rather than out across the sea,
   // and a square would stand a wall of water seven hundred metres high.
   const grow = k <= 1 ? k * k : Math.pow(k, 1.5);

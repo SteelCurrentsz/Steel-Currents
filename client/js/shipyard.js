@@ -437,11 +437,12 @@ function monsterBody(cls) {
 function monsterArms() {
   const B = MONSTER.breath;
   return [
-    ['Atomic breath', `1 megaton · ${B.range / 1000} km reach`],
+    ['Atomic breath', `${B.kt} kilotons · ${B.range / 1000} km reach`],
     ['Windup', `${B.climb + B.throat} s: plates light tail to head`],
     ['Cooldown', `${Math.floor(B.cooldown / 60)}:${String(B.cooldown % 60).padStart(2, '0')}`],
     ['Tail', 'Smashes ships beside and behind her'],
-    ['Hands', 'Seize, crush and throw a ship ahead of her'],
+    ['Hands', 'Seize any ship ahead of her, crush it and throw it'],
+    ['Jaws', 'Bite the ship in her hands, or one in front of her'],
   ];
 }
 
