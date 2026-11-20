@@ -955,7 +955,7 @@ function renderAirGroup() {
     hellcat: 'Hellcat', wildcat: 'Wildcat', dauntless: 'Dauntless', avenger: 'Avenger', devastator: 'Devastator',
     bf109: 'Bf-109', ju87c: 'Ju 87C Stuka', ju87d: 'Ju 87D Stuka',
     seafire: 'Seafire', firefly: 'Firefly',
-    a5m: 'A5M', b4y: 'B4Y', val: 'Val',
+    a5m: 'A5M', b4y: 'B4Y', val: 'Val', tenzan: 'Tenzan',
   };
   const ROLES = { fighters: ['fighter', 'Hellcat', 'escort'], dive: ['dive', 'Dauntless', 'bombs'],
     torpedo: ['torpedo', 'Avenger', 'torpedoes'] };

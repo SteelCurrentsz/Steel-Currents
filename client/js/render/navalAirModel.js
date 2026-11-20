@@ -30,6 +30,9 @@ const SOURCES = {
   // And the Akagi's and the Soryu's dive bomber, the Val, in the texture
   // her paint is drawn on.
   val: () => import('./valModel.data.js').then((m) => [m.VAL_PIECES, m.VAL_META, m.VAL_TEXTURE]),
+  // And the Taiho's torpedo bomber, the Tenzan, in the texture her paint is
+  // drawn on.
+  tenzan: () => import('./tenzanModel.data.js').then((m) => [m.TENZAN_PIECES, m.TENZAN_META, m.TENZAN_TEXTURE]),
 };
 const PIECES = {};
 /**
@@ -134,7 +137,7 @@ function texturedMaterials(kind) {
 const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22, prop: 1 };
 
 /** How far each kind's legs rise into her as they come up. */
-const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2 };
+const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2, tenzan: 1.3 };
 // (The A5M's and the B4Y's legs are fixed, in their spats: they have no `gear`.)
 
 /**

@@ -4191,6 +4191,22 @@ function b4yStores(p, opts = {}) {
 const val = (g, x, y, z, ry, folded, opts = {}) => valStores(navalAir('val', g, x, y, z, ry, opts), opts);
 
 /**
+ * The Taiho's torpedo bomber, off the owner's model of her, in the texture
+ * her paint is drawn on: the Nakajima B6N2 Tenzan, her Type 91 the model's
+ * own under her belly, her legs coming up into her wings, and her gunner's
+ * Type 92 at the back of her glasshouse. Her wings are drawn spread:
+ * `folded` is taken and ignored.
+ */
+const tenzan = (g, x, y, z, ry, folded, opts = {}) => tenzanStores(navalAir('tenzan', g, x, y, z, ry, opts), opts);
+function tenzanStores(p) {
+  const parts = p.userData.parts || (p.userData.parts = []);
+  const fish = p.userData.stores.store;
+  if (fish) parts.push({ name: 'store', node: fish, axis: 'z', open: 0, fall: true });
+  type92(p, parts, [0, 3.05, -1.35]);
+  return p;
+}
+
+/**
  * A Navy bomb, grey with a red band round its nose, its four fins in their
  * bracing ring: `r` its radius and `len` its body, metres. Nose along +z.
  */
@@ -5842,7 +5858,7 @@ function b52Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y, val };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y, val, tenzan };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

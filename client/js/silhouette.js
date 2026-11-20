@@ -368,6 +368,41 @@ const HULLS = {
     <rect x="69" y="2" width="1.2" height="25"/>
     <rect x="71.6" y="24.8" width="4.2" height="5.2"/>
     <rect x="76.1" y="26.9" width="4.2" height="3.1"/>`,
+  // The Agano: a long, slim, flush-sided light cruiser hull with a sheer
+  // up to her bow, two twin turrets forward -- No.2 superfiring -- a compact
+  // tower bridge, one tall raked funnel, her catapult and tube banks
+  // amidships, a tripod mainmast, and one turret aft.
+  agano: `
+    <path d="M2 27.5 L40 29.5 L94 30 L98 31.2 L95 37 L6 37 Z"/>
+    <rect x="17.5" y="26.2" width="4" height="2.6"/>
+    <rect x="22" y="24.2" width="4" height="3.4"/>
+    <rect x="29" y="23.5" width="11" height="6"/>
+    <rect x="31" y="16.5" width="5.5" height="7.5"/>
+    <rect x="32" y="13.5" width="3.4" height="3.2"/>
+    <rect x="34.6" y="6.5" width="1.1" height="7.5"/>
+    <path d="M42 24.5 L45 14.6 L49.5 14.6 L47.6 24.5 Z"/>
+    <rect x="49" y="27" width="20" height="2.6"/>
+    <rect x="66" y="8" width="1.1" height="19"/>
+    <rect x="76" y="26.6" width="4" height="3"/>`,
+  // The Aoba: a short cruiser hull with a raised forecastle, two twin
+  // turrets forward -- No.2 superfiring -- a tall pagoda bridge, two raked
+  // funnels, the fore one the bigger, a tripod mainmast with her crane and
+  // catapult abaft it, and one turret aft.
+  aoba: `
+    <path d="M2 28 L46 29 L46 30.5 L94 30.5 L98 31.6 L95 37 L6 37 Z"/>
+    <rect x="18.5" y="25.6" width="4.4" height="2.8"/>
+    <rect x="22.8" y="23.3" width="4.4" height="3.6"/>
+    <rect x="30" y="24" width="12" height="5"/>
+    <rect x="32" y="16.5" width="5.6" height="8"/>
+    <rect x="33" y="13.2" width="3.6" height="3.4"/>
+    <rect x="35.2" y="7.5" width="1.1" height="6"/>
+    <path d="M43 25 L45.4 17.2 L49.4 17.2 L48.2 25 Z"/>
+    <path d="M51 25 L52.8 18.6 L56 18.6 L55.2 25 Z"/>
+    <rect x="45" y="24.5" width="16" height="4.6"/>
+    <rect x="59.6" y="6" width="1.1" height="19"/>
+    <path d="M60.4 21 L69 15 L69.5 15.7 L60.8 22.2 Z"/>
+    <rect x="64" y="27.8" width="11" height="1.6"/>
+    <rect x="73.6" y="27.4" width="4.4" height="3.1"/>`,
   // The Tone: a cruiser's long low hull with all four of her twin turrets
   // forward -- No.2 superfiring over No.1, Nos.3 and 4 behind them trained
   // astern -- her pagoda bridge, one great trunked funnel raked aft, a

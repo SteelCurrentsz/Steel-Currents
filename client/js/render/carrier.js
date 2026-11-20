@@ -30,9 +30,10 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { DECK_RUN, lightMounts } from '../../../shared/sim.js';
 import { box, cyl, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly, a5m, b4y, zero, b5n, val } from './planekit.js';
+import { hellcat, sbd, tbd, tbf, wildcat, seafire, firefly, a5m, b4y, zero, b5n, val, suisei, tenzan } from './planekit.js';
 import { ZERO } from './zeroModel.js';
 import { B5N } from './b5nModel.js';
+import { SUISEI } from './suiseiModel.js';
 import { HELLCAT } from './hellcatModel.js';
 import { DAUNTLESS } from './dauntlessModel.js';
 import { DEVASTATOR } from './devastatorModel.js';
@@ -77,6 +78,12 @@ const TYPES = {
   val: { spread: 6.34, folded: 6.34, build: (g, x, y, z, ry, f, o) => val(g, x, y, z, ry, false, o),
     exhaust: () => [[0.62, 2.05, 3.55], [-0.62, 2.05, 3.55]] },
   b5n: { spread: 7.75, folded: 3.8, build: (g, x, y, z, ry, f, o) => b5n(g, x, y, z, ry, f, o), exhaust: () => B5N && B5N.exhaust },
+  // The Taiho's: the Suisei, which does not fold, and the Tenzan, drawn
+  // spread. The Tenzan's exhausts are the stubs down either side of her
+  // long cowling.
+  suisei: { spread: 5.75, folded: 5.75, build: (g, x, y, z, ry, f, o) => suisei(g, x, y, z, ry, false, o), exhaust: () => SUISEI && SUISEI.exhaust },
+  tenzan: { spread: 7.45, folded: 7.45, build: (g, x, y, z, ry, f, o) => tenzan(g, x, y, z, ry, false, o),
+    exhaust: () => [[0.72, 2.35, 3.6], [-0.72, 2.35, 3.6]] },
 };
 
 /**

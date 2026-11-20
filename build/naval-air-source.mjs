@@ -1,7 +1,7 @@
 // The Nimitz's three aircraft, the Ka-27, and the Implacable's Seafire and
 // Firefly, from the glbs the owner uploaded to the pieces the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|a5m|b4y|val
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|a5m|b4y|val|tenzan
 //     ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
@@ -370,6 +370,95 @@ const KINDS = {
     },
     spins: [{ name: 'prop', hub: [0, 0.05, 0.75], axis: 'z' }],
   },
+  // The Taiho's torpedo bomber: the Nakajima B6N2 Tenzan -- "Jill" -- off
+  // the owner's model of her: a Kasei under a long cowling, her three crew
+  // under one long glasshouse, her Type 91 slung off to starboard of her
+  // centreline on its crutches, her legs folding back into her wings, and
+  // her tailwheel. The model is one welded skin sat on its tailwheel: she
+  // is levelled first (`tilt`), and her airscrew, her torpedo and her legs
+  // are told from her airframe by where they are. The model is bare: she
+  // is painted here as the carriers' Tenzans of 1944 were, a dark green
+  // over grey, her cowling black, the hinomaru on her wings and her sides.
+  tenzan: {
+    src: 'Tenzan.glb', length: 10.87, keep: 0.035, storeKeep: 0.3, nose: '-x',
+    // Nose up twelve degrees on her tailwheel, as the model sits her.
+    tilt: 0.2094,
+    // Her one Type 97, in her port wing.
+    guns: [[2.5, 1.95, 2.4]],
+    piece: ({ o: [x, y, z] }) => {
+      // Her airscrew and its spinner, ahead of her cowling's lip.
+      if (x < -0.612) return 'spin0';
+      // Her Type 91, under her belly: round its own axis, which runs a hair
+      // nose-down; its ogive nose slimmer than its body, clear of her oil
+      // cooler's scoop.
+      if (Math.abs(z) < 0.06 && x > -0.55 && x < 0.26) {
+        const r = Math.hypot(y - (-0.172 + (x + 0.0) * 0.034), z);
+        if (r < (x < -0.42 ? 0.04 : x > 0.04 ? 0.062 : 0.048)) return 'store';
+      }
+      // Her main legs and wheels, out under her wings; and her tailwheel.
+      if (x > -0.4 && x < -0.12 && Math.abs(z) > 0.24 && Math.abs(z) < 0.4 && y < -0.08) return 'gear';
+      if (x > 0.5 && x < 0.66 && Math.abs(z) < 0.04 && y < -0.095) return 'gear';
+      return 'body';
+    },
+    stores: ['store'],
+    paint: ({ o: [x], piece }) => (piece === 'store' ? (x < -0.3 ? [0.2, 0.21, 0.22] : [0.3, 0.31, 0.32])
+      : piece === 'gear' ? [0.4, 0.4, 0.38] : piece === 'spin0' ? [0.36, 0.25, 0.17] : [0.2, 0.25, 0.18])
+      .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)),
+    atlas: {
+      size: 2048, pieces: ['body', 'spin0'],
+      layer: ({ o: [x, y, z], axis, sign, piece }) => {
+        if (piece !== 'body') return 'p';
+        // Her glasshouse over her three cockpits.
+        if (x > -0.33 && x < 0.2 && y > 0.055 && Math.abs(z) < 0.075) return 'g';
+        if (axis === 1) return sign > 0 ? 'u' : 'l';
+        if (axis === 0) return x < -0.4 ? 'n' : x > 0.45 ? 't' : 'm';
+        return Math.abs(z) < 0.12 ? 'f' : 'o';
+      },
+      paint: ({ piece, axis, layer, a, b }) => {
+        const GREEN = [0.2, 0.25, 0.18], GREY = [0.62, 0.62, 0.55], RED = [0.66, 0.09, 0.09];
+        const WHITE = [0.86, 0.86, 0.84], COWL = [0.1, 0.1, 0.11], YELLOW = [0.85, 0.6, 0.1];
+        if (piece === 'spin0') {
+          // Brown blades with yellow tips; the spinner bare metal.
+          const r = axis === 0 ? Math.hypot(b + 0.015, a) : axis === 1 ? Math.abs(b) : Math.abs(b + 0.015);
+          if (r > 0.165) return YELLOW;
+          if (r < 0.04) return [0.55, 0.55, 0.53];
+          return [0.36, 0.25, 0.17];
+        }
+        // Her glasshouse: glass, framed every so often along it.
+        if (layer === 'g') {
+          const along = axis === 0 ? 0 : a;
+          return ((along + 0.33) % 0.065) < 0.008 ? [0.18, 0.22, 0.16] : [0.24, 0.3, 0.33];
+        }
+        const COWL_AFT = -0.4;
+        const disc = (d, R, ring) => (d < R ? RED : ring && d < R + 0.013 ? WHITE : null);
+        if (axis === 1) {
+          const [x, z] = [a, b];
+          if (x < COWL_AFT && Math.abs(z) < 0.12) return COWL;
+          if (layer === 'u') {
+            // Yellow along her wings' leading edges, inboard: the recognition
+            // strips of 1944.
+            if (Math.abs(z) > 0.14 && Math.abs(z) < 0.55 && x < -0.354 + (Math.abs(z) - 0.14) * 0.15 + 0.035) return YELLOW;
+            return disc(Math.hypot(x + 0.16, Math.abs(z) - 0.68), 0.075, true) || GREEN;
+          }
+          return disc(Math.hypot(x + 0.16, Math.abs(z) - 0.68), 0.075) || GREY;
+        }
+        if (axis === 2) {
+          const [x, y] = [a, b];
+          if (x < COWL_AFT && layer === 'f') return COWL;
+          if (layer === 'f') {
+            const h = disc(Math.hypot(x - 0.26, y + 0.025), 0.05, true);
+            if (h) return h;
+            return y > -0.035 + (x > 0.3 ? (x - 0.3) * 0.08 : 0) ? GREEN : GREY;
+          }
+          return y > -0.06 ? GREEN : GREY;
+        }
+        const [z, y] = [a, b];
+        if (layer === 'n') return Math.hypot(y + 0.03, z) < 0.13 ? COWL : GREEN;
+        return y > -0.035 ? GREEN : GREY;
+      },
+    },
+    spins: [{ name: 'prop', hub: [0, -0.015, 0.63], axis: 'z' }],
+  },
 };
 const KIND = process.argv[2];
 const K = KINDS[KIND];
@@ -482,6 +571,12 @@ const { j, P, UV } = model;
 // vertical, and stays a right-handed aeroplane.
 // The model's own frame, kept: what a kind's `piece` and `paint` are written
 // in (`o`), whichever way her nose is turned.
+// `tilt`: a model sat on its tailwheel is levelled first, turned about its
+// span (the model's z) by that many radians, nose down.
+if (K.tilt) {
+  const c = Math.cos(K.tilt), sn = Math.sin(K.tilt);
+  for (let i = 0; i < P.length; i += 3) { const x = P[i], y = P[i + 1]; P[i] = x * c - y * sn; P[i + 1] = x * sn + y * c; }
+}
 const P0 = Float64Array.from(P);
 if (K.nose === '+x') {
   for (let i = 0; i < P.length; i += 3) { const x = P[i], z = P[i + 2]; P[i] = -z; P[i + 2] = x; }

@@ -295,6 +295,15 @@ export const AERO = {
     thrust: 11900, vMax: 105, name: 'B5N2',
     helix: 0.052, gLimit: 4.5,
   },
+  // The B6N2 Tenzan -- "Jill" -- the B5N's successor off the Taiho and the
+  // carriers of 1944: a 1,850 hp Kasei under a long cowling, half as fast
+  // again as the Kate with the same Type 91 under her, and a good deal
+  // heavier on the deck for it.
+  tenzan: {
+    mass: 5200, wing: 37.2, span: 14.89, clMax: 1.5, cd0: 0.0275,
+    thrust: 17600, vMax: 133, name: 'B6N2',
+    helix: 0.05, gLimit: 4.5,
+  },
   // And the German three, the Graf Zeppelin's group. The Bf 109T is an E with
   // a longer wing to bring her landing speed down for a deck: a little slower
   // than a Zero and a good deal heavier, she out-dives anything she meets and

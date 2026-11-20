@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, arado, kingfisher, besson, loire, walrus, kor1, ro43,
-  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y, val, muzzlesOf, dressPlane,
+  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y, val, tenzan, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -911,6 +911,8 @@ const REAR_SEATS = {
   b4y: () => ({ x: 0, y: 3.15, z: -0.55, cal: 0.0077, guns: 1 }),
   // The Val's, at the back of her long glasshouse behind his Type 92.
   val: () => ({ x: 0, y: 3.3, z: -0.2, cal: 0.0077, guns: 1 }),
+  // The Tenzan's, at the back of her glasshouse behind his Type 92.
+  tenzan: () => ({ x: 0, y: 3.4, z: -1.0, cal: 0.0077, guns: 1 }),
   // A Stuka's gunner, under the aft end of her greenhouse with his twin MG 81Z.
   ju87c: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
   ju87d: () => ({ x: 0, y: JU87.gun.at[1] + 0.45, z: JU87.gun.at[2] + 0.35, cal: 0.0079, guns: 2 }),
@@ -1088,6 +1090,8 @@ export function flightModels() {
   make('b4y', (g) => b4y(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Akagi's and the Soryu's Vals.
   make('val', (g) => val(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  // And the Taiho's Tenzans.
+  make('tenzan', (g) => tenzan(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Devastator the Hornet's torpedo squadron flew at Midway.
   out.devastator = devastatorFlightModel();
   MUZZLES.devastator = DEVASTATOR.guns.slice().sort((a, b) => a[0] - b[0]);
@@ -1152,7 +1156,7 @@ export const ROLE_TYPE = {
   fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'f35', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'a5m', 'b4y', 'val', 'arado', 'kingfisher',
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'f35', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'a5m', 'b4y', 'val', 'tenzan', 'arado', 'kingfisher',
   'besson', 'loire', 'walrus', 'kor1', 'ro43', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */

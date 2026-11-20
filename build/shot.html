@@ -29,7 +29,12 @@ try {
       built.group.userData.launch(0, q.get('role') || 'torpedo');
       built.group.userData.step(parseFloat(at) * (deck && deck.run ? deck.run : 1));
     }
-  } else planekit[what](g, 0, 0, 0, 0, {});
+  } else {
+    // An aeroplane off the owner's models has her pieces fetched first.
+    const air = await import('/client/js/render/navalAirModel.js');
+    await air.loadNavalAir();
+    planekit[what](g, 0, 0, 0, 0, false, {});
+  }
   scene.add(g); g.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(g);
   const c = box.getCenter(new THREE.Vector3());

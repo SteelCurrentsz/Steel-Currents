@@ -99,6 +99,8 @@ const SCULPTED = {
   soldati: () => import('./soldati.js').then((m) => { KRISS.soldati = m.buildSoldati; }),
   fubuki: () => import('./fubuki.js').then((m) => { KRISS.fubuki = m.buildFubuki; }),
   tone: () => import('./tone.js').then((m) => { KRISS.tone = m.buildTone; }),
+  aoba: () => import('./aoba.js').then((m) => { KRISS.aoba = m.buildAoba; }),
+  agano: () => import('./agano.js').then((m) => { KRISS.agano = m.buildAgano; }),
   shimakaze: () => import('./shimakaze.js').then((m) => { KRISS.shimakaze = m.buildShimakaze; }),
   yugumo: () => import('./yugumo.js').then((m) => { KRISS.yugumo = m.buildYugumo; }),
   dunkerque: () => import('./dunkerque.js').then((m) => { KRISS.dunkerque = m.buildDunkerque; }),
