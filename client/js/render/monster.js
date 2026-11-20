@@ -293,6 +293,7 @@ const UP = new THREE.Vector3(0, 1, 0);
  *   glow     nought to one, how bright what is lit burns
  *   look     a point in her own frame to look at, or null
  *   beamTo   a point in her own frame the breath strikes, or null
+ *   holding  whether she has a ship in her hands
  */
 export class MonsterRig {
   constructor(built) {
@@ -309,6 +310,9 @@ export class MonsterRig {
     this.yawRateNow = 0;
     this.speedNow = 0;
     this.jawNow = 0;
+    this.gait = 0;
+    this.walkBob = 0;
+    this.snort = 0;
     this.target = new Map();
     this.eased = this.bones.map(() => new THREE.Quaternion());
     this.posed = false;
@@ -342,28 +346,83 @@ export class MonsterRig {
       // Her body swings against her tail, about what is now her up.
       add('hips', 0, 0, -0.05 * amp * k * Math.sin(this.phase + 0.6));
       add('chest', 0, 0, 0.03 * amp * k * Math.sin(this.phase + 1.4));
-      // Her legs kick, slowly and out of step, and her arms are still.
+      // Her legs kick, slowly and out of step, her toes trailing each kick,
+      // and her arms paddle a little, close in to her chest.
       add('thigh.L', 0.12 * k * Math.sin(this.phase * 0.5), 0);
       add('thigh.R', -0.12 * k * Math.sin(this.phase * 0.5), 0);
       add('shin.L', 0.1 * k * Math.sin(this.phase * 0.5 - 0.7));
       add('shin.R', -0.1 * k * Math.sin(this.phase * 0.5 - 0.7));
+      add('toes.L', 0.25 * k * Math.sin(this.phase * 0.5 - 1.3));
+      add('toes.R', -0.25 * k * Math.sin(this.phase * 0.5 - 1.3));
+      for (const [n, sg] of [['L', 1], ['R', -1]]) {
+        const st = Math.sin(this.phase * 0.5 + (sg > 0 ? 0 : Math.PI));
+        add(`upperArm.${n}`, 0.12 * k * st * amp, 0, -0.04 * sg * k * st);
+        add(`foreArm.${n}`, 0.1 * k * Math.sin(this.phase * 0.5 - 0.6 + (sg > 0 ? 0 : Math.PI)) * amp);
+        add(`fingers.${n}`, 0.15 * k);
+      }
+      // Her head working against the swing of her body, as a swimmer's does.
+      add('neck2', 0, -0.04 * amp * k * Math.sin(this.phase + 1.8));
+      add('head', 0.02 * k * Math.sin(this.phase * 2 + 0.4), -0.03 * amp * k * Math.sin(this.phase + 2.2));
     }
-    // Standing: treading water, her tail sweeping slowly under her, her legs
-    // working, her arms a little out from her.
+    // Standing: treading water when she is still, her tail sweeping slowly
+    // under her; walking through it when she is under way -- a long heavy
+    // stride, her hips rolling and her shoulders countering them, her arms
+    // swinging against her legs, her head bobbing to each footfall, and her
+    // tail swinging the other way to balance her.
     {
       const k = u;
-      for (let i = 0; i <= 8; i++) add(`tail${i}`, 0, (0.03 + 0.012 * i) * k * Math.sin(t * 0.7 - i * 0.45));
-      add('thigh.L', 0.14 * k * Math.sin(t * 0.9), 0);
-      add('thigh.R', 0.14 * k * Math.sin(t * 0.9 + Math.PI), 0);
-      add('shin.L', 0.12 * k * Math.sin(t * 0.9 - 0.8));
-      add('shin.R', 0.12 * k * Math.sin(t * 0.9 + Math.PI - 0.8));
-      add('upperArm.L', 0.05 * k * Math.sin(t * 0.6), 0, -0.05 * k);
-      add('upperArm.R', 0.05 * k * Math.sin(t * 0.6 + 1), 0, 0.05 * k);
+      const walk = clamp(this.speedNow / 3, 0, 1) * k;
+      const tread = k - walk;
+      const g = this.gait;
+      for (let i = 0; i <= 8; i++) add(`tail${i}`, 0.01 * walk * Math.sin(g * 2 - i * 0.5), (0.03 + 0.012 * i) * tread * Math.sin(t * 0.7 - i * 0.45) + (0.02 + 0.01 * i) * walk * Math.sin(g - i * 0.4 + Math.PI));
+      add('thigh.L', 0.14 * tread * Math.sin(t * 0.9));
+      add('thigh.R', 0.14 * tread * Math.sin(t * 0.9 + Math.PI));
+      add('shin.L', 0.12 * tread * Math.sin(t * 0.9 - 0.8));
+      add('shin.R', 0.12 * tread * Math.sin(t * 0.9 + Math.PI - 0.8));
+      for (const [n, ph] of [['L', 0], ['R', Math.PI]]) {
+        const st = Math.sin(g + ph);
+        // The swing: forward with the thigh, the knee bending as the leg
+        // comes through and straightening for the footfall, the foot rolling
+        // off its toes behind.
+        add(`thigh.${n}`, -0.42 * walk * st);
+        add(`shin.${n}`, 0.5 * walk * Math.max(0, Math.sin(g + ph - 0.9)));
+        add(`foot.${n}`, 0.18 * walk * Math.sin(g + ph - 1.6));
+        add(`toes.${n}`, 0.35 * walk * Math.max(0, Math.sin(g + ph + 2.2)));
+        // The arm on that side swings against the leg.
+        add(`upperArm.${n}`, 0.2 * walk * st);
+        add(`foreArm.${n}`, -0.12 * walk * Math.max(0, st));
+      }
+      add('hips', 0, 0.07 * walk * Math.sin(g), 0.05 * walk * Math.sin(g));
+      add('spine1', 0, -0.03 * walk * Math.sin(g));
+      add('chest', 0.02 * walk * Math.sin(g * 2), -0.05 * walk * Math.sin(g), -0.03 * walk * Math.sin(g));
+      add('neck1', -0.02 * walk * Math.sin(g * 2 + 0.6));
+      add('head', -0.03 * walk * Math.sin(g * 2 + 1.0), 0.04 * walk * Math.sin(g));
+      add('upperArm.L', 0.05 * tread * Math.sin(t * 0.6), 0, -0.05 * k);
+      add('upperArm.R', 0.05 * tread * Math.sin(t * 0.6 + 1), 0, 0.05 * k);
+      this.walkBob = walk * 2.2 * Math.abs(Math.sin(g));
+    }
+    // Alive, always: her head looking about her in short movements rather
+    // than a steady sweep, now and then a snort that jerks it, her hands
+    // flexing, her tail-tip curling of its own accord, and her shoulders
+    // heaving with her breathing.
+    {
+      const n1 = Math.sin(t * 0.37) + 0.6 * Math.sin(t * 0.91 + 1.3);
+      const n2 = Math.sin(t * 0.29 + 2.1) + 0.5 * Math.sin(t * 1.13);
+      add('neck2', 0.03 * n2 * (0.4 + 0.6 * u), 0.06 * n1 * (0.3 + 0.7 * u));
+      add('head', 0.04 * n2, 0.05 * n1);
+      const snort = Math.pow(Math.max(0, Math.sin(t * 0.23 + 0.7)), 40);
+      add('head', -0.12 * snort + Math.sin(t * 22) * 0.02 * snort, 0, Math.sin(t * 17) * 0.04 * snort);
+      this.snort = snort;
+      for (const [n, ph] of [['L', 0], ['R', 1.7]]) add(`fingers.${n}`, 0.12 + 0.12 * Math.sin(t * 0.8 + ph));
+      add('tail7', 0, 0.06 * Math.sin(t * 1.3));
+      add('tail8', 0.04 * Math.sin(t * 0.9), 0.1 * Math.sin(t * 1.3 - 0.6));
+      add('upperArm.L', 0, 0, -0.02 * Math.sin(t * 1.1));
+      add('upperArm.R', 0, 0, 0.02 * Math.sin(t * 1.1));
     }
     // Breathing, always.
-    add('spine2', -0.012 * Math.sin(t * 1.1));
-    add('chest', -0.018 * Math.sin(t * 1.1 - 0.4));
-    add('neck1', 0.01 * Math.sin(t * 1.1 - 0.8));
+    add('spine2', -0.02 * Math.sin(t * 1.1));
+    add('chest', -0.03 * Math.sin(t * 1.1 - 0.4));
+    add('neck1', 0.016 * Math.sin(t * 1.1 - 0.8));
 
     // Turning: her whole length bends into the turn, nose to tail. Flat, her
     // spine bends about what is now her up, which for the bones of her body
@@ -421,6 +480,43 @@ export class MonsterRig {
       add('neck2', 0.15 * up);
       add('head', 0.12 * up + 0.2 * fling);
       jaw += 0.2 * up + 0.35 * fling;
+      // Her hands open wide as she reaches and close on the ship; open again
+      // as she lets go.
+      for (const n of ['L', 'R']) add(`fingers.${n}`, -0.35 * reach + 0.7 * up * (1 - fling) - 0.4 * fling);
+    } else if (act === 'crush') {
+      // Her hands driven together on the hull, her shoulders hunched over it,
+      // her head down to it, snarling; then easing back to holding it.
+      const sq = window01(at, 0.3, 0.85, 1.1, 1.6);
+      const shake = Math.sin(t * 24) * 0.05 * sq;
+      add('spine2', -0.06 + 0.1 * sq);
+      add('chest', -0.05 + 0.12 * sq);
+      for (const [n, sg] of [['L', 1], ['R', -1]]) {
+        add(`upperArm.${n}`, -0.55 + shake, 0, 0.12 * sg + 0.18 * sg * sq);
+        add(`foreArm.${n}`, -0.6, 0.25 * sg + 0.35 * sg * sq);
+        add(`hand.${n}`, 0.25 + 0.2 * sq);
+        add(`fingers.${n}`, 0.7 + 0.35 * sq);
+      }
+      add('neck1', 0.08 * sq);
+      add('neck2', 0.15 + 0.1 * sq);
+      add('head', 0.12 + 0.1 * sq + shake * 0.5);
+      jaw += 0.2 + 0.25 * sq;
+    } else if (act === 'bite') {
+      // Her head drawn back, her jaws open, and the lunge: down and forward
+      // onto whatever is in front of her, or in her hands, the jaws snapping
+      // shut on it and her head wrenching side to side.
+      const draw = window01(at, 0, 0.3, 0.4, 0.55);
+      const lunge = window01(at, 0.4, 0.55, 0.85, 1.3);
+      const wrench = window01(at, 0.55, 0.7, 0.95, 1.2) * Math.sin(t * 14) * 0.12;
+      const open = window01(at, 0.05, 0.35, 0.5, 0.58);
+      const holding = !!S.holding;
+      add('spine2', 0.08 * lunge * (holding ? 0.5 : 1));
+      add('chest', -0.05 * draw + 0.14 * lunge);
+      add('neck1', -0.15 * draw + 0.25 * lunge);
+      add('neck2', -0.15 * draw + 0.25 * lunge, wrench);
+      add('head', -0.2 * draw + 0.22 * lunge, wrench * 0.6, wrench * 0.8);
+      for (const n of ['L', 'R']) add(`fingers.${n}`, holding ? 0.8 : -0.2 * draw);
+      if (holding) for (const [n, sg] of [['L', 1], ['R', -1]]) { add(`upperArm.${n}`, -0.45, 0, 0.12 * sg); add(`foreArm.${n}`, -0.55, 0.25 * sg); }
+      jaw += 0.65 * open;
     } else if (act === 'charge') {
       // Gathering it: her head down and her body drawn in while the light
       // climbs her, then her head going back as it reaches her neck, and her
@@ -432,7 +528,11 @@ export class MonsterRig {
       add('neck1', 0.1 * hunch - 0.25 * back);
       add('neck2', 0.08 * hunch - 0.2 * back);
       add('head', 0.15 * hunch - 0.25 * back);
-      for (const [n, sg] of [['L', 1], ['R', -1]]) add(`upperArm.${n}`, -0.1 * hunch, 0, 0.2 * sg * hunch);
+      for (const [n, sg] of [['L', 1], ['R', -1]]) { add(`upperArm.${n}`, -0.1 * hunch, 0, 0.2 * sg * hunch); add(`fingers.${n}`, 0.6 * hunch); }
+      // Braced: her toes dug in, her tail lashing harder the further up her
+      // the glow has got.
+      add('toes.L', -0.2 * hunch); add('toes.R', -0.2 * hunch);
+      for (let i = 0; i <= 8; i++) add(`tail${i}`, 0, (0.01 + 0.01 * i) * (S.charge || 0) * Math.sin(t * 4 - i * 0.7));
       add('tail8', 0.1 * hunch); add('tail7', 0.08 * hunch);
       jaw += 0.18 * back + 0.05 * Math.sin(t * 9) * back;
     } else if (act === 'fire') {
@@ -451,7 +551,8 @@ export class MonsterRig {
       add('neck1', -0.2 * on);
       add('neck2', -0.18 * on);
       add('head', -0.25 * on + Math.sin(t * 20) * 0.01 * on);
-      for (const [n, sg] of [['L', 1], ['R', -1]]) add(`upperArm.${n}`, -0.3 * on, 0, 0.25 * sg * on);
+      for (const [n, sg] of [['L', 1], ['R', -1]]) { add(`upperArm.${n}`, -0.3 * on, 0, 0.25 * sg * on); add(`fingers.${n}`, -0.4 * on); add(`hand.${n}`, -0.2 * on); }
+      for (let i = 0; i <= 8; i++) add(`tail${i}`, 0.015 * on * Math.sin(t * 3 - i * 0.6), 0.02 * on * Math.sin(t * 2.2 - i * 0.5));
       jaw += 0.5 * on;
     } else if (act === 'die') {
       // A last roar, and then she goes limp and over.
@@ -480,7 +581,10 @@ export class MonsterRig {
     const ease = (tau) => 1 - Math.exp(-dt / tau);
     this.speedNow += ((S.speed || 0) - this.speedNow) * ease(0.6);
     this.yawRateNow += ((S.yawRate || 0) - this.yawRateNow) * ease(0.5);
-    this.phase += dt * Math.PI * 2 * (0.16 + 0.3 * clamp(this.speedNow / 12, 0, 1));
+    this.phase += dt * Math.PI * 2 * (0.2 + 0.4 * clamp(this.speedNow / 14, 0, 1));
+    // Her stride, standing: a step every second and a half or so slow,
+    // faster as she hurries.
+    this.gait += dt * Math.PI * 2 * (0.32 + 0.12 * clamp(this.speedNow / 5, 0, 1));
     // Her posture and how deep she is, eased over seconds: something a
     // hundred metres tall does not stand up in the water in a frame.
     const pose = S.pose || 'swim';
@@ -490,9 +594,9 @@ export class MonsterRig {
     let y = BODY_Y[pose] ?? BODY_Y.swim;
     if (act === 'die') y = lerp(y, BODY_Y.deep * 1.4, smooth(3, 20, S.actT || 0));
     this.bodyY += (y - this.bodyY) * ease(pose === 'deep' || act === 'die' ? 2.2 : 1.4);
-    this.body.position.y = this.bodyY;
-
     this.pose(S, dt);
+    // Each footfall settles her a little in the water.
+    this.body.position.y = this.bodyY - this.walkBob;
     // Each bone eased toward where it ought to be. Fast enough that a tail
     // swing has its snap, slow enough that nothing ever jumps.
     // (Eased on a copy of its own: what is laid on top of it afterwards --

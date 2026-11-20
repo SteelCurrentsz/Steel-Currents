@@ -1564,6 +1564,7 @@ export class Battle {
       glow: w.glow,
       look,
       beamTo: w.act === 'fire' ? beamTo : null,
+      holding: !!w.holdId,
     });
     // Gone under, she is not drawn.
     view.group.visible = !s.un && !(!s.a && view.monsterDie > 45);
@@ -1626,7 +1627,11 @@ export class Battle {
   /** Is the ship being conned Monster One? */
   conningMonster() {
     const id = this.conned();
-    const s = id === this.shipId ? { c: this.localShip.classId } : this.shownShip();
+    // What the battle says she is, first: her own prediction can be another
+    // hull's for a moment while the battle is being joined.
+    const shown = this.shownShip();
+    if (shown && shown.i === id && getClass(shown.c)?.monster) return true;
+    const s = id === this.shipId ? { c: this.localShip.classId } : shown;
     return !!(s && getClass(s.c)?.monster);
   }
 
@@ -3581,10 +3586,6 @@ export class Battle {
             fx.hit(p.x, p.y + 8, p.z, 'he', bite ? 300 : 406);
             fx.debris(p.x, p.y + 6, p.z, bite ? 18 : 30);
             audio.crash({ x: p.x, y: p.y + 4, z: p.z }, bite ? 11 : 16);
-            if (v && v.group.userData) {
-              // The hull dished in where she took it.
-              v.crushed = Math.min(1, (v.crushed || 0) + (bite ? 0.2 : 0.35));
-            }
           } else {
             fx.splash(ev.x, ev.z, 450, { kind: 'bomb' });
           }
