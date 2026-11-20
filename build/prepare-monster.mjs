@@ -10,7 +10,7 @@
 //
 //   * The skeleton is laid down her by hand, off orthographic sections of the
 //     model (hips, a spine of four, a neck of two, a skull and a jaw, a tail of
-//     nine, two arms and two legs of three), in the model's own pose, each
+//     nine, two arms of four to the fingers and two legs of four to the toes), in the model's own pose, each
 //     bone square to the model so a turn about its X is a nod, about its Y a
 //     swing to the side.
 //
@@ -150,10 +150,15 @@ const MIRROR = (b) => ({ ...b, name: b.name.replace('.L', '.R'), parent: b.paren
 const LEFT = [
   { name: 'upperArm.L', parent: 'chest', at: [1.02, 3.82, 0.62] },
   { name: 'foreArm.L', parent: 'upperArm.L', at: [1.15, 3.2, 0.86] },
-  { name: 'hand.L', parent: 'foreArm.L', at: [1.13, 3.2, 1.5], tail: [1.13, 3.05, 1.92] },
+  { name: 'hand.L', parent: 'foreArm.L', at: [1.13, 3.2, 1.5], tail: [1.13, 3.13, 1.72] },
+  // Her fingers, as one: the last of her hand and the claws on it, so she
+  // can close her hand on a ship and spread it when she roars.
+  { name: 'fingers.L', parent: 'hand.L', at: [1.13, 3.13, 1.72], tail: [1.13, 3.02, 1.98] },
   { name: 'thigh.L', parent: 'hips', at: [0.62, 1.95, 0.2] },
   { name: 'shin.L', parent: 'thigh.L', at: [0.88, 1.05, 0.72] },
-  { name: 'foot.L', parent: 'shin.L', at: [0.85, 0.42, 0.12], tail: [0.9, 0.1, 1.3] },
+  { name: 'foot.L', parent: 'shin.L', at: [0.85, 0.42, 0.12], tail: [0.88, 0.2, 0.82] },
+  // Her toes, so her feet flex as she treads water and walks.
+  { name: 'toes.L', parent: 'foot.L', at: [0.88, 0.2, 0.82], tail: [0.92, 0.08, 1.32] },
 ];
 const BONES = [
   { name: 'hips', parent: '', at: [0, 1.75, -0.05] },
