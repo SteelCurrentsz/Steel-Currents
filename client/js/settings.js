@@ -20,7 +20,8 @@ const DEFAULTS = {
   friendlyFire: false,
   ultraRealism: false,
   // Potato mode: everything the picture can give up to keep a slow machine
-  // smooth -- fewer pixels, a coarse sea, thin smoke, small things not drawn.
+  // smooth -- a lighter sea, thin smoke, small things not drawn -- while
+  // keeping the picture sharp.
   // Over whatever the render quality says.
   potato: false,
   // How a carrier is stored, when a captain has re-balanced her in the yard.
@@ -76,11 +77,16 @@ export function setSettings(patch) {
 export const QUALITY = {
   low: { oceanSegments: 140, oceanSize: 22000, pixelRatio: 1, shadows: false, particles: 0.5, drawDistance: 26000, plating: 8, wakeMap: 512 },
   medium: { oceanSegments: 260, oceanSize: 26000, pixelRatio: 1.25, shadows: true, particles: 1, drawDistance: 30000, plating: 3, wakeMap: 1024 },
-  // Potato: the frame rate over everything else. A third of the sea's
-  // vertices, two drawn pixels in three, a quarter of the smoke and spray, a
-  // shorter horizon, coarse plating, and anything under two pixels left out.
-  potato: { oceanSegments: 96, oceanSize: 18000, pixelRatio: 0.67, shadows: false, particles: 0.25, drawDistance: 20000, plating: 14, wakeMap: 256,
-    cullPx: 2, lodPx: 2.5, floor: 0.45 },
+  // Potato: the frame rate over everything else -- but not by drawing fewer
+  // pixels. Dropping the resolution is what made it look like a pixelated
+  // old game; what it gives up instead is work per pixel and per object. The
+  // lightweight sea (fewer octaves of chop and foam), a third of its
+  // vertices, a quarter of the smoke and spray, a shorter horizon, coarse
+  // plating, small things left out and coarse copies of the rest sooner, and
+  // half the wake map's texels. Drawn at the screen's own pixel (never under
+  // nine in ten of it), with every frame shown.
+  potato: { oceanSegments: 96, oceanSize: 18000, pixelRatio: 1, shadows: false, particles: 0.25, drawDistance: 20000, plating: 14, wakeMap: 256,
+    cullPx: 2, lodPx: 3, floor: 0.9, oceanLite: true },
   high: { oceanSegments: 420, oceanSize: 30000, pixelRatio: 1.6, shadows: true, particles: 1.7, drawDistance: 34000, plating: 1.6, wakeMap: 2048 },
 };
 

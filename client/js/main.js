@@ -145,11 +145,26 @@ setGpuLevel(safeState().level);
  * has been lost keeps that lost context, so each further try is on a fresh
  * canvas in its place, asking for less each time.
  */
+// Whether three.js reads back every shader's compile log the first time it is
+// drawn. Reading it makes the page wait, there and then, for the graphics
+// driver to finish compiling that shader -- and the game has nearly two
+// hundred of them, most first drawn in the middle of a battle when a shell
+// lands or a fire starts. Every one was a hitch: in a profile of a fleet
+// action a sixth of the main thread was spent waiting on these logs. The
+// shaders are the same on every device, so the check is for whoever is
+// working on them: add ?shaders to the address to have it back.
+const CHECK_SHADERS = /[?&]shaders\b/.test(location.search);
+function quiet(r) {
+  if (r && r.debug) r.debug.checkShaderErrors = CHECK_SHADERS;
+  return r;
+}
 function makeRenderer(at = document.getElementById('stage')) {
-  // Potato mode gives up antialiasing too: it is a whole extra multisampled
-  // buffer resolved every frame. (Decided when the context is made, so a
-  // change to it takes a reload.)
-  const asks = safeGraphics() || getSettings().potato
+  // Potato mode keeps antialiasing: without it every hull and mast is a
+  // staircase, which is most of what made it look pixelated, and on the
+  // tile-based GPUs in phones and tablets the multisampling is resolved on
+  // chip and costs very little. Only a graphics card that has already let go
+  // of the page draws without it.
+  const asks = safeGraphics()
     ? [{ antialias: false }, { antialias: false, powerPreference: 'low-power' }]
     : [
       { antialias: true, powerPreference: 'high-performance' },
@@ -161,7 +176,7 @@ function makeRenderer(at = document.getElementById('stage')) {
     try {
       made = new THREE.WebGLRenderer({ canvas: at, ...asks[i] });
       const gl = made.getContext();
-      if (gl && !gl.isContextLost()) return made;
+      if (gl && !gl.isContextLost()) return quiet(made);
     } catch (e) {
       console.error('Steel Currents: renderer', e);
     }
@@ -171,8 +186,8 @@ function makeRenderer(at = document.getElementById('stage')) {
   }
   // Nothing better on offer: the last one, which three.js restores when the
   // browser gives the context back.
-  if (made) return made;
-  try { return new THREE.WebGLRenderer({ canvas: at, antialias: false }); } catch { return null; }
+  if (made) return quiet(made);
+  try { return quiet(new THREE.WebGLRenderer({ canvas: at, antialias: false })); } catch { return null; }
 }
 
 /** A new canvas in the old one's place, with its id and its classes. */
@@ -1952,8 +1967,8 @@ if (optPotato) {
     setSettings({ potato: optPotato.checked });
     applyQuality();
     toast(optPotato.checked
-      ? 'Potato mode on — resolution drops now, the rest from the next battle (reload to drop antialiasing).'
-      : 'Potato mode off — full detail from the next battle (reload to bring back antialiasing).');
+      ? 'Potato mode on — a lighter sea and fewer effects from the next battle, for a smoother game.'
+      : 'Potato mode off — full detail from the next battle.');
   };
 }
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });

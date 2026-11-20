@@ -2446,7 +2446,7 @@ export class BattleScene {
     this.stars = (preset === 'night' && overcast < 0.3) ? starField(600) : null;
     if (this.stars) this.scene.add(this.stars);
 
-    this.ocean = new Ocean(preset, q.oceanSize, q.oceanSegments);
+    this.ocean = new Ocean(preset, q.oceanSize, q.oceanSegments, { lite: !!q.oceanLite });
     this.ocean.setSeaState(world.sea ?? 2, wx);
     // What the ships have done to that water. Nothing of it is in the scene:
     // it is drawn into a map of its own and the ocean reads it, so a wake is

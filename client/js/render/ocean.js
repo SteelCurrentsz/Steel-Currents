@@ -558,11 +558,20 @@ vec3 dnoise(vec2 p) {
               du.y * (k2 + k3 * u.x));
 }
 
+// Four octaves; the lightweight sea (potato mode) gets by on two, with the
+// two it leaves out stood in for by their average, so every threshold laid on
+// it cuts at the same level it does on the full one.
+#ifdef OCEAN_LITE
+float onoise(vec2 p) {
+  return 0.5 * dnoise(p).x + 0.25 * dnoise(p * 2.11).x + 0.09375;
+}
+#else
 float onoise(vec2 p) {
   float v = 0.0, a = 0.5;
   for (int i = 0; i < 4; i++) { v += a * dnoise(p).x; p *= 2.11; a *= 0.5; }
   return v;
 }
+#endif
 
 void main() {
   if (uHullCount > 0.0 && inHull(vWorld)) discard;
@@ -609,17 +618,20 @@ void main() {
   // across the whole sea. Turned, no two octaves share a grain.
   mat2 rot = mat2(1.0, 0.0, 0.0, 1.0);
   const mat2 TURN = mat2(0.8, 0.6, -0.6, 0.8);
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < CHOP_OCTAVES; i++) {
+    // An octave is kept only while it still covers a few pixels. Below that it
+    // is detail the screen cannot resolve and shimmer it certainly can, and a
+    // sea that sparkles like television static is the one thing worse than a
+    // sea with no ripples on it at all. Each octave is shorter than the last,
+    // so once one is gone every one after it is too: the loop stops there
+    // rather than working out noise that is multiplied by nothing.
+    float lod = clamp(wl * 340.0 / max(dcam, 1.0) - 1.2, 0.0, 1.0);
+    if (lod <= 0.0) break;
     float k = 6.2831853 / wl;
     // Deep water again: the short ones run slowly, the long ones fast.
     float sp = sqrt(9.81 / k);
     vec3 nz = dnoise((rot * q) * k * 0.5 + drift * uTime * sp * k * 0.16
                      + float(i) * 17.31);
-    // An octave is kept only while it still covers a few pixels. Below that it
-    // is detail the screen cannot resolve and shimmer it certainly can, and a
-    // sea that sparkles like television static is the one thing worse than a
-    // sea with no ripples on it at all.
-    float lod = clamp(wl * 340.0 / max(dcam, 1.0) - 1.2, 0.0, 1.0);
     // Back into the world's own axes: the gradient of f(R p) is R^T grad f,
     // and a row vector times a matrix is the transpose doing exactly that.
     slope += (nz.yz * rot) * ht * k * 0.5 * lod;
@@ -640,12 +652,15 @@ void main() {
   // been through. Where the water is still white it is rough, a metre of
   // confused water with no pattern in it, so a fine ripple of its own is put
   // in; where it is only aerated it is glassy, and the chop is simply damped.
-  vec2 wp2 = q * 0.55 + vec2(uTime * 0.6, -uTime * 0.45);
-  vec3 r1 = dnoise(wp2);
-  vec3 r2 = dnoise(wp2 * 2.7 + 5.0);
-  vec2 rip = r1.yz + r2.yz * 0.5;
   float ripLod = clamp(240.0 / max(dcam, 1.0), 0.0, 1.0);
   float wkRough = clamp(wkB * 1.6, 0.0, 1.0);
+  vec2 rip = vec2(0.0);
+  if (wkRough * ripLod > 0.0) {
+    vec2 wp2 = q * 0.55 + vec2(uTime * 0.6, -uTime * 0.45);
+    vec3 r1 = dnoise(wp2);
+    vec3 r2 = dnoise(wp2 * 2.7 + 5.0);
+    rip = r1.yz + r2.yz * 0.5;
+  }
   slope = slope * (1.0 - 0.58 * max(aer, wkRough)) + rip * 0.30 * wkRough * ripLod;
   // Oil flattens the sea, and this is the whole reason a slick can be seen at
   // all from anywhere but straight overhead. The film damps out the capillary
@@ -654,9 +669,11 @@ void main() {
   // shape of the slick. The map's own edge is soft, so the coverage is bitten
   // into by a noise a few metres across: a slick has a ragged margin and a
   // straight one would give the whole thing away as a texture.
-  float oilLace = onoise(q * 0.055 + 17.3) * 0.62 + onoise(q * 0.21 - 4.7) * 0.38;
-  oilCov *= mix(smoothstep(0.24, 0.66, oilLace), 1.0,
-                smoothstep(0.42, 0.92, oilCov));
+  if (oilCov > 0.0) {
+    float oilLace = onoise(q * 0.055 + 17.3) * 0.62 + onoise(q * 0.21 - 4.7) * 0.38;
+    oilCov *= mix(smoothstep(0.24, 0.66, oilLace), 1.0,
+                  smoothstep(0.42, 0.92, oilCov));
+  }
   slope *= 1.0 - 0.88 * oilCov;
   n = normalize(n + vec3(-slope.x, 0.0, -slope.y) * uChop);
 
@@ -664,24 +681,33 @@ void main() {
   // rather than carried down from the vertex stage, so the water is shaded as
   // the surface it actually is at every pixel -- including out beyond where
   // the mesh is fine enough to be displaced at all, which is most of the sea.
+  //
+  // Four samples of the near patch, taken only where they can say anything:
+  // within reach of the patch (it reads as nothing past its edge), and where
+  // either the slope or the drift of the foam is going to be used.
   float ws = max(uWakeStep, dcam * 0.004);
-  vec4 wxp = wakeNear(q + vec2(ws, 0.0)), wxm = wakeNear(q - vec2(ws, 0.0));
-  vec4 wzp = wakeNear(q + vec2(0.0, ws)), wzm = wakeNear(q - vec2(0.0, ws));
-  float hx = ((wxp.r - wxp.g) - (wxm.r - wxm.g)) * uWakeScale;
-  float hz = ((wzp.r - wzp.g) - (wzm.r - wzm.g)) * uWakeScale;
-  vec2 wslope = vec2(hx, hz) / (2.0 * ws);
-  // Which way the wake's water is spreading here. The aeration is thickest
-  // down her track and thins out either side of it, so straight down its
-  // gradient is away from her -- the way the wash she has thrown aside is
-  // drifting. The same four samples, so it costs nothing.
-  vec2 aGrad = vec2(wxp.a - wxm.a, wzp.a - wzm.a) + vec2(wxp.b - wxm.b, wzp.b - wzm.b) * 0.5;
-  float aGl = length(aGrad);
-  vec2 wFlow = -aGrad / max(aGl, 1e-4) * smoothstep(0.004, 0.04, aGl);
-  // Held back with range for the same reason every octave of the chop is: a
-  // slope resolved finer than the pixel it lands in is not detail, it is
-  // sparkle.
-  wslope *= clamp(1.0 - dcam / 9000.0, 0.0, 1.0);
-  n = normalize(n + vec3(-wslope.x, 0.0, -wslope.y));
+  vec2 wslope = vec2(0.0);
+  vec2 wFlow = vec2(0.0);
+  vec2 inNear = abs(q - vec2(uWakeNearAt.x, uWakeNearAt.y));
+  if (max(inNear.x, inNear.y) < uWakeNearAt.z + ws && (dcam < 9000.0 || wkB > 0.006)) {
+    vec4 wxp = wakeNear(q + vec2(ws, 0.0)), wxm = wakeNear(q - vec2(ws, 0.0));
+    vec4 wzp = wakeNear(q + vec2(0.0, ws)), wzm = wakeNear(q - vec2(0.0, ws));
+    float hx = ((wxp.r - wxp.g) - (wxm.r - wxm.g)) * uWakeScale;
+    float hz = ((wzp.r - wzp.g) - (wzm.r - wzm.g)) * uWakeScale;
+    wslope = vec2(hx, hz) / (2.0 * ws);
+    // Which way the wake's water is spreading here. The aeration is thickest
+    // down her track and thins out either side of it, so straight down its
+    // gradient is away from her -- the way the wash she has thrown aside is
+    // drifting. The same four samples, so it costs nothing.
+    vec2 aGrad = vec2(wxp.a - wxm.a, wzp.a - wzm.a) + vec2(wxp.b - wxm.b, wzp.b - wzm.b) * 0.5;
+    float aGl = length(aGrad);
+    wFlow = -aGrad / max(aGl, 1e-4) * smoothstep(0.004, 0.04, aGl);
+    // Held back with range for the same reason every octave of the chop is: a
+    // slope resolved finer than the pixel it lands in is not detail, it is
+    // sparkle.
+    wslope *= clamp(1.0 - dcam / 9000.0, 0.0, 1.0);
+    n = normalize(n + vec3(-wslope.x, 0.0, -wslope.y));
+  }
 
   // ---- water ---------------------------------------------------------------
   // Schlick's Fresnel about water's 0.02 reflectance: near vertical you look
@@ -747,17 +773,30 @@ void main() {
   // height the sea was dappled with cloud -- and as the swell was a lattice,
   // so were they. Now they need a crest that is actually folding, a patch of
   // the fine lace to break in, and a gust to be blowing over it.
+  //
+  // All of it is faded out by seven kilometres, so past that none of it is
+  // worked out; and each finer noise is only asked for where the coarser one
+  // before it has left something for it to break up.
+  float foam = 0.0;
+  if (dcam < 7000.0) {
   float breaking = smoothstep(0.32, 0.04, vFold);
   float crest = smoothstep(uCrest * 1.0, uCrest * 1.7, vCrest);
-  float lace = onoise(q * 0.061 + vec2(uTime * 0.05, -uTime * 0.03)) * 0.6
-             + onoise(q * 0.23 - uTime * 0.04) * 0.4;
-  // And broken up within itself: a whitecap is a spill of streaks and
-  // flecks down the face of the crest, not a flat white patch.
-  float capLace = onoise(q * 0.52 + vec2(uTime * 0.11, uTime * 0.07));
-  float foam = clamp(breaking + crest * 0.30, 0.0, 1.0)
-             * smoothstep(0.48, 0.70, lace)
-             * smoothstep(0.28, 0.70, gust)
-             * mix(1.0, smoothstep(0.36, 0.62, capLace), clamp(260.0 / max(dcam, 1.0), 0.0, 1.0));
+  float capLace = 0.0;
+  bool haveCap = false;
+  float capBase = clamp(breaking + crest * 0.30, 0.0, 1.0) * smoothstep(0.28, 0.70, gust);
+  if (capBase > 0.0) {
+    float lace = onoise(q * 0.061 + vec2(uTime * 0.05, -uTime * 0.03)) * 0.6
+               + onoise(q * 0.23 - uTime * 0.04) * 0.4;
+    float laceK = smoothstep(0.48, 0.70, lace);
+    if (laceK > 0.0) {
+      // And broken up within itself: a whitecap is a spill of streaks and
+      // flecks down the face of the crest, not a flat white patch.
+      capLace = onoise(q * 0.52 + vec2(uTime * 0.11, uTime * 0.07));
+      haveCap = true;
+      foam = capBase * laceK
+           * mix(1.0, smoothstep(0.36, 0.62, capLace), clamp(260.0 / max(dcam, 1.0), 0.0, 1.0));
+    }
+  }
   // And the white horses: the scatter of small breaking crests a working sea
   // is covered in, whether or not the swell under them is folding. Each one
   // rides the top of a wave, is drawn out downwind into a streak, and blooms
@@ -770,17 +809,25 @@ void main() {
     float bloom = onoise(ax * vec2(0.055, 0.12) + vec2(-uTime * 0.11, uTime * 0.03))
                 * 0.6
                 + onoise(q * 0.024 + vec2(uTime * 0.035, -uTime * 0.028)) * 0.4;
-    float streak = onoise(ax * vec2(0.16, 0.55) + vec2(-uTime * 0.30, 0.0));
-    float top = smoothstep(uCrest * 0.35, uCrest * 1.05, vCrest);
-    float horse = smoothstep(0.60, 0.70, bloom)
-                * mix(1.0, smoothstep(0.42, 0.66, streak * 0.65 + capLace * 0.35),
-                      clamp(1400.0 / max(dcam, 1.0), 0.0, 1.0))
-                * mix(0.35, 1.0, top)
-                * mix(0.45, 1.0, smoothstep(0.20, 0.60, gust))
-                * clamp(uCrest / 1.4, 0.7, 1.4);
-    foam = max(foam, horse);
+    float bloomK = smoothstep(0.60, 0.70, bloom);
+    if (bloomK > 0.0) {
+      float streakW = clamp(1400.0 / max(dcam, 1.0), 0.0, 1.0);
+      float streakK = 1.0;
+      if (streakW > 0.0) {
+        if (!haveCap) capLace = onoise(q * 0.52 + vec2(uTime * 0.11, uTime * 0.07));
+        float streak = onoise(ax * vec2(0.16, 0.55) + vec2(-uTime * 0.30, 0.0));
+        streakK = mix(1.0, smoothstep(0.42, 0.66, streak * 0.65 + capLace * 0.35), streakW);
+      }
+      float top = smoothstep(uCrest * 0.35, uCrest * 1.05, vCrest);
+      float horse = bloomK * streakK
+                  * mix(0.35, 1.0, top)
+                  * mix(0.45, 1.0, smoothstep(0.20, 0.60, gust))
+                  * clamp(uCrest / 1.4, 0.7, 1.4);
+      foam = max(foam, horse);
+    }
   }
   foam *= clamp(1.0 - dcam / 7000.0, 0.0, 1.0);
+  }
   // The burst's white water and the slick, which are seen from anywhere.
   vec2 bm = uBurstN > 0.0 ? burstMarks(q) : vec2(0.0);
   foam = max(foam, bm.x);
@@ -812,18 +859,26 @@ void main() {
   // Warped by a coarser noise first, so the foam curls and marbles the way
   // churned water does instead of lying in a regular net: the eddies off her
   // screws stir it round as it drifts astern.
+  //
+  // None of it is worked out where there is no white water to draw -- which
+  // is nearly all of the sea -- since all of it is multiplied by how much
+  // there is.
+  float fineLod = clamp(500.0 / max(dcam, 1.0), 0.0, 1.0);
+  float clean = 1.0 - oilCov * 0.95;
+  col = mix(col, white, foam * 0.62 * clean);
+  if ((wkB > 0.0 && dcam < 9000.0) || vHeld > 0.004) {
   vec2 warp = vec2(onoise(q * 0.045 + 3.1 + uTime * 0.01), onoise(q * 0.045 - 7.7 - uTime * 0.012)) - 0.5;
   vec2 qw = q + warp * 30.0 * clamp(wkB * 2.0 + aer, 0.0, 1.0);
   float n1 = onoise(qw * 0.27 + vec2(uTime * 0.03, -uTime * 0.02));
   float n2 = onoise(qw * 0.93 - uTime * 0.045);
   float vein = 1.0 - abs(n1 - 0.47) * 2.6;
   float fine = mix(n1 * 0.6 + n2 * 0.4, vein * 0.72 + n2 * 0.28, 0.55);
-  float fineLod = clamp(500.0 / max(dcam, 1.0), 0.0, 1.0);
   // The wake's own foam is not fixed to the sea: it is carried outward, away
   // from her track, the way the wash off a ship eases out across the water
   // long after she has gone. Two copies of the lace slid along the flow on
   // staggered clocks and cross-faded, so it moves without ever stretching.
   float fineW = fine;
+#ifndef OCEAN_LITE
   if (wkB > 0.006 && fineLod > 0.02) {
     const float FLOW_T = 9.0;          // seconds a copy is slid for
     const float FLOW_V = 1.1;          // metres a second, outward
@@ -841,20 +896,23 @@ void main() {
     // back what averaging two noises takes out of their contrast.
     fineW = 0.5 + (fineW - 0.5) * mix(1.0, 1.35, 1.0 - abs(wA * 2.0 - 1.0));
   }
+#endif
   float thr = mix(0.80, 0.30, wkB);
   float threads = smoothstep(thr - 0.06, thr + 0.14, fineW) * smoothstep(0.015, 0.12, wkB);
   // And a finer speckle of bubbles round the threads, so the edge of the
   // white water is a scatter rather than a line.
-  float speck = smoothstep(0.62, 0.80, onoise(qw * 2.3 + uTime * 0.07)) * smoothstep(0.05, 0.35, wkB) * fineLod;
-  threads = max(threads, speck * 0.6);
+#ifndef OCEAN_LITE
+  if (wkB > 0.05 && fineLod > 0.0) {
+    float speck = smoothstep(0.62, 0.80, onoise(qw * 2.3 + uTime * 0.07)) * smoothstep(0.05, 0.35, wkB) * fineLod;
+    threads = max(threads, speck * 0.6);
+  }
+#endif
   float wkFoam = mix(wkB * 0.60, threads, fineLod)
                * clamp(1.0 - dcam / 9000.0, 0.0, 1.0);
   // Foam will not form on oil. A whitecap running into a slick stops at the
   // edge of it, and the wash off a ship steaming through one goes out the
   // moment she is in it -- which is a thing anybody who has seen a photograph
   // of a torpedoed tanker has seen and nobody ever draws.
-  float clean = 1.0 - oilCov * 0.95;
-  col = mix(col, white, foam * 0.62 * clean);
   // Never quite opaque: even the boil under her counter is broken water with
   // the sea showing through it, and thin foam is half see-through.
   col = mix(col, white, wkFoam * (0.48 + 0.42 * wkB) * clean);
@@ -865,6 +923,7 @@ void main() {
     float hthr = mix(0.78, 0.34, vHeld);
     float hf = smoothstep(hthr - 0.08, hthr + 0.14, fine) * smoothstep(0.02, 0.35, vHeld);
     col = mix(col, white, mix(vHeld * 0.5, hf, fineLod) * (0.45 + 0.4 * vHeld) * clean);
+  }
   }
 
   // ---- oil -----------------------------------------------------------------
@@ -930,6 +989,9 @@ void main() {
   // The pool a searchlight throws on the water: a hard-edged oval where the
   // beam meets the sea, long when it is trained low, white on the crests
   // that face it and dark in the troughs that do not.
+  // Asked once for all three first: a branch on uniforms alone is free, and
+  // most of a battle has no lamp burning at all.
+  if (uLampPos[0].w + uLampPos[1].w + uLampPos[2].w > 0.5)
   for (int i = 0; i < 3; i++) {
     if (uLampPos[i].w < 0.5) continue;
     vec3 Ls = uLampPos[i].xyz - vWorld;
@@ -1070,7 +1132,7 @@ export class Ocean {
    * @param detail  triangles to spend on it: the old segment count, reused so
    *                the quality setting still means something.
    */
-  constructor(preset = 'night', size = 26000, detail = 260) {
+  constructor(preset = 'night', size = 26000, detail = 260, { lite = false } = {}) {
     const p = OCEAN_PRESETS[preset] || OCEAN_PRESETS.night;
     this.preset = p;
 
@@ -1092,6 +1154,10 @@ export class Ocean {
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
+      // The lightweight sea, for potato mode: four octaves of chop instead of
+      // six and two of each noise instead of four, and the wake's foam drawn
+      // without its drift and its speckle. The same water, less finely worked.
+      defines: lite ? { CHOP_OCTAVES: 4, OCEAN_LITE: '' } : { CHOP_OCTAVES: 6 },
       uniforms: {
         // The hulls the sea has to keep out of. None until something says
         // there are; see breakers.js.
