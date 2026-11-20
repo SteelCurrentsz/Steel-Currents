@@ -101,6 +101,8 @@ const SCULPTED = {
   tone: () => import('./tone.js').then((m) => { KRISS.tone = m.buildTone; }),
   aoba: () => import('./aoba.js').then((m) => { KRISS.aoba = m.buildAoba; }),
   agano: () => import('./agano.js').then((m) => { KRISS.agano = m.buildAgano; }),
+  renown: () => import('./renown.js').then((m) => { KRISS.renown = m.buildRenown; }),
+  repulse: () => import('./repulse.js').then((m) => { KRISS.repulse = m.buildRepulse; }),
   shimakaze: () => import('./shimakaze.js').then((m) => { KRISS.shimakaze = m.buildShimakaze; }),
   yugumo: () => import('./yugumo.js').then((m) => { KRISS.yugumo = m.buildYugumo; }),
   dunkerque: () => import('./dunkerque.js').then((m) => { KRISS.dunkerque = m.buildDunkerque; }),

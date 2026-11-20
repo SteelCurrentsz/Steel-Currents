@@ -368,6 +368,39 @@ const HULLS = {
     <rect x="69" y="2" width="1.2" height="25"/>
     <rect x="71.6" y="24.8" width="4.2" height="5.2"/>
     <rect x="76.1" y="26.9" width="4.2" height="3.1"/>`,
+  // The Renown as rebuilt: a long battlecruiser hull with a raised
+  // forecastle, A and B forward, a tower bridge, two widely spaced funnels,
+  // a pole mainmast with her hangar and crane abaft the after funnel, and Y
+  // aft.
+  renown: `
+    <path d="M2 27 L50 28.6 L50 30 L94 30 L98 31.2 L95 37 L6 37 Z"/>
+    <rect x="18.5" y="24.5" width="5" height="3.2"/>
+    <rect x="24.5" y="22" width="5" height="4"/>
+    <rect x="31" y="21.5" width="10" height="7"/>
+    <rect x="32.5" y="12.5" width="6.5" height="9.5"/>
+    <rect x="33.6" y="9.5" width="4" height="3.2"/>
+    <rect x="36.4" y="3.5" width="1.1" height="6.5"/>
+    <rect x="43" y="16.6" width="4.6" height="9"/>
+    <rect x="52" y="17.2" width="4.6" height="8.8"/>
+    <rect x="45" y="25" width="23" height="4"/>
+    <rect x="60" y="5" width="1.1" height="21"/>
+    <rect x="76" y="26.6" width="5" height="3.4"/>`,
+  // The Repulse: the same long battlecruiser hull, A and B forward, her old
+  // tripod foremast over a stepped bridge, two funnels, her hangar between
+  // them and the mainmast, a tripod mainmast, and Y aft.
+  repulse: `
+    <path d="M2 27 L50 28.6 L50 30 L94 30 L98 31.2 L95 37 L6 37 Z"/>
+    <rect x="18.5" y="24.5" width="5" height="3.2"/>
+    <rect x="24.5" y="22" width="5" height="4"/>
+    <rect x="31" y="19.5" width="9" height="9"/>
+    <rect x="32.5" y="15.5" width="5.5" height="4.5"/>
+    <path d="M34 15.6 L35.8 3 L37 3 L39 15.6 Z"/>
+    <rect x="33.6" y="2.4" width="5" height="2.4"/>
+    <rect x="43" y="15.5" width="4.6" height="10"/>
+    <rect x="52" y="16.5" width="4.6" height="9.5"/>
+    <rect x="45" y="25" width="23" height="4"/>
+    <path d="M60 26 L61.2 7 L62.2 7 L63.8 26 Z"/>
+    <rect x="76" y="26.6" width="5" height="3.4"/>`,
   // The Agano: a long, slim, flush-sided light cruiser hull with a sheer
   // up to her bow, two twin turrets forward -- No.2 superfiring -- a compact
   // tower bridge, one tall raked funnel, her catapult and tube banks

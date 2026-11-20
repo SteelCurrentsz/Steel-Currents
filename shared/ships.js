@@ -7752,6 +7752,307 @@ export const SHIP_CLASSES = {
     },
   },
 
+  renown: {
+    // HMS Renown, laid down as a Revenge-class battleship and finished in
+    // twenty months in 1916 as one of Fisher's battlecruisers: six 15-inch
+    // in three twin turrets on a thirty-two knot hull with six inches of
+    // belt. Rebuilt from the waterline up in 1936-39 as no other capital
+    // ship but the Queen Elizabeth and the Warspite was: new machinery, a
+    // tower bridge, an aircraft hangar, and ten twin 4.5-inch in BD
+    // gunhouses in place of her old triple 4-inch. She hit the Gneisenau
+    // three times off the Lofoten Islands in April 1940, hunted the Bismarck
+    // with Force H, and took Churchill to Quebec and back.
+    //
+    // She is drawn from the owner's model (see renown.js and build/prepare-
+    // renown-hull.mjs) -- "HMS Renown (War Thunder)" by KojfDiscord, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen -- at
+    // 242 m over all, floated at 8.2 m.
+    id: 'renown',
+    name: 'Renown',
+    fullName: 'HMS Renown',
+    className: 'Renown',
+    type: 'BB',
+    typeName: 'Battlecruiser',
+    nation: 'gbr',
+    blurb: 'Fisher\'s battlecruiser rebuilt for a second war: six fifteen-inch guns, thirty knots and twenty dual-purpose 4.5s.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 4.5, 26.5], [0, -14.0, 25.5]], length: 242, beam: 31.1, draft: 8.2, superstructure: 1.3 },
+    hp: 56500,
+    maxSpeed: 30 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.42,
+    turnRate: 0.047,
+    rudderShift: 14,
+    speedLossInTurn: 0.16,
+    concealment: 15600,
+    fireDetectPenalty: 6800,
+    radarRange: 12500,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Six inches of belt amidships, nine over her magazines once she was
+    // rebuilt, and her decks thickened over her machinery and magazines to
+    // four inches: still a battlecruiser's armour.
+    armor: { belt: 229, deck: 102, citadel: 229, bow: 51, superstructure: 25 },
+    turrets: [
+      // A on her forecastle and B superfiring over it, trained ahead, and Y
+      // on her quarterdeck, trained astern, each where the model stood it.
+      { id: 0, name: 'A', x: 0.014, z: 60.698, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 10.35 },
+      { id: 1, name: 'B', x: 0, z: 45.1, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 13.42 },
+      { id: 2, name: 'Y', x: -0.002, z: -74.968, angle: 3.14, arc: 1.5, rest: 3.1416, guns: 2, my: 7 },
+    ],
+    gun: {
+      name: '15"/42 Mk I', role: 'surface',
+      // Five below the horizontal to thirty up in her Mk I* turrets.
+      elev: { min: -0.087, max: 0.524 },
+      reach: 15.3,
+      caliber: 381, reload: 30, traverse: 0.05, range: 22000, sigma: 1.4,
+      // The 1,938 lb 6crh shell: 752 m/s.
+      shells: shells(381, 12300, 5600, 560, 752, 0.24),
+    },
+    // Her eight 21-inch tubes, in four fixed pairs behind her side on her
+    // upper deck, two pairs a side; her fish go out through her side there,
+    // turned by their gyros up to twenty degrees either side of her beam.
+    torpedoes: {
+      mounts: [
+        { id: 0, port: true, x: 8.7, z: -12.5, angle: 1.57, arc: 0.35, rest: 1.57, tubes: 2, my: 5.0 },
+        { id: 1, port: true, x: -8.7, z: -12.5, angle: -1.57, arc: 0.35, rest: -1.57, tubes: 2, my: 5.0 },
+        { id: 2, port: true, x: 7.7, z: -48.4, angle: 1.57, arc: 0.35, rest: 1.57, tubes: 2, my: 5.0 },
+        { id: 3, port: true, x: -7.7, z: -48.4, angle: -1.57, arc: 0.35, rest: -1.57, tubes: 2, my: 5.0 },
+      ],
+      name: '21" Mk IX torpedo', role: 'surface', caliber: 533,
+      tubeLabel: '21"',
+      reach: 3.4,
+      traverse: 0.35,
+      reload: 120, damage: 13800, speed: 40 * KNOTS, range: 10000,
+      detection: 1200, arming: 400, spread: 0.06, floodChance: 0.36,
+      launch: {
+        eject: 9, stagger: 0.4, lanes: [-0.9, 0.9], lie: -0.2, muzzle: 3.4, wet: true, clear: 4.5,
+        fish: { len: 7.2, r: 0.267, kind: 'mk15' },
+      },
+    },
+    // Her ten twin 4.5-inch Mk III in BD gunhouses: three a side on her
+    // shelter deck abreast her bridge and forward funnel, trained ahead, and
+    // two a side abaft her mainmast, trained astern.
+    secondary: {
+      name: '4.5"/45 QF Mk III', role: 'dp', piece: 'sec',
+      elev: { min: -0.087, max: 1.40 },
+      reach: 4.64,
+      caliber: 114, reload: 5.0, traverse: 0.35, range: 11000, sigma: 1.2,
+      shells: shells(114, 1400, 1250, 60, 750, 0.07),
+      mounts: [
+        { x: 9.721, z: 16.19, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 10.33 },
+        { x: -9.723, z: 16.231, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 10.31 },
+        { x: 10.277, z: 9.415, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 10.32 },
+        { x: -10.281, z: 9.455, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 10.37 },
+        { x: 10.277, z: 2.74, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 10.36 },
+        { x: -10.279, z: 2.793, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 10.36 },
+        { x: 9.747, z: -39.324, angle: 3.14, arc: 1.5, rest: 3.1416, guns: 2, my: 10.24 },
+        { x: -9.71, z: -39.288, angle: 3.14, arc: 1.5, rest: 3.1416, guns: 2, my: 10.24 },
+        { x: 9.749, z: -44.563, angle: 3.14, arc: 1.5, rest: 3.1416, guns: 2, my: 10.24 },
+        { x: -9.714, z: -44.587, angle: 3.14, arc: 1.5, rest: 3.1416, guns: 2, my: 10.23 },
+      ],
+    },
+    aa: {
+      range: 3800, dps: 60,
+      guns: [
+        // Her three eight-barrelled pom-poms: one a side on the platforms
+        // abreast her forward funnel, and one on her after superstructure.
+        { name: '2-pdr Mk VIII octuple', caliber: 40, role: 'aa', reload: 0.35, range: 3600, piece: 'pom',
+          elev: { min: -0.17, max: 1.40 },
+          mounts: [
+          { x: 6.969, z: -0.453, angle: 1.12, arc: 1.5, rest: 1.1203, guns: 8, my: 17.49 },
+          { x: -6.969, z: -0.507, angle: -2.02, arc: 1.5, rest: -2.0199, guns: 8, my: 17.49 },
+          { x: 0, z: -63.973, angle: 2.7, arc: 1.5, rest: 2.6973, guns: 8, my: 11.76 },
+          ] },
+        // And her twenty Oerlikons behind their shields about her bridge, her
+        // funnels and her after superstructure.
+        { name: '20 mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, piece: 'aa1',
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+          { x: 4.999, z: 28.615, angle: 3.1, arc: 1.5, rest: 3.1002, guns: 1, my: 18.74 },
+          { x: -4.65, z: 28.529, angle: 3.06, arc: 1.5, rest: 3.0639, guns: 1, my: 18.93 },
+          { x: 5.729, z: 12.251, angle: 3.05, arc: 1.5, rest: 3.046, guns: 1, my: 13.41 },
+          { x: -5.401, z: 12.203, angle: 3.04, arc: 1.5, rest: 3.038, guns: 1, my: 13.46 },
+          { x: -4.688, z: 5.711, angle: -3.05, arc: 1.5, rest: -3.0492, guns: 1, my: 16.59 },
+          { x: 5.05, z: 5.562, angle: -3.05, arc: 1.5, rest: -3.0507, guns: 1, my: 16.65 },
+          { x: 9.795, z: -7.865, angle: -2.67, arc: 1.5, rest: -2.6715, guns: 1, my: 15.86 },
+          { x: -9.46, z: -7.866, angle: -3.06, arc: 1.5, rest: -3.0557, guns: 1, my: 15.77 },
+          { x: 7.887, z: -10.241, angle: -3.05, arc: 1.5, rest: -3.0512, guns: 1, my: 17.69 },
+          { x: -7.533, z: -10.255, angle: -3.04, arc: 1.5, rest: -3.0425, guns: 1, my: 17.69 },
+          { x: -13.495, z: -18.804, angle: 0.1, arc: 1.5, rest: 0.0963, guns: 1, my: 10.6 },
+          { x: 13.231, z: -18.832, angle: 0.11, arc: 1.5, rest: 0.1072, guns: 1, my: 10.61 },
+          { x: 10.77, z: -21.861, angle: 0.11, arc: 1.5, rest: 0.1088, guns: 1, my: 11.52 },
+          { x: -11.095, z: -21.861, angle: 0.11, arc: 1.5, rest: 0.107, guns: 1, my: 11.52 },
+          { x: -13.499, z: -24.585, angle: 0.11, arc: 1.5, rest: 0.1092, guns: 1, my: 10.61 },
+          { x: 13.23, z: -24.649, angle: 0.11, arc: 1.5, rest: 0.1098, guns: 1, my: 10.61 },
+          { x: -2.858, z: -46.861, angle: 0.1, arc: 1.5, rest: 0.0965, guns: 1, my: 14.01 },
+          { x: 3.136, z: -47.452, angle: 0.1, arc: 1.5, rest: 0.0978, guns: 1, my: 14 },
+          { x: 3.137, z: -53.425, angle: 0.15, arc: 1.5, rest: 0.1492, guns: 1, my: 12.64 },
+          { x: -3.384, z: -53.435, angle: 0.02, arc: 1.5, rest: 0.0207, guns: 1, my: 12.87 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 36080,
+      aircraft: 0,
+      mainRounds: 720,
+      torpedoesCarried: 8,
+      secondary: { caliber: 114, label: '4.5in', barrels: 20, rounds: 8000 },
+      tertiary: [
+        { caliber: 40, label: '2pdr', barrels: 24, rounds: 43200 },
+        { caliber: 20, label: '20mm', barrels: 20, rounds: 48000 },
+      ],
+    },
+  },
+
+  repulse: {
+    // HMS Repulse, the Renown's sister: laid down as a Revenge and finished
+    // in 1916 as a battlecruiser, six 15-inch in three twin turrets on a
+    // thirty-two knot hull. Refitted between the wars -- her belt thickened,
+    // a hangar and catapult abreast her after funnel -- but never rebuilt,
+    // she went to war in 1939 with her old tripod, her conning tower, and
+    // the triple 4-inch she had been completed with. Sent east with the
+    // Prince of Wales as Force Z, she dodged every torpedo of the first
+    // attack off Kuantan on 10 December 1941, and was overwhelmed by the
+    // second: the first capital ships sunk at sea by aircraft alone.
+    //
+    // She is drawn from the owner's model (see repulse.js and build/prepare-
+    // repulse-hull.mjs) -- "HMS Repulse (War Thunder)" by KojfDiscord, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen -- at
+    // 242 m over all, floated at 8.2 m.
+    id: 'repulse',
+    name: 'Repulse',
+    fullName: 'HMS Repulse',
+    className: 'Renown',
+    type: 'BB',
+    typeName: 'Battlecruiser',
+    nation: 'gbr',
+    blurb: 'Six fifteen-inch guns and thirty knots on a battlecruiser\'s six-inch belt: Force Z\'s fast heavy ship, sunk off Kuantan by aircraft alone.',
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 5.0, 27.5], [0, -13.0, 26.0]], length: 242, beam: 31.3, draft: 8.2, superstructure: 1.3 },
+    hp: 54000,
+    maxSpeed: 28.3 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.4,
+    turnRate: 0.045,
+    rudderShift: 14,
+    speedLossInTurn: 0.16,
+    concealment: 15900,
+    fireDetectPenalty: 6900,
+    radarRange: 10000,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Nine inches of belt over her magazines and machinery after her refit,
+    // and three of deck.
+    armor: { belt: 229, deck: 76, citadel: 229, bow: 51, superstructure: 25 },
+    turrets: [
+      // A on her forecastle and B superfiring over it, trained ahead, and Y
+      // on her quarterdeck, trained astern, each where the model stood it.
+      { id: 0, name: 'A', x: 0.005, z: 60.008, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 10.48 },
+      { id: 1, name: 'B', x: 0, z: 44.2, angle: 0, arc: 1.5, rest: 0, guns: 2, my: 13.5 },
+      { id: 2, name: 'Y', x: -0.003, z: -77.535, angle: 3.14, arc: 1.5, rest: 3.1416, guns: 2, my: 6.69 },
+    ],
+    gun: {
+      name: '15"/42 Mk I', role: 'surface',
+      // Five below the horizontal to thirty up in her Mk I* turrets.
+      elev: { min: -0.087, max: 0.524 },
+      reach: 15.3,
+      caliber: 381, reload: 30, traverse: 0.05, range: 22000, sigma: 1.4,
+      // The 1,938 lb 6crh shell: 752 m/s.
+      shells: shells(381, 12300, 5600, 560, 752, 0.24),
+    },
+    // Her eight 21-inch tubes, in four fixed pairs behind her side on her
+    // upper deck, two pairs a side; her fish go out through her side there,
+    // turned by their gyros up to twenty degrees either side of her beam.
+    torpedoes: {
+      mounts: [
+        { id: 0, port: true, x: 8.1, z: -15.6, angle: 1.57, arc: 0.35, rest: 1.57, tubes: 2, my: 5.0 },
+        { id: 1, port: true, x: -8.1, z: -15.6, angle: -1.57, arc: 0.35, rest: -1.57, tubes: 2, my: 5.0 },
+        { id: 2, port: true, x: 6.7, z: -50.5, angle: 1.57, arc: 0.35, rest: 1.57, tubes: 2, my: 5.0 },
+        { id: 3, port: true, x: -6.7, z: -50.5, angle: -1.57, arc: 0.35, rest: -1.57, tubes: 2, my: 5.0 },
+      ],
+      name: '21" Mk IX torpedo', role: 'surface', caliber: 533,
+      tubeLabel: '21"',
+      reach: 3.4,
+      traverse: 0.35,
+      reload: 120, damage: 13800, speed: 40 * KNOTS, range: 10000,
+      detection: 1200, arming: 400, spread: 0.06, floodChance: 0.36,
+      launch: {
+        eject: 9, stagger: 0.4, lanes: [-0.9, 0.9], lie: -0.2, muzzle: 3.4, wet: true, clear: 4.5,
+        fish: { len: 7.2, r: 0.267, kind: 'mk15' },
+      },
+    },
+    // Her three triple 4-inch BL Mk IX, of the five she was completed with:
+    // one a side on her shelter deck abreast her bridge, trained ahead, and
+    // one on her after superstructure, trained astern.
+    secondary: {
+      name: '4"/44 BL Mk IX', role: 'surface', piece: 'sec',
+      elev: { min: -0.175, max: 0.524 },
+      reach: 2.96,
+      caliber: 102, reload: 6.0, traverse: 0.3, range: 11000, sigma: 1.25,
+      shells: shells(102, 1200, 1050, 55, 800, 0.07),
+      mounts: [
+        { x: 9.126, z: 16.848, angle: 0, arc: 1.5, rest: -0.0008, guns: 3, my: 16.12 },
+        { x: -9.126, z: 16.848, angle: 0, arc: 1.5, rest: 0.0002, guns: 3, my: 16.14 },
+        { x: 0, z: -65.222, angle: -3.14, arc: 1.5, rest: -3.1367, guns: 3, my: 11.26 },
+      ],
+    },
+    aa: {
+      range: 3800, dps: 44,
+      guns: [
+        // Her six single 4-inch Mk V high-angle guns: two a side about her
+        // funnels, and one a side abreast her mainmast.
+        { name: '4"/45 QF Mk V', caliber: 102, role: 'dp', reload: 4.0, range: 8500, piece: 'dp',
+          elev: { min: -0.087, max: 1.40 },
+          mounts: [
+          { x: 12.041, z: 12.926, angle: 0, arc: 1.5, rest: -0.0039, guns: 1, my: 8.9 },
+          { x: -12.035, z: 12.926, angle: 0, arc: 1.5, rest: -0.0006, guns: 1, my: 8.9 },
+          { x: 10.819, z: -4.72, angle: 0, arc: 1.5, rest: 0.0047, guns: 1, my: 16.16 },
+          { x: -10.826, z: -4.72, angle: 0, arc: 1.5, rest: 0.0002, guns: 1, my: 16.16 },
+          { x: 7.587, z: -44.088, angle: 0, arc: 1.5, rest: -0.0012, guns: 1, my: 11.73 },
+          { x: -7.587, z: -44.08, angle: 0, arc: 1.5, rest: -0.002, guns: 1, my: 11.73 },
+          ] },
+        // Her three eight-barrelled pom-poms: one a side abreast her forward
+        // funnel, and one on her after superstructure.
+        { name: '2-pdr Mk VIII octuple', caliber: 40, role: 'aa', reload: 0.35, range: 3600, piece: 'pom',
+          elev: { min: -0.17, max: 1.40 },
+          mounts: [
+          { x: 11.98, z: 8.867, angle: 1.24, arc: 1.5, rest: 1.2447, guns: 8, my: 16.57 },
+          { x: -12.019, z: 8.8, angle: -1.98, arc: 1.5, rest: -1.9803, guns: 8, my: 16.57 },
+          { x: 0, z: -53.636, angle: 2.73, arc: 1.5, rest: 2.7259, guns: 8, my: 14.74 },
+          ] },
+        // And her four quadruple .50-inch Vickers.
+        { name: '0.5 in Vickers Mk III', caliber: 13, role: 'aa', reload: 0.15, range: 1400, piece: 'mg',
+          elev: { min: -0.17, max: 1.40 },
+          mounts: [
+          { x: 7.075, z: 9.16, angle: -0.18, arc: 1.5, rest: -0.1806, guns: 4, my: 19.12 },
+          { x: -7.074, z: 9.16, angle: -0.18, arc: 1.5, rest: -0.181, guns: 4, my: 19.11 },
+          { x: 2.59, z: -38.854, angle: -0.18, arc: 1.5, rest: -0.1809, guns: 4, my: 21.42 },
+          { x: -2.591, z: -38.819, angle: -0.19, arc: 1.5, rest: -0.1892, guns: 4, my: 21.42 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 38300,
+      aircraft: 4,
+      mainRounds: 720,
+      torpedoesCarried: 8,
+      secondary: { caliber: 102, label: '4in', barrels: 15, rounds: 5000 },
+      tertiary: [
+        { caliber: 40, label: '2pdr', barrels: 24, rounds: 43200 },
+        { caliber: 13, label: '.50', barrels: 16, rounds: 40000 },
+      ],
+    },
+  },
+
   hood: {
     // HMS Hood, the last battlecruiser of the Royal Navy and for twenty years
     // the largest warship in the world: eight 15-inch in four twin turrets,
@@ -18559,7 +18860,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'suzuya', 'yodo', 'agano', 'aoba', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**

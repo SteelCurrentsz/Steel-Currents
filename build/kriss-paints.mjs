@@ -99,6 +99,11 @@ export function rnPaint(f) {
   return 'grey';
 }
 
+// The Renown and the Repulse: the carriers' Admiralty grey over hull and
+// upperworks, and their weather decks planked where they lie flat and low.
+export const RENOWN_PAINTS = { ...RN_PAINTS, wood: 0x9a8a6c };
+export const renownPaint = (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 13 && f.ny > 0.97 ? 'wood' : rnPaint(f));
+
 // The Kriegsmarine's destroyers: light grey (Hellgrau 50) over hull and
 // upperworks, the steel weather decks dark grey (Dunkelgrau 51), a black
 // boot topping and red under water.
