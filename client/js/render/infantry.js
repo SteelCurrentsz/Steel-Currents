@@ -33,6 +33,7 @@ import {
 } from './infantry.data.js';
 import { footing as bareFooting } from '../../../shared/infantry.js';
 import { worksFloor } from '../../../shared/works.js';
+import { townModel } from './townModel.js';
 
 /**
  * What a man, a body or a drop of blood comes to rest on: the ground, and in
@@ -498,6 +499,23 @@ class Rounds {
 
 /** A Quonset hut: corrugated half-cylinder, end walls, a door, olive drab. */
 function buildHut(team) {
+  // The Nissen hut modelled for the game (see townModel.js), where there is
+  // one: the enemy's a shade greyer, and flattened and blackened when it is
+  // knocked down, as the hut drawn below is.
+  const model = townModel('barracks');
+  if (model) {
+    const g = new THREE.Group();
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, color: team === 0 ? 0xffffff : 0xd6d8d2 });
+    const hut = new THREE.Mesh(model.geometry(), mat);
+    hut.castShadow = true;
+    hut.receiveShadow = true;
+    g.add(hut);
+    g.userData.ruin = () => {
+      hut.scale.set(1, 0.35, 1);
+      mat.color.set(0x3a3632);
+    };
+    return g;
+  }
   const g = new THREE.Group();
   const iron = new THREE.MeshLambertMaterial({ color: team === 0 ? 0x7d8456 : 0x6f7266, side: THREE.DoubleSide });
   const wall = new THREE.MeshLambertMaterial({ color: 0x6b6450 });

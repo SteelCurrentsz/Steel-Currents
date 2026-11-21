@@ -30,6 +30,7 @@ import {
 } from '../../../shared/works.js';
 import { groundHeight, rawGround } from '../../../shared/world.js';
 import { Civilians } from './civilians.js';
+import { townModel } from './townModel.js';
 
 // ---------------------------------------------------------------------------
 // Textures, painted once
@@ -298,6 +299,31 @@ const WINDOW_LIGHT = [[1, 0.78, 0.42], [1, 0.86, 0.58], [0.95, 0.7, 0.38], [0.85
 const lin = (v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 const col = (hex, k = 1) => [lin(((hex >> 16) & 255) / 255) * k, lin(((hex >> 8) & 255) / 255) * k, lin((hex & 255) / 255) * k];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * A modelled building, stretched onto its footprint and up to the height the
+ * battle has it standing to (spire, clock and all), a shade lighter or darker
+ * than the next one built off the same model, and blackened as far as it has
+ * been knocked about.
+ */
+function modelInto(buf, m, b, F, scorch, own = 1) {
+  const H = Math.max(b.h, Number.isFinite(b.top) ? b.top - b.level : b.h);
+  const sx = b.w / (m.hi[0] - m.lo[0] || 1);
+  const sz = b.d / (m.hi[2] - m.lo[2] || 1);
+  const sy = H / (m.hi[1] || 1);
+  const { pos, colour, idx } = m;
+  const n = pos.length / 3;
+  const P = new Array(n);
+  const C = new Array(n);
+  for (let i = 0; i < n; i++) {
+    P[i] = F(pos[i * 3] * sx, pos[i * 3 + 1] * sy, pos[i * 3 + 2] * sz);
+    C[i] = mixc([colour[i * 3] * own, colour[i * 3 + 1] * own, colour[i * 3 + 2] * own], CHAR, scorch);
+  }
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t], c = idx[t + 1], e = idx[t + 2];
+    buf.tri(P[a], P[c], P[e], null, null, null, C[a], C[c], C[e]);
+  }
+}
 const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 // ---------------------------------------------------------------------------
@@ -534,6 +560,10 @@ function buildingInto(bufs, b, L, ruin) {
   const tint = mixc(base, CHAR, scorch);
   const key = b.kind === 'warehouse' || b.kind === 'factory' ? 'warehouse' : pal.k;
   if (b.roof === 'drum') { drumInto(bufs, b, F, tint, st, r); return; }
+  // The landmarks that have a model of their own are drawn from it until
+  // they are gutted; from then on they are the shell the rest of the town is.
+  const model = st <= STAGE.hit ? townModel(b.kind) : null;
+  if (model) { modelInto(bufs.get('plain'), model, b, F, scorch, own); return; }
   const { bay, fh } = bayOf(b);
   const hw = b.w / 2;
   const hd = b.d / 2;
@@ -997,6 +1027,24 @@ function extrasInto(bufs, b, F, tint, r, ruined) {
 
 /** One prop's model, in its own frame with its foot at the origin, as a buffer. */
 function propModel(t) {
+  // The modelled street tree: its crown, and a trunk under it -- the trunk
+  // is a thin thing the model's cutting down takes away. The big trees in the
+  // parks are the same tree grown on, half as big again.
+  if ((t === 'tree' || t === 'bigtree') && townModel('tree')) {
+    const m = townModel('tree');
+    const k = t === 'bigtree' ? 1.55 : 1;
+    const b = new Buf();
+    const P = (i) => [m.pos[i * 3] * k, m.pos[i * 3 + 1] * k, m.pos[i * 3 + 2] * k];
+    const C = (i) => [m.colour[i * 3], m.colour[i * 3 + 1], m.colour[i * 3 + 2]];
+    for (let q = 0; q < m.idx.length; q += 3) {
+      const [i0, i1, i2] = [m.idx[q], m.idx[q + 1], m.idx[q + 2]];
+      b.tri(P(i0), P(i1), P(i2), null, null, null, C(i0), C(i1), C(i2));
+    }
+    cylInto(b, (a, y, c) => [a, y, c], 0, 0, 0.2 * k, 0.13 * k, 0, (m.lo[1] + 1.2) * k, [0.27, 0.22, 0.17], 6);
+    return b;
+  }
+  const model = townModel(t);
+  if (model) return model;
   const b = new Buf();
   const F = (a, y, c) => [a, y, c];
   const iron = [0.12, 0.14, 0.13];
@@ -1438,9 +1486,13 @@ export class WorksView {
     this.inst = {};
     for (const [t, list] of Object.entries(types)) {
       const buf = propModel(t);
+      // The modelled trees' crowns are leaves on single sheets, seen from
+      // both sides or half of each crown is missing.
+      const leafy = (t === 'tree' || t === 'bigtree') && townModel('tree');
       const mat = VEHICLES.has(t)
         ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3 })
-        : this.mats.plain;
+        : leafy ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide })
+          : this.mats.plain;
       const mesh = new THREE.InstancedMesh(buf.geometry(), mat, list.length);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       const entries = list.map(({ p, plan }, k) => {
