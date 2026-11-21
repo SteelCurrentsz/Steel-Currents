@@ -32820,7 +32820,8 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
   });
 
   check('Monster One takes hold of a destroyer at arm\'s length, lifts her, crushes her and throws her onto another', () => {
-    const { state, mo, ships } = field([['fletcher', 0, 45], ['fletcher', -200, 350]]);
+    // The other one lying a throw ahead of her: she throws straight ahead.
+    const { state, mo, ships } = field([['fletcher', 0, 45], ['fletcher', 0, 45 + MO.MONSTER.grab.toss]]);
     assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
     run(state, 2.5);
     assert.equal(ships[0].gripBy, mo.id, 'she did not get hold of her');
@@ -32835,6 +32836,112 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.ok(!ships[0].gripBy && !ships[0].flung);
     assert.ok(Math.hypot(ships[0].x - ships[1].x, ships[0].z - ships[1].z) < 120, 'she was not thrown where she was aimed');
     assert.ok(ships[1].hp < ships[1].maxHp, 'the one she came down on was not hurt');
+  });
+
+  check('Monster One picks a ship up as she lies, by where her hands are on her, and does not turn her in them', () => {
+    for (const h of [Math.PI / 2, 0.3, Math.PI]) {
+      const { state, mo, ships } = field([['fletcher', 0, 45]]);
+      const t = ships[0];
+      t.heading = h; t.speed = 0;
+      // Bow on, her near end at arm's length.
+      if (h === Math.PI) t.z = 38 + SHIP_CLASSES.fletcher.hull.length / 2 - 4;
+      assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '', `heading ${h}: no grab`);
+      run(state, 3);
+      assert.equal(t.gripBy, mo.id, `heading ${h}: she did not get hold of her`);
+      assert.ok(Math.abs(angleDelta(h, t.heading)) < 0.02, `heading ${h}: she was turned to ${t.heading} in her hands`);
+      // That point of her is in her hands, and she is on her hull there.
+      const hand = { x: mo.x + Math.sin(mo.heading) * MO.MONSTER.grab.carry, z: mo.z + Math.cos(mo.heading) * MO.MONSTER.grab.carry };
+      const c = SHIP_CLASSES.fletcher.hull;
+      const dx = hand.x - t.x, dz = hand.z - t.z;
+      const along = dx * Math.sin(t.heading) + dz * Math.cos(t.heading);
+      const across = dx * Math.cos(t.heading) - dz * Math.sin(t.heading);
+      assert.ok(Math.abs(along) <= c.length / 2 && Math.abs(across) <= c.beam / 2, `heading ${h}: her hands are off the hull (${along.toFixed(1)}, ${across.toFixed(1)})`);
+      assert.ok(Math.hypot(t.x - mo.x, t.z - mo.z) > 20, `heading ${h}: the hull is inside her`);
+      const snap = shipSnapshot(t, false, state);
+      assert.ok(Array.isArray(snap.hg), 'where her hands are is not on the wire');
+    }
+  });
+
+  check('Monster One keeps hold of what she has until she is told to let it go, and throws it straight ahead', () => {
+    for (const c of ['fletcher', 'iowa']) {
+      const { state, mo, ships } = field([[c, 0, 45]]);
+      const t = ships[0];
+      t.speed = 0;
+      SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS);
+      run(state, 2.5);
+      assert.equal(t.gripBy, mo.id, `${c}: no hold`);
+      // A long time: and she has her still, and her hands on her.
+      t.hp = t.maxHp; for (const k of Object.keys(t.sections)) t.sections[k].hp = t.sections[k].max;
+      for (let i = 0; i < 40 && t.alive; i++) {
+        run(state, 1);
+        t.hp = t.maxHp; for (const k of Object.keys(t.sections)) t.sections[k].hp = t.sections[k].max;
+      }
+      assert.ok(t.alive, `${c} sank in her hands`);
+      assert.equal(t.gripBy, mo.id, `${c}: she let go of her by herself`);
+      assert.equal(mo.mo.holdId, t.id);
+      if (c === 'fletcher') {
+        const at = { x: t.x, z: t.z };
+        // Told to throw at a point off to one side: she throws ahead all the same.
+        assert.equal(SIM.monsterOrder(state, mo, { a: 'throw', x: 3000, z: 0 }, SIM.MONSTER_HOOKS), '');
+        run(state, 6);
+        assert.ok(!t.gripBy && !t.flung);
+        const d = Math.hypot(t.x - at.x, t.z - at.z);
+        assert.ok(Math.abs(d - MO.MONSTER.grab.toss) < 40, `thrown ${d.toFixed(0)} m`);
+        assert.ok(t.z - at.z > d * 0.95, 'not thrown straight ahead of her');
+      } else {
+        assert.equal(SIM.monsterOrder(state, mo, { a: 'throw' }, SIM.MONSTER_HOOKS), '');
+        run(state, 1);
+        assert.ok(!t.gripBy, 'the Iowa was not let go of when she was told');
+      }
+    }
+  });
+
+  check('Monster One rips a turret out with her claws, and bites a gun off a deck', () => {
+    {
+      const { state, mo, ships } = field([['fletcher', 0, 45]]);
+      SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS);
+      run(state, 2.5);
+      ships[0].hp = ships[0].maxHp * 50; ships[0].maxHp *= 50;
+      for (const k of Object.keys(ships[0].sections)) { ships[0].sections[k].max *= 50; ships[0].sections[k].hp = ships[0].sections[k].max; }
+      assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), '');
+      const ev = run(state, MO.MONSTER.crush.time + 0.1);
+      assert.ok(ev.some((e) => e.e === 'toss' && e.how === 'claw' && e.ship === ships[0].id && e.by === mo.id), 'her claws took no gun');
+    }
+    {
+      const { state, mo, ships } = field([['fletcher', 0, 45]]);
+      SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS);
+      run(state, 2.5);
+      ships[0].maxHp *= 50; ships[0].hp = ships[0].maxHp;
+      for (const k of Object.keys(ships[0].sections)) { ships[0].sections[k].max *= 50; ships[0].sections[k].hp = ships[0].sections[k].max; }
+      let took = 0;
+      for (const hx of [-0.8, -0.4, 0, 0.4, 0.8]) {
+        mo.mo.biteCool = 0; mo.mo.act = 'hold';
+        SIM.monsterOrder(state, mo, { a: 'head', hx, hy: 0.3 }, SIM.MONSTER_HOOKS);
+        assert.equal(SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS), '');
+        const ev = run(state, MO.MONSTER.bite.time + 0.1);
+        const b = ev.find((e) => e.e === 'moBite' && e.at === ships[0].id);
+        assert.ok(b && b.tr && b.tr.r <= MO.MONSTER.bite.mouth, `a mouthful ${b && b.tr && b.tr.r} m across does not fit in her mouth`);
+        took += ev.filter((e) => e.e === 'toss' && e.how === 'bite').length;
+      }
+      assert.ok(took >= 2, `her jaws took ${took} guns along a destroyer's deck`);
+    }
+  });
+
+  check('A Monster One left to her own mind does not breathe when her side has it switched off, and does when it is on', () => {
+    const foes = [['fletcher', 0, 3000], ['iowa', 2500, 8000], ['cleveland', 2900, 8300], ['fletcher', 2200, 8400]];
+    const off = pinned(() => {
+      const { state, mo } = field(foes);
+      state.moNoBreath = [true, false];
+      for (const q of state.ships) q.spottedBy = [true, true];
+      const brain = createBotBrain('veteran');
+      let fired = null;
+      for (let t = 0; t < 12 && !fired; t += DT) {
+        stepBot(state, mo, brain, DT, false, null);
+        fired = step(state, DT).find((e) => e.e === 'moCharge') || fired;
+      }
+      return fired;
+    });
+    assert.ok(!off, 'she breathed with it switched off');
   });
 
   check('Monster One cannot take hold of, bite or tail a ship that is not right there', () => {

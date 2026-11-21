@@ -846,7 +846,10 @@ function stepMovement(state, ship, dt) {
     : 0.75 * Math.pow(speedFrac, 0.93) + kick;
   // No rudder at all once her stern has gone.
   const rudderGone = ship.cut && ship.sections.stern.lost ? 0 : 1;
-  const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1) * rudderGone;
+  // (Monster One with her weight on a ship too big to lift does not swing
+  // round on it: her hands stay where they came down until she lets go.)
+  const pinning = cls.monster && ship.mo && ship.mo.holdId && ship.mo.pin ? 0 : 1;
+  const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1) * rudderGone * pinning;
   // She does not turn the moment the rudder bites. Thirty thousand tonnes has
   // to be got swinging, and once it is swinging it goes on swinging: the rate
   // the rudder is asking for is worked up to over a few seconds -- longer the
@@ -8072,9 +8075,25 @@ function monsterTear(state, t, mo, how) {
     lz = clamp(l.z + (state.rng() - 0.5) * 4, -half * 0.85, half * 0.85);
     const me = worldToLocal(mo.x - t.x, mo.z - t.z, t.heading);
     lx = (Math.abs(l.x) > beam * 0.3 ? Math.sign(l.x) : me.x >= 0 ? 1 : -1) * beam * 0.9;
+    // A ship up in her hands is all within her reach: her claws go for the
+    // gun on her nearest them, wherever along her it stands.
+    if (held && t.held && t.held.lifted) {
+      let best = null, bd = Infinity;
+      for (const g of standing(t, cls)) {
+        if (mountFell(t, g.k, g.i)) continue;
+        const d = Math.abs(g.s.z - lz) + Math.abs((g.s.x || 0) - lx) * 0.5;
+        if (d < bd) { bd = d; best = g; }
+      }
+      if (best) {
+        lz = clamp(best.s.z, -half * 0.85, half * 0.85);
+        lx = ((best.s.x || 0) === 0 ? Math.sign(lx) || 1 : Math.sign(best.s.x)) * beam * 0.9;
+      }
+    }
   }
   const claw = how === 'claw';
-  const rad = clamp(beam * (claw ? 0.6 : 0.5), claw ? 3.5 : 3, claw ? 11 : 9);
+  // Her jaws take no more than goes into her mouth -- a few metres across --
+  // whatever the size of the ship; her hands take a slab as broad as her palm.
+  const rad = claw ? clamp(beam * 0.6, 3.5, 11) : clamp(beam * 0.3, 2.5, MONSTER.bite.mouth);
   // Her claws close round the hull low down, below the waterline as often as
   // not; her teeth go in where her head put them.
   if (ly === null) ly = -cls.hull.draft * 0.4 + state.rng() * (fb * 0.5 + cls.hull.draft * 0.4);
@@ -8086,10 +8105,13 @@ function monsterTear(state, t, mo, how) {
     openHull(state, t, where, rad * rad * (claw ? 0.5 : 0.3), lx >= 0 ? 1 : -1,
       Math.max(0, -ly), { x: lx, y: ly, z: lz });
   }
-  // A gun where she closed on her, torn out and flung. Her claws on a
-  // turret always have it: it is the thing in her hand.
-  const odds = claw ? 1 : 0.65;
-  const reach = rad * 1.3 + 3;
+  // A gun where she closed on her, torn out of her by the roots and crushed:
+  // in her fist, or in her jaws. Whichever it is, she has it -- a turret, a
+  // secondary mount or a light gun -- if there is one in her reach: her hand
+  // spans the deck from the rail she has hold of, and her jaws close on the
+  // nearest gun to them.
+  const odds = 1;
+  const reach = claw ? Math.max(rad * 1.3 + 3, beam * 1.1 + 4) : rad * 1.5 + 7;
   // (Only off her deck: jaws in her side under the water take no gun.)
   const near = ly < fb * 0.4 && !claw ? [] : standing(t, cls)
     .filter((g) => !mountFell(t, g.k, g.i))

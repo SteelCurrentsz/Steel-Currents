@@ -1155,7 +1155,7 @@ export class ShipView {
     if (how === 'claw') {
       if (m.userData.clawing) return true;
       m.userData.clawing = true;
-      (this.clawQueue || (this.clawQueue = [])).push({ t: CLAW_BREAK + 0.05, args: [kind, i, 'clawNow', dx, dz, seed, pw, null] });
+      (this.clawQueue || (this.clawQueue = [])).push({ t: CLAW_BREAK + 0.05, args: [kind, i, 'clawNow', dx, dz, seed, pw, mouth] });
       return true;
     }
     if (how === 'clawNow') how = 'claw';
@@ -1179,9 +1179,17 @@ export class ShipView {
     const dl = Math.hypot(dx, dz);
     const local = this.group.worldToLocal(at.clone());
     const tossed = this.tossed || (this.tossed = new Tossed());
-    // In Monster One's jaws: carried off in them (see Tossed.addMouth).
+    // In Monster One's jaws: carried off in them, and crushed in them (see
+    // Tossed.addMouth).
     if (how === 'bite' && mouth && mouth.mouthPoint) {
       tossed.addMouth(m, world, mouth, { sink: big ? 3.5 : 2.5, seed });
+      return true;
+    }
+    // Ripped out by her claws: in the fist nearer it, crushed, and let fall.
+    if (how === 'claw' && mouth && mouth.palmPoint) {
+      const pl = mouth.palmPoint(1, new THREE.Vector3()), pr = mouth.palmPoint(-1, new THREE.Vector3());
+      const side = at.distanceToSquared(pl) <= at.distanceToSquared(pr) ? 1 : -1;
+      tossed.addHand(m, world, mouth, { side, sink: big ? 3.5 : 2.5 });
       return true;
     }
     // Low and slow: not thrown, but shifted off its ring and sliding across
@@ -1373,7 +1381,9 @@ export class ShipView {
       [went, tris] = this.plating.take(() => {
         let n = this.plating.tear(lx, ly, lz, r, seed);
         // Torn twice, a little apart: teeth and claws are more than one point.
-        n += this.plating.tear(lx, ly + r * 0.3, lz + r * (seed % 2 ? 0.6 : -0.6), r * 0.7, seed + 7);
+        // (A mouthful is kept to what her jaws close round.)
+        const k = rig ? 0.4 : 1;
+        n += this.plating.tear(lx, ly + r * 0.3 * k, lz + r * (seed % 2 ? 0.6 : -0.6) * k, r * 0.7 * k, seed + 7);
         return n;
       });
       if (went > 0) {

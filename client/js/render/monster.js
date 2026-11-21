@@ -845,8 +845,11 @@ export class MonsterRig {
     this.mouthGlow.scale.setScalar(10 + 14 * throat + 22 * firing + Math.sin(this.t * 37) * 2 * throat);
     this.mouthGlow.visible = this.mouthGlow.material.opacity > 0.01;
     this.light.position.copy(_v);
+    // Always in the scene, and only ever turned up and down: a light that
+    // comes and goes changes how many lights there are, and every lit
+    // material in the battle has its shader built again for it -- a stall
+    // each time she starts to gather her breath, and again when it dies.
     this.light.intensity = (throat * 1.5 + firing * 5) * 1e3;
-    this.light.visible = this.light.intensity > 1;
     // The beam, out of her mouth to where it strikes, running out to it fast.
     if (firing > 0 && S.beamTo) {
       const to = _v2.set(S.beamTo.x, S.beamTo.y, S.beamTo.z);
@@ -860,10 +863,17 @@ export class MonsterRig {
         m.material.uniforms.uOn.value = firing;
         m.material.uniforms.uTime.value = this.t;
       }
-    } else {
+    } else if (this.beamLen !== 0 || !this.beamsParked) {
+      // Put away, not hidden: kept drawn, too small and too dark to see, so
+      // its shader is built with her and not in the moment the beam leaves her.
       this.beamLen = 0;
-      for (const m of this.beams) m.visible = false;
+      this.beamsParked = true;
+      for (const m of this.beams) {
+        m.scale.set(1e-3, 1e-3, 1e-3);
+        m.material.uniforms.uOn.value = 0;
+      }
     }
+    if (firing > 0 && S.beamTo) this.beamsParked = false;
     this.stepSparks();
   }
 
@@ -885,6 +895,11 @@ export class MonsterRig {
     ];
   }
 
+  /** One palm in the world, as of her last update: `side` +1 her left, -1 her right. */
+  palmPoint(side, out) {
+    return out.copy(side >= 0 ? this.palmL : this.palmR).applyMatrix4(this.byName[side >= 0 ? 'hand.L' : 'hand.R'].matrixWorld);
+  }
+
   /** Between her hands, in the world: where a ship she has hold of is. */
   handsPoint(out) {
     _v.copy(this.palmL).applyMatrix4(this.byName['hand.L'].matrixWorld);
@@ -897,20 +912,35 @@ export class MonsterRig {
   stepSparks() {
     const p = this.sparks;
     const lvl = this.glowNow;
-    p.visible = lvl > 0.02;
-    if (!p.visible) return;
+    // (Always drawn, so its shader is built with her and not when the glow
+    // first climbs her; dark, and not worked out, when nothing is lit.)
+    p.visible = true;
     const pos = p.geometry.attributes.position;
     const al = p.geometry.attributes.alpha;
+    if (lvl <= 0.02) {
+      if (!this.sparksDark) {
+        al.array.fill(0);
+        al.needsUpdate = true;
+        this.sparksDark = true;
+      }
+      return;
+    }
+    this.sparksDark = false;
     const c = this.uniforms.uCharge.value;
+    // Each bone's skinning matrix once, into her own frame, rather than once
+    // for every weight of every spark.
+    const skin = this.skinM || (this.skinM = this.bones.map(() => new THREE.Matrix4()));
+    const used = this.sparkBones || (this.sparkBones = [...new Set(this.sparkSrc.flatMap((q) => q.b.filter((_, k) => q.w[k])))]);
+    _m.copy(this.group.matrixWorld).invert();
+    for (const b of used) skin[b].multiplyMatrices(this.bones[b].matrixWorld, this.skeleton.boneInverses[b]).premultiply(_m);
     for (let i = 0; i < this.sparkSrc.length; i++) {
       const s = this.sparkSrc[i];
       _v.set(0, 0, 0);
       for (let k = 0; k < 4; k++) {
         if (!s.w[k]) continue;
-        _v2.copy(s.p).applyMatrix4(_m.multiplyMatrices(this.bones[s.b[k]].matrixWorld, this.skeleton.boneInverses[s.b[k]]));
+        _v2.copy(s.p).applyMatrix4(skin[s.b[k]]);
         _v.addScaledVector(_v2, s.w[k]);
       }
-      this.group.worldToLocal(_v);
       pos.setXYZ(i, _v.x, _v.y, _v.z);
       const front = c * 1.25 - s.along - 0.1;
       al.setX(i, smooth(0, 0.14, front) * lvl * (0.6 + 0.4 * Math.sin(this.t * 11 + i)));
@@ -992,10 +1022,9 @@ export function buildMonsterOne() {
   mouthGlow.visible = false;
   group.add(mouthGlow);
   const light = new THREE.PointLight(BREATH_BLUE, 0, 700, 2);
-  light.visible = false;
   group.add(light);
   const beams = [beamMesh(1.8, 3.2), beamMesh(0.9, 8)];
-  for (const m of beams) { m.visible = false; group.add(m); }
+  for (const m of beams) { m.scale.set(1e-3, 1e-3, 1e-3); group.add(m); }
 
   // The sparks off her plates: the tips of each, a few dozen of them.
   const plate = D.MESHES[4];
@@ -1025,7 +1054,6 @@ export function buildMonsterOne() {
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   }));
   sparks.frustumCulled = false;
-  sparks.visible = false;
   group.add(sparks);
 
   const rig = new MonsterRig({

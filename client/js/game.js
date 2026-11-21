@@ -28,7 +28,7 @@ import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { installTroops } from './troops.js';
 import { footing } from '../../shared/infantry.js';
-import { getSettings, qualityName } from './settings.js';
+import { getSettings, setSettings, qualityName } from './settings.js';
 import { Director } from './director.js';
 import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
 import { readMonsterWire, MONSTER } from '../../shared/monster.js';
@@ -758,6 +758,9 @@ export class Battle {
     // A bomb arrives where the scene flew it to, so the scene is what says
     // when. See bombThrough.
     this.scene.bombs.onHit = (x, y, z) => this.bombThrough(x, y, z);
+    // Whether the Monster Ones nobody is conning, his side's and the enemy's,
+    // may use their atomic breath (see the settings).
+    this.sendMonsterRules();
     // Water on the glass the battle is watched through: thrown on it by
     // splashes close aboard and by the weather. See lens.js.
     this.lens = new Lens(document.getElementById('screen-battle'));
@@ -1552,6 +1555,9 @@ export class Battle {
     view.marker.visible = !isSelf && this.camMode === 'tactical';
     if (!rig) { view.group.visible = !!s.a; return; }
     rig.driven = true;
+    // A Monster One in the battle: the switches for her breath, on either
+    // side, where he can reach them.
+    if (s.a) this.monsterRules();
     // How fast she is swinging, off how her heading moves.
     const yr = view.monsterH == null || dt <= 0 ? 0 : angleDelta(view.monsterH, h) / dt;
     view.monsterH = h;
@@ -1657,10 +1663,13 @@ export class Battle {
       // captain is looking, if not.
       // Marked ships first (the Attack key), in the order marked.
       const snap = this.snapshots[this.snapshots.length - 1];
+      // Her enemies, not his: a Monster One of the other side, conned off the
+      // plot, breathes at his own ships.
+      const side = snap?.ships?.find((q) => q.i === ship)?.tm ?? this.team;
       const marked = (this.moMarks || []).find((id) => snap?.ships?.some((q) => q.i === id && q.a));
       const sel = this.selected && this.selected !== ship ? snap?.ships?.find((q) => q.i === this.selected && q.a) : null;
       if (marked) o = { ...o, target: marked };
-      else if (sel && sel.tm !== this.team) o = { ...o, target: sel.i };
+      else if (sel && sel.tm !== side) o = { ...o, target: sel.i };
       else {
         // Where the captain is looking -- and the enemy ship nearest that,
         // if there is one close to it, so a breath laid near a ship is laid
@@ -1668,7 +1677,7 @@ export class Battle {
         const at = this.aimPoint;
         let best = null, bd = 1500;
         for (const q of snap?.ships || []) {
-          if (!q.a || q.tm === this.team || getClass(q.c)?.monster) continue;
+          if (!q.a || q.tm === side || getClass(q.c)?.monster) continue;
           const d = Math.hypot(q.x - at.x, q.z - at.z);
           if (d < bd) { bd = d; best = q; }
         }
@@ -1703,6 +1712,53 @@ export class Battle {
     a.sent = now;
     a.sx = a.x; a.sy = a.y;
     this.net.send({ t: 'monster', ship: this.conned(), o: { a: 'head', hx: Math.round(a.x * 100) / 100, hy: Math.round(a.y * 100) / 100 } });
+  }
+
+  /** The settings' word on Monster One's breath, left to her own mind, to the battle. */
+  sendMonsterRules() {
+    const st = getSettings();
+    this.net.send({ t: 'moAI', ally: st.moBreathAlly !== false, enemy: st.moBreathEnemy !== false });
+  }
+
+  /**
+   * Two small switches at the side of the screen, shown while there is a
+   * Monster One in the battle: whether his own side's and the enemy's, left
+   * to their own minds, use their atomic breath. The same as the settings.
+   */
+  monsterRules() {
+    if (this.moRules) return;
+    const el = document.createElement('div');
+    el.className = 'mo-rules';
+    el.style.cssText = 'position:fixed;left:12px;top:92px;z-index:39;display:flex;flex-direction:column;gap:4px;'
+      + 'font-size:0.72rem;user-select:none;-webkit-user-select:none;';
+    const make = (key, label) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.style.cssText = 'padding:5px 9px;border-radius:9px;cursor:pointer;color:#dff6ff;text-align:left;'
+        + 'background:rgba(6,14,24,0.72);border:1px solid rgba(88,214,255,0.35);font:inherit;touch-action:manipulation;';
+      const show = () => {
+        const on = getSettings()[key] !== false;
+        b.textContent = `${label} breath: ${on ? 'ON' : 'OFF'}`;
+        b.style.opacity = on ? '1' : '0.6';
+        b.title = `Whether ${label.toLowerCase()} Monster One, left to her own mind, uses her atomic breath`;
+      };
+      b.addEventListener('pointerdown', (e) => e.stopPropagation());
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSettings({ [key]: getSettings()[key] === false });
+        show();
+        this.sendMonsterRules();
+        audio.click();
+      });
+      show();
+      el.appendChild(b);
+    };
+    make('moBreathAlly', 'Allied M1');
+    make('moBreathEnemy', 'Enemy M1');
+    document.body.appendChild(el);
+    this.moRules = el;
+    // And the battle told again, now that he is surely in it.
+    this.sendMonsterRules();
   }
 
   /** Whether a ship off the snapshot is Monster One. */
@@ -1754,14 +1810,21 @@ export class Battle {
           // they go from then on -- what was between them and where it
           // rests in them taken up as she straightens with it, so it neither
           // floats up ahead of her hands nor sinks through them.
+          // Held by where her hands closed on her (`hg`: along her and across
+          // her, in her own frame), not by her middle: that point of her is
+          // in her hands, and the rest of her stands out from them as she
+          // lay -- she is not turned about in them.
+          const ga = s.hg ? s.hg[0] || 0 : 0, gc = s.hg ? s.hg[1] || 0 : 0;
+          const hh = g.rotation.y, sx = Math.sin(hh), cz = Math.cos(hh);
+          const mx = at.x - (sx * ga + cz * gc), mz = at.z - (cz * ga - sx * gc);
           if (!view.carryFrom) {
-            view.carryFrom = { x: g.position.x - at.x, y: g.position.y - at.y, z: g.position.z - at.z };
+            view.carryFrom = { x: g.position.x - mx, y: g.position.y - at.y, z: g.position.z - mz };
             view.carryK = 0;
           }
           view.carryK = Math.min(1, view.carryK + dt / 0.9);
           const k = view.carryK * view.carryK * (3 - 2 * view.carryK);
           const f = view.carryFrom;
-          g.position.set(at.x + f.x * (1 - k), at.y + f.y + (rest - f.y) * k, at.z + f.z * (1 - k));
+          g.position.set(mx + f.x * (1 - k), at.y + f.y + (rest - f.y) * k, mz + f.z * (1 - k));
           view.heldSway = (view.heldSway || 0) + dt;
           // A gentle sway in her hands: rolled no further than keeps her
           // masts out of her face.
@@ -1792,7 +1855,7 @@ export class Battle {
         // climbs and down as she falls, and level again as she comes down.
         const u = next && next.fu != null ? lerpOf('fu', 1) : next ? s.fu + (1 - s.fu) * t : s.fu;
         const arc = Math.sin(Math.PI * u);
-        g.rotation.z += (s.fo ?? 1) * 0.55 * arc;
+        g.rotation.z += (s.fr ?? 1) * 0.55 * arc;
         g.rotation.x += 0.22 * arc * (1 - 2 * u);
       } else if (s.su != null) {
         // Back up out of the water she went into: a roll that dies away.
@@ -4350,8 +4413,9 @@ export class Battle {
           const view = this.scene.shipViews.get(ev.ship);
           // In Monster One's jaws: carried in them, gnawed, and thrown away
           // with a toss of her head (see Tossed.addMouth).
-          const mrig = ev.how === 'bite' && ev.by ? this.scene.shipViews.get(ev.by)?.group.userData.monster : null;
-          if (mrig) mrig.mouthFull = 2.6;
+          // In her claws: ripped out and crushed in her fist (Tossed.addHand).
+          const mrig = (ev.how === 'bite' || ev.how === 'claw') && ev.by ? this.scene.shipViews.get(ev.by)?.group.userData.monster : null;
+          if (mrig && ev.how === 'bite') mrig.mouthFull = 2.6;
           if (view && (view.tossMount(ev.k, ev.i, ev.how, ev.dx || 0, ev.dz || 0, ev.sd || 0, ev.pw ?? 0.6, mrig)
             || view.tossWelded(ev.x, ev.y, ev.z, ev.how, ev.dx || 0, ev.dz || 0))) {
             if (ev.how === 'mag' && (ev.pw ?? 0.6) < 0.35) {
@@ -10920,6 +10984,8 @@ export class Battle {
 
   dispose() {
     this.disposed = true;
+    this.moRules?.remove();
+    this.moRules = null;
     this.building = false;
     this.director?.dispose();
     this.director = null;
