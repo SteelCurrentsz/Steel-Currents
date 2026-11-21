@@ -40,7 +40,7 @@ import { cutMaterial, cutUniforms } from './sever.js';
 import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
 import { applyGunLook, LOOK } from './gunlooks.js';
-import { Tossed, plateSlab } from './toss.js';
+import { Tossed, hullPiece } from './toss.js';
 import { ClawTear, CLAW_BREAK } from './clawtear.js';
 import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
@@ -1190,7 +1190,8 @@ export class ShipView {
     // to go on its own once it is loose. Only a magazine with real force
     // behind it lifts one clear of her.
     const heel = Math.abs(this.group.rotation.z);
-    const slideOdds = how === 'claw' ? 0.6 : how === 'mag' ? Math.max(0, 1 - pw * 1.6) + heel * 1.5 : 0;
+    // (Her claws do not leave it on the deck: she throws it aside, below.)
+    const slideOdds = how === 'mag' ? Math.max(0, 1 - pw * 1.6) + heel * 1.5 : 0;
     if (rnd() < slideOdds) {
       // Toward the side it stood nearest, or the low side, or where it was pushed.
       let side = local.x >= 0 ? 1 : -1;
@@ -1217,9 +1218,12 @@ export class ShipView {
       const clear = Math.max(0, this.cls.hull.beam / 2 - Math.abs(local.x)) + r + 4;
       out = clear / flight * (1.1 + rnd() * 0.4);
     } else {
-      // Torn out and flung: low and hard, away from her.
-      vy = 4 + rnd() * 5;
-      out = 10 + rnd() * 8;
+      // Torn out by her claws and thrown aside: up out of its ring and
+      // away, far enough to clear her side and come down in the sea.
+      vy = 6 + rnd() * 4;
+      const flight = (2 * vy) / 9.81;
+      const clear = this.cls.hull.beam / 2 + Math.abs(local.x) + r + 10;
+      out = clear / flight * (1.05 + rnd() * 0.35);
     }
     if (dl < 1e-3) {
       const side = new THREE.Vector3(local.x >= 0 ? 1 : -1, 0, 0).applyQuaternion(this.group.quaternion);
@@ -1314,80 +1318,103 @@ export class ShipView {
     this.tearNow(lx, ly, lz, r, seed, dx, dz, claw, rig);
   }
 
+  /**
+   * Monster One's hand closing on her at a point in the world: where each of
+   * her claws comes down the plating is driven in -- four fingers in a row
+   * and her thumb across from them, round a broad dish where her palm bears
+   * on her. Dented, not holed: nothing comes off her for a grip.
+   */
+  clawDents(wx, wy, wz, seed = 0) {
+    if (!this.plating || this.rupture) return false;
+    this.group.updateMatrixWorld(true);
+    const p = this.group.worldToLocal(new THREE.Vector3(wx, wy, wz));
+    const near = this.plating.nearest(p.x, p.y, p.z, 22);
+    if (!near) return false;
+    const c = new THREE.Vector3(near[0], near[1], near[2]);
+    const n = new THREE.Vector3(near[3], near[4], near[5]);
+    if (n.lengthSq() < 1e-6) n.set(p.x >= 0 ? 1 : -1, 0, 0);
+    n.normalize();
+    const a = new THREE.Vector3(0, 0, 1);
+    if (Math.abs(n.z) > 0.8) a.set(0, 1, 0);
+    a.addScaledVector(n, -a.dot(n)).normalize();
+    const b = new THREE.Vector3().crossVectors(n, a).normalize();
+    let q = (seed % 2147483646) + 1;
+    const rnd = () => ((q = (q * 16807) % 2147483647) / 2147483647);
+    // The palm.
+    this.plating.dent(c.x, c.y, c.z, 5.5, 0.35);
+    // The claws: fingers along her, a hand's span apart, and the thumb.
+    const pts = [];
+    for (let k = 0; k < 4; k++) pts.push([(k - 1.5) * 2.6 + (rnd() - 0.5) * 0.6, 3 + (rnd() - 0.5) * 0.8]);
+    pts.push([(rnd() - 0.5) * 2, -3.2]);
+    for (const [u, v] of pts) {
+      const at = c.clone().addScaledVector(a, u).addScaledVector(b, v);
+      const f = this.plating.nearest(at.x, at.y, at.z, 3);
+      if (!f) continue;
+      this.plating.dent(f[0], f[1], f[2], 2.4, 0.42 + rnd() * 0.18);
+    }
+    return true;
+  }
+
   /** The rent itself, and what came out of it: see tearOut. */
   tearNow(lx, ly, lz, r, seed = 0, dx = 0, dz = 0, claw = false, rig = null, face = null) {
     if (this.rupture || !this.group.parent) return;
+    const world = this.group.parent;
+    this.group.updateMatrixWorld(true);
+    // What is standing on the piece she has hold of comes away with it --
+    // and nothing else of her: no burst flinging her fittings about, only
+    // what her teeth or her claws are actually in.
+    const carried = this.fittings ? this.fittings.takeNear(lx, ly, lz, r * 0.85) : [];
+    // The piece itself, out of her plating: torn, as any hole is torn, with
+    // its edge bent in and its cut face showing her frames (see Plating.sweep
+    // and edgeWalls), and every triangle of it kept to be carried off.
     let went = 0;
+    let tris = [];
     if (this.plating) {
-      went = this.plating.tear(lx, ly, lz, r, seed);
-      // Torn twice, a little apart: teeth and claws are more than one point.
-      went += this.plating.tear(lx, ly + r * 0.3, lz + r * (seed % 2 ? 0.6 : -0.6), r * 0.7, seed + 7);
+      [went, tris] = this.plating.take(() => {
+        let n = this.plating.tear(lx, ly, lz, r, seed);
+        // Torn twice, a little apart: teeth and claws are more than one point.
+        n += this.plating.tear(lx, ly + r * 0.3, lz + r * (seed % 2 ? 0.6 : -0.6), r * 0.7, seed + 7);
+        return n;
+      });
       if (went > 0) {
         this.dropUnsupported(lx, ly, lz, r * 1.4);
         this.opened(lx, ly, lz, r);
       }
     }
-    // Whatever was standing near it, torn off with it: it drops away from
-    // her, not flung across the sea.
-    const h = this.group.rotation.y;
-    const v = this.speedNow || 0;
-    const dl = Math.hypot(dx, dz);
-    if (this.fittings && this.wreck) {
-      const cuts = this.fittings.blast(lx, ly + 1, lz, r * 1.6, claw ? 5 : 4);
-      if (cuts) {
-        for (const cut of cuts) {
-          cut.force = Math.min(cut.force || 0, 1.2);
-          this.wreck.add(cut, this.group, Math.sin(h) * v + (dl ? (dx / dl) * 3 : 0), Math.cos(h) * v + (dl ? (dz / dl) * 3 : 0));
-        }
-      }
+    if (!tris.length && !carried.length) return;
+    const piece = hullPiece(tris, carried);
+    if (!piece) return;
+    this.group.add(piece);
+    const tossed = this.tossed || (this.tossed = new Tossed());
+    // In her jaws: hers to gnaw on and throw away.
+    if (rig && rig.mouthPoint) {
+      rig.mouthFull = Math.max(rig.mouthFull || 0, 2.6);
+      tossed.addMouth(piece, world, rig, { sink: 2.2, own: true, seed });
+      return;
     }
-    // And the plating itself, in slabs: the piece that broke off, bent, and
-    // smaller pieces that came with it.
-    const world = this.group.parent;
+    // In her claws: wrenched out and thrown aside, out over the water and
+    // clear of her, the way her hand went or out the way her side faces.
     let q = (seed % 2147483646) + 1;
     const rnd = () => ((q = (q * 16807) % 2147483647) / 2147483647);
-    let color = new THREE.Color(0x6f7478);
-    for (const p of (this.plating && this.plating.parts) || []) {
-      const mat = Array.isArray(p.material) ? p.material[0] : p.material;
-      if (mat && mat.color) { color = mat.color.clone(); break; }
-    }
-    this.group.updateMatrixWorld(true);
-    const tossed = this.tossed || (this.tossed = new Tossed());
-    const side = lx >= 0 ? 1 : -1;
-    const nrm = face && face.n ? face.n.clone() : new THREE.Vector3(side, 0, 0);
-    const at = face && face.c ? face.c.clone() : new THREE.Vector3(lx + side * 0.3, ly, lz);
-    const wn = nrm.clone().transformDirection(this.group.matrixWorld);
+    const h = this.group.rotation.y;
+    const v = this.speedNow || 0;
+    const nrm = face && face.n ? face.n.clone() : new THREE.Vector3(lx >= 0 ? 1 : -1, 0, 0);
+    const wn = nrm.transformDirection(this.group.matrixWorld);
     let ox = dx, oz = dz;
+    const dl = Math.hypot(dx, dz);
     if (dl < 1e-3) { ox = wn.x; oz = wn.z; } else { ox /= dl; oz /= dl; }
-    const n = (claw ? 2 : 1) + Math.floor(rnd() * 2);
-    for (let i = 0; i < n; i++) {
-      const main = i === 0;
-      const w = r * (main ? 1.1 + rnd() * 0.3 : 0.35 + rnd() * 0.3);
-      const slab = plateSlab(w, w * (0.5 + rnd() * 0.4), color, rnd);
-      // Lying in her side where it came from, facing out the way she does.
-      slab.position.copy(at).addScaledVector(nrm, 0.2);
-      if (!main) slab.position.add(new THREE.Vector3(0, (rnd() - 0.5) * r * 0.6, (rnd() - 0.5) * r));
-      slab.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm);
-      slab.rotateZ((rnd() - 0.5) * 0.6);
-      this.group.add(slab);
-      // The piece in her jaws: hers to gnaw and throw away.
-      if (main && rig && rig.mouthPoint) {
-        rig.mouthFull = Math.max(rig.mouthFull || 0, 2.6);
-        tossed.addMouth(slab, world, rig, { sink: 2, own: true, seed });
-        continue;
-      }
-      // Pulled out of her and dropping: out the way her side faces and the
-      // way the hand went, a little up, and down into the sea beside her.
-      const out = main ? 3 + rnd() * 2.5 : 2 + rnd() * 3;
-      tossed.add(slab, world, {
-        vx: Math.sin(h) * v + ox * out + wn.x * 1.5,
-        vy: (main ? 1.5 : 1) + rnd() * 2.5,
-        vz: Math.cos(h) * v + oz * out + wn.z * 1.5,
-        spin: (rnd() < 0.5 ? -1 : 1) * (main ? 0.35 + rnd() * 0.5 : 0.8 + rnd() * 1.2),
-        sink: 2.2,
-        own: true,
-      });
-    }
+    const ol = Math.hypot(ox, oz) || 1;
+    ox /= ol; oz /= ol;
+    const vy = 7 + rnd() * 4;
+    const flight = (2 * vy) / 9.81;
+    const clear = this.cls.hull.beam / 2 + Math.abs(lx) + piece.userData.size + 12;
+    const out = (clear / flight) * (1 + rnd() * 0.4);
+    tossed.add(piece, world, {
+      vx: Math.sin(h) * v + ox * out, vy, vz: Math.cos(h) * v + oz * out,
+      spin: (rnd() < 0.5 ? -1 : 1) * (0.5 + rnd() * 0.7),
+      axis: new THREE.Vector3(-oz, (rnd() - 0.5) * 0.4, ox),
+      sink: 2.4, own: true,
+    });
   }
 
   /**

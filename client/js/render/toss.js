@@ -146,7 +146,7 @@ export class Tossed {
   }
 
   /** A piece in her jaws. True while she still has it. */
-  mouth(f, dt) {
+  mouth(f, dt, seaAt = null) {
     const o = f.obj;
     const rig = f.rig;
     if (!rig || !rig.group || !rig.group.parent || !rig.group.visible) { f.state = 'air'; return false; }
@@ -173,12 +173,21 @@ export class Tossed {
     if ((rig.mouthFull ?? 0) > 0.45 && f.mt < 6) return true;
     // Let go at the top of the toss of her head: on the way her head was
     // going, out to the side and up, turning over as it goes.
-    const vmax = 30;
-    const sp = Math.hypot(f.vx, f.vy, f.vz);
-    if (sp > vmax) { f.vx *= vmax / sp; f.vy *= vmax / sp; f.vz *= vmax / sp; }
+    // Flung well clear: out to her side and ahead, far enough to come down
+    // in open water and not on the ship in her hands or on herself.
     rig.group.updateMatrixWorld(true);
-    V.set(f.side, 0.6, 0.4).applyQuaternion(rig.group.getWorldQuaternion(TMPQ)).normalize();
-    f.vx += V.x * 9; f.vy = Math.max(f.vy, 0) + 5 + V.y * 4; f.vz += V.z * 9;
+    V.set(f.side, 0, 0.45).applyQuaternion(rig.group.getWorldQuaternion(TMPQ));
+    V.y = 0;
+    V.normalize();
+    const vy = 9 + Math.min(4, f.size * 0.3);
+    const hgt = Math.max(0, o.position.y - (seaAt ? seaAt(o.position.x, o.position.z) || 0 : 0));
+    const flight = (vy + Math.sqrt(vy * vy + 2 * G * hgt)) / G;
+    const range = 70 + f.size * 3;
+    const hs = range / Math.max(0.5, flight);
+    // A little of the swing of her head is in it, never against it.
+    const along = f.vx * V.x + f.vz * V.z;
+    const extra = Math.min(8, Math.max(0, along));
+    f.vx = V.x * (hs + extra); f.vz = V.z * (hs + extra); f.vy = vy;
     f.axis.set(V.z, 0.2, -V.x).normalize();
     f.spin = 0.9 * f.side;
     f.state = 'air';
@@ -199,7 +208,7 @@ export class Tossed {
       if (f.state === 'slide') {
         if (this.slide(f, dt)) continue;
       } else if (f.state === 'mouth') {
-        if (this.mouth(f, dt)) continue;
+        if (this.mouth(f, dt, seaAt)) continue;
       } else if (f.state === 'ground') {
         if (this.ground(f, dt, groundAt, seaAt)) continue;
       }
@@ -366,6 +375,81 @@ function groundNormal(groundAt, x, z, out) {
   const dx = groundAt(x + h, z) - groundAt(x - h, z);
   const dz = groundAt(x, z + h) - groundAt(x, z - h);
   return out.set(-dx, 2 * h, -dz).normalize();
+}
+
+/**
+ * The very piece of her torn out by Monster One: `tris` the plating that came
+ * away ([{ tri: 9 floats in her frame, c: [r, g, b] }], see Plating.take) and
+ * `carried` whatever was standing on it (cuts off pieces.js, in her frame).
+ * Her paint outside, dark primer on the inside of the plate a hand's breadth
+ * behind it, so it has a thickness when it turns over in her jaws.
+ *
+ * Returns a group set where the piece was on her, or null if there is nothing.
+ */
+export function hullPiece(tris, carried = []) {
+  let cx = 0, cy = 0, cz = 0, n = 0;
+  for (const { tri } of tris) {
+    cx += tri[0] + tri[3] + tri[6]; cy += tri[1] + tri[4] + tri[7]; cz += tri[2] + tri[5] + tri[8];
+    n += 3;
+  }
+  for (const c of carried) { cx += c.x * 3; cy += c.y * 3; cz += c.z * 3; n += 3; }
+  if (!n) return null;
+  cx /= n; cy /= n; cz /= n;
+  const group = new THREE.Group();
+  group.position.set(cx, cy, cz);
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.85, metalness: 0.25, flatShading: true, side: THREE.DoubleSide,
+  });
+  let size = 0.5;
+  if (tris.length) {
+    const T = 0.3;
+    const pos = new Float32Array(tris.length * 18);
+    const col = new Float32Array(tris.length * 18);
+    const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), N = new THREE.Vector3();
+    tris.forEach(({ tri, c }, i) => {
+      A.set(tri[0] - cx, tri[1] - cy, tri[2] - cz);
+      B.set(tri[3] - cx, tri[4] - cy, tri[5] - cz);
+      C.set(tri[6] - cx, tri[7] - cy, tri[8] - cz);
+      N.subVectors(B, A).cross(C.clone().sub(A)).normalize();
+      // Outward is up off a deck and out from her centreline off a side; the
+      // back of the plate is inboard of that.
+      const mx = (tri[0] + tri[3] + tri[6]) / 3;
+      const up = Math.abs(N.y) > 0.6;
+      if ((up ? N.y : N.x * mx) < 0) N.negate();
+      const o = i * 18;
+      const outer = [A, B, C];
+      const inner = [A, C, B].map((v) => v.clone().addScaledVector(N, -T));
+      outer.forEach((v, k) => {
+        pos[o + k * 3] = v.x; pos[o + k * 3 + 1] = v.y; pos[o + k * 3 + 2] = v.z;
+        col[o + k * 3] = c[0]; col[o + k * 3 + 1] = c[1]; col[o + k * 3 + 2] = c[2];
+        size = Math.max(size, v.length());
+      });
+      inner.forEach((v, k) => {
+        pos[o + 9 + k * 3] = v.x; pos[o + 9 + k * 3 + 1] = v.y; pos[o + 9 + k * 3 + 2] = v.z;
+        col[o + 9 + k * 3] = 0.24; col[o + 9 + k * 3 + 1] = 0.17; col[o + 9 + k * 3 + 2] = 0.13;
+      });
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.computeVertexNormals();
+    group.add(new THREE.Mesh(g, mat));
+  }
+  for (const c of carried) {
+    const pos = new Float32Array(c.pos.length);
+    for (let i = 0; i < c.pos.length; i += 3) {
+      pos[i] = c.pos[i] + c.x - cx; pos[i + 1] = c.pos[i + 1] + c.y - cy; pos[i + 2] = c.pos[i + 2] + c.z - cz;
+      size = Math.max(size, Math.hypot(pos[i], pos[i + 1], pos[i + 2]));
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(c.col, 3));
+    g.setIndex(new THREE.BufferAttribute(c.idx, 1));
+    g.computeVertexNormals();
+    group.add(new THREE.Mesh(g, mat));
+  }
+  group.userData.size = size;
+  return group;
 }
 
 /**

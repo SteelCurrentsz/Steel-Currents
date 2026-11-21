@@ -429,6 +429,26 @@ export class Fittings {
     return shed;
   }
 
+  /**
+   * The fittings standing on a piece of her that Monster One has hold of:
+   * everything whose middle is within `r` of (x, y, z), taken off her whole
+   * to go with that piece. Nothing outside it is touched. Returns the cuts.
+   */
+  takeNear(x, y, z, r) {
+    const out = [];
+    const lo = Math.round((z - r) / 8) - 1;
+    const hi = Math.round((z + r) / 8) + 1;
+    for (let b = lo; b <= hi; b++) {
+      for (const piece of this.buckets.get(b) || []) {
+        if (!piece.on || !piece.fitting) continue;
+        if (Math.hypot(piece.cx - x, piece.cy - y, piece.cz - z) > r) continue;
+        out.push(this.shed(piece, piece.cx, piece.cy, piece.cz, 0));
+        if (out.length >= 12) return out;
+      }
+    }
+    return out;
+  }
+
   /** How high a piece reaches, bottom and top, in her frame. Worked out once. */
   extent(piece) {
     if (piece.lo === undefined) {

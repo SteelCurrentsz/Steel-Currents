@@ -8058,9 +8058,20 @@ function monsterTear(state, t, mo, how) {
     // High up, her upperworks stand in from her sides.
     lx = side * beam * (ly > fb + 1 ? 0.4 : 0.85);
   } else {
-    // In her hands: wherever the fingers closed.
-    lz = (state.rng() * 2 - 1) * half * 0.7;
-    lx = (state.rng() < 0.5 ? -1 : 1) * beam * (0.5 + state.rng() * 0.5);
+    // Where her hands are on her, and nowhere else: one hand or the other,
+    // a palm's width either side of the point between them, on the side of
+    // the ship nearest it. A ship up in her hands is held out in front of
+    // her chest; one held down is under them where they came down.
+    const G = MONSTER.grab;
+    const ahead = t.held && t.held.lifted ? G.carry : G.hands;
+    const rx = -Math.cos(mo.heading), rz = Math.sin(mo.heading);
+    const hand = (state.rng() < 0.5 ? -1 : 1) * 9;
+    const px = mo.x + Math.sin(mo.heading) * ahead + rx * hand;
+    const pz = mo.z + Math.cos(mo.heading) * ahead + rz * hand;
+    const l = worldToLocal(px - t.x, pz - t.z, t.heading);
+    lz = clamp(l.z + (state.rng() - 0.5) * 4, -half * 0.85, half * 0.85);
+    const me = worldToLocal(mo.x - t.x, mo.z - t.z, t.heading);
+    lx = (Math.abs(l.x) > beam * 0.3 ? Math.sign(l.x) : me.x >= 0 ? 1 : -1) * beam * 0.9;
   }
   const claw = how === 'claw';
   const rad = clamp(beam * (claw ? 0.6 : 0.5), claw ? 3.5 : 3, claw ? 11 : 9);
@@ -8075,8 +8086,9 @@ function monsterTear(state, t, mo, how) {
     openHull(state, t, where, rad * rad * (claw ? 0.5 : 0.3), lx >= 0 ? 1 : -1,
       Math.max(0, -ly), { x: lx, y: ly, z: lz });
   }
-  // A gun where she closed on her, torn out and flung.
-  const odds = claw ? 0.55 : 0.65;
+  // A gun where she closed on her, torn out and flung. Her claws on a
+  // turret always have it: it is the thing in her hand.
+  const odds = claw ? 1 : 0.65;
   const reach = rad * 1.3 + 3;
   // (Only off her deck: jaws in her side under the water take no gun.)
   const near = ly < fb * 0.4 && !claw ? [] : standing(t, cls)
@@ -8084,7 +8096,7 @@ function monsterTear(state, t, mo, how) {
     .map((g) => ({ g, d: Math.hypot((g.s.x || 0) - lx, g.s.z - lz) }))
     .filter((q) => q.d <= reach + footOf(q.g.bore))
     .sort((a, b) => a.d - b.d);
-  const takes = claw ? 2 : 1;
+  const takes = 1;
   for (let k = 0; k < Math.min(takes, near.length); k++) {
     if (state.rng() >= odds) continue;
     // Away from her, flung to one side or the other of where she is facing.

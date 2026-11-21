@@ -1134,6 +1134,8 @@ export class Plating {
           if (soft > 0 && d2 > r2 * soft && ((t * 2654435761) >>> 0) % 100 < 55) continue;
           part.dead[t] = 1;
           killed.push(t, part.idx.array[o], part.idx.array[o + 1], part.idx.array[o + 2]);
+          // Kept, when someone wants what was taken (see take).
+          if (this.capture) this.keep(part, t);
           const a = part.idx.array[o];
           part.idx.array[o + 1] = a;
           part.idx.array[o + 2] = a;
@@ -1150,6 +1152,36 @@ export class Plating {
     this.torn += went;
     if (went) this.checkRings(x, y, z, r);
     return went;
+  }
+
+  /** A triangle of her as it stands -- corners and paint -- into `capture`. */
+  keep(part, t) {
+    const pa = part.mesh.geometry.attributes.position.array;
+    const ia = part.idx.array;
+    const o = t * 3;
+    const c = paintOf(part, t);
+    const tri = new Float32Array(9);
+    for (let k = 0; k < 3; k++) {
+      const v = ia[o + k] * 3;
+      tri[k * 3] = pa[v]; tri[k * 3 + 1] = pa[v + 1]; tri[k * 3 + 2] = pa[v + 2];
+    }
+    this.capture.push({ tri, c });
+  }
+
+  /**
+   * `fn` run with everything it cuts out of her kept: the very plating that
+   * came away, corner for corner and in her own paint, so that what is torn
+   * out of her and carried off is that piece of her and nothing made up.
+   * Returns [what fn returned, [{ tri, c }, ...]].
+   */
+  take(fn) {
+    const was = this.capture;
+    const got = [];
+    this.capture = got;
+    let r;
+    try { r = fn(); } finally { this.capture = was; }
+    if (was) for (const k of got) was.push(k);
+    return [r, got];
   }
 
   /** The faces of her cut edges, made when first wanted. */
@@ -1261,6 +1293,7 @@ export class Plating {
         if (!list) more.set(part, (list = []));
         list.push(t, ia[o], ia[o + 1], ia[o + 2]);
         part.dead[t] = 1;
+        if (this.capture) this.keep(part, t);
         const a0 = ia[o];
         ia[o + 1] = a0; ia[o + 2] = a0;
         flush(part, o, o + 3);
