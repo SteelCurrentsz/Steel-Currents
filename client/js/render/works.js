@@ -30,7 +30,7 @@ import {
 } from '../../../shared/works.js';
 import { groundHeight, rawGround } from '../../../shared/world.js';
 import { Civilians } from './civilians.js';
-import { townModel } from './townModel.js';
+import { townModel, townKinds } from './townModel.js';
 
 // ---------------------------------------------------------------------------
 // Textures, painted once
@@ -306,24 +306,51 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
  * than the next one built off the same model, and blackened as far as it has
  * been knocked about.
  */
-function modelInto(buf, m, b, F, scorch, own = 1) {
+function modelInto(bufs, m, b, F, scorch, own = 1) {
   const H = Math.max(b.h, Number.isFinite(b.top) ? b.top - b.level : b.h);
   const sx = b.w / (m.hi[0] - m.lo[0] || 1);
   const sz = b.d / (m.hi[2] - m.lo[2] || 1);
   const sy = H / (m.hi[1] || 1);
-  const { pos, colour, idx } = m;
+  const { pos, idx } = m;
   const n = pos.length / 3;
   const P = new Array(n);
-  const C = new Array(n);
-  for (let i = 0; i < n; i++) {
-    P[i] = F(pos[i * 3] * sx, pos[i * 3 + 1] * sy, pos[i * 3 + 2] * sz);
-    C[i] = mixc([colour[i * 3] * own, colour[i * 3 + 1] * own, colour[i * 3 + 2] * own], CHAR, scorch);
+  // Stood a little proud of its plot: the paving round a building is laid up
+  // to a fifth of a metre over the plot's level, and a model's own ground
+  // slab drawn level with it flickers through it.
+  for (let i = 0; i < n; i++) P[i] = F(pos[i * 3] * sx, MODEL_LIFT + pos[i * 3 + 1] * sy, pos[i * 3 + 2] * sz);
+  if (!m.textured) {
+    const { colour } = m;
+    const C = new Array(n);
+    for (let i = 0; i < n; i++) C[i] = mixc([colour[i * 3] * own, colour[i * 3 + 1] * own, colour[i * 3 + 2] * own], CHAR, scorch);
+    const buf = bufs.get('plain');
+    for (let t = 0; t < idx.length; t += 3) {
+      const a = idx[t], c = idx[t + 1], e = idx[t + 2];
+      buf.tri(P[a], P[c], P[e], null, null, null, C[a], C[c], C[e]);
+    }
+    return;
   }
+  // Its own texture, the building's shade and its scorching laid over it, and
+  // its normals carried through the stretch onto its plot and its turn.
+  const { uv, nrm } = m;
+  const tint = mixc([own, own, own], CHAR, scorch);
+  const o = F(0, 0, 0);
+  const N = new Array(n);
+  const U = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const w = F(nrm[i * 3] / sx, nrm[i * 3 + 1] / sy, nrm[i * 3 + 2] / sz);
+    const v = [w[0] - o[0], w[1] - o[1], w[2] - o[2]];
+    const l = Math.hypot(v[0], v[1], v[2]) || 1;
+    N[i] = [v[0] / l, v[1] / l, v[2] / l];
+    U[i] = [uv[i * 2], uv[i * 2 + 1]];
+  }
+  const buf = bufs.get(`m:${b.kind}`);
   for (let t = 0; t < idx.length; t += 3) {
     const a = idx[t], c = idx[t + 1], e = idx[t + 2];
-    buf.tri(P[a], P[c], P[e], null, null, null, C[a], C[c], C[e]);
+    buf.triN(P[a], P[c], P[e], U[a], U[c], U[e], tint, N[a], N[c], N[e]);
   }
 }
+/** How far a modelled building stands above its plot's level. */
+const MODEL_LIFT = 0.2;
 const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 // ---------------------------------------------------------------------------
@@ -345,6 +372,28 @@ class Buf {
     this.n.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
     this.u.push(...(ua || [0, 0]), ...(ub || [0, 0]), ...(uc || [0, 0]));
     this.c.push(...ca, ...cb, ...cc);
+  }
+
+  /**
+   * A face with a normal of its own at each corner -- unless that strays far
+   * from the face's own, at a hard edge the corner is shared across, when the
+   * face's is used: a smooth wall stays smooth and a corner stays sharp.
+   */
+  triN(a, b, c, ua, ub, uc, col, na, nb, nc) {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let fx = uy * vz - uz * vy;
+    let fy = uz * vx - ux * vz;
+    let fz = ux * vy - uy * vx;
+    const l = Math.hypot(fx, fy, fz) || 1;
+    fx /= l; fy /= l; fz /= l;
+    this.p.push(...a, ...b, ...c);
+    for (const nn of [na, nb, nc]) {
+      if (nn[0] * fx + nn[1] * fy + nn[2] * fz > 0.75) this.n.push(nn[0], nn[1], nn[2]);
+      else this.n.push(fx, fy, fz);
+    }
+    this.u.push(...ua, ...ub, ...uc);
+    this.c.push(...col, ...col, ...col);
   }
 
   /** A quad a-b-c-d, wound counter-clockwise as seen from the side it faces. */
@@ -563,7 +612,7 @@ function buildingInto(bufs, b, L, ruin) {
   // The landmarks that have a model of their own are drawn from it until
   // they are gutted; from then on they are the shell the rest of the town is.
   const model = st <= STAGE.hit ? townModel(b.kind) : null;
-  if (model) { modelInto(bufs.get('plain'), model, b, F, scorch, own); return; }
+  if (model) { modelInto(bufs, model, b, F, scorch, own); return; }
   const { bay, fh } = bayOf(b);
   const hw = b.w / 2;
   const hd = b.d / 2;
@@ -1356,6 +1405,11 @@ export class WorksView {
     for (const k of Object.keys(FACADE)) m[k] = std(canvasTexture(`f-${k}`, FACADE[k], 256, 256));
     m.roof = std(canvasTexture('g-roof', GROUND.roof));
     m.plain = std(null);
+    // Each modelled building's own texture, on a material of its own.
+    for (const k of townKinds()) {
+      const tex = townModel(k)?.textured ? townModel(k).texture() : null;
+      if (tex) m[`m:${k}`] = std(tex, { roughness: 0.85 });
+    }
     // The marks the battle leaves on the sea walls: laid over the faces they
     // mark, seen from either side whichever way a run was traced.
     m.scar = std(null, {
