@@ -280,9 +280,12 @@ function makePlumeGeometry() {
   // as wide at its foot as anywhere, a little drawn in up its body, and
   // feathered off into spray and mist at its top rather than swelling into
   // a head.
+  // And open at the top: no cap. A closed, rounded top is what made every
+  // column a finger; the top of a real one is not a surface at all but the
+  // water thinning out into spray, which the material draws by fading.
   const prof = [
-    [0.62, 0], [0.68, 0.03], [0.6, 0.1], [0.54, 0.24], [0.5, 0.4], [0.49, 0.56],
-    [0.5, 0.7], [0.47, 0.8], [0.4, 0.88], [0.28, 0.95], [0.12, 0.985], [0.001, 1],
+    [0.66, 0], [0.72, 0.03], [0.64, 0.1], [0.57, 0.24], [0.53, 0.4], [0.52, 0.56],
+    [0.54, 0.7], [0.56, 0.82], [0.58, 0.92], [0.6, 1],
   ].map(([r, y]) => new THREE.Vector2(r, y));
   const g = new THREE.LatheGeometry(prof, 22);
   const p = g.attributes.position;
@@ -386,9 +389,14 @@ function plumeMaterial(map) {
     // strands, and it is the gaps between them at its edges that stop a
     // column reading as a smooth glass tube.
     float rope = pn(vObj * vec3(15.0, 1.6, 15.0) + vec3(0.0, 5.0, 0.0));
-    float keep = 1.0 - top * 0.9 * nz - rim * rim * 1.1 * (0.45 + nz)
-               - rim * 0.55 * smoothstep(0.4, 0.8, rope);
-    diffuseColor.a *= vFade * clamp(keep, 0.0, 1.0);
+    // Spray, not a solid: dense through its middle low down, thinning into
+    // nothing over its upper half, its outline the ragged edge of a cloud of
+    // water rather than a skin, and gaps up it between the ropes of water.
+    float fadeUp = 1.0 - smoothstep(0.35, 1.0, vObj.y + (nz - 0.5) * 0.35);
+    float keep = fadeUp
+               - rim * rim * 1.5 * (0.5 + nz)
+               - (0.35 + 0.5 * rim) * smoothstep(0.38, 0.78, rope);
+    diffuseColor.a *= vFade * clamp(keep, 0.0, 1.0) * 0.82;
   }`);
   };
   return m;
@@ -1279,13 +1287,13 @@ export class Splashes {
     // water torn off its sides as it goes up, softening its outline into the
     // misty edge every photograph shows, and at its top a cloud of the finest
     // of it that the wind takes off downwind and leans the whole thing over.
-    const n = Math.round(kind.head * 1.3 * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
+    const n = Math.round(kind.head * 2.0 * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
     const w = radius * kind.stem * (this.thick || 1);
     const rise = 0.25 + height * 0.011;
     const fall = Math.sqrt((2 * height) / G);
     const dx = Math.sin(lean), dz = Math.cos(lean);
     for (let i = 0; i < n; i++) {
-      const u = 0.12 + 0.95 * Math.pow(Math.random(), 0.75);
+      const u = 0.06 + 0.98 * Math.pow(Math.random(), 1.1);
       const a = Math.random() * Math.PI * 2;
       const top = Math.max(0, (u - 0.7) / 0.35);
       const off = w * rnd(0.12, 0.34) * (1 + top * 0.4);
@@ -1300,7 +1308,7 @@ export class Splashes {
         s0: size * 0.6, s1: size * (1.2 + 0.5 * top), squash: rnd(1.2, 1.6) - top * 0.35,
         delay: kind.delay + rise * Math.min(1, u) * rnd(0.8, 1.0),
         ttl: (rise + fall) * rnd(0.8, 1.0) * (1 + top * 0.2),
-        peak: rnd(0.32, 0.48) * (1 - top * 0.3), spread: 0.25,
+        peak: rnd(0.4, 0.58) * (1 - top * 0.35), spread: 0.25,
       });
     }
   }

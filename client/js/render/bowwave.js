@@ -90,6 +90,7 @@ uniform vec3 uSunDir;     // in view space
 uniform vec3 uSun;
 uniform vec3 uSky;
 uniform vec3 uDeep;
+uniform vec3 uShallow;
 uniform vec3 uFogColor;
 varying vec2 vProf;
 varying float vZ;
@@ -117,8 +118,8 @@ void main() {
   // White on the crest and down its outer face, where it is breaking; solid
   // glassy water on the face against her, with streaks of foam dragged
   // through it.
-  float crest = smoothstep(0.08, 0.42, s + (f - 0.5) * 0.25);
-  float foam = clamp(crest * (0.7 + 0.7 * f) + smoothstep(0.45, 0.8, g) * 0.75 * (1.0 - crest), 0.0, 1.0);
+  float crest = smoothstep(0.2, 0.55, s + (f - 0.5) * 0.3);
+  float foam = clamp(crest * (0.55 + 0.75 * f) + smoothstep(0.55, 0.85, g) * 0.5 * (1.0 - crest), 0.0, 1.0);
   // Torn at its lip and thin at its ends: the crest comes apart into
   // rags of white, and the bank grows out of the sea and back into it.
   float lip = 1.0 - smoothstep(0.55 + 0.3 * f, 0.95, s + (g - 0.5) * 0.5);
@@ -134,14 +135,24 @@ void main() {
   float fres = pow(1.0 - clamp(abs(dot(n, v)), 0.0, 1.0), 4.0);
   // The water: deep blue-green, lit through where it is thin and catching
   // the sky on its face.
-  vec3 water = mix(uDeep * 1.2, vec3(0.10, 0.30, 0.34), 0.45 + 0.25 * f)
+  // The sea's own water, as the ocean draws it -- the same deep body and the
+  // same lighter water in the thin of a crest -- so the bank she heaps up is
+  // the sea standing up against her and not a different colour laid on it.
+  vec3 water = mix(uDeep * 0.85, uShallow, 0.3 + 0.25 * f)
              + uSun * vec3(0.30, 0.55, 0.50) * pow(ndl, 2.0) * 0.45;
-  water = mix(water, uSky, fres * 0.6);
+  // And the sky in it, as the sea round it has: at a low angle most of what
+  // the eye gets off water is the sky.
+  water = mix(water, uSky, 0.32 + fres * 0.5);
   // The foam: bright, lit, greyer in its folds.
-  vec3 white = (uSky * 0.8 + uSun * (0.55 + 0.5 * ndl)) * (0.84 + 0.2 * g);
+  vec3 white = mix(water, (uSky * 0.8 + uSun * (0.5 + 0.45 * ndl)) * (0.84 + 0.2 * g), 0.8);
   vec3 col = mix(water, white, foam);
   col = mix(col, uFogColor, vFog);
-  gl_FragColor = vec4(col * alpha, alpha);
+  // Out through the same tone mapping and colour space as the sea itself, so
+  // the same water comes out the same colour on screen.
+  gl_FragColor = vec4(col, alpha);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  gl_FragColor = vec4(gl_FragColor.rgb * alpha, alpha);
 }
 `;
 
@@ -209,11 +220,13 @@ export class BowWaves {
     this.sky = new THREE.Color(0.55, 0.62, 0.7);
     this.sun = new THREE.Color(0.95, 0.93, 0.88);
     this.deep = new THREE.Color(0.03, 0.12, 0.18);
+    this.shallow = new THREE.Color(0.06, 0.2, 0.26);
     this.sunDir = new THREE.Vector3(0.4, 0.8, -0.3).normalize();
   }
 
   /** The hour, as the sea has it: what lights the water and the foam. */
-  setAtmosphere({ sky, sun, deep, sunDir } = {}) {
+  setAtmosphere({ sky, sun, deep, shallow, sunDir } = {}) {
+    if (shallow) this.shallow.copy(shallow);
     if (sky) this.sky.copy(sky);
     if (sun) this.sun.copy(sun);
     if (deep) this.deep.copy(deep);
@@ -235,7 +248,7 @@ export class BowWaves {
           uTime: { value: 0 }, uSpeed: { value: 0 }, uLen: { value: len }, uSide: { value: side },
           uScale: { value: 0 }, uFade: { value: 0 },
           uSunDir: { value: new THREE.Vector3() }, uSun: { value: this.sun }, uSky: { value: this.sky },
-          uDeep: { value: this.deep }, uFogColor: { value: new THREE.Color() }, uFogDensity: { value: 0 },
+          uDeep: { value: this.deep }, uShallow: { value: this.shallow }, uFogColor: { value: new THREE.Color() }, uFogDensity: { value: 0 },
         },
         transparent: true,
         depthWrite: false,
@@ -282,7 +295,7 @@ export class BowWaves {
       const far = eye ? Math.hypot(e[12] - eye.x, e[14] - eye.z) : 0;
       // A bow wave's height goes as her speed squared: a foot or two at
       // fifteen knots, a bank as high as a man and more at thirty.
-      const scale = Math.min(r.beam * 0.5, 0.036 * r.speed * r.speed) * Math.min(1.3, Math.sqrt(r.len / 120));
+      const scale = Math.min(r.beam * 0.3, 0.02 * r.speed * r.speed) * Math.min(1.2, Math.sqrt(r.len / 120));
       const fade = smoothstepJS(1.2, 4, r.speed) * (1 - smoothstepJS(RANGE * 0.7, RANGE, far));
       for (const m of r.sides) {
         m.visible = fade > 0.01;

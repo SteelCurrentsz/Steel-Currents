@@ -284,7 +284,15 @@ export function seaSupport(att, heave, pitch, draft, out = { heave: 0, pitch: 0 
  */
 export function rideOf(world) {
   const r = getWeather(world?.weather).ride ?? 1;
-  return { heave: r, tilt: 0.5 + 0.5 * r };
+  // And how much sea there is to ride. On a fine day with next to no sea
+  // running a ship hardly moves -- a slow, barely visible lift and a degree
+  // of nothing -- and the full motion is for a real sea. Without this a ship
+  // on a flat calm rose and fell like a buoy without ever tilting, which is
+  // no ship anybody has watched.
+  const st = Math.max(0, Math.min(6, world?.sea ?? 2));
+  const t = Math.min(1, Math.max(0, (st - 1.5) / 3));
+  const calm = t * t * (3 - 2 * t);
+  return { heave: r * (0.22 + 0.78 * calm), tilt: (0.5 + 0.5 * r) * (0.4 + 0.6 * calm) };
 }
 
 /**

@@ -2605,7 +2605,8 @@ export class BattleScene {
       {
         const ou = this.ocean.material.uniforms;
         this.bowWaves.setAtmosphere({
-          sky: ou.uSkyTint.value, sun: ou.uLightColor.value, deep: ou.uDeep.value, sunDir: p.lightDir,
+          sky: ou.uSkyTint.value, sun: ou.uLightColor.value, deep: ou.uDeep.value,
+          shallow: ou.uShallow.value, sunDir: p.lightDir,
         });
       }
     }
