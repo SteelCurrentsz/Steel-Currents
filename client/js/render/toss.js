@@ -190,7 +190,7 @@ export class Tossed {
    * Once a frame. `seaAt(x, z)` is the height of the sea there, if it is
    * known. Returns the splashes made this frame: { x, z, size, hull, fall }.
    */
-  step(dt, seaAt = null) {
+  step(dt, seaAt = null, groundAt = null) {
     if (!this.live.length) return null;
     const out = [];
     for (let i = this.live.length - 1; i >= 0; i--) {
@@ -200,6 +200,8 @@ export class Tossed {
         if (this.slide(f, dt)) continue;
       } else if (f.state === 'mouth') {
         if (this.mouth(f, dt)) continue;
+      } else if (f.state === 'ground') {
+        if (this.ground(f, dt, groundAt, seaAt)) continue;
       }
       if (!f.wet) {
         f.vy -= G * dt;
@@ -213,6 +215,21 @@ export class Tossed {
       o.position.z += f.vz * dt;
       if (f.spin) o.quaternion.premultiply(TMPQ.setFromAxisAngle(f.axis, f.spin * dt));
       const sea = seaAt ? seaAt(o.position.x, o.position.z) || 0 : 0;
+      // Come down ashore: it lands, and slides if the ground is steep.
+      if (!f.wet && f.vy < 0 && groundAt) {
+        const g = groundAt(o.position.x, o.position.z);
+        if (Number.isFinite(g) && g > sea && o.position.y - f.foot <= g) {
+          o.position.y = g + f.foot;
+          groundNormal(groundAt, o.position.x, o.position.z, V);
+          const vn = f.vx * V.x + f.vy * V.y + f.vz * V.z;
+          f.vx = (f.vx - vn * V.x) * 0.3; f.vy = 0; f.vz = (f.vz - vn * V.z) * 0.3;
+          f.spin = 0;
+          f.lay = 0;
+          f.state = 'ground';
+          o.updateMatrixWorld(true);
+          continue;
+        }
+      }
       if (!f.wet && f.vy < 0 && o.position.y - f.foot < sea) {
         f.wet = true;
         out.push({ x: o.position.x, z: o.position.z, size: f.size * 2, hull: f.size > 3.5, fall: -f.vy });
@@ -281,6 +298,50 @@ export class Tossed {
     return false;
   }
 
+  /**
+   * Lying on the ground ashore: held where the slope is gentle, sliding down
+   * it where it is not, and back into the air if it goes off a drop or into
+   * the sea. True while it is still on the ground. Cleared away after it has
+   * lain still a good while.
+   */
+  ground(f, dt, groundAt, seaAt) {
+    const o = f.obj;
+    if (!groundAt) { f.state = 'air'; return false; }
+    const sea = seaAt ? seaAt(o.position.x, o.position.z) || 0 : 0;
+    const g = groundAt(o.position.x, o.position.z);
+    if (!Number.isFinite(g) || g <= sea || g < o.position.y - f.foot - 0.8) { f.state = 'air'; return false; }
+    const n = groundNormal(groundAt, o.position.x, o.position.z, V);
+    // Gravity along the slope, against its grip.
+    const gn = -G * n.y;
+    const tx = -gn * n.x, ty = -G - gn * n.y, tz = -gn * n.z;
+    const pull = Math.hypot(tx, ty, tz);
+    const press = G * n.y;
+    let sp = Math.hypot(f.vx, f.vz);
+    if (sp < 0.15 && pull <= 0.3 * press) {
+      f.vx = f.vz = 0;
+      f.lay += dt;
+    } else {
+      f.lay = 0;
+      f.vx += tx * dt; f.vz += tz * dt;
+      sp = Math.hypot(f.vx, f.vz);
+      if (sp > 1e-6) {
+        const k = Math.max(0, sp - 0.22 * press * dt) / sp;
+        f.vx *= k; f.vz *= k;
+      }
+    }
+    o.position.x += f.vx * dt;
+    o.position.z += f.vz * dt;
+    o.position.y = groundAt(o.position.x, o.position.z) + f.foot;
+    f.vy = 0;
+    o.updateMatrixWorld(true);
+    if (f.lay > 40) {
+      this.drop(f);
+      this.live.splice(this.live.indexOf(f), 1);
+      return true;
+    }
+    return true;
+  }
+
   drop(f) {
     if (f.obj.parent) f.obj.parent.remove(f.obj);
     // Only what was made for the throw is given back: a mounting's shapes are
@@ -297,6 +358,14 @@ export class Tossed {
     for (const f of this.live) this.drop(f);
     this.live.length = 0;
   }
+}
+
+/** The slope of the ground at (x, z), as its upward normal, into `out`. */
+function groundNormal(groundAt, x, z, out) {
+  const h = 1.5;
+  const dx = groundAt(x + h, z) - groundAt(x - h, z);
+  const dz = groundAt(x, z + h) - groundAt(x, z - h);
+  return out.set(-dx, 2 * h, -dz).normalize();
 }
 
 /**

@@ -377,6 +377,8 @@ export class Fittings {
    */
   shed(piece, x = piece.cx, y = piece.cy, z = piece.cz, force = 1) {
     piece.on = false;
+    // Anything standing on it has nothing under it now: see unsupported.
+    if (piece.fitting) (this.lost || (this.lost = [])).push(piece);
     const pos = [];
     const col = [];
     const idx = [];
@@ -425,6 +427,61 @@ export class Fittings {
       (shed || (shed = [])).push(this.shed(piece, piece.cx, piece.cy - 4, piece.cz, 0.8));
     }
     return shed;
+  }
+
+  /** How high a piece reaches, bottom and top, in her frame. Worked out once. */
+  extent(piece) {
+    if (piece.lo === undefined) {
+      let lo = Infinity, hi = -Infinity;
+      for (const s of piece.spans) {
+        const pos = s.mesh.geometry.userData.fair || s.mesh.geometry.attributes.position.array;
+        for (let i = s.v0; i < s.v0 + s.vn; i++) {
+          const y = pos[i * 3 + 1];
+          if (y < lo) lo = y;
+          if (y > hi) hi = y;
+        }
+      }
+      piece.lo = lo === Infinity ? piece.cy - piece.r : lo;
+      piece.hi = hi === -Infinity ? piece.cy + piece.r : hi;
+    }
+    return piece;
+  }
+
+  /**
+   * Whatever was standing on a piece that has come off her: a searchlight on
+   * a platform, a rangefinder on a director, a locker on a deckhouse roof
+   * that went. It is not thrown -- nothing hit it -- but there is nothing
+   * holding it up any more, and it drops. Worked through until nothing more
+   * is left standing on air, so a stack of them comes down one on another.
+   *
+   * Returns the pieces, marked to drop, or null.
+   */
+  unsupported() {
+    if (!this.lost || !this.lost.length) return null;
+    let out = null;
+    let guard = 0;
+    while (this.lost.length && guard++ < 200) {
+      const L = this.extent(this.lost.pop());
+      const tall = L.hi - L.lo;
+      const lo = Math.round((L.cz - L.r) / 8) - 1;
+      const hi = Math.round((L.cz + L.r) / 8) + 1;
+      for (let b = lo; b <= hi; b++) {
+        for (const P of this.buckets.get(b) || []) {
+          if (!P.on || !P.fitting) continue;
+          this.extent(P);
+          // Its foot up on the piece that went -- in the upper part of it, or
+          // just on top of it -- and not down on the deck beside it.
+          if (P.lo < L.lo + Math.max(0.5, tall * 0.35)) continue;
+          if (P.lo > L.hi + 0.4) continue;
+          if (Math.hypot(P.cx - L.cx, P.cz - L.cz) > L.r * 0.9) continue;
+          const cut = this.shed(P, P.cx, P.cy + 1, P.cz, 0);
+          cut.drop = true;
+          (out || (out = [])).push(cut);
+        }
+      }
+    }
+    this.lost.length = 0;
+    return out;
   }
 
   /** How much of her fittings she has left, for anyone who wants to know. */

@@ -920,6 +920,8 @@ export class ShipView {
     // when she is first holed; see opened.
     this.ocean = ocean;
     this.wreck = wreck;
+    // What a loose piece of her lands on and slides along (see wreckage.js).
+    this.group.userData.surfaceUnder = (x, y, z, above) => this.surfaceUnder(x, y, z, above);
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
     this.heelBy = 0;
@@ -1497,9 +1499,14 @@ export class ShipView {
       this.clawQueue = this.clawQueue.filter((c) => c.t > 0);
       for (const c of due) this.tossMount(...c.args);
     }
+    // Whatever was standing on something that has come off her drops.
+    if (this.fittings && this.fittings.lost && this.fittings.lost.length && !this.rupture) {
+      this.shed(this.fittings.unsupported());
+    }
     const a = this.rupture ? this.rupture.step(dt) : null;
     const ocean = this.ocean;
-    const b = this.tossed ? this.tossed.step(dt, ocean && ocean.heightAt ? (x, z) => ocean.heightAt(x, z) : null) : null;
+    const b = this.tossed ? this.tossed.step(dt, ocean && ocean.heightAt ? (x, z) => ocean.heightAt(x, z) : null,
+      this.wreck && this.wreck.groundAt) : null;
     return a && b ? a.concat(b) : a || b;
   }
 
@@ -1860,6 +1867,25 @@ export class ShipView {
     if (went > 0) this.dropUnsupported(p.x, p.y, p.z, r);
     if (went > 0) this.opened(p.x, p.y, p.z, r);
     return went;
+  }
+
+  /**
+   * The deck or roof of her under a point in her own frame, for something
+   * loose to land on and slide along: [y, nx, ny, nz], or null over the side
+   * or over a hole. See Plating.floorUnder.
+   */
+  surfaceUnder(x, y, z, above = 0.5) {
+    if (!this.plating || this.rupture) return null;
+    const f = this.plating.floorUnder(x, y, z, above);
+    if (!f || !this.holes) return f;
+    // A hole cut in her shaders is not in her triangles: nothing lies on it.
+    for (const h of this.holes.list) {
+      if (Math.abs(h[5]) < 0.5) continue;
+      const r = h[3];
+      if (Math.abs(h[1] - f[0]) > r + 0.5) continue;
+      if ((h[0] - x) * (h[0] - x) + (h[2] - z) * (h[2] - z) < r * r) return null;
+    }
+    return f;
   }
 
   /**
@@ -2714,6 +2740,9 @@ export class BattleScene {
     // And lent to the effects, so an aeroplane going up is the same boiling
     // fireball as a shell going off inside a ship, not a glowing disc.
     this.effects.bursts = this.bursts;
+    // Every blast leaves the same cold wreckage and black smoke a shell
+    // bursting in a ship does.
+    this.bursts.remains = (x, y, z, k) => this.effects.burstRemains(x, y, z, k);
     // The waves a splash throws go into the sea itself, through the wake map.
     this.effects.splashes.setWaves(this.wakes.rings);
     // And the ships, so a splash stays at a ship's side and what it throws
@@ -2832,6 +2861,8 @@ export class BattleScene {
     // anonymous plating below is the rest of what comes off her.
     this.wreck = new Wreckage(this.scene, this.ocean,
       (x, y, z, speed) => this.effects.splashes.splash(x, z, 30 + speed * 4));
+    // Ashore, what falls lands on the ground, and slides down it where it is steep.
+    this.wreck.groundAt = this.effects.groundAt;
     this.debris = new Debris(this.scene, this.ocean,
       Math.max(120, Math.round(420 * q.particles)));
     this.debris.onSplash = (x, z, size) => this.effects.splashes.splash(x, z, 60 * size);

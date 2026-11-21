@@ -1514,6 +1514,66 @@ export class Plating {
   }
 
   /**
+   * What of her is under a point, in her own frame: the highest of her live
+   * plating straight below (x, z) that is no higher than `y + above`, and
+   * facing more up than sideways -- a deck, a deckhouse roof, the top of a
+   * gun platform. Something loose lands on it, lies on it, and slides on it.
+   *
+   * Returns [y, nx, ny, nz] with the normal turned to face up, or null where
+   * there is nothing of her under it (over the side, or over a hole).
+   */
+  floorUnder(x, y, z, above = 0.5) {
+    const top = y + above;
+    let bestY = -Infinity;
+    let best = null;
+    for (const part of this.parts) {
+      if (z + BUCKET < part.minZ || z - BUCKET > part.maxZ) continue;
+      const pa = part.mesh.geometry.attributes.position.array;
+      const ia = part.idx.array;
+      const cb = Math.floor((z - part.minZ) / BUCKET);
+      for (let b = Math.max(0, cb - 1); b <= Math.min(part.buckets.length - 1, cb + 1); b++) {
+        const list = part.buckets[b];
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          if (part.dead[t]) continue;
+          const o = t * 3;
+          // Cheap reject: its middle well off to the side, or above the top.
+          if (Math.abs(part.cent[o] - x) > 4 || Math.abs(part.cent[o + 2] - z) > 4) continue;
+          const a = ia[o] * 3, bb = ia[o + 1] * 3, c = ia[o + 2] * 3;
+          const ax = pa[a], az = pa[a + 2];
+          const bx = pa[bb], bz = pa[bb + 2];
+          const cx = pa[c], cz = pa[c + 2];
+          // Straight down onto it: inside the triangle seen from above.
+          const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+          if (Math.abs(d) < 1e-6) continue;
+          const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d;
+          const l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
+          const l3 = 1 - l1 - l2;
+          if (l1 < -1e-4 || l2 < -1e-4 || l3 < -1e-4) continue;
+          const hy = l1 * pa[a + 1] + l2 * pa[bb + 1] + l3 * pa[c + 1];
+          if (hy > top || hy <= bestY) continue;
+          // Its slope off the corners, not her shading normals: a deck
+          // cambered for drainage is a slope a loose thing slides down.
+          const ux = bx - ax, uy = pa[bb + 1] - pa[a + 1], uz = bz - az;
+          const vx = cx - ax, vy = pa[c + 1] - pa[a + 1], vz = cz - az;
+          let nx = uy * vz - uz * vy;
+          let ny = uz * vx - ux * vz;
+          let nz = ux * vy - uy * vx;
+          const nl = Math.hypot(nx, ny, nz) || 1;
+          nx /= nl; ny /= nl; nz /= nl;
+          if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+          // A wall is not a floor.
+          if (ny < 0.35) continue;
+          bestY = hy;
+          best = [hy, nx, ny, nz];
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
    * The nearest piece of plating still on her to a point, or null.
    *
    * Returned as the triangle's own centre, so a burst is put on the plating
