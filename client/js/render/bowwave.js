@@ -30,6 +30,8 @@ const ACROSS = 10;
 const WATER_Y = 1.0;
 /** How far off the eye a roll is still drawn, in metres. */
 const RANGE = 3200;
+/** Whether the roll itself is drawn at all. It is not: see update(). */
+const SHOW_ROLL = false;
 
 const VERT = /* glsl */`
 uniform float uTime;
@@ -298,7 +300,12 @@ export class BowWaves {
       const scale = Math.min(r.beam * 0.3, 0.02 * r.speed * r.speed) * Math.min(1.2, Math.sqrt(r.len / 120));
       const fade = smoothstepJS(1.2, 4, r.speed) * (1 - smoothstepJS(RANGE * 0.7, RANGE, far));
       for (const m of r.sides) {
-        m.visible = fade > 0.01;
+        // Not drawn. The roll stood up off her side as a sheet of solid,
+        // creamy geometry -- a fold of lotion laid along the hull rather than
+        // water -- and it hid the white water the sea itself now draws round
+        // her stem and down her side (see the wake map in wakefield.js). Kept
+        // only for the slam below, which is spray and reads as spray.
+        m.visible = SHOW_ROLL && fade > 0.01;
         const u = m.material.uniforms;
         u.uTime.value = this.time;
         u.uSpeed.value = r.speed;

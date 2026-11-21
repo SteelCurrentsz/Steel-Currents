@@ -89,16 +89,25 @@ export const MONSTER = {
     // off her rig (ARMS.hold and ARMS.release in client/js/render/monster.js).
     carry: 35,
     release: { at: 0.68, ahead: 34, up: 36 },
-    // The longest she holds on before she throws, or lets go of a ship she
-    // could not lift, and how far she throws.
-    hold: 10,
+    // How far in from the edge of a hull her hands close on it: on the
+    // plating, not on the air beside it.
+    inset: 3,
+    // Her free hand: how far across her from where she holds a ship it can
+    // reach to rip something out of it (her aim, m.head, from one side to the
+    // other), and how big a piece it takes -- her palm's breadth, metres from
+    // its middle to its edge.
+    rip: 26,
+    palm: 5.5,
+    // She keeps hold of what she has until her captain has her let it go --
+    // throws it, puts it down, goes deep, breathes -- or it breaks up in her
+    // hands. (Her own mind lets go when it has done with it: see
+    // stepMonsterBot.)
     throwTime: 1.4,
-    // Three seconds in the air, as high again as she is tall at the top of
-    // it: slow enough to be seen going, and coming down like something that
-    // weighs two thousand tons.
-    flight: 3.0,
-    arc: 55,
-    toss: 450,
+    // Straight out ahead of her, a couple of hundred metres: two and a half
+    // seconds in the air, rising most of her own height over the top of it.
+    flight: 2.5,
+    arc: 40,
+    toss: 240,
     cooldown: 6,
     // The ships she can lift: every ship in the yard's Transport tab
     // (CIVIL_SHIPS: the cargo ships and the landing craft), destroyers and
@@ -125,6 +134,10 @@ export const MONSTER = {
   // and lunging down to the water; swimming, out at the front of her. A hull
   // has to be within `reach` of them.
   bite: { time: 1.3, hitAt: 0.55, head: { stand: 34, swim: 66 }, reach: 14, share: 0.14, flat: 7000, cooldown: 5,
+    // How big a mouthful is: no further across than her jaws open, metres
+    // from its middle to its edge. A gun bigger than that is crushed in them
+    // until it fits (see Tossed.addMouth).
+    mouth: 3.5,
     // Her head can be turned while her jaws are on a ship (see `aim`): this
     // far either side of straight ahead, metres, at the end of its swing.
     swing: 30,
@@ -784,7 +797,17 @@ function stepReach(state, ship, m, hooks) {
       // held down where she lies.
       const lifted = liftable(t);
       m.pin = !lifted;
-      t.held = { t: 0, lifted, heavy: heaviness(t), x0: t.x, z0: t.z, h0: t.heading };
+      // Where on her her hands are: the part of her nearest them, a little
+      // in from her edge, in her own frame -- and she is taken up as she
+      // lies, turned neither way in them.
+      const g = gripOn(t, at);
+      t.held = { t: 0, lifted, heavy: heaviness(t), x0: t.x, z0: t.z, h0: t.heading, ga: g.a, gc: g.c, rel: angleDelta(ship.heading, t.heading) };
+      // One too big to lift is held down where she is: it is she that comes
+      // the last few metres in, until her hands are on her.
+      if (!lifted) {
+        const w = gripWorld(t, g);
+        m.stepIn = { dx: w.x - at.x, dz: w.z - at.z, done: 0 };
+      }
       t.speed = 0;
       state.events.push({ e: 'moGrab', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z) });
     } else {
@@ -793,19 +816,52 @@ function stepReach(state, ship, m, hooks) {
       return;
     }
   }
+  stepInto(ship, m);
   if (m.actT >= G.reach + lead) startAct(m, 'hold');
+}
+
+/** The point on hull `t` nearest the world point `p`, a little in from her edge, in her own frame: { a along, c across }. */
+function gripOn(t, p) {
+  const c = shipClass(t).hull;
+  const G = MONSTER.grab;
+  const hx = Math.sin(t.heading), hz = Math.cos(t.heading);
+  const dx = p.x - t.x, dz = p.z - t.z;
+  const halfL = Math.max(1, c.length / 2 - Math.min(G.inset * 2, c.length * 0.1));
+  const halfB = Math.max(0.5, c.beam / 2 - Math.min(G.inset, c.beam * 0.25));
+  return {
+    a: clamp(dx * hx + dz * hz, -halfL, halfL),
+    c: clamp(dx * hz - dz * hx, -halfB, halfB),
+  };
+}
+
+/** Where a point on `t`'s own frame (see gripOn) is in the world, with her at (x, z) on heading h. */
+function gripWorld(t, g, x = t.x, z = t.z, h = t.heading) {
+  const hx = Math.sin(h), hz = Math.cos(h);
+  return { x: x + hx * g.a + hz * g.c, z: z + hz * g.a - hx * g.c };
+}
+
+/** Her last few metres in to a ship she is holding down, eased over half a second. */
+function stepInto(ship, m) {
+  const S = m.stepIn;
+  if (!S || !m.holdId) return;
+  const u = smooth01((m.actT - MONSTER.grab.takeAt - (m.fromDeep ? MONSTER.grab.breach : 0)) / 0.5);
+  const go = u - S.done;
+  if (go > 0) {
+    ship.x += S.dx * go;
+    ship.z += S.dz * go;
+    S.done = u;
+  }
+  if (u >= 1) m.stepIn = null;
 }
 
 function stepHold(state, ship, m, dt, hooks) {
   const t = state.ships.find((s) => s.id === m.holdId);
   if (!t || !t.alive) { letGo(state, ship, hooks); m.act = ''; return; }
+  stepInto(ship, m);
   // Crushed in her hands.
   hooks.damageShip(state, t, ship, (t.maxHp * 0.025 + 1200) * dt, 'ram');
   if (!t.alive) { letGo(state, ship, hooks); m.act = ''; return; }
-  if (m.actT >= MONSTER.grab.hold) {
-    if (m.pin) { letGo(state, ship, hooks); m.act = ''; return; }
-    m.throwAt = null; startAct(m, 'throw'); m.thrown = false;
-  }
+  // And held for as long as she is told to hold her: nothing here lets go.
 }
 
 function stepThrow(state, ship, m, hooks) {
@@ -816,18 +872,15 @@ function stepThrow(state, ship, m, hooks) {
     if (t && t.alive && m.pin) {
       letGo(state, ship, hooks);
     } else if (t && t.alive) {
-      // Toward where she was told, or out ahead of her.
-      let to = m.throwAt;
-      // A heavy ship goes less far and less high.
+      // Straight out ahead of her, the way she is facing: a heavy ship goes
+      // less far and less high.
       const heavy = t.held?.heavy ?? heaviness(t);
       const reach = G.toss * heavy;
-      if (!to) to = { x: ship.x + Math.sin(ship.heading) * reach, z: ship.z + Math.cos(ship.heading) * reach };
-      const d = dist(ship.x, ship.z, to.x, to.z);
-      if (d > reach) { const k = reach / d; to = { x: ship.x + (to.x - ship.x) * k, z: ship.z + (to.z - ship.z) * k }; }
-      // Out of her hands where they open, at the top of her swing: ahead of
-      // her and well up, so the flight starts where the hull is drawn.
+      // Out of her hands where they open, at the top of her swing, from
+      // where they have her -- so the flight starts where the hull is drawn.
       const R = G.release;
-      const x0 = ship.x + Math.sin(ship.heading) * R.ahead, z0 = ship.z + Math.cos(ship.heading) * R.ahead;
+      const x0 = t.x, z0 = t.z;
+      const to = { x: x0 + Math.sin(ship.heading) * reach, z: z0 + Math.cos(ship.heading) * reach };
       // Tumbling over to one side or the other as she goes, and level again
       // by the time she comes down.
       const roll = ((t.id * 7 + ship.id) % 2) ? 1 : -1;
@@ -961,23 +1014,27 @@ export function stepHeld(state, dt, hooks) {
       const H = s.held;
       H.t += dt;
       s.speed = 0; s.driftX = 0; s.driftZ = 0; s.yawRate = 0;
+      const g = { a: H.ga ?? 0, c: H.gc ?? 0 };
       if (H.lifted) {
-        // Brought up out of the water and in to her chest, turned across
-        // her as it comes: eased from where her hands closed on her, so she
-        // does not jump into them.
+        // Brought up out of the water and in to her chest by where her hands
+        // are on her, and turned as she turns -- but taken up as she lay,
+        // not swung round in them: eased from where her hands closed on
+        // her, so she does not jump into them.
         const u = smooth01((H.t - 0.1) / 0.9);
-        const tx = mo.x + Math.sin(mo.heading) * G.carry, tz = mo.z + Math.cos(mo.heading) * G.carry;
+        const h = mo.heading + (H.rel ?? angleDelta(mo.heading, H.h0));
+        const hand = { x: mo.x + Math.sin(mo.heading) * G.carry, z: mo.z + Math.cos(mo.heading) * G.carry };
+        // Her middle, with that point of her in her hands.
+        const hx = Math.sin(h), hz = Math.cos(h);
+        const tx = hand.x - (hx * g.a + hz * g.c), tz = hand.z - (hz * g.a - hx * g.c);
         s.x = H.x0 + (tx - H.x0) * u;
         s.z = H.z0 + (tz - H.z0) * u;
-        s.heading = H.h0 + angleDelta(H.h0, mo.heading + Math.PI / 2) * u;
+        s.heading = H.h0 + angleDelta(H.h0, h) * u;
         // Once she is up, she goes where the hands go.
         if (u >= 1) { H.x0 = s.x; H.z0 = s.z; H.h0 = s.heading; }
       } else {
-        // Too big to lift: held down where she lay, going nowhere -- and if
-        // her hands have come off her, let go.
+        // Too big to lift: held down where she lay, going nowhere. Her hands
+        // stay on her for as long as she is told to keep them there.
         s.x = H.x0; s.z = H.z0; s.heading = H.h0;
-        const at = handsAt(mo);
-        if (hullGap(at.x, at.z, s) > G.arm + G.slip * 2) { letGo(state, mo, hooks); if (mo.mo.act === 'hold' || mo.mo.act === 'crush') mo.mo.act = ''; }
       }
     }
     if (s.flung) {
@@ -1268,19 +1325,23 @@ export function stepMonsterBot(state, ship, brain, dt, conned, hooks) {
   // looks for somewhere to put her.
   if (m.act === 'hold' && m.actT > 0.8 && m.crushCool <= 0 && !m.botCrushed) {
     m.botCrushed = true;
+    // Her free hand put somewhere along her, as her jaws are.
+    botHead(state, m);
     monsterOrder(state, ship, { a: 'crush' }, hooks);
   } else if (m.act === 'hold' && m.actT > 0.8 && m.biteCool <= 0 && !m.botBitten) {
     m.botBitten = true;
     botHead(state, m);
     monsterOrder(state, ship, { a: 'bite' }, hooks);
-  } else if (m.act === 'hold' && m.pin && m.actT > 2.5 && m.botCrushed && m.botBitten) {
+  } else if (m.act === 'hold' && m.pin && ((m.actT > 2.5 && m.botCrushed && m.botBitten) || m.actT > 12)) {
     // One too big to throw: crushed and bitten, and let go of.
     monsterOrder(state, ship, { a: 'throw' }, hooks);
   } else if (m.act === 'hold' && !m.pin && m.actT > 1.5) {
+    // Thrown straight ahead of her: at another of them, once she has turned
+    // to put one there, or anyway after a while.
     const into = nearestOther(ship, seen, m.holdId);
-    if (into && dist(ship.x, ship.z, into.x, into.z) < MONSTER.grab.toss * 1.1) {
-      monsterOrder(state, ship, { a: 'throw', x: into.x, z: into.z }, hooks);
-    } else if (m.actT > 5) {
+    const d = into ? dist(ship.x, ship.z, into.x, into.z) : Infinity;
+    const off = into ? Math.abs(angleDelta(ship.heading, headingTo(ship.x, ship.z, into.x, into.z))) : Math.PI;
+    if ((d < MONSTER.grab.toss * 1.6 && off < 0.25) || m.actT > 6) {
       monsterOrder(state, ship, { a: 'throw' }, hooks);
     }
   }
@@ -1314,7 +1375,8 @@ function botHead(state, m) {
 
 /** What she means to do for the next half second. */
 function plan(state, ship, m, B, foes, seen, friends, hpFrac, hooks) {
-  const near = nearestOther(ship, seen, 0);
+  // (Not the one in her hands.)
+  const near = nearestOther(ship, seen, m.holdId || 0);
   const dNear = near ? dist(ship.x, ship.z, near.x, near.z) : Infinity;
   const anyFoe = near || nearestOther(ship, foes, 0);
 
@@ -1338,8 +1400,11 @@ function plan(state, ship, m, B, foes, seen, friends, hpFrac, hooks) {
     return { go: lead(ship, mark), pose: 'swim', notch: 5 };
   }
 
-  // The breath, where it pays.
-  if (m.cool <= 0 && !m.holdId && seen.length && !mark) {
+  // The breath, where it pays -- unless her side has it switched off (the
+  // settings: a Monster One left to her own mind fights with her hands, her
+  // jaws and her tail only).
+  const noBreath = !!(state.moNoBreath && state.moNoBreath[ship.team === 1 ? 1 : 0]);
+  if (m.cool <= 0 && !m.holdId && seen.length && !mark && !noBreath) {
     const best = breathTarget(state, ship, seen, friends, hooks);
     if (best) return { order: { a: 'breath', target: best.id }, go: null, pose: 'stand', notch: 1 };
   }

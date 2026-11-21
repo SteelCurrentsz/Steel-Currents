@@ -742,7 +742,38 @@ export class Plating {
    * the edge of the radius are kept, so a near miss does not take a neat
    * sphere out of her.
    */
-  punch(x, y, z, r, soft = 0) {
+  punch(...a) { return this.batch(() => this.punchNow(...a)); }
+
+  /**
+   * `fn`, with the faces of every edge it opens made once at the end rather
+   * than after each of its sweeps. Working out the edge of a hole -- every
+   * side of every piece of plating round it, as a string, in every buffer --
+   * is most of what a hole costs, and a rent torn by her jaws or her claws is
+   * a dozen sweeps laid over one another: done for each, it was a stall of a
+   * tenth of a second in the middle of her biting. Nests: only the outermost
+   * call does the work.
+   */
+  batch(fn, later = null) {
+    if (this.pendingCuts) return fn();
+    this.pendingCuts = [];
+    try { return fn(); } finally {
+      const all = this.pendingCuts;
+      this.pendingCuts = null;
+      if (all.length) {
+        const by = new Map();
+        for (const c of all) {
+          const k = by.get(c.part);
+          if (k) { for (const v of c.killed) k.push(v); } else by.set(c.part, c.killed.slice());
+        }
+        const cuts = [...by].map(([part, killed]) => ({ part, killed }));
+        // Given `later`, the edge is handed to it to be made on a frame of
+        // its own: the hole is there at once, its torn lip a frame after.
+        if (later) later(() => this.edgeWalls(cuts)); else this.edgeWalls(cuts);
+      }
+    }
+  }
+
+  punchNow(x, y, z, r, soft = 0) {
     // Where the shell actually met her.
     //
     // The impact point comes from the simulation, which fights the battle on
@@ -787,7 +818,9 @@ export class Plating {
    * makes the shape, so the same collision tears her the same way on every
    * client.
    */
-  tear(x, y, z, r, seed = 0) {
+  tear(...a) { return this.batch(() => this.tearNow(...a)); }
+
+  tearNow(x, y, z, r, seed = 0) {
     const near = this.nearest(x, y, z, Math.max(7, r * 3));
     if (!near) return 0;
     let h = (seed * 2654435761 + 97) >>> 0;
@@ -866,7 +899,10 @@ export class Plating {
       const ia = part.idx.array;
       const lo = Math.max(0, Math.floor((cz - r - 3 - part.minZ) / BUCKET));
       const hi = Math.min(part.buckets.length - 1, Math.floor((cz + r + 3 - part.minZ) / BUCKET));
-      const seen = new Set();
+      // Each corner once, though it is listed once per triangle it is in:
+      // marked with this dent's number, not kept in a set made for it.
+      const seen = part.seen || (part.seen = new Uint32Array(P.count));
+      const stamp = (this.dentN = ((this.dentN || 0) + 1) >>> 0) || (this.dentN = 1);
       let vmin = Infinity, vmax = -1;
       for (let b = lo; b <= hi; b++) {
         const list = part.buckets[b];
@@ -875,8 +911,8 @@ export class Plating {
           if (part.dead[t]) continue;
           for (let k = 0; k < 3; k++) {
             const v = ia[t * 3 + k];
-            if (seen.has(v)) continue;
-            seen.add(v);
+            if (seen[v] === stamp) continue;
+            seen[v] = stamp;
             const o = v * 3;
             const dx = pa[o] - cx, dy = pa[o + 1] - cy, dz = pa[o + 2] - cz;
             // Only plating facing the same way: a dent in her side does not
@@ -1014,7 +1050,9 @@ export class Plating {
    * is not reached is cut out of her and handed back as pieces, in her own
    * frame, for the wreckage to drop into the sea.
    */
-  islands(x, y, z, r) {
+  islands(...a) { return this.batch(() => this.islandsNow(...a)); }
+
+  islandsNow(x, y, z, r) {
     const zone = r * 2.2, ring = zone + 2.5;
     const zone2 = zone * zone, ring2 = ring * ring;
     const out = [];
@@ -1095,7 +1133,7 @@ export class Plating {
         if (o + 3 > to) to = o + 3;
       });
       flush(part, from, to);
-      this.edgeWalls([{ part, killed }]);
+      if (this.pendingCuts) this.pendingCuts.push({ part, killed }); else this.edgeWalls([{ part, killed }]);
       this.torn += loose.length;
       out.push({ pos, col, idx, x: cx, y: cy, z: cz, from: { x: cx, y: cy + 1, z: cz }, force: 0, drop: true });
     }
@@ -1148,7 +1186,7 @@ export class Plating {
       if (dirty) flush(part, from, to);
       if (killed.length) cuts.push({ part, killed });
     }
-    this.edgeWalls(cuts);
+    if (this.pendingCuts) { for (const c of cuts) this.pendingCuts.push(c); } else this.edgeWalls(cuts);
     this.torn += went;
     if (went) this.checkRings(x, y, z, r);
     return went;
@@ -1198,6 +1236,37 @@ export class Plating {
   }
 
   /**
+   * Every corner of her plating numbered, once: corners at the same point in
+   * different buffers (her paints, her compartments) get the same number.
+   * Worked out from where they stand the first time a hole's edge is made,
+   * and good for the rest of the battle -- every dent and every bend moves a
+   * corner in every buffer that shares it, by the same amount, so what was
+   * one corner stays one corner. Edges matched on these numbers, rather than
+   * on text made out of each corner's position every time, cost a fraction
+   * of what they did. Returns a Map from each buffer's positions to its numbers.
+   */
+  cornerIds() {
+    const byPos = this.cornerMap || (this.cornerMap = new Map());
+    const out = this.cornerOf || (this.cornerOf = new Map());
+    for (const part of this.parts) {
+      const pa = part.mesh.geometry.attributes.position.array;
+      if (out.has(pa)) continue;
+      const n = pa.length / 3;
+      const a = new Int32Array(n);
+      for (let v = 0; v < n; v++) {
+        const k = (Math.round(pa[v * 3] * 64) + 65536) * 17179869184
+          + (Math.round(pa[v * 3 + 1] * 64) + 65536) * 131072
+          + (Math.round(pa[v * 3 + 2] * 64) + 65536);
+        let id = byPos.get(k);
+        if (id === undefined) { id = byPos.size; byPos.set(k, id); }
+        a[v] = id;
+      }
+      out.set(pa, a);
+    }
+    return out;
+  }
+
+  /**
    * After pieces have been taken out of her: tidy the edge they left, bend
    * it, and give it its face.
    *
@@ -1218,9 +1287,16 @@ export class Plating {
     cuts = cuts.filter((c) => c.killed.length);
     if (!cuts.length) return;
     const W = this.walls;
-    const key3 = (pa, v) => `${Math.round(pa[v * 3] * 64)},${Math.round(pa[v * 3 + 1] * 64)},${Math.round(pa[v * 3 + 2] * 64)}`;
-    const ek = (A, B) => (A < B ? `${A}|${B}` : `${B}|${A}`);
+    // The same corner in every buffer that has it, by number (see cornerIds);
+    // an edge, by its two corners.
+    const ids = this.cornerIds();
+    const key3 = (pa, v) => ids.get(pa)[v];
+    const ek = (A, B) => (A < B ? A * 67108864 + B : B * 67108864 + A);
     let zlo = Infinity, zhi = -Infinity;
+    // And how far across her and up and down her it runs: the edge of a hole
+    // is near the hole, and only what is near it is looked at -- not every
+    // piece of her, both sides and her deck, along the length the hole spans.
+    let xlo = Infinity, xhi = -Infinity, ylo = Infinity, yhi = -Infinity;
     const remember = (part, killed) => {
       const gone = part.gone || (part.gone = new Map());
       for (let i = 0; i < killed.length; i += 4) {
@@ -1229,6 +1305,11 @@ export class Plating {
         const cz = part.cent[t * 3 + 2];
         if (cz < zlo) zlo = cz;
         if (cz > zhi) zhi = cz;
+        const cx = part.cent[t * 3], cy = part.cent[t * 3 + 1];
+        if (cx < xlo) xlo = cx;
+        if (cx > xhi) xhi = cx;
+        if (cy < ylo) ylo = cy;
+        if (cy > yhi) yhi = cy;
         // The walls the pieces that have gone stood on go with them.
         const key = `${part.pi}:${t}`;
         const had = W.byTri.get(key);
@@ -1244,11 +1325,39 @@ export class Plating {
     const near = this.parts.filter((part) => !(zhi + 3 < part.minZ || zlo - 3 > part.maxZ));
     const range = (part) => [Math.max(0, Math.floor((zlo - 3 - part.minZ) / BUCKET)),
       Math.min(part.buckets.length - 1, Math.floor((zhi + 3 - part.minZ) / BUCKET))];
+    const far = (part, t) => {
+      const cx = part.cent[t * 3], cy = part.cent[t * 3 + 1];
+      return cx < xlo - 4 || cx > xhi + 4 || cy < ylo - 4 || cy > yhi + 4;
+    };
     // Every edge of what has gone near here, and of what is still there.
     let open, live;
+    // The corners on the edge of any hole near here: only plating with one
+    // of those can have an open edge, and only those corners get bent.
+    let rim;
     const survey = () => {
       open = new Map();
       live = [];
+      rim = new Set();
+      // What has gone, first: every edge of it is open...
+      for (const part of near) {
+        if (!part.gone) continue;
+        const pa = part.mesh.geometry.attributes.position.array;
+        const [lo, hi] = range(part);
+        for (let b = lo; b <= hi; b++) {
+          const list = part.buckets[b];
+          if (!list) continue;
+          for (const t of list) {
+            if (!part.dead[t] || far(part, t)) continue;
+            const c = part.gone.get(t);
+            if (!c) continue;
+            const A = key3(pa, c[0]), B = key3(pa, c[1]), C = key3(pa, c[2]);
+            rim.add(A); rim.add(B); rim.add(C);
+            const g = [part, t];
+            open.set(ek(A, B), g); open.set(ek(B, C), g); open.set(ek(C, A), g);
+          }
+        }
+      }
+      // ...and of what is still there, what touches it.
       for (const part of near) {
         const pa = part.mesh.geometry.attributes.position.array;
         const ia = part.idx.array;
@@ -1257,15 +1366,11 @@ export class Plating {
           const list = part.buckets[b];
           if (!list) continue;
           for (const t of list) {
-            if (part.dead[t]) {
-              const c = part.gone && part.gone.get(t);
-              if (!c) continue;
-              for (let k = 0; k < 3; k++) open.set(ek(key3(pa, c[k]), key3(pa, c[(k + 1) % 3])), [part, t]);
-              continue;
-            }
+            if (part.dead[t] || far(part, t)) continue;
             const o = t * 3;
-            const keys = [0, 1, 2].map((k) => ek(key3(pa, ia[o + k]), key3(pa, ia[o + (k + 1) % 3])));
-            live.push([part, t, keys]);
+            const A = key3(pa, ia[o]), B = key3(pa, ia[o + 1]), C = key3(pa, ia[o + 2]);
+            if (!rim.has(A) && !rim.has(B) && !rim.has(C)) continue;
+            live.push([part, t, [ek(A, B), ek(B, C), ek(C, A)]]);
           }
         }
       }
@@ -1314,10 +1419,11 @@ export class Plating {
         const list = part.buckets[b];
         if (!list) continue;
         for (const t of list) {
-          if (part.dead[t]) continue;
+          if (part.dead[t] || far(part, t)) continue;
           for (let k = 0; k < 3; k++) {
             const v = ia[t * 3 + k];
             const key = key3(pa, v);
+            if (!rim.has(key)) continue;
             let c = corners.get(key);
             if (!c) corners.set(key, (c = []));
             c.push(part, v, t);

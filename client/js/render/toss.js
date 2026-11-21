@@ -15,6 +15,81 @@
 // then is it let go of.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { MONSTER } from '../../../shared/monster.js';
+
+// How big a thing fits in her jaws, and in her fist, metres from its middle
+// to its edge: a gun or a slab bigger than that is crushed down until it does.
+const MOUTH = MONSTER.bite.mouth;
+
+// The ships something thrown can come down on: set by the battle's scene
+// each frame (see setTossHulls), as [{ group, half, beam, deck, keel }].
+let HULLS = [];
+let ON_HIT = null;
+const INV = new THREE.Matrix4();
+const LP = new THREE.Vector3();
+const LV = new THREE.Vector3();
+
+/**
+ * The hulls in the battle, for what is thrown to hit: `views` the ship views
+ * (anything with a group and a class hull), `onHit(x, y, z, size)` the noise
+ * and the splinters when something does.
+ */
+export function setTossHulls(views, onHit = null) {
+  HULLS = [];
+  for (const v of views) {
+    const g = v.group;
+    if (!g || !g.parent || !g.visible || g.userData.monster || !v.cls || !v.cls.hull) continue;
+    HULLS.push({ group: g, half: v.cls.hull.length / 2, beam: v.cls.hull.beam / 2, deck: v.deckTop ?? 6, keel: v.cls.hull.draft });
+  }
+  ON_HIT = onHit;
+}
+
+/**
+ * Something in the air meeting a hull: it does not pass through her. Coming
+ * down onto her it lands on her deck and bounces off it, losing most of its
+ * way; coming at her side it glances off it. Either way it is knocked about
+ * and goes on, and comes down in the sea beside her in the end.
+ */
+function hitHull(f, o) {
+  for (const H of HULLS) {
+    const g = H.group;
+    const dx = o.position.x - g.position.x, dz = o.position.z - g.position.z;
+    const R = H.half + f.size + 2;
+    if (dx * dx + dz * dz > R * R) continue;
+    INV.copy(g.matrixWorld).invert();
+    LP.copy(o.position).applyMatrix4(INV);
+    const pad = f.size * 0.5;
+    if (Math.abs(LP.z) > H.half + pad || Math.abs(LP.x) > H.beam + pad) continue;
+    if (LP.y - f.foot > H.deck || LP.y + f.foot < -H.keel) continue;
+    // Its way, in her frame.
+    LV.set(f.vx, f.vy, f.vz).transformDirection(INV).multiplyScalar(Math.hypot(f.vx, f.vy, f.vz));
+    const overSide = H.beam + pad - Math.abs(LP.x);
+    const overDeck = H.deck - (LP.y - f.foot);
+    if (overDeck < overSide && LV.y < 0) {
+      // Onto her deck: on top of it, bounced a little, dragged along it.
+      LP.y = H.deck + f.foot;
+      LV.y = -LV.y * 0.3;
+      LV.x *= 0.55; LV.z *= 0.55;
+      // Off her, not resting on her for ever: nudged toward the near side.
+      LV.x += Math.sign(LP.x || 1) * 2.5;
+    } else {
+      // Off her side.
+      LP.x = Math.sign(LP.x || 1) * (H.beam + pad);
+      LV.x = Math.abs(LV.x) * 0.35 * Math.sign(LP.x);
+      LV.z *= 0.6;
+    }
+    o.position.copy(LP.applyMatrix4(g.matrixWorld));
+    const sp = LV.length();
+    LV.transformDirection(g.matrixWorld).multiplyScalar(sp);
+    const hard = Math.hypot(f.vx - LV.x, f.vy - LV.y, f.vz - LV.z);
+    f.vx = LV.x; f.vy = LV.y; f.vz = LV.z;
+    f.spin *= 0.6;
+    if (hard > 4 && ON_HIT) ON_HIT(o.position.x, o.position.y, o.position.z, f.size);
+    return true;
+  }
+  return false;
+}
+const FIST = 4.5;
 
 const G = 9.81;
 const TMPQ = new THREE.Quaternion();
@@ -139,10 +214,72 @@ export class Tossed {
     f.last = null;
     if (!rig.mouthSide) rig.mouthSide = (seed % 2) ? 1 : -1;
     f.side = rig.mouthSide;
-    // Its middle a little below and ahead of the point between her jaws: a
-    // big piece is held by its edge, not swallowed.
-    f.hang = Math.min(6, size * 0.45);
+    // Crushed in her teeth: whatever it was, it goes down to what fits
+    // between her jaws -- a turret's gunhouse stove in and folded up on its
+    // guns -- and a piece that fitted already is crumpled all the same.
+    crushing(f, MOUTH);
+    // Its middle right between her jaws.
+    f.hang = Math.min(1.2, f.size * 0.25);
+    return f.size;
+  }
+
+  /**
+   * Put `obj` -- a turret or a gun her claws have ripped off its roller
+   * path -- into her fist (`side` +1 her left hand, -1 her right): pulled up
+   * into it, crushed in it until it is a ball of steel no bigger than her
+   * hand can close round, and then let fall into the sea.
+   */
+  addHand(obj, world, rig, { side = 1, sink = 3, own = false, hold = 1.5 } = {}) {
+    const size = this.add(obj, world, { sink, own, spin: 0 });
+    const f = this.live[this.live.length - 1];
+    f.state = 'hand';
+    f.rig = rig;
+    f.mt = 0;
+    f.hold = hold;
+    f.side = side >= 0 ? 1 : -1;
+    f.from = f.obj.position.clone();
+    f.q0 = f.obj.quaternion.clone();
+    f.last = null;
+    crushing(f, FIST);
     return size;
+  }
+
+  /** A gun in her fist. True while she still has it. */
+  hand(f, dt) {
+    const o = f.obj;
+    const rig = f.rig;
+    if (!rig || !rig.group || !rig.group.parent || !rig.group.visible || !rig.palmPoint) { f.state = 'air'; return false; }
+    f.mt += dt;
+    const at = rig.palmPoint(f.side, V);
+    const u = Math.min(1, f.mt / 0.3);
+    const e = u * u * (3 - 2 * u);
+    const tx = f.from.x + (at.x - f.from.x) * e;
+    const ty = f.from.y + (at.y - f.from.y) * e;
+    const tz = f.from.z + (at.z - f.from.z) * e;
+    if (f.last && dt > 0) {
+      f.vx = (tx - o.position.x) / dt;
+      f.vy = (ty - o.position.y) / dt;
+      f.vz = (tz - o.position.z) / dt;
+    }
+    o.position.set(tx, ty, tz);
+    f.last = true;
+    squeeze(f, 0.6);
+    // Ground in her fist as her fingers close on it.
+    const grind = Math.sin(f.mt * 9) * 0.06 * Math.min(1, f.mt / 0.4);
+    o.quaternion.copy(f.q0).premultiply(TMPQ.setFromAxisAngle(AX.set(0.3, 1, 0.2).normalize(), grind + f.mt * 0.3));
+    o.updateMatrixWorld(true);
+    if (f.mt < f.hold) return true;
+    // Let fall from her opening hand, out to her side, away from her.
+    rig.group.updateMatrixWorld(true);
+    V.set(f.side, 0, 0.2).applyQuaternion(rig.group.getWorldQuaternion(TMPQ));
+    V.y = 0;
+    V.normalize();
+    f.vx = V.x * 6; f.vz = V.z * 6; f.vy = 1;
+    f.axis.set(V.z, 0.3, -V.x).normalize();
+    f.spin = 0.6 * f.side;
+    f.state = 'air';
+    f.rig = null;
+    return false;
   }
 
   /** A piece in her jaws. True while she still has it. */
@@ -166,6 +303,7 @@ export class Tossed {
     }
     o.position.set(tx, ty, tz);
     f.last = true;
+    squeeze(f, 0.4);
     // Worked in her teeth: it shifts and twists as she chews on it.
     const chew = Math.sin(f.mt * 6.5) * 0.08;
     o.quaternion.copy(f.q0).premultiply(TMPQ.setFromAxisAngle(AX.set(1, 0.3, 0).normalize(), chew + f.mt * 0.1));
@@ -209,6 +347,8 @@ export class Tossed {
         if (this.slide(f, dt)) continue;
       } else if (f.state === 'mouth') {
         if (this.mouth(f, dt, seaAt)) continue;
+      } else if (f.state === 'hand') {
+        if (this.hand(f, dt)) continue;
       } else if (f.state === 'ground') {
         if (this.ground(f, dt, groundAt, seaAt)) continue;
       }
@@ -223,6 +363,10 @@ export class Tossed {
       o.position.y += f.vy * dt;
       o.position.z += f.vz * dt;
       if (f.spin) o.quaternion.premultiply(TMPQ.setFromAxisAngle(f.axis, f.spin * dt));
+      // Into a ship on the way: it hits her, and does not go through her.
+      // (Coming down only: a mounting blown up off her own deck starts in
+      // her, and is not to be knocked out of her sideways on the way up.)
+      if (!f.wet && f.vy < 0 && HULLS.length) hitHull(f, o);
       const sea = seaAt ? seaAt(o.position.x, o.position.z) || 0 : 0;
       // Come down ashore: it lands, and slides if the ground is steep.
       if (!f.wet && f.vy < 0 && groundAt) {
@@ -358,7 +502,7 @@ export class Tossed {
     if (f.own) {
       f.obj.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
-        if (o.material && !Array.isArray(o.material)) o.material.dispose();
+        if (o.material && !Array.isArray(o.material) && !o.material.userData.kept) o.material.dispose();
       });
     }
   }
@@ -386,6 +530,20 @@ function groundNormal(groundAt, x, z, out) {
  *
  * Returns a group set where the piece was on her, or null if there is nothing.
  */
+// One material for every piece torn out of a hull, kept for good: made new
+// for each, and given back when it sank, the picture had to build its shader
+// again for the next one, which is a stall in the middle of her biting.
+let PIECE_MAT = null;
+export function pieceMaterial() {
+  if (!PIECE_MAT) {
+    PIECE_MAT = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.85, metalness: 0.25, flatShading: true, side: THREE.DoubleSide,
+    });
+    PIECE_MAT.userData.kept = true;
+  }
+  return PIECE_MAT;
+}
+
 export function hullPiece(tris, carried = []) {
   let cx = 0, cy = 0, cz = 0, n = 0;
   for (const { tri } of tris) {
@@ -397,9 +555,7 @@ export function hullPiece(tris, carried = []) {
   cx /= n; cy /= n; cz /= n;
   const group = new THREE.Group();
   group.position.set(cx, cy, cz);
-  const mat = new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.85, metalness: 0.25, flatShading: true, side: THREE.DoubleSide,
-  });
+  const mat = pieceMaterial();
   let size = 0.5;
   if (tris.length) {
     const T = 0.3;
@@ -477,4 +633,27 @@ export function plateSlab(w, h, color, rnd) {
     color, roughness: 0.85, metalness: 0.25, flatShading: true, side: THREE.DoubleSide,
   });
   return new THREE.Mesh(g, mat);
+}
+
+/**
+ * How far a piece is to be crushed to fit in `room` (its middle to its
+ * edge): flattened more than it is narrowed, the way steel folds up under a
+ * closing jaw or fist. Never left as it was: even a piece that fitted is
+ * crumpled.
+ */
+function crushing(f, room) {
+  const k = Math.min(0.85, room / Math.max(0.5, f.size));
+  f.crush = { x: k * (1.05 + (Math.random() - 0.5) * 0.2), y: k * 0.62, z: k * (0.95 + (Math.random() - 0.5) * 0.2), t: 0 };
+  f.size = Math.min(f.size, room);
+  f.foot = Math.max(0.3, f.foot * k * 0.62);
+}
+
+/** The crush, as far as it has got, over `over` seconds. */
+function squeeze(f, over) {
+  const c = f.crush;
+  if (!c || c.t >= 1) return;
+  c.t = Math.min(1, f.mt / over);
+  // Most of it at once, as the jaws or fingers meet it, the rest yielding.
+  const e = 1 - (1 - c.t) * (1 - c.t);
+  f.obj.scale.set(1 + (c.x - 1) * e, 1 + (c.y - 1) * e, 1 + (c.z - 1) * e);
 }

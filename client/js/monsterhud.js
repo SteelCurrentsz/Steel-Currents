@@ -99,12 +99,12 @@ export class MonsterBar {
     key('crush', 'Crush', 'C', () => order({ a: 'crush' }));
     key('bite', 'Bite', 'B', () => order({ a: 'bite' }));
     key('roar', 'Roar', 'R', () => order({ a: 'roar' }));
-    // Where her jaws go in: a little picture of a hull side-on, and a dot on
-    // it where her head is turned. Drag on it, or use the arrow keys.
+    // Where her jaws go in, and where her free hand rips: a little picture of
+    // a hull side-on, and a dot on it. Drag on it, or use the arrow keys.
     this.pad = document.createElement('div');
     this.pad.className = 'mo-aim';
-    this.pad.title = 'Where her jaws go in: arrow keys, or drag here';
-    this.pad.innerHTML = '<div class="mo-sea"></div><div class="mo-ship"></div><i class="mo-dot"></i><b>Jaws ←↑↓→</b>';
+    this.pad.title = 'Where her jaws bite and her free hand rips (Crush): arrow keys, or drag here';
+    this.pad.innerHTML = '<div class="mo-sea"></div><div class="mo-ship"></div><i class="mo-dot"></i><b>Aim ←↑↓→</b>';
     this.dot = this.pad.querySelector('.mo-dot');
     const fromPointer = (e) => {
       const r = this.pad.getBoundingClientRect();

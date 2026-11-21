@@ -19,6 +19,10 @@ const DEFAULTS = {
   // own ships. Off until a captain turns it on.
   friendlyFire: false,
   ultraRealism: false,
+  // Whether a Monster One nobody is conning -- one on his own side, and one
+  // on the enemy's -- uses her atomic breath of her own accord.
+  moBreathAlly: true,
+  moBreathEnemy: true,
   // Potato mode: everything the picture can give up to keep a slow machine
   // smooth -- a lighter sea, thin smoke, small things not drawn -- while
   // keeping the picture sharp.

@@ -1976,6 +1976,8 @@ const optRecoil = document.getElementById('opt-recoil');
 const optPenCam = document.getElementById('opt-pencam');
 const optFF = document.getElementById('opt-ff');
 const optUR = document.getElementById('opt-ur');
+const optMoAlly = document.getElementById('opt-mo-ally');
+const optMoEnemy = document.getElementById('opt-mo-enemy');
 
 optName.value = settings.name;
 optVol.value = settings.volume;
@@ -1988,6 +1990,8 @@ optRecoil.checked = settings.recoil;
 if (optPenCam) optPenCam.checked = settings.penCam !== false;
 if (optFF) optFF.checked = settings.friendlyFire === true;
 if (optUR) optUR.checked = settings.ultraRealism === true;
+if (optMoAlly) optMoAlly.checked = settings.moBreathAlly !== false;
+if (optMoEnemy) optMoEnemy.checked = settings.moBreathEnemy !== false;
 document.getElementById('vol-val').textContent = settings.volume;
 document.getElementById('sens-val').textContent = settings.sensitivity.toFixed(1);
 
@@ -2017,6 +2021,15 @@ if (optPotato) {
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });
 if (optPenCam) optPenCam.onchange = () => setSettings({ penCam: optPenCam.checked });
 if (optUR) optUR.onchange = () => { setSettings({ ultraRealism: optUR.checked }); toast(optUR.checked ? 'Ultra-Realism Mechanics on from the next battle.' : 'Ultra-Realism Mechanics off from the next battle.'); };
+// Monster One's breath, on either side: told to a battle under way at once.
+for (const [el, key, who] of [[optMoAlly, 'moBreathAlly', 'Allied'], [optMoEnemy, 'moBreathEnemy', 'Enemy']]) {
+  if (!el) continue;
+  el.onchange = () => {
+    setSettings({ [key]: el.checked });
+    if (battle && battle.sendMonsterRules) battle.sendMonsterRules();
+    toast(`${who} Monster One's atomic breath ${el.checked ? 'on' : 'off'}.`);
+  };
+}
 if (optFF) optFF.onchange = () => { setSettings({ friendlyFire: optFF.checked }); toast(optFF.checked ? 'Friendly fire on from the next battle.' : 'Friendly fire off from the next battle.'); };
 
 // ------------------------------------------------------------------- net --

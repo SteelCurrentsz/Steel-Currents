@@ -1697,15 +1697,25 @@ export class Flights {
     const d = this.dummy;
     const sn = Math.sin(heading);
     const cs = Math.cos(heading);
+    // The formation is pitched with her leader. Laid out on the level whatever
+    // she was doing, a flight going down a seventy degree dive was a flat
+    // sheet of aeroplanes falling together with every nose pointed at the sea;
+    // pitched with her, the wingmen are strung out up the line she is diving
+    // down, the way a flight follows its leader into a dive.
+    const pp = att ? 0 : Math.max(-1.45, Math.min(1.45, pitch));
+    const cp = Math.cos(pp), sp = Math.sin(pp);
     this.slotN = 0;
     for (let i = 0; i < SLOTS.length; i++) {
       if (mask ? !((mask >> i) & 1) : i >= count) continue;
       if (i === skip) continue;
-      const [sx, sy, sz] = SLOTS[i];
-      // The slot is in her own frame: across, down, astern.
+      const [sx, sy, sz0] = SLOTS[i];
+      // The slot is in her own frame: across, down, astern -- the along and
+      // the down of it turned through her pitch.
+      const sz = sz0 * cp - sy * sp;
+      const up = sz0 * sp + sy * cp;
       d.position.set(
         x + sn * sz + cs * sx,
-        y + sy,
+        y + up,
         z + cs * sz - sn * sx,
       );
       if (att && i === 0) d.quaternion.copy(att);

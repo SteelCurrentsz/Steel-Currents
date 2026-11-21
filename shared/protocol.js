@@ -99,13 +99,17 @@ export function shipSnapshot(ship, full, state = null) {
     ...(cls.monster ? { mo: monsterWire(ship) } : {}),
     // A ship in Monster One's hands -- whose, and whether she has been lifted
     // out of the water -- or thrown, and how high in the air she is.
-    ...(ship.gripBy ? { hb: ship.gripBy, hl: ship.held?.lifted ? 1 : 0 } : {}),
+    ...(ship.gripBy ? { hb: ship.gripBy, hl: ship.held?.lifted ? 1 : 0,
+      // Where on her her hands are, in her own frame: along her and across.
+      hg: [r1(ship.held?.ga || 0), r1(ship.held?.gc || 0)] } : {}),
     ...(ship.liftY ? { ly: r1(ship.liftY) } : {}),
-    // How far through her flight a thrown ship is, and which way she rolls;
+    // How far through her flight a thrown ship is, and which way she rolls
+    // (`flr`: not `fo`, how she floats, nor `fr`, her fires -- each of which this once overwrote
+    // -- the picture failed every frame she was in the air);
     // and how far back up out of the water she has come since she landed --
     // so each screen can draw the arc and the rise smoothly between
     // snapshots, and nothing about her jumps.
-    ...(ship.flung ? { fu: Math.round(Math.min(1, Math.max(0, ship.flung.t / ship.flung.T)) * 1000) / 1000, fo: ship.flung.roll || 0 } : {}),
+    ...(ship.flung ? { fu: Math.round(Math.min(1, Math.max(0, ship.flung.t / ship.flung.T)) * 1000) / 1000, flr: ship.flung.roll || 0 } : {}),
     ...(ship.splash ? { su: Math.round(Math.min(1, Math.max(0, ship.splash.t / ship.splash.T)) * 1000) / 1000, so: ship.splash.roll || 0 } : {}),
     // Which compartments have water in them and which are alight, in tenths,
     // so the fire and the water can be drawn where they actually are.

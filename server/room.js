@@ -609,6 +609,17 @@ export class Room {
       player.send({ t: 'grouped', k: msg.k, g: gid, split: msg.split ? 1 : 0 });
       return;
     }
+    // Whether Monster One, left to her own mind, may use her atomic breath:
+    // on his own side's and on the enemy's, as he has it in his settings. A
+    // Monster One someone is conning breathes when her captain says so,
+    // whatever this is.
+    if (msg.t === 'moAI') {
+      const no = this.state.moNoBreath || (this.state.moNoBreath = [false, false]);
+      const mine = ship.team === 1 ? 1 : 0;
+      no[mine] = msg.ally === false;
+      no[1 - mine] = msg.enemy === false;
+      return;
+    }
     if (msg.t === 'vector') {
       vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z),
         msg.k === 'bomber' ? 'bomber' : 'plane');

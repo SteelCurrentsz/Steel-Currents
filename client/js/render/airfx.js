@@ -28,15 +28,31 @@ import * as THREE from '../../../vendor/three.module.js';
  * before the exhaust freezes; `sink` how fast it settles; `rgb` its colour.
  */
 const KIND = {
-  tip: { life: 3.2, wide: [0.3, 2.6], head: 0.02, sink: 0, rgb: [0.96, 0.97, 0.99], max: 140 },
-  engine: { life: 12, wide: [1.0, 14], head: 0.15, sink: 0.35, rgb: [0.97, 0.98, 1.0], max: 240 },
+  // A tip's vapour is a wisp wrung out of the air for as long as the wing is
+  // working hard, and it is gone again in a second or two.
+  tip: { life: 1.6, wide: [0.25, 3.2], head: 0.03, sink: 0, rgb: [0.96, 0.97, 0.99], max: 90, drift: 0.9 },
+  engine: { life: 14, wide: [1.2, 20], head: 0.35, sink: 0.25, rgb: [0.97, 0.98, 1.0], max: 300, drift: 1.6, step: 5 },
   // Petrol out of a holed wing tank: a white plume that bursts out of the
   // hole, spreads fast and evaporates in a few seconds.
-  fuel: { life: 6, wide: [0.8, 9], head: 0.01, sink: 0.8, rgb: [1.0, 1.0, 1.0], max: 220 },
+  fuel: { life: 6, wide: [0.8, 9], head: 0.01, sink: 0.8, rgb: [1.0, 1.0, 1.0], max: 220, drift: 1.2 },
 };
 
 // How many metres of trail one repeat of the texture covers.
 const TEX_LEN = 34;
+
+// The air the trails hang in moves, a little, all one way: an old trail is
+// carried off its line rather than left hanging exactly where it was laid.
+const WIND = { x: 1.1, z: 0.6 };
+
+/**
+ * Smooth noise along a trail, about -1 to 1: a few sines at unrelated
+ * wavelengths, so that neighbouring points agree and no two stretches of it
+ * look the same. A trail laid as a perfect ruled line of constant width is
+ * what made them read as something painted on the sky.
+ */
+function wobble(v) {
+  return 0.5 * Math.sin(v) + 0.3 * Math.sin(v * 2.31 + 1.7) + 0.2 * Math.sin(v * 5.07 + 4.1);
+}
 
 class Trail {
   constructor(kind) {
@@ -52,7 +68,10 @@ class Trail {
     const last = this.pts[this.pts.length - 1];
     // Laid every metre and a half or every fortieth of a second, whichever
     // comes first, so a fast aeroplane's trail is as smooth as a slow one's.
-    if (last && Math.hypot(x - last.x, y - last.y, z - last.z) < 1.5 && t - last.t < 0.025) {
+    // An engine's trail lives a long time and is laid coarser, so that what
+    // is kept of it reaches back as far as it lasts.
+    const step = this.step || 1.5;
+    if (last && Math.hypot(x - last.x, y - last.y, z - last.z) < step && t - last.t < step / 60) {
       const prev = this.pts[this.pts.length - 2];
       last.d = prev ? prev.d + Math.hypot(x - prev.x, y - prev.y, z - prev.z) : 0;
       last.x = x; last.y = y; last.z = z; last.a = a;
@@ -165,14 +184,20 @@ export class Contrails {
     // Tuned to the heights this battle is fought at -- a strike cruises at
     // under a thousand metres -- rather than to the eight thousand a real
     // contrail wants, which is why none of them used to be seen at all.
-    const pull = Math.max(0, Math.min(1, (Math.abs(g) - 1.4) / 2.6));
-    const fast = Math.max(0, Math.min(1, (v - 40) / 70));
-    const a = Math.min(0.95, 0.12 + fast * 0.3 + pull * 0.8);
+    //
+    // Nothing at all in ordinary flight: a white line ruled behind every
+    // wingtip of every aeroplane in the sky, all the time, is not what anybody
+    // ever saw. It comes when she is hauled round hard and fast, and goes
+    // when she eases off.
+    const pull = Math.max(0, Math.min(1, (Math.abs(g) - 2.2) / 3));
+    const fast = Math.max(0, Math.min(1, (v - 60) / 60));
+    const a = Math.min(0.7, pull * pull * (0.35 + 0.65 * fast));
     const p = new THREE.Vector3();
     tips.forEach((tip, i) => {
       const id = key + ':' + i;
       // That wingtip has gone: so has its trail, at once.
       if (has && !has[i]) { this.trails.delete(id); return; }
+      if (a <= 0.01 && !this.trails.has(id)) return;
       const tr = this.trail(id, 'tip');
       p.fromArray(tip).applyMatrix4(m);
       tr.push(p.x, p.y, p.z, a, t);
@@ -180,8 +205,11 @@ export class Contrails {
     });
     // And the engine's own, once she is up where the air is cold enough: a
     // proper contrail, thin at first and spreading into a broad white road.
-    const high = Math.max(0, Math.min(1, (y - 150) / 550));
-    const ea = high * 0.75 * Math.max(0.5, fast);
+    // Only up high, where the exhaust freezes: a strike down at a few
+    // hundred metres leaves no road behind it, and the heavies up at their
+    // bombing height and anything that climbs above them do.
+    const high = Math.max(0, Math.min(1, (y - 700) / 900));
+    const ea = high * high * 0.55 * Math.max(0.6, fast);
     const noses = Array.isArray(nose[0]) ? nose : [nose];
     noses.forEach((n, k) => {
       const id = key + ':e' + k;
@@ -235,13 +263,21 @@ export class Contrails {
           const age = Math.max(0, t - p.t);
           const life = age / tr.life;
           // It spreads quickly at first and then slowly, the way a plume of
-          // vapour mixes into the air round it.
-          const w = (tr.wide[0] + (tr.wide[1] - tr.wide[0]) * Math.sqrt(Math.min(1, life))) * 0.5;
-          // And settles as it goes.
+          // vapour mixes into the air round it -- and not evenly: thicker in
+          // some places than others along its length.
+          const u = p.d / 23 + tr.phase * 40;
+          const lumpy = 0.72 + 0.42 * wobble(u) * Math.min(1, life * 3 + 0.25);
+          const w = (tr.wide[0] + (tr.wide[1] - tr.wide[0]) * Math.sqrt(Math.min(1, life))) * 0.5 * lumpy;
+          // And settles as it goes, is carried off by the wind, and wanders
+          // off its line as the air it is in turns over.
           const sink = tr.sink * age;
-          pos[(v + k) * 3] = p.x + side.x * w * s;
-          pos[(v + k) * 3 + 1] = p.y + side.y * w * s - sink;
-          pos[(v + k) * 3 + 2] = p.z + side.z * w * s;
+          const wan = tr.drift * Math.sqrt(age) * 1.6;
+          const ox = WIND.x * age * 0.5 + wobble(p.d / 41 + tr.phase * 13) * wan;
+          const oy = wobble(p.d / 37 + tr.phase * 29 + 2.2) * wan * 0.6;
+          const oz = WIND.z * age * 0.5 + wobble(p.d / 47 + tr.phase * 7 + 5.1) * wan;
+          pos[(v + k) * 3] = p.x + ox + side.x * w * s;
+          pos[(v + k) * 3 + 1] = p.y + oy + side.y * w * s - sink;
+          pos[(v + k) * 3 + 2] = p.z + oz + side.z * w * s;
           uvs[(v + k) * 2] = s < 0 ? 0 : 1;
           uvs[(v + k) * 2 + 1] = p.d / TEX_LEN + tr.phase;
           // Forming behind her rather than painted on at her tail, and thinning
@@ -250,7 +286,10 @@ export class Contrails {
           const fade = Math.max(0, 1 - life);
           // A trail gets thinner as it gets wider: the same vapour, spread.
           const thin = tr.wide[0] / (w * 2);
-          const alpha = Math.min(1, 1.7 * p.a * form * form * fade * Math.sqrt(fade)
+          // Broken up as it ages: patches of it thin out ahead of the rest.
+          const patchy = Math.max(0, 1 - Math.max(0, wobble(p.d / 29 + tr.phase * 17 + 3.3) + 0.35)
+            * Math.min(1, life * 1.6));
+          const alpha = Math.min(1, 1.5 * p.a * form * form * fade * Math.sqrt(fade) * patchy
             * (0.6 + 0.4 * Math.min(1, thin * 6))) * (end ? 0 : 1);
           // A touch of grey in the old part of it, which is lit from one side
           // and has the sky behind it.

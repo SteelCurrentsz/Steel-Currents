@@ -40,7 +40,7 @@ import { cutMaterial, cutUniforms } from './sever.js';
 import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
 import { applyGunLook, LOOK } from './gunlooks.js';
-import { Tossed, hullPiece } from './toss.js';
+import { Tossed, hullPiece, setTossHulls } from './toss.js';
 import { ClawTear, CLAW_BREAK } from './clawtear.js';
 import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
@@ -1155,7 +1155,7 @@ export class ShipView {
     if (how === 'claw') {
       if (m.userData.clawing) return true;
       m.userData.clawing = true;
-      (this.clawQueue || (this.clawQueue = [])).push({ t: CLAW_BREAK + 0.05, args: [kind, i, 'clawNow', dx, dz, seed, pw, null] });
+      (this.clawQueue || (this.clawQueue = [])).push({ t: CLAW_BREAK + 0.05, args: [kind, i, 'clawNow', dx, dz, seed, pw, mouth] });
       return true;
     }
     if (how === 'clawNow') how = 'claw';
@@ -1179,9 +1179,17 @@ export class ShipView {
     const dl = Math.hypot(dx, dz);
     const local = this.group.worldToLocal(at.clone());
     const tossed = this.tossed || (this.tossed = new Tossed());
-    // In Monster One's jaws: carried off in them (see Tossed.addMouth).
+    // In Monster One's jaws: carried off in them, and crushed in them (see
+    // Tossed.addMouth).
     if (how === 'bite' && mouth && mouth.mouthPoint) {
       tossed.addMouth(m, world, mouth, { sink: big ? 3.5 : 2.5, seed });
+      return true;
+    }
+    // Ripped out by her claws: in the fist nearer it, crushed, and let fall.
+    if (how === 'claw' && mouth && mouth.palmPoint) {
+      const pl = mouth.palmPoint(1, new THREE.Vector3()), pr = mouth.palmPoint(-1, new THREE.Vector3());
+      const side = mouth.ripSide || (at.distanceToSquared(pl) <= at.distanceToSquared(pr) ? 1 : -1);
+      tossed.addHand(m, world, mouth, { side, sink: big ? 3.5 : 2.5 });
       return true;
     }
     // Low and slow: not thrown, but shifted off its ring and sliding across
@@ -1369,18 +1377,25 @@ export class ShipView {
     // and edgeWalls), and every triangle of it kept to be carried off.
     let went = 0;
     let tris = [];
-    if (this.plating) {
+    // A frame's worth of work at a time (see `jobs`): the piece comes out
+    // now, its torn edge is made on the next frame, and whatever it left
+    // hanging loose drops on the one after that, with its own edge after.
+    const later = (fn) => (this.jobs || (this.jobs = [])).push(fn);
+    if (this.plating) this.plating.batch(() => {
+      // (Both tears' edges made once: see Plating.batch.)
       [went, tris] = this.plating.take(() => {
         let n = this.plating.tear(lx, ly, lz, r, seed);
         // Torn twice, a little apart: teeth and claws are more than one point.
-        n += this.plating.tear(lx, ly + r * 0.3, lz + r * (seed % 2 ? 0.6 : -0.6), r * 0.7, seed + 7);
+        // (A mouthful is kept to what her jaws close round.)
+        const k = rig ? 0.4 : 1;
+        n += this.plating.tear(lx, ly + r * 0.3 * k, lz + r * (seed % 2 ? 0.6 : -0.6) * k, r * 0.7 * k, seed + 7);
         return n;
       });
       if (went > 0) {
-        this.dropUnsupported(lx, ly, lz, r * 1.4);
         this.opened(lx, ly, lz, r);
+        later(() => { if (!this.rupture && this.plating) this.plating.batch(() => this.dropUnsupported(lx, ly, lz, r * 1.4), later); });
       }
-    }
+    }, later);
     if (!tris.length && !carried.length) return;
     const piece = hullPiece(tris, carried);
     if (!piece) return;
@@ -1511,6 +1526,11 @@ export class ShipView {
 
   /** Once a frame, after she is posed. The splashes what was thrown made. */
   stepRupture(dt) {
+    // Work on her held over from a frame that had enough to do: one a frame.
+    if (this.jobs && this.jobs.length) {
+      const job = this.jobs.shift();
+      if (!this.rupture) job();
+    }
     // Her claws in her, and the cracks running.
     if (this.clawTears && this.clawTears.length) {
       this.clawTears = this.clawTears.filter((c) => {
@@ -3161,6 +3181,16 @@ export class BattleScene {
 
   update(dt) {
     const eye = this.camera.position;
+    // The hulls what is thrown about can hit (see toss.js): only worth
+    // listing while there is anything in the air.
+    {
+      let any = false;
+      for (const v of this.shipViews.values()) if (v.tossed && v.tossed.live.length) { any = true; break; }
+      if (any) {
+        for (const v of this.shipViews.values()) if (v.cls && v.deckTop == null) v.deckTop = freeboardOf(v.cls) + 1;
+        setTossHulls(this.shipViews.values(), (x, y, z, size) => this.debris?.burst(x, y, z, 1 + size * 0.4, 0.4));
+      } else setTossHulls([]);
+    }
     // Height is left alone: a dome that rose and fell with the bridge would
     // slide the horizon up and down the sky as the camera climbed.
     if (this.sky) this.sky.position.set(eye.x, 0, eye.z);

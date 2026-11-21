@@ -749,7 +749,11 @@ void main() {
   // of the water, lifted, rather than white. The foam on top of it is the
   // white, and there is a good deal less of that than there is of this.
   vec3 aqua = mix(uShallow * 2.1, white * vec3(0.42, 0.70, 0.72), 0.32);
-  body = mix(body, aqua, aer * 0.66);
+  // Not an even milky sheet, though -- laid on smooth it was lotion, not
+  // water. The bubbles come up in patches and streaks, with the dark sea
+  // showing between them.
+  float aerPatch = aer > 0.003 ? 0.55 + 0.75 * onoise(q * 0.06 + vec2(uTime * 0.01, 0.0)) : 1.0;
+  body = mix(body, aqua, clamp(aer * 0.50 * aerPatch, 0.0, 0.7));
 
   // The sky it is reflecting: brighter overhead, and the horizon haze low down.
   vec3 r = reflect(-v, n);
@@ -910,8 +914,21 @@ void main() {
     fineW = 0.5 + (fineW - 0.5) * mix(1.0, 1.35, 1.0 - abs(wA * 2.0 - 1.0));
   }
 #endif
-  float thr = mix(0.82, 0.40, wkB);
-  float threads = smoothstep(thr - 0.06, thr + 0.14, fineW) * smoothstep(0.015, 0.12, wkB);
+  // A crisp edge, not a soft one: foam is bubbles that are there or are
+  // not, and a wide soft threshold smeared it into cream.
+  float thr = mix(0.86, 0.50, wkB);
+  float threads = smoothstep(thr - 0.025, thr + 0.06, fineW) * smoothstep(0.015, 0.12, wkB);
+#ifndef OCEAN_LITE
+  // And full of holes, even where it is thickest: a froth of bubbles with the
+  // water showing through between them.
+  if (fineLod > 0.02) {
+    float cellN = onoise(qw * 3.4 - uTime * 0.11);
+    float cellM = onoise(qw * 1.3 + vec2(uTime * 0.05, -uTime * 0.04) + 31.0);
+    float holes = max(smoothstep(0.58, 0.66, cellN), smoothstep(0.60, 0.70, cellM) * 0.8)
+                * smoothstep(0.15, 0.6, wkB);
+    threads *= 1.0 - holes * 0.85 * fineLod;
+  }
+#endif
   // And a finer speckle of bubbles round the threads, so the edge of the
   // white water is a scatter rather than a line.
 #ifndef OCEAN_LITE
@@ -920,7 +937,7 @@ void main() {
     threads = max(threads, speck * 0.6);
   }
 #endif
-  float wkFoam = mix(wkB * 0.60, threads, fineLod)
+  float wkFoam = mix(wkB * 0.45, threads, fineLod)
                * clamp(1.0 - dcam / 9000.0, 0.0, 1.0);
   // Foam will not form on oil. A whitecap running into a slick stops at the
   // edge of it, and the wash off a ship steaming through one goes out the
@@ -932,9 +949,10 @@ void main() {
   // turquoise; only where it is thick and heaped up is it white. And never
   // flat: even the thickest of it is lumps lit on top and greyer in their
   // hollows.
-  vec3 froth = mix(mix(aqua * 1.25, white, 0.35), white, smoothstep(0.25, 0.85, wkB));
-  froth *= mix(1.0, 0.80 + 0.28 * fineW, fineLod);
-  col = mix(col, froth, wkFoam * (0.40 + 0.42 * wkB) * clean);
+  vec3 froth = mix(mix(aqua * 1.25, white, 0.55), white, smoothstep(0.2, 0.7, wkB));
+  // Heaped and lumpy: lit on the tops, grey in the hollows between them.
+  froth *= mix(1.0, 0.62 + 0.50 * fineW, fineLod);
+  col = mix(col, froth, wkFoam * (0.52 + 0.34 * wkB) * clean);
   // And the water a hull is holding off, which has just hit her side and come
   // apart against it: broken white along her plating where the wave struck,
   // in the same threads the wake breaks into, and thinning outward from her.
