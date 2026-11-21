@@ -62,6 +62,18 @@ const MODELS = {
   // A dock crane, thirty metres to its machinery house's roof, its portal
   // over the origin and its jib out over the quay to +Z.
   crane: { turn: 1, height: 30, portal: true, faces: 4000 },
+  // The rest of the town: the offices (most of its middle) and the towers,
+  // the works, and the one-offs -- school, hospital, fire station, market,
+  // the football ground's stand and the water tower.
+  office: { turn: 0, faces: 2200 },
+  tower: { turn: 0, faces: 3000 },
+  factory: { turn: 0, faces: 3000 },
+  school: { turn: 0, faces: 4000 },
+  hospital: { turn: 0, faces: 4000 },
+  fire: { turn: 0, faces: 4000 },
+  market: { turn: 0, faces: 4000 },
+  stand: { turn: 0, faces: 4000 },
+  watertower: { turn: 0, faces: 3000 },
 };
 for (const [k, v] of Object.entries(MODELS)) {
   const e = process.env[`TURN_${k.toUpperCase()}`];
