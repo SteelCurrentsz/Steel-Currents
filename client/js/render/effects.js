@@ -499,75 +499,35 @@ export class Effects {
    */
   explosion(x, y, z, scale = 1, vel = null) {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
-    this.flash(x, y + 10, z, 3 * scale);
-    const k = Math.min(1.5, this.intensity);
-    const vx = vel?.x || 0, vy = vel?.y || 0, vz = vel?.z || 0;
-    // The ball, from the scene's blasts.
+    // The same grim burst as a shell going off in a ship (see hit and
+    // burstRemains): a short, dull flash, a ragged ball that is black soot
+    // almost at once, dark cold wreckage thrown up out of it, and a column of
+    // black-grey smoke leaning off downwind. No burning heads, no fiery
+    // trails, no embers.
+    this.flash(x, y + 4, z, 0.8 * scale);
+    const vx = vel?.x || 0, vz = vel?.z || 0;
     if (this.bursts) {
-      this.bursts.blast(x, y + 2 * scale, z, {
-        size: 4 + 6 * scale,
-        duration: 0.55 + 0.35 * scale,
-        debris: Math.round((6 + 8 * scale) * k),
-        light: false, plume: false, ring: false, linger: 2.2,
-        power: Math.min(1, scale / 2),
+      this.bursts.blast(x, y + scale, z, {
+        size: 4 + 5.5 * scale,
+        duration: 0.5 + 0.3 * scale,
+        debris: 0, light: false, plume: false, ring: false,
+        linger: 1.15, power: Math.min(1, scale / 2), grim: 1,
       });
-      // And two more, off to the side of it and a beat behind. One ball,
-      // however it boils, is still a ball; a real blast is a cluster of heads
-      // going off one after another, and the lopsided outline that gives it
-      // is what keeps it from reading as a drawn circle.
-      for (let i = 0; i < 2; i++) {
-        const d = this.sphere(0.35);
-        const off = (2.5 + Math.random() * 3) * scale;
-        const bx = x + d.x * off + vx * 0.08, by = y + 2 * scale + Math.abs(d.y) * off, bz = z + d.z * off + vz * 0.08;
-        this.later(0.04 + Math.random() * 0.1, () => this.bursts?.blast(bx, by, bz, {
-          size: (2.4 + 3.6 * scale) * (0.6 + Math.random() * 0.25),
-          duration: 0.45 + 0.3 * scale,
-          debris: 0, light: false, plume: false, ring: false, linger: 2.2,
-          power: Math.min(1, scale / 3),
-        }));
-      }
+      // And a second head off to the side of it and a beat behind, carried
+      // on down the track of whatever it was: one ball, however ragged, is
+      // still a ball.
+      const d = this.sphere(0.35);
+      const off = (2 + Math.random() * 2.5) * scale;
+      const bx = x + d.x * off + vx * 0.08, by = y + scale + Math.abs(d.y) * off, bz = z + d.z * off + vz * 0.08;
+      this.later(0.04 + Math.random() * 0.1, () => this.bursts?.blast(bx, by, bz, {
+        size: (2.4 + 3.4 * scale) * (0.6 + Math.random() * 0.25),
+        duration: 0.45 + 0.25 * scale,
+        debris: 0, light: false, plume: false, ring: false, linger: 1.15,
+        power: Math.min(1, scale / 3), grim: 1,
+      }));
     }
-    // Heads of burning fuel, each going out to soot as it climbs and slows:
-    // the flash is light, but what stands there afterwards is burning gas
-    // turning into smoke.
-    const heads = Math.round(9 * k);
-    for (let i = 0; i < heads; i++) {
-      const d = this.sphere(0.55);
-      const sp = (5 + Math.random() * 13) * Math.sqrt(scale);
-      this.air.puff(
-        x + d.x * 2 * scale, y + 3 * scale + d.y * 2 * scale, z + d.z * 2 * scale,
-        d.x * sp + vx * 0.45, Math.abs(d.y) * sp * 0.8 + vy * 0.3 + 2, d.z * sp + vz * 0.45, {
-          life: 2.2 + Math.random() * 1.6,
-          size: (3 + Math.random() * 3) * scale, grow: (4.5 + Math.random() * 3) * scale,
-          burn: 0.28 + Math.random() * 0.14, tone: 0.06 + Math.random() * 0.08,
-        });
-    }
-    // And the smoke that hangs where it was, black, boiling out slowly.
-    const smoke = Math.round(8 * k);
-    for (let i = 0; i < smoke; i++) {
-      const d = this.sphere(0.4);
-      const sp = (2 + Math.random() * 6) * Math.sqrt(scale);
-      this.air.puff(
-        x + d.x * 4 * scale, y + 4 * scale + d.y * 3 * scale, z + d.z * 4 * scale,
-        d.x * sp + vx * 0.2, d.y * sp + 2, d.z * sp + vz * 0.2, {
-          delay: 0.15 + Math.random() * 0.35,
-          life: 6 + Math.random() * 4,
-          size: (5 + Math.random() * 3) * scale, grow: (6 + Math.random() * 4) * scale,
-          burn: 0.02, tone: 0.07 + Math.random() * 0.1,
-        });
-    }
-    // A few burning pieces thrown out of it on trails: a few, because a
-    // dozen of them is a firework rather than an aeroplane.
-    for (let i = 0; i < Math.round(3 * k); i++) {
-      const a = Math.random() * Math.PI * 2, up = 0.2 + Math.random() * 0.5;
-      const v = (25 + Math.random() * 30) * Math.sqrt(scale);
-      this.trails.arc(x, y + 6, z, Math.cos(a) * v * (1 - up * 0.5) + vx * 0.5, v * up * 1.3,
-        Math.sin(a) * v * (1 - up * 0.5) + vz * 0.5, {
-          flight: 2 + Math.random() * 2, floor: 0.5, spacing: 0.03, limit: 40,
-          size: 1.4 * scale, grow: 2.4 * scale, life: 2.4 + Math.random() * 1.5,
-          burnFor: 0.6 + Math.random() * 1.2, tone: 0.25 + Math.random() * 0.4,
-        });
-    }
+    // What it leaves: smeared a little way down the track it was going.
+    this.burstRemains(x + vx * 0.1, y, z + vz * 0.1, scale);
   }
 
   /**
@@ -597,14 +557,14 @@ export class Effects {
     const run = v / 110;
     const floor = this.groundAt ? Math.max(0, this.groundAt(x, z)) : 0;
 
-    this.flash(x, y + 3, z, (armed ? 4.5 : 2.6) * s);
+    this.flash(x, y + 3, z, (armed ? 1.4 : 0.9) * s);
 
     // The first of it: where she struck, small and hot.
     if (this.bursts) {
       this.bursts.blast(x, y + 1, z, {
         size: (armed ? 11 : 9) * s, duration: armed ? 1.3 : 1.1,
-        debris: Math.round((armed ? 26 : 14) * k),
-        light: false, plume: false, ring: false, linger: 2.6, power: armed ? 0.55 : 0.2,
+        debris: 0,
+        light: false, plume: false, ring: false, linger: 1.15, power: armed ? 0.55 : 0.2, grim: 1,
       });
     }
 
@@ -623,8 +583,8 @@ export class Effects {
         this.bursts.blast(bx, by, bz, {
           size: (armed ? 9 : 7.5) * s * (1.05 - f * 0.4) * (0.85 + Math.random() * 0.3),
           duration: 0.95 + Math.random() * 0.35,
-          debris: Math.round(5 * k), light: false, plume: false, ring: false,
-          linger: 2.4, power: 0.15,
+          debris: 0, light: false, plume: false, ring: false,
+          linger: 1.15, power: 0.15, grim: 1,
         });
       });
     }
@@ -643,10 +603,12 @@ export class Effects {
         vx: fx * fwd + sx * lat, vy: up, vz: fz * fwd + sz * lat,
         size: (3.5 + Math.random() * 4.5) * s, grow: (7 + Math.random() * 9) * s,
         ttl: 0.7 + Math.random() * 1.0, drag: 0.82, lift: 1.2,
-        billow: true, glow: hot > 0.55,
-        color: hot > 0.75 ? 0xffd28a : hot > 0.4 ? 0xf2862c : 0xb6461a,
-        cool: hot > 0.55 ? 0x2a1408 : 0x16110d,
-        opacity: hot > 0.55 ? 0.55 : 0.9,
+        // Gone to soot almost as soon as it is fire, like every other
+        // blast: a dull flicker of colour in the first of it and then black.
+        billow: true,
+        color: hot > 0.75 ? 0x6a3a1c : hot > 0.4 ? 0x3a2416 : 0x1c1612,
+        cool: 0x121010,
+        opacity: 0.85,
       });
     }
 
@@ -664,7 +626,7 @@ export class Effects {
           delay: 0.35 + f * 0.3 + Math.random() * 0.5,
           life: 7 + Math.random() * 6,
           size: (4.5 + Math.random() * 4) * s, grow: (8 + Math.random() * 6) * s,
-          burn: Math.random() < 0.35 ? 0.12 + Math.random() * 0.1 : 0.02,
+          burn: 0,
           tone: 0.02 + Math.random() * 0.06,
         });
     }
@@ -694,44 +656,23 @@ export class Effects {
         fx * fwd + sx * lat, up, fz * fwd + sz * lat, {
           life: 2.5 + Math.random() * 3.5,
           size: (0.3 + Math.pow(Math.random(), 2.4) * 1.5) * s,
-          hot: i % 3 === 0 ? 1 : 0,
+          hot: 0,
           floor,
         });
     }
-    // Burning pieces on trails. Mostly forward, a couple thrown high.
-    for (let i = 0; i < Math.round((armed ? 9 : 5) * k); i++) {
-      const fwd = (0.2 + Math.random() * 0.6) * v * 0.35;
-      const lat = (Math.random() - 0.5) * fwd * 1.1;
-      const up = 8 + Math.random() * (armed ? 40 : 22);
-      this.trails.arc(x, y + 2, z, fx * fwd + sx * lat, up, fz * fwd + sz * lat, {
-        flight: 1.6 + Math.random() * 2.2, floor: floor + 0.5, spacing: 0.025, limit: 44,
-        size: 1.2 * s, grow: 2.6 * s, life: 2.2 + Math.random() * 1.6,
-        burnFor: 0.5 + Math.random() * 0.8, tone: 0.06 + Math.random() * 0.12,
-      });
-    }
-
     // What she was carrying. A hard white flash and a real detonation come up
     // through the fire a beat after she hits, with plating and a column of
     // smoke going up out of the ship.
     if (armed) {
       this.later(0.06, () => {
-        this.flash(x, y + 8, z, 5 * s);
+        this.flash(x, y + 8, z, 1.6 * s);
         if (this.bursts) {
           this.bursts.blast(x + fx * 4 * s, y + 3, z + fz * 4 * s, {
-            size: 12 * s, duration: 1.7, debris: Math.round(46 * k),
-            light: false, plume: true, ring: false, linger: 3, power: 0.75,
+            size: 12 * s, duration: 1.2, debris: 0,
+            light: false, plume: false, ring: false, linger: 1.15, power: 0.75, grim: 1,
           });
         }
-        for (let i = 0; i < Math.round(6 * k); i++) {
-          const a = Math.random() * Math.PI * 2, up = 0.3 + Math.random() * 0.45;
-          const sp = (35 + Math.random() * 45) * Math.sqrt(s);
-          this.trails.arc(x, y + 5, z, Math.cos(a) * sp * (1 - up * 0.6), sp * up * 1.3,
-            Math.sin(a) * sp * (1 - up * 0.6), {
-              flight: 2 + Math.random() * 3, floor: floor + 0.5, spacing: 0.03, limit: 50,
-              size: 1.8 * s, grow: 3.2 * s, life: 3 + Math.random() * 2,
-              burnFor: 0.5 + Math.random() * 0.9, tone: 0.06 + Math.random() * 0.14,
-            });
-        }
+        this.burstRemains(x + fx * 4 * s, y + 1, z + fz * 4 * s, 1.6 * s);
       });
     }
 
@@ -770,7 +711,6 @@ export class Effects {
     for (let i = 0; i < count; i++) {
       const d = this.sphere(0.2);
       const out = 16 + Math.random() * 46;
-      const hot = i % 4 === 0;
       // Torn scraps rather than dots: see shards.js. Three for every piece
       // there used to be, because most of an aeroplane is skin.
       for (let j = 0; j < 3; j++) {
@@ -782,17 +722,8 @@ export class Effects {
           (d.z + e.z * 0.5) * sp + vz * 0.7, {
             life: 3 + Math.random() * 3.5,
             size: (0.35 + Math.pow(Math.random(), 2) * 1.1) * scale,
-            hot: hot && j === 0 ? 1 : 0,
+            hot: 0,
             floor,
-          });
-      }
-      // The burning ones leave a line of fire and then smoke behind them.
-      if (hot) {
-        this.trails.arc(x, y, z, d.x * out * 0.6 + vx * 0.4, (d.y * 0.5 + 0.2) * out * 0.5,
-          d.z * out * 0.6 + vz * 0.4, {
-            flight: 2, floor: 0.5, spacing: 0.03, limit: 30, gravity: 9.81,
-            size: 1.1 * scale, grow: 2.2 * scale, life: 2.2 + Math.random() * 1.4,
-            burnFor: hot ? 0.8 + Math.random() * 1.2 : 0, tone: 0.2 + Math.random() * 0.3,
           });
       }
     }
@@ -981,7 +912,7 @@ export class Effects {
       const d = this.sphere(0);
       const sp = 40 + Math.random() * 50;
       this.shards.throw(x, y, z, d.x * sp, d.y * sp, d.z * sp,
-        { life: 1.2 + Math.random(), size: 0.3 * scale, hot: 1 });
+        { life: 1.2 + Math.random(), size: 0.3 * scale, hot: 0 });
     }
   }
 
@@ -1154,35 +1085,23 @@ export class Effects {
    * bottom is almost incidental, and it is over in a second.
    */
   magazine(x, y, z, scale = 1) {
-    // Not a bigger explosion. What everybody who has seen one describes is the
-    // shape: a wall of fire that boils outwards faster than it climbs, made of
-    // hundreds of separate rounded lobes each lit from inside, white in the
-    // middle and going orange and then black at the edges -- and the whole of
-    // it throwing burning wreckage out on long flat trails that outrun it.
-    //
-    // So it is built as a boiling mass rather than a puff: a fireball of
-    // lobes thrown out on a sphere, the ones low down held down by the sea so
-    // it spreads along the water the way it really does, the streaks laid over
-    // it, and the column going up out of the middle afterwards.
+    // A magazine is drawn the way every other blast now is, only bigger: a
+    // dull flash, a ragged mass of black soot spreading out low across the
+    // water, cold wreckage falling out of it, and the column.
     const s = scale;
-    this.flash(x, y + 14 * s, z, 6 * s);
-    // The fireball. Thrown outwards on a sphere flattened by the sea, because
-    // the water will not let it expand downwards and it goes sideways instead.
-    // The fireball proper is the scene's (see magazineBurst); what is here is
-    // the base of it, rolling out low across the water.
+    this.flash(x, y + 14 * s, z, 2 * s);
+    // The base of it, rolling out low across the water: the same ragged
+    // black soot as every other blast, not a wall of glowing fire. Thrown out
+    // on a sphere flattened by the sea, because the water will not let it
+    // expand downwards and it goes sideways instead. The ball proper is the
+    // scene's (see magazineBurst).
     const N = Math.round(44 * Math.min(1.4, this.intensity));
     for (let i = 0; i < N; i++) {
       const a = Math.random() * Math.PI * 2;
       const up = Math.random();
-      // Squashed: mostly out, a little up.
       const out = 26 + Math.random() * 74;
       const rise = up * up * 22;
-      const heat = 1 - Math.min(1, (out / 100) * 0.7 + Math.random() * 0.3);
-      // Only the hottest heads are drawn as light. Added together, a hundred
-      // of them burn the whole thing out to a white blob; laid over each other
-      // as fire that cools to soot, they make a fireball with a black skin
-      // breaking open on the orange underneath.
-      const glow = heat > 0.7 && Math.random() < 0.5;
+      const g = 0.05 + Math.random() * 0.1;
       this.spawn({
         x: x + Math.cos(a) * out * 0.5 * s,
         y: y + 4 + rise * 0.5 * s,
@@ -1192,31 +1111,16 @@ export class Effects {
         vz: Math.sin(a) * (18 + Math.random() * 30) * s,
         size: (13 + Math.random() * 17) * s,
         grow: (22 + Math.random() * 28) * s,
-        ttl: 1.1 + Math.random() * 1.6,
-        billow: true, glow, drag: 0.5, lift: glow ? -2 : 1.5,
-        // White-hot in the middle of it, orange at the edge, and every one of
-        // them cooling to soot as it goes.
-        color: heat > 0.62 ? 0xffd890 : heat > 0.3 ? 0xf08a32 : 0xb04416,
-        cool: glow ? 0x3a1a0a : 0x14110f, opacity: glow ? 0.4 : 0.85,
+        ttl: 2 + Math.random() * 2.5,
+        billow: true, drag: 0.5, lift: 1.5,
+        color: TMP_COLOR.setRGB(g, g, g * 1.03).getHex(),
+        cool: TMP_COLOR.setRGB(g + 0.15, g + 0.15, g + 0.16).getHex(),
+        opacity: 0.85,
       });
     }
-    // The burning wreckage going out on long trails, which is what gives the
-    // thing its size: they leave the fireball behind and are still going,
-    // fire at the head and smoke behind, curving over and down to the sea.
-    const streaks = Math.round(30 * Math.min(1.4, this.intensity));
-    for (let i = 0; i < streaks; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const up = 0.35 + Math.random() * 0.6;
-      const v = (45 + Math.random() * 75) * Math.sqrt(s);
-      const flight = 2.5 + Math.random() * 4;
-      this.trails.arc(x, y + 6 * s, z,
-        Math.cos(a) * v * (1 - up * 0.6), v * up * 1.3, Math.sin(a) * v * (1 - up * 0.6), {
-          flight, floor: 0.5, spacing: 0.03, limit: 64,
-          size: (2.2 + Math.random() * 1.6) * s, grow: 4 * s, life: 3.5 + Math.random() * 2.5,
-          burnFor: flight * (0.3 + Math.random() * 0.5),
-          tone: 0.25 + Math.random() * 0.45,
-        });
-    }
+    // Her plating and fittings, thrown up out of it and falling cold, and
+    // the black smoke climbing off it.
+    this.burstRemains(x, y + 4 * s, z, 2.2 * s);
     // And the column, standing over the place afterwards. It goes up out of
     // the middle of the fireball and keeps going long after the fire is out,
     // which is the part you see from the other end of the map.

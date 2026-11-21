@@ -1777,10 +1777,24 @@ export class WorksView {
         e.tilt = Math.min(e.fallMax, e.tilt + dt * 4);
         if (e.y <= floor) {
           e.y = floor;
-          e.vel.x *= 0.5;
-          e.vel.z *= 0.5;
-          if (Math.abs(e.vel.y) < 1.5 && e.tilt >= e.fallMax) { e.vel = null; this.moving.delete(e); }
-          e.vel && (e.vel.y = -e.vel.y * 0.2);
+          // On a steep bank it does not stop where it lands: it slides on
+          // down until the ground will hold it.
+          const sx = (groundHeight(this.world, e.x + 1, e.z) - groundHeight(this.world, e.x - 1, e.z)) / 2;
+          const sz = (groundHeight(this.world, e.x, e.z + 1) - groundHeight(this.world, e.x, e.z - 1)) / 2;
+          const sl = Math.hypot(sx, sz);
+          if (sl > 0.32 && Math.abs(e.vel.y) < 1.5) {
+            const cos = 1 / Math.sqrt(1 + sl * sl);
+            const a = 9.8 * (sl * cos - 0.25 * cos) / sl;
+            e.vel.x = e.vel.x * Math.exp(-dt * 0.8) - sx * a * dt;
+            e.vel.z = e.vel.z * Math.exp(-dt * 0.8) - sz * a * dt;
+            e.vel.y = 0;
+            if (groundHeight(this.world, e.x, e.z) < 0) { e.gone = true; e.vel = null; this.moving.delete(e); }
+          } else {
+            e.vel.x *= 0.5;
+            e.vel.z *= 0.5;
+            if (Math.abs(e.vel.y) < 1.5 && e.tilt >= e.fallMax) { e.vel = null; this.moving.delete(e); }
+            e.vel && (e.vel.y = -e.vel.y * 0.2);
+          }
         }
       } else {
         // A post going over: angular acceleration that grows as it leans,
@@ -2177,8 +2191,24 @@ export class WorksView {
         if (p.y <= floor) {
           p.y = floor;
           if (Math.abs(p.vy) < 1.2) {
-            p.vx *= 0.6; p.vz *= 0.6; p.wx *= 0.5; p.wy *= 0.5; p.wz *= 0.5; p.vy = 0;
-            if (Math.hypot(p.vx, p.vz) < 0.4) { p.rest = true; p.rx = Math.round(p.rx / (Math.PI / 2)) * (Math.PI / 2); p.rz = Math.round(p.rz / (Math.PI / 2)) * (Math.PI / 2); }
+            // Lying on the ground. Where it is steep -- a hillside, the face of
+            // a heap, a bank down to the water -- it does not stop: it slides
+            // on down until the ground is gentle enough to hold it.
+            const sx = (groundHeight(this.world, p.x + 1, p.z) - groundHeight(this.world, p.x - 1, p.z)) / 2;
+            const sz = (groundHeight(this.world, p.x, p.z + 1) - groundHeight(this.world, p.x, p.z - 1)) / 2;
+            const sl = Math.hypot(sx, sz);
+            const cos = 1 / Math.sqrt(1 + sl * sl);
+            const sin = sl * cos;
+            p.vy = 0;
+            if (sl > 0.32 && !(worksFloor(this.world, p.x, p.z).rise > 0)) {
+              const a = 9.8 * (sin - 0.22 * cos) / sl;
+              p.vx = p.vx * Math.exp(-dt * 0.8) - sx * a * dt;
+              p.vz = p.vz * Math.exp(-dt * 0.8) - sz * a * dt;
+              p.wx *= 0.98; p.wz *= 0.98;
+            } else {
+              p.vx *= 0.6; p.vz *= 0.6; p.wx *= 0.5; p.wy *= 0.5; p.wz *= 0.5;
+              if (Math.hypot(p.vx, p.vz) < 0.4) { p.rest = true; p.rx = Math.round(p.rx / (Math.PI / 2)) * (Math.PI / 2); p.rz = Math.round(p.rz / (Math.PI / 2)) * (Math.PI / 2); }
+            }
           } else {
             p.vy = -p.vy * 0.28;
             p.vx *= 0.7; p.vz *= 0.7;

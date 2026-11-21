@@ -876,6 +876,15 @@ export class MonsterRig {
     return out;
   }
 
+  /** Her two palms, in the world: [left, right]. */
+  palms() {
+    this.group.updateMatrixWorld(true);
+    return [
+      this.palmL.clone().applyMatrix4(this.byName['hand.L'].matrixWorld),
+      this.palmR.clone().applyMatrix4(this.byName['hand.R'].matrixWorld),
+    ];
+  }
+
   /** Between her hands, in the world: where a ship she has hold of is. */
   handsPoint(out) {
     _v.copy(this.palmL).applyMatrix4(this.byName['hand.L'].matrixWorld);

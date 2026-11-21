@@ -599,6 +599,9 @@ export class ExplosionSystem {
     // where every light in the scene is paid for on every surface whether it
     // is lit or not -- and switching them on and off recompiles them all.
     this.lights = lights;
+    // (x, y, z, scale): the cold wreckage and smoke a blast leaves, handed in
+    // by whoever owns the effects (see blast).
+    this.remains = null;
     this.time = 0;
     this.fogColor = scene.fog ? scene.fog.color.clone() : new THREE.Color(0, 0, 0);
     this.fogDensity = scene.fog ? (scene.fog.density || 0) : 0;
@@ -688,8 +691,24 @@ export class ExplosionSystem {
    */
   blast(x, y, z, {
     size = 40, duration = 2.2, debris = 40, light = true, plume = true, power = 0, ring = true,
-    linger = 3.4, grim = 0,
+    linger = 3.4, grim = 1,
   } = {}) {
+    // Every blast is drawn the one way now, the way the newsreels show a
+    // shell going off in a ship: a short, dull flash and a ragged mass of
+    // black and grey soot almost at once, with dark, cold wreckage flung up
+    // out of it and a column of smoke leaning off downwind. No glowing
+    // embers raining down, no fiery column, no light thrown about. `grim`
+    // is still taken (anything under 1 is held up to it) so callers written
+    // for the old fireball need no change.
+    grim = Math.max(1, grim);
+    light = false;
+    plume = false;
+    // What it throws is the effects' cold wreckage and smoke (see
+    // Effects.burstRemains), sized off the blast, in place of the glowing
+    // fragments and burning trails this used to scatter.
+    const remains = debris > 0 && this.remains
+      ? Math.min(4, Math.max(0.4, (size - 4) / 5.5)) : 0;
+    debris = 0;
     // A free slot if there is one, and the one furthest through its life if
     // there is not: cutting a young fireball off in the middle to start another
     // is the one thing that reads as a glitch rather than as a blast.
@@ -773,6 +792,7 @@ export class ExplosionSystem {
       this.throwDebris(x, y, z, size, trailed < trailWant && Math.random() < 0.45);
       if (this.lastTrailed) trailed++;
     }
+    if (remains > 0) this.remains(x, y, z, remains);
   }
 
   throwDebris(x, y, z, size, trail = false) {

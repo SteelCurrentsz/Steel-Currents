@@ -3737,6 +3737,22 @@ export class Battle {
         }
         case 'moGrab': {
           audio.crash({ x: ev.x, y: 4, z: ev.z }, 9);
+          // Where her claws close on the hull it is dented in.
+          {
+            const tv = ev.at ? this.scene.shipViews.get(ev.at) : null;
+            const mv = this.scene.shipViews.get(ev.ship);
+            if (tv && mv) {
+              const rig = mv.group.userData.monster;
+              let palms = rig && rig.palms ? rig.palms() : null;
+              if (!palms) {
+                const g = mv.group, h = g.rotation.y;
+                const fx = Math.sin(h), fz = Math.cos(h), rx = -Math.cos(h), rz = Math.sin(h);
+                const y = tv.group.position.y + 6;
+                palms = [-9, 9].map((s) => new THREE.Vector3(g.position.x + fx * 38 + rx * s, y, g.position.z + fz * 38 + rz * s));
+              }
+              palms.forEach((w, k) => tv.clawDents(w.x, w.y, w.z, (ev.ship * 31 + ev.at * 7 + k) >>> 0));
+            }
+          }
           fx.splash(ev.x, ev.z, 500, { kind: 'bomb' });
           if (ev.at === this.shipId) this.hud.alert('Monster One has you in her hands');
           break;
@@ -3783,7 +3799,9 @@ export class Battle {
               v.group.updateMatrixWorld(true);
               w = v.group.localToWorld(new THREE.Vector3(ev.tr.lx, ev.tr.ly, ev.tr.lz));
             }
-            fx.hit(w.x, w.y, w.z, 'he', bite ? 220 : 406);
+            // Steel tearing, not a shell bursting: sparks and splinters off
+            // the plate, no fireball.
+            fx.hit(w.x, w.y, w.z, 'shatter', bite ? 220 : 406);
             fx.debris(w.x, w.y, w.z, bite ? 14 : 30);
             audio.crash({ x: w.x, y: w.y, z: w.z }, bite ? 11 : 16);
           } else {

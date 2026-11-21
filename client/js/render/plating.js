@@ -1134,6 +1134,8 @@ export class Plating {
           if (soft > 0 && d2 > r2 * soft && ((t * 2654435761) >>> 0) % 100 < 55) continue;
           part.dead[t] = 1;
           killed.push(t, part.idx.array[o], part.idx.array[o + 1], part.idx.array[o + 2]);
+          // Kept, when someone wants what was taken (see take).
+          if (this.capture) this.keep(part, t);
           const a = part.idx.array[o];
           part.idx.array[o + 1] = a;
           part.idx.array[o + 2] = a;
@@ -1150,6 +1152,36 @@ export class Plating {
     this.torn += went;
     if (went) this.checkRings(x, y, z, r);
     return went;
+  }
+
+  /** A triangle of her as it stands -- corners and paint -- into `capture`. */
+  keep(part, t) {
+    const pa = part.mesh.geometry.attributes.position.array;
+    const ia = part.idx.array;
+    const o = t * 3;
+    const c = paintOf(part, t);
+    const tri = new Float32Array(9);
+    for (let k = 0; k < 3; k++) {
+      const v = ia[o + k] * 3;
+      tri[k * 3] = pa[v]; tri[k * 3 + 1] = pa[v + 1]; tri[k * 3 + 2] = pa[v + 2];
+    }
+    this.capture.push({ tri, c });
+  }
+
+  /**
+   * `fn` run with everything it cuts out of her kept: the very plating that
+   * came away, corner for corner and in her own paint, so that what is torn
+   * out of her and carried off is that piece of her and nothing made up.
+   * Returns [what fn returned, [{ tri, c }, ...]].
+   */
+  take(fn) {
+    const was = this.capture;
+    const got = [];
+    this.capture = got;
+    let r;
+    try { r = fn(); } finally { this.capture = was; }
+    if (was) for (const k of got) was.push(k);
+    return [r, got];
   }
 
   /** The faces of her cut edges, made when first wanted. */
@@ -1261,6 +1293,7 @@ export class Plating {
         if (!list) more.set(part, (list = []));
         list.push(t, ia[o], ia[o + 1], ia[o + 2]);
         part.dead[t] = 1;
+        if (this.capture) this.keep(part, t);
         const a0 = ia[o];
         ia[o + 1] = a0; ia[o + 2] = a0;
         flush(part, o, o + 3);
@@ -1511,6 +1544,66 @@ export class Plating {
     const near = this.nearest(x, y, z, Math.max(5, r));
     if (!near) return;
     this.dent(x, y, z, r, depth, near);
+  }
+
+  /**
+   * What of her is under a point, in her own frame: the highest of her live
+   * plating straight below (x, z) that is no higher than `y + above`, and
+   * facing more up than sideways -- a deck, a deckhouse roof, the top of a
+   * gun platform. Something loose lands on it, lies on it, and slides on it.
+   *
+   * Returns [y, nx, ny, nz] with the normal turned to face up, or null where
+   * there is nothing of her under it (over the side, or over a hole).
+   */
+  floorUnder(x, y, z, above = 0.5) {
+    const top = y + above;
+    let bestY = -Infinity;
+    let best = null;
+    for (const part of this.parts) {
+      if (z + BUCKET < part.minZ || z - BUCKET > part.maxZ) continue;
+      const pa = part.mesh.geometry.attributes.position.array;
+      const ia = part.idx.array;
+      const cb = Math.floor((z - part.minZ) / BUCKET);
+      for (let b = Math.max(0, cb - 1); b <= Math.min(part.buckets.length - 1, cb + 1); b++) {
+        const list = part.buckets[b];
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          if (part.dead[t]) continue;
+          const o = t * 3;
+          // Cheap reject: its middle well off to the side, or above the top.
+          if (Math.abs(part.cent[o] - x) > 4 || Math.abs(part.cent[o + 2] - z) > 4) continue;
+          const a = ia[o] * 3, bb = ia[o + 1] * 3, c = ia[o + 2] * 3;
+          const ax = pa[a], az = pa[a + 2];
+          const bx = pa[bb], bz = pa[bb + 2];
+          const cx = pa[c], cz = pa[c + 2];
+          // Straight down onto it: inside the triangle seen from above.
+          const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+          if (Math.abs(d) < 1e-6) continue;
+          const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d;
+          const l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
+          const l3 = 1 - l1 - l2;
+          if (l1 < -1e-4 || l2 < -1e-4 || l3 < -1e-4) continue;
+          const hy = l1 * pa[a + 1] + l2 * pa[bb + 1] + l3 * pa[c + 1];
+          if (hy > top || hy <= bestY) continue;
+          // Its slope off the corners, not her shading normals: a deck
+          // cambered for drainage is a slope a loose thing slides down.
+          const ux = bx - ax, uy = pa[bb + 1] - pa[a + 1], uz = bz - az;
+          const vx = cx - ax, vy = pa[c + 1] - pa[a + 1], vz = cz - az;
+          let nx = uy * vz - uz * vy;
+          let ny = uz * vx - ux * vz;
+          let nz = ux * vy - uy * vx;
+          const nl = Math.hypot(nx, ny, nz) || 1;
+          nx /= nl; ny /= nl; nz /= nl;
+          if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+          // A wall is not a floor.
+          if (ny < 0.35) continue;
+          bestY = hy;
+          best = [hy, nx, ny, nz];
+        }
+      }
+    }
+    return best;
   }
 
   /**
