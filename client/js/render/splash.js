@@ -376,10 +376,12 @@ function plumeMaterial(map) {
     transparent: true,
     depthWrite: false,
   });
+  m.userData.time = { value: 0 };
   m.onBeforeCompile = (sh) => {
+    sh.uniforms.uFlowT = m.userData.time;
     sh.vertexShader = 'attribute float aFade;\nvarying float vFade;\nvarying vec3 vObj;\n'
       + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;\n  vObj = position;');
-    sh.fragmentShader = 'varying float vFade;\n' + PLUME_NOISE
+    sh.fragmentShader = 'varying float vFade;\nuniform float uFlowT;\n' + PLUME_NOISE
       + sh.fragmentShader.replace('#include <alphahash_fragment>', `
   {
     float nz = pn(vObj * vec3(7.0, 13.0, 7.0)) * 0.65 + pn(vObj * vec3(19.0, 31.0, 19.0)) * 0.35;
@@ -388,7 +390,13 @@ function plumeMaterial(map) {
     // And roped up its length: water driven up out of the sea goes up in
     // strands, and it is the gaps between them at its edges that stop a
     // column reading as a smooth glass tube.
-    float rope = pn(vObj * vec3(15.0, 1.6, 15.0) + vec3(0.0, 5.0, 0.0));
+    // And the water is going somewhere: up. The ropes and the knots in them
+    // stream up the column, so its middle is water pouring skyward and not a
+    // painted surface standing still.
+    float flow = uFlowT * 1.6;
+    float rope = pn(vObj * vec3(15.0, 1.6, 15.0) + vec3(0.0, 5.0 - flow * 0.9, 0.0));
+    float rope2 = pn(vObj * vec3(26.0, 3.2, 26.0) + vec3(4.0, -flow * 1.7, 2.0));
+    float sheet = pn(vObj * vec3(9.0, 6.0, 9.0) + vec3(1.0, -flow * 2.4, 7.0));
     // Spray, not a solid: dense through its middle low down, thinning into
     // nothing over its upper half, its outline the ragged edge of a cloud of
     // water rather than a skin, and gaps up it between the ropes of water.
@@ -396,7 +404,20 @@ function plumeMaterial(map) {
     float keep = fadeUp
                - rim * rim * 1.5 * (0.5 + nz)
                - (0.35 + 0.5 * rim) * smoothstep(0.38, 0.78, rope);
+    // Through its middle too, not only at its edge: water going up in ropes
+    // with the light and the sea showing between them. Solid white only
+    // where the ropes are; between them it is thin, and takes the sea's
+    // blue-grey from behind.
+    float dense = smoothstep(0.3, 0.75, rope2 * 0.55 + sheet * 0.45);
+    keep -= (1.0 - dense) * 0.52 * (1.0 - rim);
+    diffuseColor.rgb *= mix(vec3(0.78, 0.86, 0.9), vec3(1.04), dense);
     diffuseColor.a *= vFade * clamp(keep, 0.0, 1.0) * 0.82;
+  }`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  {
+    // Glints: light caught on the wet surfaces of the water streaming up,
+    // flickering as they go -- what makes moving water read as water.
+    float gl = pn(vObj * vec3(40.0, 9.0, 40.0) + vec3(0.0, -uFlowT * 4.0, 3.0));
+    totalEmissiveRadiance += vec3(0.32, 0.36, 0.4) * smoothstep(0.78, 0.95, gl) * (1.0 - smoothstep(0.5, 0.9, vObj.y));
   }`);
   };
   return m;
@@ -1543,6 +1564,7 @@ export class Splashes {
       this.jetFade.setX(j.slot, Math.min(1, t * 10) * (1 - tear * tear * (3 - 2 * tear)));
     }
     this.jetMesh.instanceMatrix.needsUpdate = true;
+    if (this.jetMesh.material.userData.time) this.jetMesh.material.userData.time.value += dt;
     this.jetFade.needsUpdate = true;
   }
 
