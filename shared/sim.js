@@ -792,6 +792,12 @@ export function rollPeriod(cls) {
   return cls.rollPeriod ?? 2.0 * Math.sqrt(cls.hull.beam);
 }
 const ROLL_DAMPING = 0.12;
+/**
+ * How far her middle is abaft the point she pivots on in a turn, in lengths:
+ * the pivot is about a third of her length back from her stem, so her middle
+ * is a sixth of a length behind it.
+ */
+export const SWAY_ARM = 0.17;
 
 function stepMovement(state, ship, dt) {
   const cls = shipClass(ship);
@@ -825,7 +831,17 @@ function stepMovement(state, ship, dt) {
   // A hull barely answers the helm below steerage way, and bites hardest near
   // half speed, which is why full-ahead turns are wider than half-ahead turns.
   // (A creature turns on the spot, which no hull does: she has legs.)
-  const helm = cls.pivots ? 0.7 + 0.3 * speedFrac : Math.min(1, speedFrac * 2.4) * (1 - 0.25 * speedFrac);
+  //
+  // A ship turns on a circle whose size her hull and her rudder set, not her
+  // speed: a battleship's turning circle at twelve knots is very nearly the
+  // one she makes at twenty-eight. So the rate she swings at goes with how
+  // fast she is going through the water -- slowly at slow speed, briskly at
+  // full -- and a ship barely making way barely turns at all. All she has
+  // then is the screw race over her rudder, with the engines going ahead: a
+  // kick ahead to bring her head round, the way a ship is turned in harbour.
+  const kick = !cls.pivots && ship.notch > 1 ? 0.07 * (1 - speedFrac) : 0;
+  const helm = cls.pivots ? 0.7 + 0.3 * speedFrac
+    : 0.75 * Math.pow(speedFrac, 0.93) + kick;
   // No rudder at all once her stern has gone.
   const rudderGone = ship.cut && ship.sections.stern.lost ? 0 : 1;
   const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1) * rudderGone;
@@ -848,7 +864,13 @@ function stepMovement(state, ship, dt) {
   // gravity that is holding her up -- and she rolls into it, and out of it, at
   // her own pace. It is a lean, not a list: no water moves in her, and when
   // the swing comes off her she comes back upright.
-  const want = leanFor(cls, ship.speed, ship.yawRate);
+  // But first she heels the other way. The rudder pushes on her low down,
+  // under where her weight is, so the moment it bites she leans into the
+  // turn; then the swing builds and lays her over outward. How much is how
+  // hard the water is pushing on the rudder: its angle, and her speed
+  // squared.
+  const inward = cls.pivots ? 0 : clamp(0.035 * ship.rudder * speedFrac * speedFrac, -0.04, 0.04);
+  const want = leanFor(cls, ship.speed, ship.yawRate) + inward;
   const was = ship.lean || 0;
   ship.lean = was + (want - was) * (1 - Math.exp(-dt / LEAN_LAG));
   // How fast she is rolling into it or out of it, which is what her layers
@@ -857,7 +879,12 @@ function stepMovement(state, ship, dt) {
 
   // A hull heels and scrubs off speed in a hard turn, so the telegraph setting
   // is only the speed you get when the rudder is amidships.
-  const bleed = 1 - cls.speedLossInTurn * Math.abs(ship.rudder) * helm;
+  // Hard over at speed she is dragging her whole side through the water at
+  // her drift angle, and a destroyer put through a full circle at thirty
+  // knots comes out of it at twenty: a third of her way gone. At slow speed
+  // there is less of it, because there is less drift.
+  const bleed = cls.pivots ? 1 - cls.speedLossInTurn * Math.abs(ship.rudder) * helm
+    : 1 - cls.speedLossInTurn * 1.6 * Math.abs(ship.rudder) * (0.3 + 0.7 * speedFrac);
   // And water inside her costs more than any turn does. Every tonne of it is
   // a tonne she has to drag, she is sitting deeper so there is more of her in
   // the water, and once she is lying over her screws and her rudder are not
@@ -898,8 +925,17 @@ function stepMovement(state, ship, dt) {
     ship.driftX = Math.abs(sx * keep) < 1e-3 ? 0 : sx * keep;
     ship.driftZ = Math.abs(sz * keep) < 1e-3 ? 0 : sz * keep;
   }
-  const nx = ship.x + (Math.sin(ship.heading) * v + sx) * dt;
-  const nz = ship.z + (Math.cos(ship.heading) * v + sz) * dt;
+  // And in a turn she does not go where she is pointing. She swings about a
+  // point well forward of her middle -- a third of her length back from the
+  // stem -- so her stern skids out across the water and her middle slides
+  // outward of the way her bow is going: the drift angle every ship-handler
+  // allows for, ten degrees and more in a hard turn. Sideways, in her own
+  // frame, as fast as her swing carries her middle round that point.
+  const sway = cls.pivots ? 0 : -(ship.yawRate || 0) * cls.hull.length * SWAY_ARM
+    * Math.min(1, Math.abs(v) / 3);
+  const ch = Math.cos(ship.heading), sh = Math.sin(ship.heading);
+  const nx = ship.x + (sh * v + ch * sway + sx) * dt;
+  const nz = ship.z + (ch * v - sh * sway + sz) * dt;
 
   // The shock of taking the ground, dying away.
   if (ship.groundJolt) {
@@ -17267,7 +17303,11 @@ function aimError(state, bm) {
   // matters and the one a ship's captain earns by keeping his speed on. Down at
   // a thousand metres the aimer can see what he is aiming at, so both are
   // small: a stick laid on a ship lying still mostly falls on her.
-  const sd = 22 + bm.y * 0.012 + moving * 7;
+  // And a ship swinging under helm is harder again than one steaming
+  // straight: the aimer is leading her along a line she has already left.
+  // It is the turning, more than the speed, that the bombs of Midway missed.
+  const swing = t ? Math.abs(t.yawRate || 0) : 0;
+  const sd = 22 + bm.y * 0.012 + moving * 7 + swing * 3000;
   return { x: gauss(state.rng) * sd, z: gauss(state.rng) * sd };
 }
 

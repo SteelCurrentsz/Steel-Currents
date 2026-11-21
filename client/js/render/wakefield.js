@@ -375,10 +375,14 @@ void main() {
   // minute astern of her, and the trail of broken water behind that is a
   // long ragged road of foam -- marbled, not solid -- before it goes to
   // threads and then to the pale band.
-  float boil = 1.0 - smoothstep(2.5, 13.0, tSt);
-  float lo = 0.26 + 0.30 * smoothstep(0.0, 0.50, ageF);
+  float boil = 1.0 - smoothstep(1.5, 9.0, tSt);
+  float lo = 0.30 + 0.30 * smoothstep(0.0, 0.50, ageF);
   float breakUp = smoothstep(lo, lo + 0.28, streak * 0.6 + clump * 0.4);
-  float core = inCore * behind * liveF * mix(breakUp * 0.64, 0.80, boil);
+  // Even the boil is not one sheet of white: it is heaps of churned water
+  // with darker sea between them, turning over as the screw race spreads.
+  float churn = fbm(vec2(wq.x * 0.09, wq.y * 0.07) + stir * 3.0 + 11.0);
+  float boilK = 0.48 + 0.42 * smoothstep(0.30, 0.68, churn);
+  float core = inCore * behind * liveF * mix(breakUp * 0.58, boilK, boil);
   // Under her counter itself the water is not broken, it is boiling: the
   // screw race heaped up and thrown white, widest just abaft her transom.
   float race = smoothstep(uStern * 0.88, uStern * 1.0, run)

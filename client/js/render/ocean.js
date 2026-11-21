@@ -619,7 +619,9 @@ void main() {
     // is detail the screen cannot resolve and shimmer it certainly can, and a
     // sea that sparkles like television static is the one thing worse than a
     // sea with no ripples on it at all.
-    float lod = clamp(wl * 340.0 / max(dcam, 1.0) - 1.2, 0.0, 1.0);
+    // (Kept to four pixels' worth or more: a ripple drawn across two pixels
+    // is not a ripple but sparkle, and a whole sea of it is static.)
+    float lod = clamp(wl * 150.0 / max(dcam, 1.0) - 1.0, 0.0, 1.0);
     // Back into the world's own axes: the gradient of f(R p) is R^T grad f,
     // and a row vector times a matrix is the transpose doing exactly that.
     slope += (nz.yz * rot) * ht * k * 0.5 * lod;
@@ -636,6 +638,11 @@ void main() {
   float gust = onoise(q * 0.0021 + vec2(uTime * 0.0042, uTime * 0.0025));
   float gustK = mix(0.70, 1.24, smoothstep(0.24, 0.72, gust));
   slope *= gustK;
+  // And eased off with range. Seen at a low angle the chop a few hundred
+  // metres off is foreshortened into lines, and at full strength every one
+  // of them catches the sky: the sea goes to horizontal static, and the
+  // swell -- which is what the eye reads a sea by -- is lost under it.
+  slope *= mix(1.0, 0.5, smoothstep(120.0, 1400.0, dcam));
   // Inside a wake the swell is knocked down -- a ship flattens the sea she has
   // been through. Where the water is still white it is rough, a metre of
   // confused water with no pattern in it, so a fine ripple of its own is put
@@ -699,7 +706,13 @@ void main() {
             * clamp(lift, 0.0, 1.0) * clamp(1.0 - ndv, 0.0, 1.0);
   // Green, not white: what comes back out of the back of a wave has been
   // through a few metres of sea water, and sea water takes the red out first.
-  body += uLightColor * vec3(0.52, 0.94, 0.82) * sss * 0.16;
+  body += uLightColor * vec3(0.52, 0.94, 0.82) * sss * 0.34;
+  // And from every side a little: the thin water at the top of any wave lets
+  // the daylight through it, so the crests are a lighter, greener blue than
+  // the troughs whichever way they face. That glow, crest against trough, is
+  // most of what makes a sea read as a body of water rather than a surface.
+  float thinTop = smoothstep(0.15, 1.0, lift) * (0.45 + 0.55 * clamp(1.0 - ndv, 0.0, 1.0));
+  body += uShallow * vec3(0.55, 1.05, 0.95) * thinTop * 0.38;
   // Foam is lit by whatever is lighting the sea, so at night it is grey and by
   // day it is white. Painting it white either way puts snow on a night ocean.
   vec3 white = mix(uSkyTint * 1.35 + uLightColor * 0.20, vec3(0.95, 0.98, 1.0),
@@ -727,7 +740,7 @@ void main() {
   float ndh = clamp(dot(n, h), 0.0, 1.0);
   // Rougher with range: the further off the water is, the more of it is inside
   // one pixel, and a mirror averaged over a hundred ripples is not a mirror.
-  float rough = 0.075 + 0.30 * clamp(dcam / 2500.0, 0.0, 1.0);
+  float rough = 0.085 + 0.34 * clamp(dcam / 1800.0, 0.0, 1.0);
   float a2 = rough * rough * rough * rough;
   float dgg = a2 / max(3.14159 * pow(ndh * ndh * (a2 - 1.0) + 1.0, 2.0), 1e-5);
   float glint = dgg * clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
@@ -841,7 +854,7 @@ void main() {
     // back what averaging two noises takes out of their contrast.
     fineW = 0.5 + (fineW - 0.5) * mix(1.0, 1.35, 1.0 - abs(wA * 2.0 - 1.0));
   }
-  float thr = mix(0.80, 0.30, wkB);
+  float thr = mix(0.82, 0.40, wkB);
   float threads = smoothstep(thr - 0.06, thr + 0.14, fineW) * smoothstep(0.015, 0.12, wkB);
   // And a finer speckle of bubbles round the threads, so the edge of the
   // white water is a scatter rather than a line.
@@ -857,7 +870,13 @@ void main() {
   col = mix(col, white, foam * 0.62 * clean);
   // Never quite opaque: even the boil under her counter is broken water with
   // the sea showing through it, and thin foam is half see-through.
-  col = mix(col, white, wkFoam * (0.48 + 0.42 * wkB) * clean);
+  // Thin foam is bubbles just under and on the surface, and reads as a pale
+  // turquoise; only where it is thick and heaped up is it white. And never
+  // flat: even the thickest of it is lumps lit on top and greyer in their
+  // hollows.
+  vec3 froth = mix(mix(aqua * 1.25, white, 0.35), white, smoothstep(0.25, 0.85, wkB));
+  froth *= mix(1.0, 0.80 + 0.28 * fineW, fineLod);
+  col = mix(col, froth, wkFoam * (0.40 + 0.42 * wkB) * clean);
   // And the water a hull is holding off, which has just hit her side and come
   // apart against it: broken white along her plating where the wave struck,
   // in the same threads the wake breaks into, and thinning outward from her.

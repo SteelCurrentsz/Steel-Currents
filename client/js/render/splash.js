@@ -570,7 +570,7 @@ function cardMesh(scene, count, uniforms, drop) {
     vertexShader: CARD_VERT,
     fragmentShader: CARD_FRAG,
     defines: drop ? { DROP: 1 } : {},
-    uniforms: { ...uniforms, uStretch: { value: drop ? 0.07 : 0 } },
+    uniforms: { ...uniforms, uStretch: { value: drop ? 0.07 : 0.14 } },
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -1203,14 +1203,19 @@ export class Splashes {
       const a = lean + (Math.random() - 0.5) * Math.PI * 2;
       const off = stem ? radius * rnd(0, 0.08) : radius * rnd(0.12, 0.3);
       const h = height * (stem ? rnd(0.96, 1.04) : rnd(0.55, 0.85));
-      const rise = (0.2 + h * 0.0065) * (stem ? 1 : rnd(0.9, 1.15));
+      // Up over a second or more on a heavy shell, not a flick: a column of
+      // water eighty metres high is a great many tons being driven up.
+      const rise = (0.25 + h * 0.011) * (stem ? 1 : rnd(0.9, 1.15));
       this.jets.push({
         y0: this.base || 0, slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
         // Near vertical: what drives it up is under it.
         a, tilt: stem ? rnd(0, 0.04) : rnd(0.03, 0.1),
         w: radius * kind.stem * (this.thick || 1) * (stem ? rnd(0.95, 1.1) : rnd(0.45, 0.65)), h,
         delay: kind.delay + (stem ? 0 : rnd(0.02, 0.12)), rise,
-        ttl: rise + 1.2 + h * 0.022,
+        // And it comes down as its water does: as long as a body takes to
+        // fall from the top of it, so the column and the head it threw collapse
+        // together rather than the head being left hanging over empty sea.
+        ttl: rise + 0.5 + Math.sqrt((2 * h) / G) * 1.05,
         life: 0,
       });
     }
@@ -1262,21 +1267,27 @@ export class Splashes {
   crest(x, z, height, radius, kind, lean, child) {
     const n = Math.round(kind.head * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
     const w = radius * kind.stem * (this.thick || 1);
-    const rise = 0.2 + height * 0.0065;
+    const rise = 0.25 + height * 0.011;
     for (let i = 0; i < n; i++) {
       // Up the top half of the stem, crowding toward the top.
       const u = 0.5 + 0.5 * Math.pow(Math.random(), 0.6);
       const a = lean + Math.random() * Math.PI * 2;
       const off = w * (0.3 + kind.bloom * (u - 0.5) * 1.6) * rnd(0.4, 1);
       const size = w * (0.7 + kind.bloom * (u - 0.4)) * rnd(0.75, 1.15);
-      const ttl = 1.6 + height * 0.035;
+      // Water does not hang in the air. What is in the head is still going up
+      // when the stem runs out of push; it carries on a little, stops, and
+      // comes straight back down under its own weight -- a curtain of it
+      // collapsing round the column and onto the sea a few seconds later,
+      // which is the whole second half of every splash on film. Hung up as a
+      // cloud it read as a puff of cotton wool parked over the sea.
+      const y0 = height * u * 0.92;
+      const vy = Math.sqrt(2 * G * height * rnd(0.02, 0.09));
+      const ttl = (vy + Math.sqrt(vy * vy + 2 * G * y0)) / G * rnd(0.95, 1.1);
+      const sp = w * kind.bloom * rnd(0.5, 1.2) * 0.9;
       this.puff({
-        x: x + Math.sin(a) * off, z: z + Math.cos(a) * off, y: height * u * 0.92,
-        // Opening outward and sinking as it goes, the way the head of a column
-        // spreads and comes back down over itself.
-        dx: Math.sin(a) * w * kind.bloom * rnd(0.4, 1.0), dz: Math.cos(a) * w * kind.bloom * rnd(0.4, 1.0),
-        dy: -height * rnd(0.08, 0.2),
-        s0: size * 0.45, s1: size * 1.45, squash: rnd(0.8, 1.05),
+        x: x + Math.sin(a) * off, z: z + Math.cos(a) * off, y: y0,
+        vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, vy,
+        s0: size * 0.45, s1: size * 1.3, squash: rnd(1.05, 1.35),
         // Each one blooms as the top of the stem goes past it.
         delay: kind.delay + rise * u * rnd(0.85, 1.05), ttl: ttl * rnd(0.85, 1.15),
         // Softer and thinner than the stem it came off.
@@ -1568,7 +1579,8 @@ export class Splashes {
       // heap of geometry it replaces to cover the same water.
       P[o] = x; P[o + 1] = y; P[o + 2] = z; P[o + 3] = size * (1 + p.spread * k) * 1.25;
       S[o] = p.squash; S[o + 1] = fade; S[o + 2] = p.seed; S[o + 3] = k;
-      V[n * 3] = 0; V[n * 3 + 1] = 0; V[n * 3 + 2] = 0;
+      // A falling clot of water is drawn along its fall.
+      V[n * 3] = 0; V[n * 3 + 1] = p.vy !== undefined ? Math.min(0, vy) : 0; V[n * 3 + 2] = 0;
       n++;
     }
     flush(C, n);
