@@ -1982,8 +1982,12 @@ export class ShipView {
     if (thick == null) thick = this.plateAt(cy, cz, ny);
     const old = this.holes
       ? this.holes.add(cx, cy, cz, r, nx, ny, nz, Math.max(0.012, thick)) : null;
-    // Its edge, as thick as she is there (see Walls in plating.js).
-    if (this.holes) this.plating.ring(this.holes.list[this.holes.list.length - 1]);
+    // The plate round it dished in by the blow, and then its edge: torn and
+    // bent in, and as thick as she is there (see Walls in plating.js).
+    if (this.holes) {
+      this.plating.dent(cx, cy, cz, r * 2.6, Math.min(0.45, 0.05 + r * 0.1), [cx, cy, cz, nx, ny, nz]);
+      this.plating.ring(this.holes.list[this.holes.list.length - 1]);
+    }
     // One that has dropped out of what her shaders hold is cut out of her
     // the old way, so it stays a hole.
     if (old) {

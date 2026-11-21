@@ -330,20 +330,58 @@ class Scars {
  * that is gone meets one that is still there; each such edge gets a wall,
  * and the wall goes when the piece it stands on goes in its turn.
  */
-const WALL_SLOTS = 4000;
-const WALL_VERTS = 12;          // two quads a slot: the plate, and the framing behind it
-const RING_SEGS = 28;
-
-/** The cut steel of the plate, and the primed framing behind it. */
-const CUT = [0.5, 0.5, 0.52];
-const CUT_EDGE = [0.36, 0.36, 0.37];
-const FRAME = [0.2, 0.12, 0.09];
-const FRAME_DEEP = [0.08, 0.05, 0.045];
+const WALL_SLOTS = 2500;
+// A slot: up to six quads. An edge wall is two lengths of three bands (the
+// plate, the framing, the deep framing); a shell hole's segment is one length
+// of those three and two rows of the bent lip round it.
+const WALL_VERTS = 48;
+const RING_SEGS = 36;
 
 /**
- * How far the shader's cut reaches out along `u` (a unit vector in the plate)
- * for a hole at (x, y, z) of radius r, in a plate facing n -- the same sum as
- * FRAG_CUT in shellholes.js, so the wall stands exactly at its edge.
+ * How much bigger her shader cuts a shell hole than the hole itself: the
+ * ring between is the plate round the hole, torn and bent in, drawn by the
+ * walls (see Plating.ring). The same figure as HOLE_LIP in shellholes.js.
+ */
+export const LIP = 1.2;
+
+/** The cut steel of the plate, and the primed framing behind it. */
+const CUT = [0.46, 0.46, 0.47];
+const CUT_EDGE = [0.58, 0.57, 0.56];
+const FRAME = [0.13, 0.08, 0.065];
+const FRAME_MID = [0.09, 0.06, 0.05];
+const FRAME_DEEP = [0.05, 0.035, 0.03];
+/** Where a lip has been scorched, at the very edge of the hole. */
+const SCRAPED = [0.07, 0.065, 0.06];
+
+/**
+ * A smooth, irregular figure between 0 and 1 off a point in her frame: the
+ * same anywhere two walls meet, so they meet without a step, and rounded
+ * rather than random from one corner to the next, so the cut is rough the
+ * way torn steel is and never a row of needles.
+ */
+function wob(x, y, z, k = 0) {
+  const a = Math.sin(x * 2.9 + Math.sin(y * 2.1 + z * 1.3 + k) * 2.2 + z * 2.3 + k * 1.7);
+  const b = Math.cos(y * 1.9 - x * 0.8 + Math.sin(z * 3.3 + k * 2.1) + k * 0.9);
+  return 0.5 + 0.25 * a + 0.25 * b;
+}
+
+/**
+ * How deep her framing runs at a point, against the plate: deepest at a
+ * frame (every 1.2 m along her) or a stringer (every 1.6 m up her side), and
+ * rounded off between, so the inside of a cut is the ribs she is built on
+ * and not a smooth band.
+ */
+function framing(x, y, z) {
+  const fz = Math.pow(0.5 + 0.5 * Math.cos(z * 5.236), 3);
+  const fy = Math.pow(0.5 + 0.5 * Math.cos(y * 3.927), 3);
+  const fx = Math.pow(0.5 + 0.5 * Math.cos(x * 3.927), 3);
+  return Math.max(fz, fy * 0.8, fx * 0.6);
+}
+
+/**
+ * How far the shader's hole reaches out along `u` (a unit vector in the
+ * plate) for a hole at (x, y, z) of radius r, in a plate facing n -- the same
+ * sum as FRAG_CUT in shellholes.js, before its lip is added on.
  */
 function ringReach(x, y, z, r, n, u) {
   let s = (x * 0.137 + z * 0.071 + y * 0.29);
@@ -359,7 +397,7 @@ function ringReach(x, y, z, r, n, u) {
   return r * (1 + 0.24 * lobe) * (1 + 0.5 * along * along);
 }
 
-/** Whether a point is inside the cut of a shader hole `h` ([x, y, z, r, nx, ny, nz, thick]). */
+/** Whether a point is inside the cut of a shader hole `h` ([x, y, z, r, nx, ny, nz, thick]), lip and all. */
 function inRing(h, px, py, pz) {
   const dx = px - h[0], dy = py - h[1], dz = pz - h[2];
   const off = dx * h[4] + dy * h[5] + dz * h[6];
@@ -367,9 +405,13 @@ function inRing(h, px, py, pz) {
   const qx = dx - h[4] * off, qy = dy - h[5] * off, qz = dz - h[6] * off;
   const d = Math.hypot(qx, qy, qz);
   if (d < 1e-3) return true;
-  if (d > h[3] * 2) return false;
-  return d < ringReach(h[0], h[1], h[2], h[3], [h[4], h[5], h[6]], [qx / d, qy / d, qz / d]) - 0.05;
+  if (d > h[3] * 2.6) return false;
+  return d < ringReach(h[0], h[1], h[2], h[3], [h[4], h[5], h[6]], [qx / d, qy / d, qz / d]) * LIP - 0.05;
 }
+
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const crossV = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dotV = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 class Walls {
   constructor(group) {
@@ -383,7 +425,9 @@ class Walls {
     geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setDrawRange(0, 0);
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
-    this.mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    // Lit as her plating is lit, so the lip round a hole is the same paint
+    // under the same light as the plate it is part of.
+    this.mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ vertexColors: true, side: THREE.DoubleSide, shininess: 6, specular: 0x0c0c0c }));
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
     this.mesh.userData.noSplit = true;
@@ -401,6 +445,7 @@ class Walls {
     this.rings = [];
     this.lo = Infinity;
     this.hi = -1;
+    this.w = 0;
   }
 
   alloc() {
@@ -414,31 +459,115 @@ class Walls {
     if (slot > this.hi) this.hi = slot;
   }
 
-  /**
-   * One slot: the edge a-b on the face of her plating, going in along -n by
-   * `depth`, the first `plate` of it bright cut steel and the rest the dark
-   * framing. `f` is which way the wall faces (into the hole).
-   */
-  put(slot, a, b, n, depth, plate, f) {
-    const P = this.pos, N = this.nor, C = this.col;
-    let w = slot * WALL_VERTS * 3;
-    const at = (p, k) => [p[0] - n[0] * k, p[1] - n[1] * k, p[2] - n[2] * k];
-    // A hair proud of her paint at the outside, so the lip of the cut is
-    // never hidden behind the plate it was cut in.
-    const a0 = at(a, -0.01), b0 = at(b, -0.01);
-    const a1 = at(a, plate), b1 = at(b, plate);
-    const a2 = at(a, depth), b2 = at(b, depth);
-    const v = (p, c) => {
-      P[w] = p[0]; P[w + 1] = p[1]; P[w + 2] = p[2];
-      N[w] = f[0]; N[w + 1] = f[1]; N[w + 2] = f[2];
-      C[w] = c[0]; C[w + 1] = c[1]; C[w + 2] = c[2];
-      w += 3;
-    };
-    v(a0, CUT_EDGE); v(b0, CUT_EDGE); v(b1, CUT);
-    v(a0, CUT_EDGE); v(b1, CUT); v(a1, CUT);
-    v(a1, FRAME); v(b1, FRAME); v(b2, FRAME_DEEP);
-    v(a1, FRAME); v(b2, FRAME_DEEP); v(a2, FRAME_DEEP);
+  /** Start writing a slot: everything left unwritten in it stays folded away. */
+  begin(slot) {
+    this.pos.fill(0, slot * WALL_VERTS * 3, (slot + 1) * WALL_VERTS * 3);
+    this.w = slot * WALL_VERTS * 3;
+    this.end = (slot + 1) * WALL_VERTS * 3;
     this.touch(slot);
+  }
+
+  /**
+   * A quad p0 p1 p2 p3 (round its edge), coloured per corner, lit as the flat
+   * face it is -- so the roughness of the cut catches the light -- and facing
+   * the way `face` says.
+   */
+  quad(p0, p1, p2, p3, c0, c1, c2, c3, face) {
+    if (this.w + 18 > this.end) return;
+    let nn = crossV(sub(p1, p0), sub(p3, p0));
+    const m = crossV(sub(p2, p1), sub(p0, p1));
+    nn = [nn[0] + m[0], nn[1] + m[1], nn[2] + m[2]];
+    let l = Math.hypot(nn[0], nn[1], nn[2]);
+    if (l < 1e-9) { nn = face; l = 1; }
+    if (dotV(nn, face) < 0) l = -l;
+    const N = [nn[0] / l, nn[1] / l, nn[2] / l];
+    const P = this.pos, NO = this.nor, C = this.col;
+    const v = (p, c) => {
+      const w = this.w;
+      P[w] = p[0]; P[w + 1] = p[1]; P[w + 2] = p[2];
+      NO[w] = N[0]; NO[w + 1] = N[1]; NO[w + 2] = N[2];
+      C[w] = c[0]; C[w + 1] = c[1]; C[w + 2] = c[2];
+      this.w += 3;
+    };
+    v(p0, c0); v(p1, c1); v(p2, c2);
+    v(p0, c0); v(p2, c2); v(p3, c3);
+  }
+
+  /**
+   * The cut through her along a line of points on her plating (`edge`, each
+   * { p, n } with the way the plate faces there). `f` is the way into the
+   * hole.
+   *
+   * What a hole in a ship shows is not a solid band as deep as she is but
+   * how she is built: the plate itself, torn -- a bright ragged line of steel
+   * as thick as it is -- and behind it, wherever the hole has crossed one,
+   * the frames she is built on (a rib every 1.2 m along her) and the
+   * stringers that run along her side or the beams under a deck, each a web
+   * of steel standing in from the plate, cut off where the plate was, with
+   * the dark of her insides showing between them. All of it off where it is,
+   * so walls that meet agree where they meet.
+   */
+  cut(edge, depth, plate, f) {
+    const th = Math.max(0.04, plate);
+    const top = edge.map(({ p, n }) => {
+      const j = (wob(p[0], p[1], p[2], 3) - 0.5) * 0.03;
+      return [p[0] + n[0] * 0.008 + f[0] * j, p[1] + n[1] * 0.008 + f[1] * j, p[2] + n[2] * 0.008 + f[2] * j];
+    });
+    // The torn plate: its back edge ragged, never in a straight line.
+    const back = edge.map(({ p, n }) => {
+      const k = th * (0.85 + 0.4 * wob(p[0], p[1], p[2], 1));
+      const j = (wob(p[0], p[1], p[2], 4) - 0.5) * 0.06;
+      return [p[0] - n[0] * k + f[0] * j, p[1] - n[1] * k + f[1] * j, p[2] - n[2] * k + f[2] * j];
+    });
+    const shade = (p, c, k) => {
+      const t = 0.8 + 0.4 * wob(p[0] * 1.7, p[1] * 1.7, p[2] * 1.7, k);
+      return [c[0] * t, c[1] * t, c[2] * t];
+    };
+    for (let i = 0; i + 1 < edge.length; i++) {
+      this.quad(top[i], top[i + 1], back[i + 1], back[i],
+        shade(top[i], CUT_EDGE, 7), shade(top[i + 1], CUT_EDGE, 7), shade(back[i + 1], CUT, 8), shade(back[i], CUT, 8), f);
+    }
+    // The ribs it has crossed: frames athwart her every 1.2 m, and the
+    // stringers along her side (or the beams along under a deck).
+    const deck = Math.abs(edge[0].n[1]) > 0.6;
+    const families = [[2, 1.2, 1], deck ? [0, 1.5, 0.75] : [1, 1.6, 0.7]];
+    for (let i = 0; i + 1 < edge.length; i++) {
+      const A = edge[i].p, B = edge[i + 1].p;
+      for (const [ax, sp, deepK] of families) {
+        const a0 = A[ax] / sp, b0 = B[ax] / sp;
+        if (Math.abs(b0 - a0) < 1e-6) continue;
+        for (let m = Math.floor(Math.min(a0, b0)) + 1; m <= Math.max(a0, b0); m++) {
+          const t = (m - a0) / (b0 - a0);
+          const c = [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t];
+          const na = edge[i].n, nb = edge[i + 1].n;
+          let n = [na[0] + (nb[0] - na[0]) * t, na[1] + (nb[1] - na[1]) * t, na[2] + (nb[2] - na[2]) * t];
+          const nl = Math.hypot(...n) || 1;
+          n = [n[0] / nl, n[1] / nl, n[2] / nl];
+          // Along the edge, for the rib's width.
+          let tv = sub(B, A);
+          const tl = Math.hypot(...tv) || 1;
+          tv = [tv[0] / tl, tv[1] / tl, tv[2] / tl];
+          const w = 0.07 + 0.03 * wob(c[0], c[1], c[2], 12);
+          const D = th + (depth - th) * deepK * (0.85 + 0.15 * wob(c[0], c[1], c[2], 14));
+          const at = (base, s, side, back2) => [
+            base[0] - n[0] * s + tv[0] * side - f[0] * back2,
+            base[1] - n[1] * s + tv[1] * side - f[1] * back2,
+            base[2] - n[2] * s + tv[2] * side - f[2] * back2,
+          ];
+          // Its cut end, facing into the hole: bare steel, a little bent
+          // over at its inner edge where it was torn.
+          const bendOver = (wob(c[0], c[1], c[2], 15) - 0.5) * 0.05;
+          this.quad(at(c, th, -w / 2, 0), at(c, th, w / 2, 0), at(c, D, w / 2, -bendOver), at(c, D, -w / 2, -bendOver),
+            shade(c, CUT, 16), shade(c, CUT, 16), FRAME, FRAME, f);
+          // And its web, going on in under the plate that is still there.
+          // (Short: it is a stub of frame seen in section, and a long web
+          // seen across the hole read as a tooth.)
+          const L = 0.22;
+          this.quad(at(c, th, 0, 0), at(c, th, 0, L), at(c, D, 0, L), at(c, D, 0, -bendOver),
+            FRAME, FRAME_MID, FRAME_DEEP, FRAME_MID, tv);
+        }
+      }
+    }
   }
 
   kill(slot) {
@@ -452,13 +581,35 @@ class Walls {
     if (this.hi < 0) return;
     const from = this.lo * WALL_VERTS * 3, count = (this.hi - this.lo + 1) * WALL_VERTS * 3;
     for (const a of [this.geo.attributes.position, this.geo.attributes.normal, this.geo.attributes.color]) {
-      a.clearUpdateRanges?.();
+      // Added to whatever is still waiting to go up: two holes in one
+      // frame are two ranges, and the first must not be dropped.
       a.addUpdateRange(from, count);
       a.needsUpdate = true;
     }
     this.geo.setDrawRange(0, this.next * WALL_VERTS);
     this.lo = Infinity;
     this.hi = -1;
+  }
+
+  /** Move every corner within `r` of a point in along -n, by `push(d2)`: a dent carrying the cut with it. */
+  dentAll(cx, cy, cz, r, n, push) {
+    const P = this.pos;
+    const r2 = r * r;
+    let lo = Infinity, hi = -1;
+    for (let w = 0; w < this.next * WALL_VERTS * 3; w += 3) {
+      const dx = P[w] - cx, dy = P[w + 1] - cy, dz = P[w + 2] - cz;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= r2 || (P[w] === 0 && P[w + 1] === 0 && P[w + 2] === 0)) continue;
+      const k = push(d2);
+      P[w] -= n[0] * k; P[w + 1] -= n[1] * k; P[w + 2] -= n[2] * k;
+      if (w < lo) lo = w;
+      hi = w;
+    }
+    if (hi >= 0) {
+      const a = this.geo.attributes.position;
+      a.addUpdateRange(lo, hi - lo + 3);
+      a.needsUpdate = true;
+    }
   }
 
   /** Whether a point is inside the cut of any shader hole (but `skip`). */
@@ -472,6 +623,24 @@ class Walls {
     this.geo.dispose();
     this.mesh.material.dispose();
   }
+}
+
+/** The colour she is painted at a piece of plating, as near as can be said. */
+function paintOf(part, t) {
+  const mesh = part.mesh;
+  const geo = mesh.geometry;
+  const mm = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  const v = t != null ? part.idx.array[t * 3] : 0;
+  // Her paint is her material's colour; a texture on it is the rivets and
+  // the seams of her plates, a little darker on the whole.
+  let c = mm && mm.color ? [mm.color.r, mm.color.g, mm.color.b] : [0.3, 0.32, 0.34];
+  if (mm && mm.map) c = [c[0] * 0.85, c[1] * 0.85, c[2] * 0.85];
+  const ca = geo.attributes.color;
+  if (ca && t != null) {
+    const div = ca.array instanceof Uint8Array && !ca.normalized ? 255 : 1;
+    c = [c[0] * ca.getX(v) / div, c[1] * ca.getY(v) / div, c[2] * ca.getZ(v) / div];
+  }
+  return c;
 }
 
 /** Bare steel, where the paint has been taken off it. */
@@ -602,6 +771,8 @@ export class Plating {
       cut = r * (1 + pass * 0.55);
       went += this.sweep(near, cut, pass === 0 ? soft : 0);
     }
+    // And the plate round it dished in by the blow.
+    if (went) this.dish(near[0], near[1], near[2], cut * 1.9, Math.min(0.5, 0.06 + cut * 0.08));
     // A hole, and only a hole: no collar of torn plating stood round the mouth
     // of it and no soot on her paint. Only a torpedo opens her now, and what
     // it leaves is the opening in her side with the inside of her showing
@@ -643,6 +814,8 @@ export class Plating {
     }
     // However it fell, some of her is gone.
     for (let pass = 1; pass < 3 && went < 2; pass++) went += this.sweep(near, r * (0.6 + pass * 0.4), 0);
+    // And the plate round the rent pushed in, buckled by whatever did it.
+    if (went) this.dish(near[0], near[1], near[2], r * 1.7, Math.min(0.6, 0.08 + r * 0.07));
     return went;
   }
 
@@ -673,15 +846,17 @@ export class Plating {
    * fairing out to nothing at `r`, and its light bent with it so it reads as
    * a dish in the steel. The plating is still there and still whole.
    */
-  dent(x, y, z, r, depth) {
+  dent(x, y, z, r, depth, at = null) {
     // No smaller than the plating is cut: a dish narrower than the pieces
     // she is made of has no corner inside it to push in.
     r = Math.max(r, 2.4);
-    const near = this.nearest(x, y, z, Math.max(5, r * 3));
+    const near = at || this.nearest(x, y, z, Math.max(5, r * 3));
     if (!near) return false;
     const [cx, cy, cz, nx, ny, nz] = near;
     const r2 = r * r;
     let any = false;
+    // The cut faces of holes in it go in with it (see Walls).
+    if (this.cut) this.cut.dentAll(cx, cy, cz, r, [nx, ny, nz], (d2) => { const f = 1 - d2 / r2; return depth * f * f; });
     for (const part of this.parts) {
       if (cz + r < part.minZ || cz - r > part.maxZ) continue;
       const geo = part.mesh.geometry;
@@ -731,6 +906,19 @@ export class Plating {
         P.addUpdateRange(vmin * 3, (vmax - vmin + 1) * 3);
         P.needsUpdate = true;
         if (N) { N.addUpdateRange(vmin * 3, (vmax - vmin + 1) * 3); N.needsUpdate = true; }
+        // Where her pieces are now, for the next hit to find them.
+        for (let b = lo; b <= hi; b++) {
+          const list = part.buckets[b];
+          if (!list) continue;
+          for (const t of list) {
+            if (part.dead[t]) continue;
+            const o = t * 3;
+            const A = ia[o] * 3, B = ia[o + 1] * 3, C = ia[o + 2] * 3;
+            part.cent[o] = (pa[A] + pa[B] + pa[C]) / 3;
+            part.cent[o + 1] = (pa[A + 1] + pa[B + 1] + pa[C + 1]) / 3;
+            part.cent[o + 2] = (pa[A + 2] + pa[B + 2] + pa[C + 2]) / 3;
+          }
+        }
       }
     }
     return any;
@@ -978,27 +1166,39 @@ export class Plating {
   }
 
   /**
-   * Faces for the edges that taking pieces out of her has left: every edge
-   * of a piece that has gone that it shared with a piece still there -- in
-   * the same buffer or another, because her plating is cut into a buffer per
-   * paint and per compartment and a hole runs across those as it likes.
-   * `cuts` is [{ part, killed }], `killed` [triangle, a, b, c, ...] with the
-   * corners it had before it was folded away.
+   * After pieces have been taken out of her: tidy the edge they left, bend
+   * it, and give it its face.
+   *
+   * Tidied: a piece still there with two of its edges open is a sliver or a
+   * point standing out into the hole -- her plating is cut into long thin
+   * strips, and a hole across them leaves their ends sticking out like
+   * needles -- and it goes too. Bent: every corner along the edge is pushed
+   * in, a little more here and a little less there, so the plate round a hole
+   * is torn and folded in as plate is and not a clean-cut window; armour too
+   * thick to bend bends less. And then the face (see Walls.cut).
+   *
+   * Works across her buffers, because her plating is cut into one per paint
+   * and per compartment and a hole runs across those as it likes. `cuts` is
+   * [{ part, killed }], `killed` [triangle, a, b, c, ...] with the corners it
+   * had before it was folded away.
    */
   edgeWalls(cuts) {
     cuts = cuts.filter((c) => c.killed.length);
     if (!cuts.length) return;
     const W = this.walls;
     const key3 = (pa, v) => `${Math.round(pa[v * 3] * 64)},${Math.round(pa[v * 3 + 1] * 64)},${Math.round(pa[v * 3 + 2] * 64)}`;
-    const ek = (pa, a, b) => { const A = key3(pa, a), B = key3(pa, b); return A < B ? `${A}|${B}` : `${B}|${A}`; };
-    // The walls the pieces that have gone stood on go with them.
+    const ek = (A, B) => (A < B ? `${A}|${B}` : `${B}|${A}`);
     let zlo = Infinity, zhi = -Infinity;
-    for (const { part, killed } of cuts) {
+    const remember = (part, killed) => {
+      const gone = part.gone || (part.gone = new Map());
       for (let i = 0; i < killed.length; i += 4) {
-        const cz = part.cent[killed[i] * 3 + 2];
+        const t = killed[i];
+        gone.set(t, [killed[i + 1], killed[i + 2], killed[i + 3]]);
+        const cz = part.cent[t * 3 + 2];
         if (cz < zlo) zlo = cz;
         if (cz > zhi) zhi = cz;
-        const key = `${part.pi}:${killed[i]}`;
+        // The walls the pieces that have gone stood on go with them.
+        const key = `${part.pi}:${t}`;
         const had = W.byTri.get(key);
         if (!had) continue;
         for (const k of had) {
@@ -1007,70 +1207,178 @@ export class Plating {
         }
         W.byTri.delete(key);
       }
+    };
+    for (const { part, killed } of cuts) remember(part, killed);
+    const near = this.parts.filter((part) => !(zhi + 3 < part.minZ || zlo - 3 > part.maxZ));
+    const range = (part) => [Math.max(0, Math.floor((zlo - 3 - part.minZ) / BUCKET)),
+      Math.min(part.buckets.length - 1, Math.floor((zhi + 3 - part.minZ) / BUCKET))];
+    // Every edge of what has gone near here, and of what is still there.
+    let open, live;
+    const survey = () => {
+      open = new Map();
+      live = [];
+      for (const part of near) {
+        const pa = part.mesh.geometry.attributes.position.array;
+        const ia = part.idx.array;
+        const [lo, hi] = range(part);
+        for (let b = lo; b <= hi; b++) {
+          const list = part.buckets[b];
+          if (!list) continue;
+          for (const t of list) {
+            if (part.dead[t]) {
+              const c = part.gone && part.gone.get(t);
+              if (!c) continue;
+              for (let k = 0; k < 3; k++) open.set(ek(key3(pa, c[k]), key3(pa, c[(k + 1) % 3])), [part, t]);
+              continue;
+            }
+            const o = t * 3;
+            const keys = [0, 1, 2].map((k) => ek(key3(pa, ia[o + k]), key3(pa, ia[o + (k + 1) % 3])));
+            live.push([part, t, keys]);
+          }
+        }
+      }
+    };
+    // The slivers and points left standing out into the hole.
+    for (let pass = 0; pass < 2; pass++) {
+      survey();
+      const more = new Map();
+      for (const [part, t, keys] of live) {
+        let n = 0;
+        for (const k of keys) if (open.has(k)) n++;
+        if (n < 2) continue;
+        const o = t * 3;
+        const ia = part.idx.array;
+        const pa = part.mesh.geometry.attributes.position.array;
+        // Only a small or a thin piece: a big plate with two sides gone is
+        // still a plate.
+        const A = [pa[ia[o] * 3], pa[ia[o] * 3 + 1], pa[ia[o] * 3 + 2]];
+        const B = [pa[ia[o + 1] * 3], pa[ia[o + 1] * 3 + 1], pa[ia[o + 1] * 3 + 2]];
+        const C = [pa[ia[o + 2] * 3], pa[ia[o + 2] * 3 + 1], pa[ia[o + 2] * 3 + 2]];
+        const area2 = Math.hypot(...crossV(sub(B, A), sub(C, A)));
+        const longest = Math.max(Math.hypot(...sub(B, A)), Math.hypot(...sub(C, B)), Math.hypot(...sub(A, C)));
+        if (area2 > 8 && area2 / longest > 1.2) continue;
+        let list = more.get(part);
+        if (!list) more.set(part, (list = []));
+        list.push(t, ia[o], ia[o + 1], ia[o + 2]);
+        part.dead[t] = 1;
+        const a0 = ia[o];
+        ia[o + 1] = a0; ia[o + 2] = a0;
+        flush(part, o, o + 3);
+        this.torn++;
+      }
+      if (!more.size) break;
+      for (const [part, killed] of more) remember(part, killed);
     }
-    // Every edge of what is still there, near enough to have been shared.
-    const live = new Map();
-    for (const part of this.parts) {
-      if (zhi + 3 < part.minZ || zlo - 3 > part.maxZ) continue;
+    survey();
+    // Every corner on the edge, bent in once: the same corner in every
+    // buffer that shares it, so no seam opens between her paints.
+    const corners = new Map();
+    for (const part of near) {
       const pa = part.mesh.geometry.attributes.position.array;
       const ia = part.idx.array;
-      const lo = Math.max(0, Math.floor((zlo - 3 - part.minZ) / BUCKET));
-      const hi = Math.min(part.buckets.length - 1, Math.floor((zhi + 3 - part.minZ) / BUCKET));
+      const [lo, hi] = range(part);
       for (let b = lo; b <= hi; b++) {
         const list = part.buckets[b];
         if (!list) continue;
         for (const t of list) {
           if (part.dead[t]) continue;
-          const o = t * 3;
-          for (let k = 0; k < 3; k++) live.set(ek(pa, ia[o + k], ia[o + (k + 1) % 3]), [part, t, k]);
+          for (let k = 0; k < 3; k++) {
+            const v = ia[t * 3 + k];
+            const key = key3(pa, v);
+            let c = corners.get(key);
+            if (!c) corners.set(key, (c = []));
+            c.push(part, v, t);
+          }
         }
       }
     }
-    for (const { part: gone, killed } of cuts) {
-      const gpa = gone.mesh.geometry.attributes.position.array;
-      for (let i = 0; i < killed.length; i += 4) {
-        const t0 = killed[i];
-        const c = [killed[i + 1], killed[i + 2], killed[i + 3]];
-        for (let k = 0; k < 3; k++) {
-          const hit = live.get(ek(gpa, c[k], c[(k + 1) % 3]));
-          if (!hit) continue;
-          const [part, t, e] = hit;
-          const key = `${part.pi}:${t}:${e}`;
-          if (W.edges.has(key)) continue;
-          const pa = part.mesh.geometry.attributes.position.array;
-          const ia = part.idx.array;
-          const o = t * 3;
-          const va = ia[o + e], vb = ia[o + (e + 1) % 3];
-          const a = [pa[va * 3], pa[va * 3 + 1], pa[va * 3 + 2]];
-          const b = [pa[vb * 3], pa[vb * 3 + 1], pa[vb * 3 + 2]];
-          // Inside a shell hole her shader has already cut away, there is no
-          // edge to show: the ring round that hole is the edge.
-          if (W.rings.length && W.inAnyRing((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2)) continue;
-          const n = faceNormal(part, t);
-          // Facing the gap: across the plate, toward where the piece was.
-          const ex = b[0] - a[0], ey = b[1] - a[1], ez = b[2] - a[2];
-          let fx = n[1] * ez - n[2] * ey, fy = n[2] * ex - n[0] * ez, fz = n[0] * ey - n[1] * ex;
-          const gx = gone.cent[t0 * 3] - part.cent[o], gy = gone.cent[t0 * 3 + 1] - part.cent[o + 1], gz = gone.cent[t0 * 3 + 2] - part.cent[o + 2];
-          if (fx * gx + fy * gy + fz * gz < 0) { fx = -fx; fy = -fy; fz = -fz; }
-          const fl = Math.hypot(fx, fy, fz) || 1;
-          const slot = W.alloc();
-          if (slot < 0) { W.flush(); return; }
-          const d = this.depthAt((a[1] + b[1]) / 2, (a[2] + b[2]) / 2, n);
-          W.put(slot, a, b, n, d.depth, d.plate, [fx / fl, fy / fl, fz / fl]);
-          W.edges.set(key, slot);
-          const tk = `${part.pi}:${t}`;
-          const list = W.byTri.get(tk);
-          if (list) list.push(key); else W.byTri.set(tk, [key]);
-        }
+    const bent = this.bent || (this.bent = new Set());
+    const bend = (key, n, depth, plate) => {
+      if (bent.has(key)) return;
+      bent.add(key);
+      const c = corners.get(key);
+      if (!c) return;
+      const pa0 = c[0].mesh.geometry.attributes.position.array;
+      const x = pa0[c[1] * 3], y = pa0[c[1] * 3 + 1], z = pa0[c[1] * 3 + 2];
+      // Thin plate folds; a foot of armour barely gives.
+      const give = Math.min(1, Math.max(0.2, 1 - (plate - 0.03) * 3));
+      const k = (0.08 + 0.32 * wob(x, y, z, 11)) * give;
+      for (let i = 0; i < c.length; i += 3) {
+        const part = c[i], v = c[i + 1], t = c[i + 2];
+        const P = part.mesh.geometry.attributes.position;
+        const pa = P.array;
+        // (Once per vertex, though it is listed once per triangle.)
+        if (pa[v * 3] !== x || pa[v * 3 + 1] !== y || pa[v * 3 + 2] !== z) continue;
+        pa[v * 3] -= n[0] * k; pa[v * 3 + 1] -= n[1] * k; pa[v * 3 + 2] -= n[2] * k;
+        P.addUpdateRange(v * 3, 3);
+        P.needsUpdate = true;
+        void t;
+      }
+    };
+    for (const [part, t, keys] of live) {
+      for (let e = 0; e < 3; e++) {
+        const g = open.get(keys[e]);
+        if (!g) continue;
+        const key = `${part.pi}:${t}:${e}`;
+        if (W.edges.has(key)) continue;
+        const pa = part.mesh.geometry.attributes.position.array;
+        const ia = part.idx.array;
+        const o = t * 3;
+        const va = ia[o + e], vb = ia[o + (e + 1) % 3];
+        const mid = [(pa[va * 3] + pa[vb * 3]) / 2, (pa[va * 3 + 1] + pa[vb * 3 + 1]) / 2, (pa[va * 3 + 2] + pa[vb * 3 + 2]) / 2];
+        // Inside a shell hole her shader has already cut away, there is no
+        // edge to show: the ring round that hole is the edge.
+        if (W.rings.length && W.inAnyRing(mid[0], mid[1], mid[2])) continue;
+        const n = faceNormal(part, t);
+        const d = this.depthAt(mid[1], mid[2], n);
+        bend(key3(pa, va), n, d.depth, d.plate);
+        bend(key3(pa, vb), n, d.depth, d.plate);
+        const a = [pa[va * 3], pa[va * 3 + 1], pa[va * 3 + 2]];
+        const b = [pa[vb * 3], pa[vb * 3 + 1], pa[vb * 3 + 2]];
+        const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+        // Facing the gap: across the plate, toward where the piece was.
+        const [gp, gt] = g;
+        let fv = crossV(n, sub(b, a));
+        const gv = sub([gp.cent[gt * 3], gp.cent[gt * 3 + 1], gp.cent[gt * 3 + 2]], m);
+        if (dotV(fv, gv) < 0) fv = [-fv[0], -fv[1], -fv[2]];
+        const fl = Math.hypot(...fv) || 1;
+        fv = [fv[0] / fl, fv[1] / fl, fv[2] / fl];
+        const slot = W.alloc();
+        if (slot < 0) { W.flush(); return; }
+        W.begin(slot);
+        // The plate along the edge is not cut off clean but torn, and folded
+        // in: a flap of her, in her paint, reaching out over the hole by its
+        // own amount at every point and bent in toward her insides by more
+        // where it reaches further -- rounded from one point to the next, so
+        // the edge is ragged without being a row of teeth.
+        const give = Math.min(1, Math.max(0.15, 1 - (d.plate - 0.03) * 3));
+        const flap = (q) => {
+          const reach = (0.08 + 0.45 * wob(q[0], q[1], q[2], 21)) * give;
+          const sink = reach * (0.4 + 0.9 * wob(q[0], q[1], q[2], 22));
+          return [q[0] + fv[0] * reach - n[0] * sink, q[1] + fv[1] * reach - n[1] * sink, q[2] + fv[2] * reach - n[2] * sink];
+        };
+        const ta = flap(a), tm = flap(m), tb = flap(b);
+        const paint = paintOf(part, t);
+        const sc = (k) => [paint[0] * k + SCRAPED[0] * (1 - k), paint[1] * k + SCRAPED[1] * (1 - k), paint[2] * k + SCRAPED[2] * (1 - k)];
+        W.quad(a, m, tm, ta, paint, paint, sc(0.5), sc(0.5), n);
+        W.quad(m, b, tb, tm, paint, paint, sc(0.5), sc(0.5), n);
+        W.cut([{ p: ta, n }, { p: tm, n }, { p: tb, n }], d.depth, d.plate, fv);
+        W.edges.set(key, slot);
+        const tk = `${part.pi}:${t}`;
+        const list = W.byTri.get(tk);
+        if (list) list.push(key); else W.byTri.set(tk, [key]);
       }
     }
     W.flush();
   }
 
   /**
-   * The face of a shell hole cut in her shaders: a ring standing round its
-   * ragged edge, as deep as she is there. `h` is the hole as shellholes.js
-   * keeps it: [x, y, z, r, nx, ny, nz, thick].
+   * The edge of a shell hole cut in her shaders: the plate round it torn and
+   * bent in toward the hole, ragged and folded more in some places than
+   * others, and then the cut through her at its edge, as deep as she is
+   * there. `h` is the hole as shellholes.js keeps it: [x, y, z, r, nx, ny,
+   * nz, thick]. Her shader cuts LIP times the hole; the ring between is
+   * this lip, so the plate there is drawn bent rather than flat.
    */
   ring(h) {
     const W = this.walls;
@@ -1082,28 +1390,52 @@ export class Plating {
     const al = Math.hypot(ax, ay, az) || 1;
     ax /= al; ay /= al; az /= al;
     const bx = n[1] * az - n[2] * ay, by = n[2] * ax - n[0] * az, bz = n[0] * ay - n[1] * ax;
+    const d = this.depthAt(h[1], h[2], n);
+    const depth = Math.max(d.depth, (h[7] || 0) + 0.12);
+    const plate = Math.min(depth * 0.8, Math.max(d.plate, h[7] || 0));
+    // How far the plate is folded in at the hole: a fair way for thin
+    // plating, hardly at all for heavy armour.
+    const give = Math.min(1, Math.max(0.15, 1 - (plate - 0.03) * 3));
+    const fold = Math.min(0.55, 0.06 + h[3] * 0.16) * give;
+    const slab = Math.max(0.9, h[3] * 0.6) + (h[7] || 0);
+    // On her plating where it is, not on the flat plane of the hole: her side
+    // curves away under her. The cut is a slab either side of that plane, so
+    // where she is inside it the edge is on her.
+    const onHer = (p) => {
+      const at = this.nearest(p[0], p[1], p[2], 2.2);
+      if (!at) return null;
+      const k = (p[0] - at[0]) * at[3] + (p[1] - at[1]) * at[4] + (p[2] - at[2]) * at[5];
+      if (Math.abs(k) > slab) return null;
+      // Plating turned away from the plate that was struck -- round her
+      // bilge, over her deck edge -- is not the edge of this hole.
+      if (at[3] * n[0] + at[4] * n[1] + at[5] * n[2] < 0.75) return null;
+      return { p: [p[0] - at[3] * k, p[1] - at[4] * k, p[2] - at[5] * k], n: [at[3], at[4], at[5]], at };
+    };
     const pts = [];
     for (let i = 0; i <= RING_SEGS; i++) {
       const th = (i / RING_SEGS) * Math.PI * 2;
       const u = [ax * Math.cos(th) + bx * Math.sin(th), ay * Math.cos(th) + by * Math.sin(th), az * Math.cos(th) + bz * Math.sin(th)];
       const rr = ringReach(h[0], h[1], h[2], h[3], n, u);
-      const p = [h[0] + u[0] * rr, h[1] + u[1] * rr, h[2] + u[2] * rr];
-      // Down onto her plating where it is, not the flat plane of the hole:
-      // her side curves away under her, and a ring drawn on the plane stood
-      // out in the air round the bilge. The cut is a slab either side of
-      // that plane, so where she is still inside it the edge is on her.
-      const at = this.nearest(p[0], p[1], p[2], 2.2);
-      let on = !!at;
-      if (at) {
-        const k = (p[0] - at[0]) * at[3] + (p[1] - at[1]) * at[4] + (p[2] - at[2]) * at[5];
-        if (Math.abs(k) > Math.max(0.9, h[3] * 0.6) + (h[7] || 0)) on = false;
-        else { p[0] -= at[3] * k; p[1] -= at[4] * k; p[2] -= at[5] * k; }
-      }
-      pts.push({ p, u, on, n: at ? [at[3], at[4], at[5]] : n });
+      const at = (k) => [h[0] + u[0] * rr * k, h[1] + u[1] * rr * k, h[2] + u[2] * rr * k];
+      const outer = onHer(at(LIP));
+      const midR = onHer(at(1 + (LIP - 1) * 0.5));
+      const edge = onHer(at(1));
+      if (!outer || !midR || !edge) { pts.push(null); continue; }
+      const nn = edge.n;
+      // Folded in by its own amount at every point round it: torn petals,
+      // some folded well in and some hardly at all, and not a neat dish --
+      // rounded off between, never a spike.
+      const petals = 5 + Math.floor(wob(h[0], h[1], h[2], 13) * 4);
+      const pet = Math.pow(Math.abs(Math.sin(th * petals * 0.5 + h[0] * 3.1 + h[2] * 1.7)), 0.8);
+      const f = fold * (0.15 + 0.85 * pet) * (0.7 + 0.3 * wob(edge.p[0], edge.p[1], edge.p[2], 5));
+      const sinkE = f, sinkM = f * (0.3 + 0.2 * wob(edge.p[0], edge.p[1], edge.p[2], 6));
+      const e = [edge.p[0] - nn[0] * sinkE, edge.p[1] - nn[1] * sinkE, edge.p[2] - nn[2] * sinkE];
+      const m = [midR.p[0] - nn[0] * sinkM, midR.p[1] - nn[1] * sinkM, midR.p[2] - nn[2] * sinkM];
+      // A hair proud at its outside, where it meets her paint.
+      const o = [outer.p[0] + outer.n[0] * 0.006, outer.p[1] + outer.n[1] * 0.006, outer.p[2] + outer.n[2] * 0.006];
+      pts.push({ u, e, m, o, n: nn, paint: paintOf(this.parts[outer.at[6]], outer.at[7]) });
     }
-    // Its own segments where there is plating round it to be the edge of --
-    // not past her deck edge into the air -- and not inside another hole.
-    // And anything of the older rings this one has cut through goes.
+    // Anything of the older rings this one has cut through goes.
     for (const R of W.rings) {
       for (let i = 0; i < R.slots.length; i++) {
         const sl = R.slots[i];
@@ -1113,22 +1445,27 @@ export class Plating {
       }
     }
     const R = { h, slots: [], mid: [] };
-    const d = this.depthAt(h[1], h[2], n);
-    const depth = Math.max(d.depth, (h[7] || 0) + 0.12);
-    const plate = Math.min(depth * 0.8, Math.max(d.plate, h[7] || 0));
     for (let i = 0; i < RING_SEGS; i++) {
       const a = pts[i], b = pts[i + 1];
-      const m = [(a.p[0] + b.p[0]) / 2, (a.p[1] + b.p[1]) / 2, (a.p[2] + b.p[2]) / 2];
-      R.mid.push(m);
+      if (!a || !b) { R.mid.push([h[0], h[1], h[2]]); R.slots.push(-1); continue; }
+      const mid = [(a.e[0] + b.e[0]) / 2, (a.e[1] + b.e[1]) / 2, (a.e[2] + b.e[2]) / 2];
+      R.mid.push(mid);
       let slot = -1;
-      if (a.on && b.on && !W.inAnyRing(m[0], m[1], m[2])) {
+      if (!W.inAnyRing(mid[0], mid[1], mid[2])) {
         slot = W.alloc();
         if (slot >= 0) {
           const f = [-(a.u[0] + b.u[0]) / 2, -(a.u[1] + b.u[1]) / 2, -(a.u[2] + b.u[2]) / 2];
-          // Square to her plating there, which is where her frames run.
-          let nx = a.n[0] + b.n[0], ny = a.n[1] + b.n[1], nz = a.n[2] + b.n[2];
-          const nl = Math.hypot(nx, ny, nz) || 1;
-          W.put(slot, a.p, b.p, [nx / nl, ny / nl, nz / nl], depth, plate, f);
+          const fl = Math.hypot(...f) || 1;
+          const fv = [f[0] / fl, f[1] / fl, f[2] / fl];
+          W.begin(slot);
+          // The lip: her paint at its outside, scraped and blackened where
+          // it was torn, bent in toward the hole.
+          const scuff = (c, k) => [c[0] * k + SCRAPED[0] * (1 - k), c[1] * k + SCRAPED[1] * (1 - k), c[2] * k + SCRAPED[2] * (1 - k)];
+          const out = [a.n[0] + b.n[0], a.n[1] + b.n[1], a.n[2] + b.n[2]];
+          W.quad(a.o, b.o, b.m, a.m, a.paint, b.paint, scuff(b.paint, 0.9), scuff(a.paint, 0.9), out);
+          W.quad(a.m, b.m, b.e, a.e, scuff(a.paint, 0.9), scuff(b.paint, 0.9), scuff(b.paint, 0.45), scuff(a.paint, 0.45), out);
+          // And the cut through her, from the bent edge in.
+          W.cut([{ p: a.e, n: a.n }, { p: b.e, n: b.n }], depth, plate, fv);
         }
       }
       R.slots.push(slot);
@@ -1155,14 +1492,25 @@ export class Plating {
     let any = false;
     for (const R of W.rings) {
       const dx = R.h[0] - x, dy = R.h[1] - y, dz = R.h[2] - z;
-      if (dx * dx + dy * dy + dz * dz > (r + R.h[3] * 2 + 2) ** 2) continue;
+      if (dx * dx + dy * dy + dz * dz > (r + R.h[3] * 2.6 + 2) ** 2) continue;
       for (let i = 0; i < R.slots.length; i++) {
         if (R.slots[i] < 0) continue;
         const m = R.mid[i];
-        if (!this.nearest(m[0], m[1], m[2], 1.7)) { W.kill(R.slots[i]); R.slots[i] = -1; any = true; }
+        if (!this.nearest(m[0], m[1], m[2], 1.9)) { W.kill(R.slots[i]); R.slots[i] = -1; any = true; }
       }
     }
     if (any) W.flush();
+  }
+
+  /**
+   * The plate round a hole dished in by what made it: everything within `r`
+   * of it pushed in along the way it faces, most at the hole and fairing out
+   * to nothing, and the edge of the hole and its lip carried in with it.
+   */
+  dish(x, y, z, r, depth) {
+    const near = this.nearest(x, y, z, Math.max(5, r));
+    if (!near) return;
+    this.dent(x, y, z, r, depth, near);
   }
 
   /**
@@ -1202,7 +1550,8 @@ export class Plating {
     }
     if (at && won) {
       const n = faceNormal(won[0], won[1]);
-      at.push(n[0], n[1], n[2]);
+      // And which piece of her it is: [x, y, z, nx, ny, nz, part, triangle].
+      at.push(n[0], n[1], n[2], won[0].pi, won[1]);
     }
     return at;
   }
@@ -1487,7 +1836,9 @@ function refine(geo, area, cap) {
 function flush(part, from, to) {
   const idx = part.idx;
   if (idx.addUpdateRange) {
-    idx.clearUpdateRanges?.();
+    // Added to what is already waiting to go up, not in place of it: a hole
+    // is several sweeps in the one frame, and dropping the earlier ranges
+    // left pieces of her standing that had been taken away.
     idx.addUpdateRange(from, to - from);
   } else if (idx.updateRange) {
     idx.updateRange.offset = from;
