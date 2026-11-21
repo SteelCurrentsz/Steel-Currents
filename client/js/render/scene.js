@@ -904,6 +904,9 @@ export class ShipView {
     // her. See plating.js -- this is what makes a hole a hole rather than a
     // compartment disappearing.
     this.plating = new Plating(this.group, quality);
+    // How deep she is wherever she is cut: her armour, and the frames and
+    // beams it is built on behind it (see Walls in plating.js).
+    this.plating.thickAt = (y, z, ny) => this.cutDepth(y, z, ny);
     // And her as the pieces she is made of: her funnels, her masts, her boats,
     // her lockers, every fitting bolted to her. The plating above is what a
     // hole is cut in; this is what is bent, blackened and knocked off her.
@@ -1979,13 +1982,36 @@ export class ShipView {
     if (thick == null) thick = this.plateAt(cy, cz, ny);
     const old = this.holes
       ? this.holes.add(cx, cy, cz, r, nx, ny, nz, Math.max(0.012, thick)) : null;
+    // Its edge, as thick as she is there (see Walls in plating.js).
+    if (this.holes) this.plating.ring(this.holes.list[this.holes.list.length - 1]);
     // One that has dropped out of what her shaders hold is cut out of her
     // the old way, so it stays a hole.
-    if (old) this.plating.punch(old[0], old[1], old[2], old[3], 0.45);
+    if (old) {
+      this.plating.unring(old);
+      this.plating.punch(old[0], old[1], old[2], old[3], 0.45);
+    }
     if (!this.holes) this.plating.punch(x, y, z, r, 0.45);
     this.dropUnsupported(cx, cy, cz, r);
     this.opened(cx, cy, cz, r, [nx, ny, nz]);
     return 1;
+  }
+
+  /**
+   * How deep she is where she has been cut, metres, and how much of that is
+   * the plate itself: her armour (plateAt), and behind it what it is built
+   * on -- the frames of her side, the beams under her deck, the backing and
+   * the inner skin behind a belt -- which is most of what makes a hole in
+   * her side look like a hole in a ship and not in a sheet of paper.
+   */
+  cutDepth(y, z, ny) {
+    const plate = Math.max(0.025, this.plateAt(y, z, ny));
+    const deckY = freeboardOf(this.cls);
+    const big = Math.min(1, this.cls.hull.length / 250);
+    let frame;
+    if (Math.abs(ny) > 0.6) frame = 0.2 + 0.15 * big;
+    else if (y > deckY + 1.5) frame = 0.1 + 0.06 * big;
+    else frame = 0.3 + 0.25 * big + (plate > 0.12 ? 0.18 : 0);
+    return { depth: plate + frame, plate };
   }
 
   /** How thick her plating is at a height and a station, metres: her armour. */

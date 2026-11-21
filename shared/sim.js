@@ -26,7 +26,7 @@ import {
 } from './airframe.js';
 import { stepInfantry, blastInfantry } from './infantry.js';
 import {
-  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody,
+  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody, MONSTER,
 } from './monster.js';
 import { planRoute } from './tankroute.js';
 import {
@@ -8021,35 +8021,65 @@ function monsterTear(state, t, mo, how) {
   const beam = cls.hull.beam / 2;
   const fb = freeboardOf(cls);
   const held = t.gripBy === mo.id;
-  let lx, lz;
-  if (how === 'bite' && !held) {
-    // The part of her nearest the jaws: her head is well forward of her middle.
-    const hx = mo.x + Math.sin(mo.heading) * 60;
-    const hz = mo.z + Math.cos(mo.heading) * 60;
-    const l = worldToLocal(hx - t.x, hz - t.z, t.heading);
-    lx = clamp(l.x, -beam, beam);
-    lz = clamp(l.z, -half * 0.85, half * 0.85);
-    if (Math.abs(lx) < beam * 0.3) lx = (lx >= 0 ? 1 : -1) * beam * 0.3;
+  let lx, lz, ly = null;
+  if (how === 'bite') {
+    // Where her head is turned (see MONSTER.bite and m.head): across her by
+    // as far as her neck swings, and up or down her side from below the
+    // waterline to her upperworks. Her jaws close on the part of the ship
+    // nearest to that, and on nothing else.
+    const aim = (mo.mo && mo.mo.head) || { x: 0, y: 0 };
+    const B = MONSTER.bite;
+    // Her right, across her heading (+x is her left).
+    const rx = -Math.cos(mo.heading), rz = Math.sin(mo.heading);
+    let px, pz;
+    if (held) {
+      // In her hands: anywhere along the ship, end to end, as her head goes
+      // from one side of her to the other.
+      const span = Math.max(B.swing, half);
+      px = t.x + rx * aim.x * span;
+      pz = t.z + rz * aim.x * span;
+    } else {
+      // In the water ahead of her: the part of her nearest the jaws, as far
+      // across as her neck swings.
+      const k = mo.mo && mo.mo.pose === 'stand' ? B.head.stand : B.head.swim;
+      px = mo.x + Math.sin(mo.heading) * k + rx * aim.x * B.swing;
+      pz = mo.z + Math.cos(mo.heading) * k + rz * aim.x * B.swing;
+    }
+    const l = worldToLocal(px - t.x, pz - t.z, t.heading);
+    lz = clamp(l.z, -half * 0.88, half * 0.88);
+    // On the side of her facing Monster One.
+    const me = worldToLocal(mo.x - t.x, mo.z - t.z, t.heading);
+    const side = me.x >= 0 ? 1 : -1;
+    // Up and down: from a third of her draught under the water, to her
+    // deck edge, to her upperworks over it.
+    const top = fb + Math.max(5, beam * 0.45);
+    const y = aim.y;
+    ly = y < 0 ? fb * 0.55 + (fb * 0.55 + cls.hull.draft * 0.35) * y : fb * 0.55 + (top - fb * 0.55) * y;
+    // High up, her upperworks stand in from her sides.
+    lx = side * beam * (ly > fb + 1 ? 0.4 : 0.85);
   } else {
-    // In her hands: wherever the teeth or the fingers closed.
-    lz = (state.rng() * 2 - 1) * half * (how === 'bite' ? 0.5 : 0.7);
+    // In her hands: wherever the fingers closed.
+    lz = (state.rng() * 2 - 1) * half * 0.7;
     lx = (state.rng() < 0.5 ? -1 : 1) * beam * (0.5 + state.rng() * 0.5);
   }
   const claw = how === 'claw';
   const rad = clamp(beam * (claw ? 0.6 : 0.5), claw ? 3.5 : 3, claw ? 11 : 9);
   // Her claws close round the hull low down, below the waterline as often as
-  // not; her teeth go in over the gunwale.
-  const ly = claw ? -cls.hull.draft * 0.4 + state.rng() * (fb * 0.5 + cls.hull.draft * 0.4)
-    : fb * (0.5 + state.rng() * 0.6);
-  const where = sectionAt(clamp(lz / half, -1, 1), 'deck');
-  if (t.sections && t.sections[where]) {
+  // not; her teeth go in where her head put them.
+  if (ly === null) ly = -cls.hull.draft * 0.4 + state.rng() * (fb * 0.5 + cls.hull.draft * 0.4);
+  // Over her deck edge it is her upperworks that comes away: no sea comes in
+  // through that.
+  const upper = !claw && ly > fb + 1;
+  const where = upper ? 'works' : sectionAt(clamp(lz / half, -1, 1), 'deck');
+  if (!upper && t.sections && t.sections[where]) {
     openHull(state, t, where, rad * rad * (claw ? 0.5 : 0.3), lx >= 0 ? 1 : -1,
       Math.max(0, -ly), { x: lx, y: ly, z: lz });
   }
   // A gun where she closed on her, torn out and flung.
   const odds = claw ? 0.55 : 0.65;
   const reach = rad * 1.3 + 3;
-  const near = standing(t, cls)
+  // (Only off her deck: jaws in her side under the water take no gun.)
+  const near = ly < fb * 0.4 && !claw ? [] : standing(t, cls)
     .filter((g) => !mountFell(t, g.k, g.i))
     .map((g) => ({ g, d: Math.hypot((g.s.x || 0) - lx, g.s.z - lz) }))
     .filter((q) => q.d <= reach + footOf(q.g.bore))
@@ -8063,7 +8093,7 @@ function monsterTear(state, t, mo, how) {
     tossMount(state, t, cls, near[k].g, how, { x: Math.sin(away), z: Math.cos(away) }, how === 'claw' ? 0.3 : 0.7, mo.id);
   }
   const r1 = (v) => Math.round(v * 10) / 10;
-  return { lx: r1(lx), ly: r1(ly), lz: r1(lz), r: r1(rad), sd: Math.floor(state.rng() * 1e6) };
+  return { lx: r1(lx), ly: r1(ly), lz: r1(lz), r: r1(rad), sd: Math.floor(state.rng() * 1e6), where };
 }
 
 /**
@@ -19806,7 +19836,7 @@ export function hullIntegrity(ship) {
   return hp;
 }
 
-export function damageShip(state, ship, source, amount, kind, where = null) {
+export function damageShip(state, ship, source, amount, kind, where = null, contain = false) {
   if (!ship.alive || amount <= 0) return;
   if (shipClass(ship).monster) { monsterHurt(state, ship, source, amount, kind, MONSTER_HOOKS); return; }
   // A submarine is a pressure hull: breached, she goes. The toughness and
@@ -19827,9 +19857,11 @@ export function damageShip(state, ship, source, amount, kind, where = null) {
     const took = Math.min(sec.hp, amount);
     sec.hp -= took;
     // Anything the compartment could not absorb goes into the rest of her:
-    // a shell through a wrecked bow still opens frames behind it.
+    // a shell through a wrecked bow still opens frames behind it. Not so a
+    // blow that is all in the one place (`contain`): Monster One's jaws take
+    // what they close on, and nothing else of her.
     let rest = amount - took;
-    if (rest > 0) spread(ship, rest);
+    if (rest > 0 && !contain) spread(ship, rest);
   } else {
     spread(ship, amount);
   }

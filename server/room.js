@@ -843,6 +843,7 @@ export class Room {
           target: Number(msg.o.target) || 0,
           side: msg.o.side === 1 || msg.o.side === -1 ? msg.o.side : 0,
           pose: String(msg.o.pose || ''),
+          hx: Number(msg.o.hx) || 0, hy: Number(msg.o.hy) || 0,
         };
         const why = monsterOrder(this.state, to, o, MONSTER_HOOKS);
         if (why) player.send({ t: 'nomo', a: o.a, why });
