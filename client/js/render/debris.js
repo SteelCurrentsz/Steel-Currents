@@ -169,7 +169,8 @@ export class Debris {
         p.ttl = Math.min(p.ttl, p.life + 0.25);
         if (this.onSplash && p.size > 0.6) this.onSplash(p.x, p.z, p.size);
       }
-      if (p.splashed) { p.vx *= 0.02; p.vz *= 0.02; p.vy = 0; p.y = sea; }
+      // In the water it goes down, not sits on it.
+      if (p.splashed) { p.vx *= 0.3; p.vz *= 0.3; p.vy = -2.5; }
       if (p.life >= p.ttl) continue;
       if (!p.splashed && p.life < p.smokeFor) this.trail(p, dt);
       const s = p.shape;

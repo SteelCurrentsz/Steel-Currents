@@ -32779,43 +32779,115 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.equal(ships[1].hp, ships[1].maxHp, 'the tail reached a ship ahead of her');
   });
 
-  check('Monster One takes hold of a ship in front of her, lifts her, crushes her and throws her onto another', () => {
-    const { state, mo, ships } = field([['fletcher', 0, 160], ['fletcher', -300, 500]]);
+  check('Monster One takes hold of a destroyer at arm\'s length, lifts her, crushes her and throws her onto another', () => {
+    const { state, mo, ships } = field([['fletcher', 0, 45], ['fletcher', -200, 350]]);
     assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
     run(state, 2.5);
-    assert.equal(ships[0].heldBy, mo.id, 'she did not get hold of her');
+    assert.equal(ships[0].gripBy, mo.id, 'she did not get hold of her');
     assert.ok(ships[0].held.lifted, 'a destroyer was not lifted out of the water');
+    assert.equal(MO.readMonsterWire(shipSnapshot(mo, false, state).mo).pin, false);
     const before = ships[0].hp;
     run(state, 1);
     assert.ok(ships[0].hp < before, 'nothing is crushed in her hands');
     assert.equal(SIM.monsterOrder(state, mo, { a: 'throw', x: ships[1].x, z: ships[1].z }, SIM.MONSTER_HOOKS), '');
     const ev = run(state, 4);
     assert.ok(ev.some((e) => e.e === 'moSlam'), 'she never came down');
-    assert.ok(!ships[0].heldBy && !ships[0].flung);
+    assert.ok(!ships[0].gripBy && !ships[0].flung);
     assert.ok(Math.hypot(ships[0].x - ships[1].x, ships[0].z - ships[1].z) < 120, 'she was not thrown where she was aimed');
     assert.ok(ships[1].hp < ships[1].maxHp, 'the one she came down on was not hurt');
   });
 
-  check('Monster One lifts and throws a battleship as well as a destroyer, only not as far', () => {
-    const { state, mo, ships } = field([['iowa', 0, 200]]);
+  check('Monster One cannot take hold of, bite or tail a ship that is not right there', () => {
+    // Her hands come down 38 m ahead of her middle: a destroyer lying across
+    // her bow 160 m off is out of reach, and so is one off her beam.
+    const { state, mo, ships } = field([['fletcher', 0, 160], ['fletcher', 140, 0]]);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), 'none');
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab', target: ships[0].id }, SIM.MONSTER_HOOKS), 'none', 'she took one by name from out of reach');
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab', target: ships[1].id }, SIM.MONSTER_HOOKS), 'none', 'she took one off her beam');
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS), 'none', 'she bit a ship 160 m off');
+    // At arm's length, she is.
+    ships[0].z = 50;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
+    // One that steams out from under her hands while they come down is missed.
+    ships[0].z = 140;
+    run(state, 2.5);
+    assert.ok(!ships[0].gripBy, 'she took a ship her hands never reached');
+    // Her tail is as long as her tail: a ship 300 m astern is not touched.
+    const far = field([['fletcher', 0, -300]]);
+    run(far.state, 1);
+    SIM.monsterOrder(far.state, far.mo, { a: 'tail', side: 1 }, SIM.MONSTER_HOOKS);
+    run(far.state, MO.MONSTER.tail.time + 0.5);
+    assert.equal(far.ships[0].hp, far.ships[0].maxHp, 'the tail reached 300 m');
+  });
+
+  check('Monster One lifts transports, destroyers, destroyer escorts and submarines, and only holds anything bigger', () => {
+    for (const [c, lifts] of [['liberty', true], ['victory', true], ['higgins', true], ['lcm', true], ['evarts', true], ['fletcher', true], ['type7c', true],
+      ['cleveland', false], ['iowa', false], ['essex', false]]) {
+      const { state, mo, ships } = field([[c, 0, 45]]);
+      assert.equal(MO.liftable(ships[0]), lifts, `${c} liftable`);
+      assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '', `${c}: no grab`);
+      run(state, 2.5);
+      assert.equal(ships[0].gripBy, mo.id, `she did not get hold of the ${c}`);
+      assert.equal(!!ships[0].held.lifted, lifts, `${c} lifted`);
+      assert.equal(MO.readMonsterWire(shipSnapshot(mo, false, state).mo).pin, !lifts);
+    }
+  });
+
+  check('Monster One holds a battleship down where she lies, and lets her go rather than throwing her', () => {
+    const { state, mo, ships } = field([['iowa', 0, 50]]);
+    ships[0].notch = 5;
     assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
     run(state, 2.5);
-    assert.equal(ships[0].heldBy, mo.id, 'she did not get hold of the Iowa');
-    assert.ok(ships[0].held.lifted, 'the Iowa was not lifted');
-    const from = { x: ships[0].x, z: ships[0].z };
+    assert.equal(ships[0].gripBy, mo.id, 'she did not get hold of the Iowa');
+    assert.ok(!ships[0].held.lifted, 'the Iowa was lifted');
+    const at = { x: ships[0].x, z: ships[0].z, h: ships[0].heading };
+    const her = { x: mo.x, z: mo.z };
+    mo.notch = 5;
+    run(state, 3);
+    assert.ok(Math.hypot(ships[0].x - at.x, ships[0].z - at.z) < 0.01 && ships[0].heading === at.h, 'the Iowa moved in her hands');
+    assert.ok((ships[0].liftY || 0) === 0, 'the Iowa came up out of the water');
+    assert.ok(Math.hypot(mo.x - her.x, mo.z - her.z) < 3, 'she walked off holding her down');
     assert.equal(SIM.monsterOrder(state, mo, { a: 'throw', x: 0, z: 3000 }, SIM.MONSTER_HOOKS), '');
-    const ev = run(state, 4);
-    assert.ok(ev.some((e) => e.e === 'moSlam' && e.big), 'she did not come down from high');
-    const went = Math.hypot(ships[0].x - from.x, ships[0].z - from.z);
-    assert.ok(went > MO.MONSTER.grab.toss * 0.35 && went < MO.MONSTER.grab.toss * 0.95, `the Iowa went ${went} m`);
+    run(state, 3);
+    assert.ok(!ships[0].gripBy && !ships[0].flung, 'the Iowa was thrown');
+    assert.ok(Math.hypot(ships[0].x - at.x, ships[0].z - at.z) < 30, 'the Iowa went somewhere');
+  });
+
+  check('Monster One\'s throw: out of her hands high up, one arc down, and back up out of the water where she landed', () => {
+    const { state, mo, ships } = field([['fletcher', 0, 45]]);
+    SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS);
+    run(state, 2.5);
+    SIM.monsterOrder(state, mo, { a: 'throw', x: 0, z: 600 }, SIM.MONSTER_HOOKS);
+    let y = null, maxStep = 0, landed = null, deepest = 0, wasSplash = false, end = null;
+    for (let t = 0; t < 8; t += DT) {
+      step(state, DT);
+      const s = ships[0];
+      if (s.flung || s.splash) {
+        const ly = s.liftY || 0;
+        if (y == null) assert.ok(ly > MO.MONSTER.grab.release.up * 0.8, `she left her hands at ${ly} m`);
+        else maxStep = Math.max(maxStep, Math.abs(ly - y));
+        y = ly;
+      }
+      if (s.splash) {
+        if (!landed) landed = { x: s.x, z: s.z };
+        assert.ok(Math.hypot(s.x - landed.x, s.z - landed.z) < 1e-6, 'she moved in the water after landing');
+        deepest = Math.min(deepest, s.liftY || 0);
+        assert.ok((s.liftY || 0) <= 0, 'she bounced up out of the water');
+        wasSplash = true;
+      } else if (wasSplash && end == null) end = s.liftY || 0;
+    }
+    assert.ok(wasSplash, 'she never went into the water');
+    assert.ok(deepest < -2, `she only went ${deepest} m into the water`);
+    assert.equal(end, 0, 'she did not come back up to float');
+    assert.ok(maxStep < 4, `her height jumped ${maxStep} m in a tick`);
   });
 
   check('Monster One crushes the hull in her hands and bites it, and bites a ship in front of her', () => {
-    const { state, mo, ships } = field([['cleveland', 0, 160], ['iowa', 60, 150]]);
+    const { state, mo, ships } = field([['cleveland', 0, 45], ['iowa', 600, 150]]);
     assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), 'none', 'she crushed with empty hands');
     assert.equal(SIM.monsterOrder(state, mo, { a: 'grab', target: ships[0].id }, SIM.MONSTER_HOOKS), '');
     run(state, 2.2);
-    assert.equal(ships[0].heldBy, mo.id);
+    assert.equal(ships[0].gripBy, mo.id);
     let before = ships[0].hp;
     assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), '');
     let ev = run(state, MO.MONSTER.crush.time + 0.1);
@@ -32827,11 +32899,12 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     ev = run(state, MO.MONSTER.bite.time + 0.1);
     assert.ok(ev.some((e) => e.e === 'moBite' && e.at === ships[0].id), 'she did not bite the ship in her hands');
     assert.ok(!ships[0].alive || ships[0].hp < before, 'the bite did nothing');
-    // Hands empty: the battleship in front of her.
+    // Hands empty: the battleship in front of her jaws.
     assert.equal(SIM.monsterOrder(state, mo, { a: 'throw' }, SIM.MONSTER_HOOKS), ships[0].alive ? '' : 'none');
     run(state, 3);
     run(state, MO.MONSTER.bite.cooldown);
-    ships[1].x = 0; ships[1].z = 150;
+    ships[0].x = 5000;
+    ships[1].x = 0; ships[1].z = mo.z + 40; ships[1].speed = 0; ships[1].notch = 1;
     before = ships[1].hp;
     assert.equal(SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS), '');
     ev = run(state, MO.MONSTER.bite.time + 0.1);
@@ -32885,6 +32958,66 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     run(state, 6);
     assert.ok(!SIM.submerged(mo));
     assert.equal(MO.readMonsterWire(shipSnapshot(mo, false, state).mo).pose, 'swim');
+  });
+
+  check('Monster One walks up out of the sea and over the land on her own legs, and can be berthed ashore', () => {
+    const world = generateWorld(77, 'archipelago');
+    // Somewhere well inland on one of its islands.
+    let land = null;
+    for (let x = -6800; x <= 6800 && !land; x += 100) {
+      for (let z = -6800; z <= 6800; z += 100) {
+        if (groundHeight(world, x, z) > 15 && groundHeight(world, x, z + 300) > 8 && groundHeight(world, x, z + 150) > 8) { land = { x, z }; break; }
+      }
+    }
+    assert.ok(land, 'no land in the world to walk on');
+    const cls = SHIP_CLASSES.monsterone;
+    assert.ok(afloatAt(world, cls, land.x, land.z, 0), 'a berth ashore is refused her');
+    const state = createState(world, { mode: 'deathmatch' });
+    const mo = addShip(state, { name: 'Monster One', classId: 'monsterone', team: 0, index: 0, at: { x: land.x, z: land.z, h: 0 } });
+    assert.ok(Math.hypot(mo.x - land.x, mo.z - land.z) < 1, `she was moved off her berth ashore to ${mo.x}, ${mo.z}`);
+    mo.heading = 0; mo.notch = 3;
+    run(state, 1);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'pose', pose: 'deep' }, SIM.MONSTER_HOOKS), 'ashore');
+    const z0 = mo.z;
+    run(state, 6);
+    assert.ok(mo.alive, 'the land killed her');
+    assert.ok(mo.z - z0 > 10, `she did not walk: ${mo.z - z0} m`);
+    assert.ok(!mo.aground, 'she is aground');
+    const w = MO.readMonsterWire(shipSnapshot(mo, false, state).mo);
+    assert.equal(w.pose, 'stand');
+    assert.ok(w.ashore, 'her wire does not say she is ashore');
+    // And her tail, standing on land.
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'tail', side: 1 }, SIM.MONSTER_HOOKS), '');
+    assert.equal(mo.mo.act, 'tail');
+  });
+
+  check('Monster One\'s Attack key marks ships for her breath, and each gets it as soon as it is ready', () => {
+    const { state, mo, ships } = field([['fletcher', 0, 3000], ['fletcher', 2500, 5000], ['fletcher', 0, 40000]]);
+    const [a, b, far] = ships;
+    assert.equal(orderAttack(state, 0, 'ship', mo.id, 'ship', a.id), 1);
+    assert.equal(orderAttack(state, 0, 'ship', mo.id, 'ship', b.id), 1);
+    let ev = run(state, 0.2);
+    const first = ev.find((e) => e.e === 'moCharge');
+    assert.ok(first, 'the first marked ship was not breathed at');
+    assert.equal(mo.mo.aimId, a.id);
+    assert.deepEqual(mo.mo.marks, [b.id]);
+    assert.deepEqual(MO.readMonsterWire(shipSnapshot(mo, false, state).mo).marks, [b.id]);
+    run(state, MO.MONSTER.breath.climb + MO.MONSTER.breath.throat + MO.MONSTER.breath.fire + 0.5);
+    // Not again until it is ready: then at the next.
+    assert.ok(mo.mo.cool > 0);
+    mo.mo.cool = 0;
+    ev = run(state, 0.3);
+    assert.ok(ev.find((e) => e.e === 'moCharge'), 'the second marked ship was not breathed at');
+    assert.ok(!b.alive || mo.mo.aimId === b.id);
+    // A ship beyond the beam's reach asked for by name is refused, not
+    // breathed at the empty sea short of her.
+    mo.mo.act = ''; mo.mo.cool = 0;
+    far.x = mo.x; far.z = mo.z + MO.MONSTER.breath.range + 1500;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'breath', target: far.id }, SIM.MONSTER_HOOKS), 'far');
+    // Cease clears them.
+    SIM.monsterOrder(state, mo, { a: 'mark', target: far.id }, SIM.MONSTER_HOOKS);
+    assert.equal(orderAttack(state, 0, 'ship', mo.id, null, 0), 1);
+    assert.deepEqual(mo.mo.marks, []);
   });
 
   const mind = (foes, friends, sec = 12) => pinned(() => {

@@ -30,15 +30,67 @@ export async function unpackFile(url) {
 }
 
 async function opened(bytes) {
-  let text;
+  let raw;
   if (typeof DecompressionStream === 'function') {
     try {
       const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-      text = await new Response(stream).text();
+      raw = new Uint8Array(await new Response(stream).arrayBuffer());
     } catch { /* opened by hand below */ }
   }
-  if (text === undefined) text = new TextDecoder().decode(gunzip(bytes));
-  return text.split(',');
+  if (raw === undefined) raw = gunzip(bytes);
+  if (isShuffled(raw)) return unshuffled(raw);
+  return new TextDecoder().decode(raw).split(',');
+}
+
+// The biggest hulls are packed tighter (build/pack-data.mjs, `shuffle`):
+// each string as the bytes its base64 stands for, those bytes regrouped by
+// their place in each value -- every first byte, then every second, and so
+// on -- and each byte written as its difference from the one before, which
+// gzip squeezes a quarter to a third smaller than the base64 itself. The run
+// starts with a mark no run of base64 ever does.
+const MARK = [0, 83, 67, 49]; // \0 S C 1
+
+function isShuffled(b) {
+  return b.length >= 8 && MARK.every((c, i) => b[i] === c);
+}
+
+/** The strings a shuffled run holds, each given back as the base64 it was. */
+function unshuffled(b) {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  let p = 4;
+  const n = dv.getUint32(p, true); p += 4;
+  const heads = [];
+  for (let i = 0; i < n; i++) {
+    heads.push({ k: b[p], d: b[p + 1], len: dv.getUint32(p + 2, true) });
+    p += 6;
+  }
+  const out = [];
+  for (const h of heads) {
+    let x = b.subarray(p, p + h.len);
+    p += h.len;
+    if (h.d) {
+      const y = new Uint8Array(x.length);
+      let prev = 0;
+      for (let i = 0; i < x.length; i++) { prev = (prev + x[i]) & 255; y[i] = prev; }
+      x = y;
+    }
+    if (h.k > 1) {
+      const y = new Uint8Array(x.length);
+      const whole = Math.floor(x.length / h.k) * h.k;
+      let j = 0;
+      for (let q = 0; q < h.k; q++) for (let i = q; i < whole; i += h.k) y[i] = x[j++];
+      for (let i = whole; i < x.length; i++) y[i] = x[j++];
+      x = y;
+    }
+    out.push(toBase64(x));
+  }
+  return out;
+}
+
+function toBase64(b) {
+  let s = '';
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 function fromBase64(s) {

@@ -22,7 +22,7 @@ import { Heavies } from './heavies.js';
 import { Nukes } from './nuke.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
-import { layMount, muzzleWorld, muzzleAim } from './mounts.js';
+import { layMount, muzzleWorld, muzzleAim, glide } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
 import { Plating, holeRadius } from './plating.js';
@@ -33,7 +33,7 @@ import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
 import { Breakers } from './breakers.js';
 import { BowWaves } from './bowwave.js';
-import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
+import { lampPlanAsync, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
 import { prepareSoup, clearSoups } from './section.js';
 import { cutMaterial, cutUniforms } from './sever.js';
@@ -41,6 +41,7 @@ import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
 import { applyGunLook, LOOK } from './gunlooks.js';
 import { Tossed, plateSlab } from './toss.js';
+import { ClawTear, CLAW_BREAK } from './clawtear.js';
 import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import { renderCulled } from './pixelcull.js';
@@ -1139,11 +1140,20 @@ export class ShipView {
    * along (dx, dz) in the world. It goes up as itself, turns over, and comes
    * down in the sea. See toss.js.
    */
-  tossMount(kind, i, how = 'mag', dx = 0, dz = 0, seed = 0) {
+  tossMount(kind, i, how = 'mag', dx = 0, dz = 0, seed = 0, pw = 0.6, mouth = null) {
     if (this.rupture) return false;
     const list = this.mountList(kind);
     const m = list && list[i];
     if (!m || m.userData.gone) return false;
+    // Her claws drag it out with the piece of her it stands on: it goes when
+    // that breaks off, not before (see tearOut).
+    if (how === 'claw') {
+      if (m.userData.clawing) return true;
+      m.userData.clawing = true;
+      (this.clawQueue || (this.clawQueue = [])).push({ t: CLAW_BREAK + 0.05, args: [kind, i, 'clawNow', dx, dz, seed, pw, null] });
+      return true;
+    }
+    if (how === 'clawNow') how = 'claw';
     const world = this.group.parent;
     if (!world) return false;
     // Wrecked by what threw it: blackened, the gunhouse stove in, the guns
@@ -1161,33 +1171,63 @@ export class ShipView {
     const box = new THREE.Box3().setFromObject(m);
     const r = box.isEmpty() ? 2 : box.getSize(new THREE.Vector3()).length() / 2;
     const big = r > 4;
+    const dl = Math.hypot(dx, dz);
+    const local = this.group.worldToLocal(at.clone());
+    const tossed = this.tossed || (this.tossed = new Tossed());
+    // In Monster One's jaws: carried off in them (see Tossed.addMouth).
+    if (how === 'bite' && mouth && mouth.mouthPoint) {
+      tossed.addMouth(m, world, mouth, { sink: big ? 3.5 : 2.5, seed });
+      return true;
+    }
+    // Low and slow: not thrown, but shifted off its ring and sliding across
+    // her deck and over the side -- what a heavy mounting does when charges
+    // burn under it, or claws drag it, or she is lying over far enough for it
+    // to go on its own once it is loose. Only a magazine with real force
+    // behind it lifts one clear of her.
+    const heel = Math.abs(this.group.rotation.z);
+    const slideOdds = how === 'claw' ? 0.6 : how === 'mag' ? Math.max(0, 1 - pw * 1.6) + heel * 1.5 : 0;
+    if (rnd() < slideOdds) {
+      // Toward the side it stood nearest, or the low side, or where it was pushed.
+      let side = local.x >= 0 ? 1 : -1;
+      if (heel > 0.12) side = this.group.rotation.z > 0 ? -1 : 1;
+      if (dl > 1e-3) {
+        const sx = new THREE.Vector3(1, 0, 0).applyQuaternion(this.group.quaternion);
+        side = (dx * sx.x + dz * sx.z) >= 0 ? 1 : -1;
+      }
+      const halfBeam = this.cls.hull.beam / 2;
+      tossed.addSlide(m, this.group, world, {
+        side, push: 0.8 + pw * 2.5 + rnd(), edge: halfBeam * 0.92,
+        yaw: (rnd() - 0.5) * 0.25, sink: big ? 3.5 : 2.5, vel: { x: vx, z: vz },
+      });
+      return true;
+    }
     let vy, out;
     if (how === 'mag') {
       // Straight up off its roller path, and far enough over the side to
-      // come down in the sea and not on her deck.
-      vy = big ? 15 + rnd() * 7 : 20 + rnd() * 10;
+      // come down in the sea and not on her deck. How hard is how much went
+      // under it: a big magazine heaves a heavy turret up a few tens of
+      // metres; a light mounting goes higher.
+      vy = (big ? 9 + rnd() * 6 : 12 + rnd() * 8) * (0.6 + 0.6 * pw);
       const flight = (2 * vy) / 9.81;
-      const local = this.group.worldToLocal(at.clone());
       const clear = Math.max(0, this.cls.hull.beam / 2 - Math.abs(local.x)) + r + 4;
-      out = clear / flight * (1.2 + rnd() * 0.5);
+      out = clear / flight * (1.1 + rnd() * 0.4);
     } else {
-      // Flung: low and hard, away from her.
-      vy = 7 + rnd() * 7;
-      out = 14 + rnd() * 12;
+      // Torn out and flung: low and hard, away from her.
+      vy = 4 + rnd() * 5;
+      out = 10 + rnd() * 8;
     }
-    const dl = Math.hypot(dx, dz);
     if (dl < 1e-3) {
-      const side = new THREE.Vector3(1, 0, 0).applyQuaternion(this.group.quaternion);
+      const side = new THREE.Vector3(local.x >= 0 ? 1 : -1, 0, 0).applyQuaternion(this.group.quaternion);
       dx = side.x; dz = side.z;
     } else { dx /= dl; dz /= dl; }
     vx += dx * out;
     vz += dz * out;
-    const tossed = this.tossed || (this.tossed = new Tossed());
     tossed.add(m, world, {
       vx, vy, vz,
-      // A thousand tons turns over slowly; a light mounting goes end over end.
-      spin: (rnd() < 0.5 ? -1 : 1) * (big ? 0.5 + rnd() * 0.7 : 1.5 + rnd() * 2.5),
-      axis: new THREE.Vector3(-dz, (rnd() - 0.5) * 0.6, dx),
+      // A thousand tons turns over slowly -- a quarter turn on the way up and
+      // over -- and even a light mounting turns over, not end over end.
+      spin: (rnd() < 0.5 ? -1 : 1) * (big ? 0.25 + rnd() * 0.35 : 0.6 + rnd() * 0.9),
+      axis: new THREE.Vector3(-dz, (rnd() - 0.5) * 0.4, dx),
       sink: big ? 3.5 : 2.5,
     });
     return true;
@@ -1233,7 +1273,7 @@ export class ShipView {
       // A moment's grace for the event that throws it, which can come a
       // frame or two after the state that says it has gone.
       if (!m.userData.tossSeen) { m.userData.tossSeen = now; continue; }
-      if (now - m.userData.tossSeen < 1500) continue;
+      if (now - m.userData.tossSeen < (m.userData.clawing ? 3000 : 1500)) continue;
       m.visible = false;
       m.userData.gone = true;
       m.userData.laid = false;
@@ -1243,9 +1283,34 @@ export class ShipView {
   /**
    * Monster One's teeth or claws in her: a rent torn out of her side at
    * (lx, ly, lz) in her own frame, `r` across, the plating and whatever was
-   * standing on it coming away in slabs and flung along (dx, dz).
+   * standing on it coming away along (dx, dz).
+   *
+   * Her claws do not take it at once: they go in, the steel cracks between
+   * them and round them, and the piece breaks off (see clawtear.js), which
+   * is when the rent is torn. Her teeth take it at once, and the piece comes
+   * away in her jaws (`rig`, her MonsterRig) to be gnawed and thrown away.
+   * `fx` is { dig(point), broke(point) } for the battle's smoke and noise.
    */
-  tearOut(lx, ly, lz, r, seed = 0, dx = 0, dz = 0, claw = false) {
+  tearOut(lx, ly, lz, r, seed = 0, dx = 0, dz = 0, claw = false, rig = null, fx = null) {
+    if (this.rupture || !this.group.parent) return;
+    if (claw && this.plating) {
+      const world = (p) => this.group.localToWorld(p.clone());
+      const tear = new ClawTear(this, {
+        lx, ly, lz, r, seed,
+        onDig: (p) => { if (fx && fx.dig) fx.dig(world(p)); },
+        onBreak: (c, n) => {
+          this.tearNow(lx, ly, lz, r, seed, dx, dz, true, null, { c, n });
+          if (fx && fx.broke) fx.broke(world(c));
+        },
+      });
+      (this.clawTears || (this.clawTears = [])).push(tear);
+      return;
+    }
+    this.tearNow(lx, ly, lz, r, seed, dx, dz, claw, rig);
+  }
+
+  /** The rent itself, and what came out of it: see tearOut. */
+  tearNow(lx, ly, lz, r, seed = 0, dx = 0, dz = 0, claw = false, rig = null, face = null) {
     if (this.rupture || !this.group.parent) return;
     let went = 0;
     if (this.plating) {
@@ -1257,19 +1322,22 @@ export class ShipView {
         this.opened(lx, ly, lz, r);
       }
     }
-    // Whatever was standing near it, torn off with it.
+    // Whatever was standing near it, torn off with it: it drops away from
+    // her, not flung across the sea.
     const h = this.group.rotation.y;
     const v = this.speedNow || 0;
+    const dl = Math.hypot(dx, dz);
     if (this.fittings && this.wreck) {
-      const cuts = this.fittings.blast(lx, ly + 1, lz, r * 1.6, claw ? 8 : 6);
+      const cuts = this.fittings.blast(lx, ly + 1, lz, r * 1.6, claw ? 5 : 4);
       if (cuts) {
-        const dl = Math.hypot(dx, dz) || 1;
         for (const cut of cuts) {
-          this.wreck.add(cut, this.group, Math.sin(h) * v + (dx / dl) * 10, Math.cos(h) * v + (dz / dl) * 10);
+          cut.force = Math.min(cut.force || 0, 1.2);
+          this.wreck.add(cut, this.group, Math.sin(h) * v + (dl ? (dx / dl) * 3 : 0), Math.cos(h) * v + (dl ? (dz / dl) * 3 : 0));
         }
       }
     }
-    // And the plating itself, in slabs, out of her jaws or her fingers.
+    // And the plating itself, in slabs: the piece that broke off, bent, and
+    // smaller pieces that came with it.
     const world = this.group.parent;
     let q = (seed % 2147483646) + 1;
     const rnd = () => ((q = (q * 16807) % 2147483647) / 2147483647);
@@ -1280,27 +1348,38 @@ export class ShipView {
     }
     this.group.updateMatrixWorld(true);
     const tossed = this.tossed || (this.tossed = new Tossed());
-    const dl = Math.hypot(dx, dz);
-    const n = (claw ? 3 : 2) + Math.floor(rnd() * 2);
+    const side = lx >= 0 ? 1 : -1;
+    const nrm = face && face.n ? face.n.clone() : new THREE.Vector3(side, 0, 0);
+    const at = face && face.c ? face.c.clone() : new THREE.Vector3(lx + side * 0.3, ly, lz);
+    const wn = nrm.clone().transformDirection(this.group.matrixWorld);
+    let ox = dx, oz = dz;
+    if (dl < 1e-3) { ox = wn.x; oz = wn.z; } else { ox /= dl; oz /= dl; }
+    const n = (claw ? 2 : 1) + Math.floor(rnd() * 2);
     for (let i = 0; i < n; i++) {
-      const w = r * (0.5 + rnd() * 0.6);
-      const slab = plateSlab(w, w * (0.4 + rnd() * 0.5), color, rnd);
-      const side = lx >= 0 ? 1 : -1;
-      slab.position.set(lx + side * 0.3, ly + (rnd() - 0.5) * r * 0.6, lz + (rnd() - 0.5) * r);
-      slab.rotation.set(0, side * Math.PI / 2, (rnd() - 0.5) * 0.8);
+      const main = i === 0;
+      const w = r * (main ? 1.1 + rnd() * 0.3 : 0.35 + rnd() * 0.3);
+      const slab = plateSlab(w, w * (0.5 + rnd() * 0.4), color, rnd);
+      // Lying in her side where it came from, facing out the way she does.
+      slab.position.copy(at).addScaledVector(nrm, 0.2);
+      if (!main) slab.position.add(new THREE.Vector3(0, (rnd() - 0.5) * r * 0.6, (rnd() - 0.5) * r));
+      slab.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm);
+      slab.rotateZ((rnd() - 0.5) * 0.6);
       this.group.add(slab);
-      let ox = dx, oz = dz;
-      if (dl < 1e-3) {
-        const s = new THREE.Vector3(side, 0, 0).applyQuaternion(this.group.quaternion);
-        ox = s.x; oz = s.z;
-      } else { ox /= dl; oz /= dl; }
-      const out = 8 + rnd() * 14;
+      // The piece in her jaws: hers to gnaw and throw away.
+      if (main && rig && rig.mouthPoint) {
+        rig.mouthFull = Math.max(rig.mouthFull || 0, 2.6);
+        tossed.addMouth(slab, world, rig, { sink: 2, own: true, seed });
+        continue;
+      }
+      // Pulled out of her and dropping: out the way her side faces and the
+      // way the hand went, a little up, and down into the sea beside her.
+      const out = main ? 3 + rnd() * 2.5 : 2 + rnd() * 3;
       tossed.add(slab, world, {
-        vx: Math.sin(h) * v + ox * out + (rnd() - 0.5) * 6,
-        vy: 6 + rnd() * 10,
-        vz: Math.cos(h) * v + oz * out + (rnd() - 0.5) * 6,
-        spin: (rnd() < 0.5 ? -1 : 1) * (2 + rnd() * 4),
-        sink: 2,
+        vx: Math.sin(h) * v + ox * out + wn.x * 1.5,
+        vy: (main ? 1.5 : 1) + rnd() * 2.5,
+        vz: Math.cos(h) * v + oz * out + wn.z * 1.5,
+        spin: (rnd() < 0.5 ? -1 : 1) * (main ? 0.35 + rnd() * 0.5 : 0.8 + rnd() * 1.2),
+        sink: 2.2,
         own: true,
       });
     }
@@ -1400,6 +1479,21 @@ export class ShipView {
 
   /** Once a frame, after she is posed. The splashes what was thrown made. */
   stepRupture(dt) {
+    // Her claws in her, and the cracks running.
+    if (this.clawTears && this.clawTears.length) {
+      this.clawTears = this.clawTears.filter((c) => {
+        if (this.rupture || c.step(dt)) return true;
+        c.dispose();
+        return false;
+      });
+    }
+    // Guns her claws are dragging out of her, which go when the piece does.
+    if (this.clawQueue && this.clawQueue.length) {
+      for (const c of this.clawQueue) c.t -= dt;
+      const due = this.clawQueue.filter((c) => c.t <= 0);
+      this.clawQueue = this.clawQueue.filter((c) => c.t > 0);
+      for (const c of due) this.tossMount(...c.args);
+    }
     const a = this.rupture ? this.rupture.step(dt) : null;
     const ocean = this.ocean;
     const b = this.tossed ? this.tossed.step(dt, ocean && ocean.heightAt ? (x, z) => ocean.heightAt(x, z) : null) : null;
@@ -2113,7 +2207,8 @@ export class ShipView {
         // negative rotation about X.
         // A knocked cradle sits a little off what it is laid at.
         const wantEl = -turretElev[i] + (t.userData.gunSag || 0);
-        node.rotation.x += clamp(wantEl - node.rotation.x, -0.35 * dt, 0.35 * dt);
+        const st = t.userData.lay || (t.userData.lay = {});
+        node.rotation.x += glide(st, 'e', wantEl - node.rotation.x, 0.35 * dt, dt, 0.004);
       }
     }
     if (sec) {
@@ -2122,13 +2217,13 @@ export class ShipView {
         const sag = this.secMounts[i].userData.gunSag || 0;
         const el = secElev ? secElev[i] : null;
         layMount(this.secMounts[i], sec[i],
-          sag && el !== null && el !== undefined ? el - sag : el, 0.9 * dt, 0.7 * dt);
+          sag && el !== null && el !== undefined ? el - sag : el, 0.9 * dt, 0.7 * dt, dt);
       }
     }
     if (torp) {
       for (let i = 0; i < this.torpMounts.length && i < torp.length; i++) {
         if (this.torpMounts[i].userData.laid === false) continue;
-        layMount(this.torpMounts[i], torp[i], 0, 0.7 * dt, 0.7 * dt);
+        layMount(this.torpMounts[i], torp[i], 0, 0.7 * dt, 0.7 * dt, dt);
       }
     }
     if (this.rbuMounts.length) {
@@ -2152,7 +2247,7 @@ export class ShipView {
         }
         // A shade quicker than the launcher itself, so the drawing keeps up
         // with the snapshots rather than lagging them round.
-        layMount(m, want, up, (m.userData.trainRate || 0.7) * 1.4 * dt, 0.7 * dt);
+        layMount(m, want, up, (m.userData.trainRate || 0.7) * 1.4 * dt, 0.7 * dt, dt);
       });
     }
     if (!this.aaMounts.length) return;
@@ -2167,21 +2262,35 @@ export class ShipView {
       m.position.set(t.position.x + ride.x * c + ride.z * s, t.position.y + ride.y, t.position.z - ride.x * s + ride.z * c);
     }
     // The nearest aeroplane, in her own frame -- bearing, and how far up.
+    // Kept on the one it has until another is a good deal nearer: a light
+    // battery swinging back and forth between two aeroplanes at much the
+    // same range, every frame, is not following either of them.
     let want = null;
     let up = null;
     let best = Infinity;
+    let pick = null;
+    let held = null;
     for (const p of planes || []) {
       if (p.tm === this.team) continue;
       const dx = p.x - this.group.position.x;
       const dz = p.z - this.group.position.z;
       const d2 = dx * dx + dz * dz;
-      if (d2 > best || d2 > 36e6) continue;
+      if (d2 > 36e6) continue;
+      if (p.i != null && p.i === this.aaOn) held = { p, d2 };
+      if (d2 > best) continue;
       best = d2;
+      pick = { p, d2 };
+    }
+    if (held && pick && pick.p !== held.p && pick.d2 > held.d2 * 0.55) pick = held;
+    if (pick) {
+      this.aaOn = pick.p.i;
+      const dx = pick.p.x - this.group.position.x;
+      const dz = pick.p.z - this.group.position.z;
       want = Math.atan2(dx, dz) - this.group.rotation.y;
       // Straight at her, near enough: a light gun is laid over open sights and
       // its layer is not solving anything.
-      up = Math.atan2((p.y ?? 220) - this.group.position.y, Math.sqrt(d2) || 1);
-    }
+      up = Math.atan2((pick.p.y ?? 220) - this.group.position.y, Math.sqrt(pick.d2) || 1);
+    } else this.aaOn = null;
     // A light gun swings fast, and the smaller it is the faster it swings.
     const now = performance.now() / 1000;
     const want0 = want;
@@ -2223,7 +2332,8 @@ export class ShipView {
           lift = stops ? Math.max(stops.min, Math.min(stops.max, up)) : up;
         }
         const from = fromMid(m.rotation.y);
-        const step = Math.max(-rate * dt, Math.min(rate * dt, to - from));
+        const lst = m.userData.lay || (m.userData.lay = {});
+        const step = glide(lst, 't', to - from, rate * dt, dt, 0.01);
         const next = sector.angle + from + step;
         // Where her structure is in the way of the barrels -- the rim of the
         // next tub, a boat, a rail -- they are held up over it, and they come
@@ -2241,7 +2351,7 @@ export class ShipView {
           m.rotation.y = next;
         }
         // Elevation only: the bearing is already where it is going.
-        layMount(m, m.rotation.y, lift, 0, rate * 0.8 * dt);
+        layMount(m, m.rotation.y, lift, 0, rate * 0.8 * dt, dt);
         continue;
       }
       const rest = m.userData.rest || 0;
@@ -2254,7 +2364,7 @@ export class ShipView {
         // that cannot reach the aeroplane stays where it is pointing.
         aim = rest + Math.max(-1.9, Math.min(1.9, off));
       }
-      layMount(m, aim, aim === null ? null : up, rate * dt, rate * 0.8 * dt);
+      layMount(m, aim, aim === null ? null : up, rate * dt, rate * 0.8 * dt, dt);
     }
   }
 
@@ -2365,9 +2475,11 @@ export class ShipView {
   }
 
   dispose(scene) {
+    this.disposed = true;
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
     if (this.tossed) this.tossed.dispose();
+    if (this.clawTears) { for (const c of this.clawTears) c.dispose(); this.clawTears = null; }
     scene.remove(this.group);
     if (this.wakes) this.wakes.remove(this.wake);
     this.wake.dispose();
@@ -2447,7 +2559,7 @@ export class BattleScene {
     this.stars = (preset === 'night' && overcast < 0.3) ? starField(600) : null;
     if (this.stars) this.scene.add(this.stars);
 
-    this.ocean = new Ocean(preset, q.oceanSize, q.oceanSegments);
+    this.ocean = new Ocean(preset, q.oceanSize, q.oceanSegments, { lite: !!q.oceanLite });
     this.ocean.setSeaState(world.sea ?? 2, wx);
     // What the ships have done to that water. Nothing of it is in the scene:
     // it is drawn into a map of its own and the ocean reads it, so a wake is
@@ -2785,10 +2897,15 @@ export class BattleScene {
     const v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
       this.wakes, this.wreck);
     // Her searchlights, found off her own model and dark until somebody
-    // switches one on. See searchlights.js.
-    try {
-      v.lamps = new ShipLamps(v, lampPlan(v, this.renderer), this.lampHaze);
-    } catch { v.lamps = null; }
+    // switches one on. See searchlights.js. Her plan is read back from the
+    // card in the background (lampPlanAsync) and her lamps are fitted when it
+    // is in, rather than the page standing still while it is fetched.
+    v.lamps = null;
+    const haze = this.lampHaze;
+    v.lampsDue = lampPlanAsync(v, this.renderer).then((plan) => {
+      if (v.disposed) return;
+      try { v.lamps = new ShipLamps(v, plan, haze); } catch { v.lamps = null; }
+    }, () => {});
     return v;
   }
 

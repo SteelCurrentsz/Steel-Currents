@@ -6,7 +6,7 @@ import { GPU, setGpuLevel } from './render/gpusafe.js';
 import * as THREE from '../../vendor/three.module.js';
 import { TitleScene } from './menu.js';
 import { ShipyardScene, hullSheet, armsSheet } from './shipyard.js';
-import { loadShips, shipReady, fleetReady, preloadShips } from './render/ships.js';
+import { loadShips, shipReady, fleetReady, preloadShips, quietDuringBattle } from './render/ships.js';
 import { paintGateHulls } from './gatehulls.js';
 import { BatteryScene, mountingSheet, ordnanceSheet, tankSheet } from './battery.js';
 import { BomberScene } from './bomberyard.js';
@@ -146,11 +146,26 @@ setGpuLevel(safeState().level);
  * has been lost keeps that lost context, so each further try is on a fresh
  * canvas in its place, asking for less each time.
  */
+// Whether three.js reads back every shader's compile log the first time it is
+// drawn. Reading it makes the page wait, there and then, for the graphics
+// driver to finish compiling that shader -- and the game has nearly two
+// hundred of them, most first drawn in the middle of a battle when a shell
+// lands or a fire starts. Every one was a hitch: in a profile of a fleet
+// action a sixth of the main thread was spent waiting on these logs. The
+// shaders are the same on every device, so the check is for whoever is
+// working on them: add ?shaders to the address to have it back.
+const CHECK_SHADERS = /[?&]shaders\b/.test(location.search);
+function quiet(r) {
+  if (r && r.debug) r.debug.checkShaderErrors = CHECK_SHADERS;
+  return r;
+}
 function makeRenderer(at = document.getElementById('stage')) {
-  // Potato mode gives up antialiasing too: it is a whole extra multisampled
-  // buffer resolved every frame. (Decided when the context is made, so a
-  // change to it takes a reload.)
-  const asks = safeGraphics() || getSettings().potato
+  // Potato mode keeps antialiasing: without it every hull and mast is a
+  // staircase, which is most of what made it look pixelated, and on the
+  // tile-based GPUs in phones and tablets the multisampling is resolved on
+  // chip and costs very little. Only a graphics card that has already let go
+  // of the page draws without it.
+  const asks = safeGraphics()
     ? [{ antialias: false }, { antialias: false, powerPreference: 'low-power' }]
     : [
       { antialias: true, powerPreference: 'high-performance' },
@@ -162,7 +177,7 @@ function makeRenderer(at = document.getElementById('stage')) {
     try {
       made = new THREE.WebGLRenderer({ canvas: at, ...asks[i] });
       const gl = made.getContext();
-      if (gl && !gl.isContextLost()) return made;
+      if (gl && !gl.isContextLost()) return quiet(made);
     } catch (e) {
       console.error('Steel Currents: renderer', e);
     }
@@ -172,8 +187,8 @@ function makeRenderer(at = document.getElementById('stage')) {
   }
   // Nothing better on offer: the last one, which three.js restores when the
   // browser gives the context back.
-  if (made) return made;
-  try { return new THREE.WebGLRenderer({ canvas: at, antialias: false }); } catch { return null; }
+  if (made) return quiet(made);
+  try { return quiet(new THREE.WebGLRenderer({ canvas: at, antialias: false })); } catch { return null; }
 }
 
 /** A new canvas in the old one's place, with its id and its classes. */
@@ -298,8 +313,35 @@ window.__net = net;   // a handle for the console, like __battle
  * forty megabytes of every ship in the game. A battle that fills itself with
  * bots of no particular class could have any of them.
  */
-function fleetOf(m) {
+/**
+ * Every bot hull a battle will sail, named before it is asked for.
+ *
+ * A quick battle used to leave its bots' classes to the room, which drew
+ * each from the whole list -- so before it could be joined, every ship in the
+ * game had to be fetched, forty-odd megabytes, for the eight that would
+ * actually sail. The same draw is made here instead, and the battle is asked
+ * for with the fleets named: only their hulls come down.
+ */
+function namedFleet(m) {
+  const draw = (n) => Array.from({ length: Math.max(0, n) },
+    () => SHIP_ORDER[Math.floor(Math.random() * SHIP_ORDER.length)]);
+  if (m.t === 'quickmatch' || m.t === 'joinRoom') {
+    return {
+      ...m,
+      allyClasses: Array.isArray(m.allyClasses) ? m.allyClasses : draw(3),
+      enemyClasses: Array.isArray(m.enemyClasses) ? m.enemyClasses : draw(4),
+    };
+  }
   if (m.t === 'custom') {
+    const out = { ...m };
+    if (!Array.isArray(m.allyClasses)) out.allyClasses = draw(m.allies ?? 3);
+    if (!Array.isArray(m.enemyClasses)) out.enemyClasses = draw(Math.max(1, m.enemies ?? 4));
+    return out;
+  }
+  return m;
+}
+function fleetOf(m) {
+  if (m.t === 'custom' || m.t === 'quickmatch' || m.t === 'joinRoom') {
     const allies = Array.isArray(m.allyClasses) ? m.allyClasses : null;
     const enemies = Array.isArray(m.enemyClasses) ? m.enemyClasses : null;
     const named = allies && enemies
@@ -339,16 +381,19 @@ function staleBuild(e) {
 // signal, or one too weak to bring five megabytes in -- is drawn as the hull
 // generated off her class (see buildModel), and the battle goes ahead.
 //
-// How long, once the aircraft are in, a battle waits for its hulls before it
-// sails with stand-ins for the rest; and how long it waits for the aircraft,
+// How long, from the moment a battle is asked for, it waits for its hulls
+// before it sails with stand-ins for the rest (each keeps coming down, and is
+// put in her place the moment it lands); and how long it waits for the aircraft,
 // which it cannot sail without, before telling the captain so rather than
 // leaving him at the loading screen.
-const HULL_GRACE = 8000;
+const HULL_GRACE = 10000;
 const PLANE_PATIENCE = 45000;
 {
   const send = net.send.bind(net);
   net.send = (m) => {
     if (!(m && (m.t === 'quickmatch' || m.t === 'custom' || m.t === 'joinRoom'))) return send(m);
+    m = namedFleet(m);
+    const asked = Date.now();
     const go = () => send({ ...m, ff: getSettings().friendlyFire === true, ur: getSettings().ultraRealism === true });
     const need = fleetOf(m);
     if (fleetReady(need)) return go();
@@ -373,10 +418,17 @@ const PLANE_PATIENCE = 45000;
         : 'The connection is too weak to bring the aircraft in yet. They are still coming down -- try again in a moment.');
     };
     const patience = setTimeout(() => fail(new Error('timed out')), PLANE_PATIENCE);
-    const ships = loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of)))
+    // Her own hull first: it is the one the captain is looking at, and on a
+    // slow line it should not be sharing it with seven others.
+    const own = m.classId ? loadShips([m.classId]).catch(() => {}) : Promise.resolve();
+    const ships = own.then(() => loadShips(need, (n, of) => boot.say('Bringing up the fleet', 0.06 + 0.84 * (n / of))))
       .catch((e) => { console.warn('Steel Currents: some hulls would not load', e); });
     loadShips([]).then(() => {
-      Promise.race([ships, new Promise((r) => { setTimeout(r, HULL_GRACE); })]).then(sail);
+      // One budget, counted from the moment Sortie was pressed -- not a fresh
+      // one after the aircraft -- so no battle waits more than ten seconds on
+      // a hull.
+      const left = Math.max(0, HULL_GRACE - (Date.now() - asked));
+      Promise.race([ships, new Promise((r) => { setTimeout(r, left); })]).then(sail);
     }, fail);
   };
 }
@@ -549,6 +601,9 @@ const screens = ['gate', 'account', 'title', 'premium', 'premium-ships', 'premiu
 
 function show(name) {
   current = name;
+  // Nothing is fetched for later while a battle is being fought: the line
+  // and the processor are the battle's.
+  quietDuringBattle(name === 'battle');
   for (const s of screens) {
     document.getElementById(`screen-${s}`).classList.toggle('active', s === name);
   }
@@ -1955,8 +2010,8 @@ if (optPotato) {
     setSettings({ potato: optPotato.checked });
     applyQuality();
     toast(optPotato.checked
-      ? 'Potato mode on — resolution drops now, the rest from the next battle (reload to drop antialiasing).'
-      : 'Potato mode off — full detail from the next battle (reload to bring back antialiasing).');
+      ? 'Potato mode on — a lighter sea and fewer effects from the next battle, for a smoother game.'
+      : 'Potato mode off — full detail from the next battle.');
   };
 }
 optRecoil.onchange = () => setSettings({ recoil: optRecoil.checked });

@@ -4,6 +4,7 @@
 import * as THREE from '../../vendor/three.module.js';
 import { fireSeats } from './render/fireseats.js';
 import { BattleScene } from './render/scene.js';
+import { glide } from './render/mounts.js';
 import { loadShips, shipReady } from './render/ships.js';
 import { BATTERIES, batteryGun } from '../../shared/batteries.js';
 import { nukeScale } from '../../shared/nuke.js';
@@ -1244,8 +1245,9 @@ export class Battle {
       // Monster One, saying why not.
       this.net.on('nomo', (m) => {
         const why = { cooling: 'not ready yet', busy: 'busy', none: m?.a === 'crush' ? 'nothing in her hands' : 'nothing in reach', close: 'too close',
+          far: 'out of reach — close in first', ashore: 'not on land',
           bad: 'cannot', dead: 'cannot' }[m?.why] || 'cannot';
-        const what = { breath: 'Atomic breath', tail: 'Tail', grab: 'Grab', throw: 'Throw', pose: 'Posture', roar: 'Roar', bite: 'Bite', crush: 'Crush' }[m?.a] || 'Order';
+        const what = { breath: 'Atomic breath', tail: 'Tail', grab: 'Grab', throw: 'Throw', pose: 'Posture', roar: 'Roar', bite: 'Bite', crush: 'Crush', mark: 'Mark', gnaw: 'Gnaw', spit: 'Throw' }[m?.a] || 'Order';
         this.hud.alert(`${what}: ${why}`);
       }),
       this.net.on('nomine', (m) => {
@@ -1536,8 +1538,17 @@ export class Battle {
     const w = readMonsterWire(s.mo) || {};
     const sea = this.scene.ocean.attitude(x, z, h, 60, 30);
     view.group.rotation.set(0, h, 0, 'YXZ');
+    // What is under her feet: the sea bed, or the land she is walking on --
+    // her feet are put down on it, and on land the swell is nothing to her.
+    const world = this.scene?.world || this.world;
+    let ground = -1e3;
+    if (world) {
+      const fx = Math.sin(h) * 8, fz = Math.cos(h) * 8;
+      ground = Math.max(groundHeight(world, x + fx, z + fz), groundHeight(world, x - fx, z - fz));
+    }
+    const wet = clamp((-ground - 4) / 30, 0, 1);
     // She swims in the sea, not on it: the swell lifts her a little.
-    view.group.position.set(x, (sea.heave || 0) * 0.35, z);
+    view.group.position.set(x, (sea.heave || 0) * 0.35 * wet, z);
     view.marker.visible = !isSelf && this.camMode === 'tactical';
     if (!rig) { view.group.visible = !!s.a; return; }
     rig.driven = true;
@@ -1562,31 +1573,49 @@ export class Battle {
       }
       if (best) look = toLocal(best.x, 15, best.z);
     }
+    // How far into what she is doing, run on this screen's own clock: the
+    // wire has it in tenths and only as often as a snapshot comes, and a
+    // throw stepped along like that judders. Kept to the wire's, pulled
+    // gently back toward it, and started afresh with each new act.
+    if (view.moAct !== w.act || Math.abs((view.moActT ?? 0) - (w.actT || 0)) > 0.35) {
+      view.moAct = w.act;
+      view.moActT = w.actT || 0;
+    } else {
+      view.moActT += dt;
+      view.moActT += ((w.actT || 0) - view.moActT) * (1 - Math.exp(-dt / 0.5));
+    }
     rig.update(dt, {
       pose: s.a ? w.pose : 'swim',
       speed: Math.abs(speed || 0),
       yawRate: view.monsterYaw,
       act: s.a ? w.act : 'die',
-      actT: s.a ? w.actT : view.monsterDie,
+      actT: s.a ? view.moActT : view.monsterDie,
       side: w.side,
       charge: w.charge,
       glow: w.glow,
       look,
       beamTo: w.act === 'fire' ? beamTo : null,
       holding: !!w.holdId,
+      pinned: !!w.pin,
+      ground,
     });
     // Gone under, she is not drawn.
     view.group.visible = !s.un && !(!s.a && view.monsterDie > 45);
     // Her wake: swimming on the surface she throws one; down, or standing
     // in the water, she does not.
-    if (s.a && w.pose === 'swim' && Math.abs(speed) > 1) view.wake.update(dt, x, z, h, speed);
+    if (s.a && w.pose === 'swim' && ground < -20 && Math.abs(speed) > 1) view.wake.update(dt, x, z, h, speed);
     else view.wake.stop(dt);
     if (view.group.visible) {
       heard.push({ id: s.i, x, z, load: clamp(Math.abs(speed) / 14, 0, 1), len: 120, sub: true,
         depth: w.pose === 'deep' ? 40 : 0, alive: !!s.a, sinking: !s.a });
     }
-    // Her own ability bar, when she is the one being conned.
-    if (isSelf || s.i === this.conned()) this.monsterBar().update(w, s);
+    // Her own ability bar, when she is the one being conned, and the ships
+    // marked for her breath ringed on the plot.
+    if (isSelf || s.i === this.conned()) {
+      this.monsterBar().update(w, s);
+      this.moMarks = w.marks || [];
+      this.hud.setBreathMarks?.(s.a ? this.moMarks : null);
+    }
   }
 
   /**
@@ -1623,14 +1652,36 @@ export class Battle {
     if (o.a === 'breath') {
       // At the ship picked off the plot, if an enemy is; at where the
       // captain is looking, if not.
+      // Marked ships first (the Attack key), in the order marked.
       const snap = this.snapshots[this.snapshots.length - 1];
-      const sel = this.selected && this.selected !== ship ? snap?.ships?.find((q) => q.i === this.selected) : null;
-      if (sel && sel.tm !== this.team) o = { ...o, target: sel.i };
-      else o = { ...o, x: this.aimPoint.x, z: this.aimPoint.z };
+      const marked = (this.moMarks || []).find((id) => snap?.ships?.some((q) => q.i === id && q.a));
+      const sel = this.selected && this.selected !== ship ? snap?.ships?.find((q) => q.i === this.selected && q.a) : null;
+      if (marked) o = { ...o, target: marked };
+      else if (sel && sel.tm !== this.team) o = { ...o, target: sel.i };
+      else {
+        // Where the captain is looking -- and the enemy ship nearest that,
+        // if there is one close to it, so a breath laid near a ship is laid
+        // on her and not on the water beside her.
+        const at = this.aimPoint;
+        let best = null, bd = 1500;
+        for (const q of snap?.ships || []) {
+          if (!q.a || q.tm === this.team || getClass(q.c)?.monster) continue;
+          const d = Math.hypot(q.x - at.x, q.z - at.z);
+          if (d < bd) { bd = d; best = q; }
+        }
+        o = best ? { ...o, target: best.i } : { ...o, x: at.x, z: at.z };
+      }
     }
     if (o.a === 'throw') o = { ...o, x: this.aimPoint.x, z: this.aimPoint.z };
     this.net.send({ t: 'monster', ship, o });
     audio.click();
+  }
+
+  /** Whether a ship off the snapshot is Monster One. */
+  isMonsterId(id) {
+    const snap = this.snapshots[this.snapshots.length - 1];
+    const q = snap?.ships?.find((s) => s.i === id);
+    return !!(q && getClass(q.c)?.monster);
   }
 
   /** Is the ship being conned Monster One? */
@@ -1645,39 +1696,98 @@ export class Battle {
   }
 
   /**
-   * Ships in Monster One's hands, carried in them; ships she has thrown, up
-   * in the air and tumbling.
+   * Ships in Monster One's hands: a small one carried in them, eased up into
+   * them from where they closed on her; a big one held down where she lies.
+   * Ships she has thrown: up in the air on the arc the battle has them on,
+   * rolled over and back as they go, and, once down, into the water and back
+   * up out of it in the same place. Everything here is drawn between the
+   * snapshots either side of the moment on screen (`b`, `t`), and leaves her
+   * hands where they were, so nothing about her jumps.
    */
-  holdInHands(ships, dt) {
+  holdInHands(ships, dt, b = null, t = 0) {
     const at = new THREE.Vector3();
     for (const s of ships) {
       const view = this.scene.shipViews.get(s.i);
       if (!view) continue;
-      if (s.hb) {
+      const next = b ? b.ships.find((q) => q.i === s.i) : null;
+      const g = view.group;
+      if (s.hb && s.hl) {
         const mv = this.scene.shipViews.get(s.hb);
         const rig = mv?.group.userData.monster;
-        if (!rig) continue;
-        rig.handsPoint(at);
-        const cls = getClass(s.c);
-        view.group.position.x = at.x;
-        view.group.position.z = at.z;
-        if (s.hl) {
-          // Up out of the water in her hands, her keel in her palms.
-          view.group.position.y = at.y + cls.hull.draft * 0.6;
+        if (rig) {
+          rig.handsPoint(at);
+          const cls = getClass(s.c);
+          // Where the hull sits in her hands once she has it up: her palms
+          // under her keel, a little up from it.
+          const rest = cls.hull.draft * 0.6;
+          // Taken from where her hands closed on her and lifted with them:
+          // at the moment they close the hull is wherever it was against
+          // them (her palms on its rail, in the water), and it goes where
+          // they go from then on -- what was between them and where it
+          // rests in them taken up as she straightens with it, so it neither
+          // floats up ahead of her hands nor sinks through them.
+          if (!view.carryFrom) {
+            view.carryFrom = { x: g.position.x - at.x, y: g.position.y - at.y, z: g.position.z - at.z };
+            view.carryK = 0;
+          }
+          view.carryK = Math.min(1, view.carryK + dt / 0.9);
+          const k = view.carryK * view.carryK * (3 - 2 * view.carryK);
+          const f = view.carryFrom;
+          g.position.set(at.x + f.x * (1 - k), at.y + f.y + (rest - f.y) * k, at.z + f.z * (1 - k));
           view.heldSway = (view.heldSway || 0) + dt;
-          view.group.rotation.z = 0.18 * Math.sin(view.heldSway * 1.7);
-          view.group.rotation.x = 0.1 * Math.sin(view.heldSway * 1.1);
+          // A gentle sway in her hands: rolled no further than keeps her
+          // masts out of her face.
+          view.carryRoll = 0.06 * Math.sin(view.heldSway * 1.7) * k;
+          view.carryPitch = 0.05 * Math.sin(view.heldSway * 1.1) * k;
+          g.rotation.z += view.carryRoll;
+          g.rotation.x += view.carryPitch;
+          // Kept, so that when her hands let go the hull goes on from where
+          // they had it and not from where the battle reckons it.
+          view.carryAt = { x: g.position.x, y: g.position.y, z: g.position.z, r: view.carryRoll, p: view.carryPitch };
+          view.carryOff = null;
         }
         view.wake.stop(dt);
+      } else {
+        view.carryK = 0;
+        view.carryFrom = null;
+        if (s.hb) view.wake.stop(dt);
       }
-      if (s.ly) {
-        // Thrown: up and over, end over end.
-        view.group.position.y += s.ly;
-        view.flungSpin = (view.flungSpin || 0) + dt * 1.6;
-        view.group.rotation.z += view.flungSpin;
+      const lerpOf = (key, other) => (next ? (s[key] || 0) + ((next[key] ?? other) - (s[key] || 0)) * t : (s[key] || 0));
+      if (s.fu != null || s.su != null || s.ly) {
+        // How high she is, between the two snapshots, not stepped from one
+        // to the next.
+        g.position.y += lerpOf('ly', 0);
         view.wake.stop(dt);
-      } else if (view.flungSpin) {
-        view.flungSpin = 0;
+      }
+      if (s.fu != null) {
+        // In the air: rolled over to one side and back, nose up as she
+        // climbs and down as she falls, and level again as she comes down.
+        const u = next && next.fu != null ? lerpOf('fu', 1) : next ? s.fu + (1 - s.fu) * t : s.fu;
+        const arc = Math.sin(Math.PI * u);
+        g.rotation.z += (s.fo ?? 1) * 0.55 * arc;
+        g.rotation.x += 0.22 * arc * (1 - 2 * u);
+      } else if (s.su != null) {
+        // Back up out of the water she went into: a roll that dies away.
+        const u = next && next.su != null ? lerpOf('su', 1) : s.su;
+        g.rotation.z += (s.so ?? 1) * 0.14 * Math.sin(Math.PI * 2.5 * u) * (1 - u);
+        g.rotation.x += -0.06 * Math.sin(Math.PI * u) * (1 - u);
+      }
+      // Just out of her hands: what was between where she was drawn in them
+      // and where the battle now has her, taken up over a quarter of a
+      // second or so.
+      if (view.carryAt && !(s.hb && s.hl)) {
+        const c = view.carryAt;
+        view.carryOff = { x: c.x - g.position.x, y: c.y - g.position.y, z: c.z - g.position.z, r: c.r, p: c.p };
+        view.carryAt = null;
+        view.carryAge = 0;
+      }
+      if (view.carryOff) {
+        view.carryAge += dt;
+        const d = Math.exp(-view.carryAge / 0.28);
+        const o = view.carryOff;
+        g.position.x += o.x * d; g.position.y += o.y * d; g.position.z += o.z * d;
+        g.rotation.z += o.r * d; g.rotation.x += o.p * d;
+        if (d < 0.01) view.carryOff = null;
       }
     }
   }
@@ -3620,8 +3730,21 @@ export class Battle {
           if (v && ev.tr) {
             const mo = this.scene.shipViews.get(ev.ship);
             const from = mo ? mo.group.position : { x: ev.x, z: ev.z };
-            v.tearOut(ev.tr.lx, ev.tr.ly, ev.tr.lz, ev.tr.r, ev.tr.sd || 0,
-              p.x - from.x, p.z - from.z, !bite);
+            const r = ev.tr.r;
+            v.tearOut(ev.tr.lx, ev.tr.ly, ev.tr.lz, r, ev.tr.sd || 0,
+              p.x - from.x, p.z - from.z, !bite, bite ? mo?.group.userData.monster : null, {
+                // Each claw going in: a burst of paint and splinters, and the
+                // steel giving.
+                dig: (w) => {
+                  fx.debris(w.x, w.y, w.z, 4 + r * 0.6);
+                  audio.crash({ x: w.x, y: w.y, z: w.z }, 5);
+                },
+                // And the piece coming away.
+                broke: (w) => {
+                  fx.debris(w.x, w.y, w.z, 14 + r * 1.5);
+                  audio.crash({ x: w.x, y: w.y, z: w.z }, 15);
+                },
+              });
           }
           if (ev.at) {
             fx.hit(p.x, p.y + 8, p.z, 'he', bite ? 300 : 406);
@@ -4171,9 +4294,20 @@ export class Battle {
           // A mounting thrown off her: by the magazine under it going up, or
           // torn out of her by Monster One and flung.
           const view = this.scene.shipViews.get(ev.ship);
-          if (view && (view.tossMount(ev.k, ev.i, ev.how, ev.dx || 0, ev.dz || 0, ev.sd || 0)
+          // In Monster One's jaws: carried in them, gnawed, and thrown away
+          // with a toss of her head (see Tossed.addMouth).
+          const mrig = ev.how === 'bite' && ev.by ? this.scene.shipViews.get(ev.by)?.group.userData.monster : null;
+          if (mrig) mrig.mouthFull = 2.6;
+          if (view && (view.tossMount(ev.k, ev.i, ev.how, ev.dx || 0, ev.dz || 0, ev.sd || 0, ev.pw ?? 0.6, mrig)
             || view.tossWelded(ev.x, ev.y, ev.z, ev.how, ev.dx || 0, ev.dz || 0))) {
-            if (ev.how === 'mag') {
+            if (ev.how === 'mag' && (ev.pw ?? 0.6) < 0.35) {
+              // Charges burning in its hoist rather than a magazine going off:
+              // a gout of flame and smoke, and the mounting shifted off its ring.
+              const size = ev.k === 'main' ? 1.6 : ev.k === 'sec' ? 1.1 : 0.8;
+              fx.explosion(ev.x, ev.y + 1, ev.z, size);
+              this.scene.debris.burst(ev.x, ev.y + 2, ev.z, 1 + size, 0.4);
+              audio.explosion(Math.min(1.2, size * 0.5), { x: ev.x, y: ev.y + 2, z: ev.z });
+            } else if (ev.how === 'mag') {
               const size = ev.k === 'main' ? 2.6 : ev.k === 'sec' ? 1.8 : 1.2;
               fx.explosion(ev.x, ev.y + 2, ev.z, size);
               this.scene.debris.burst(ev.x, ev.y + 3, ev.z, 3 + size * 2, 0.7 + size * 0.2);
@@ -4972,6 +5106,8 @@ export class Battle {
       units.push({ k: 'ship', i: this.conned() });
     }
     this.attackPick = want ? { units } : null;
+    // Conning Monster One: the Attack key marks ships for her breath.
+    if (want && units.length === 1 && units[0].k === 'ship' && this.isMonsterId(units[0].i)) this.attackPick.breath = true;
     this.hud.setAttacking(this.attackPick);
     audio.click();
   }
@@ -5034,6 +5170,7 @@ export class Battle {
       const at = P.units.findIndex((u) => u.k === hit.kind && u.i === hit.id);
       if (at >= 0) P.units.splice(at, 1);
       else if (P.units.length < 16) P.units.push({ k: hit.kind, i: hit.id });
+      P.breath = P.units.length === 1 && P.units[0].k === 'ship' && this.isMonsterId(P.units[0].i);
       this.hud.setAttacking(P);
       audio.click();
       return;
@@ -5052,6 +5189,15 @@ export class Battle {
       t: 'attack', u: P.units.map((u) => ({ k: u.k, i: u.i })),
       target: hit ? hit.id : 0, tk: hit ? hit.kind : undefined,
     });
+    // Monster One alone: the ship is marked for her breath, and the plot
+    // stays picking so more can be marked after it, one after another.
+    if (P.breath && hit) {
+      P.marked = (P.marked || 0) + 1;
+      this.hud.alert(`${hit.name || 'Enemy'} marked for her atomic breath`);
+      this.hud.setAttacking(P);
+      audio.click();
+      return;
+    }
     if (hit) this.hud.alert(`Attack on ${hit.name || 'the enemy'}`);
     this.toggleAttack(false);
   }
@@ -8716,7 +8862,16 @@ export class Battle {
           const tur = view.turrets[i];
           const to = turretsNext ? turretsNext[i] : undefined;
           const at = to === undefined ? ang : ang + angleDelta(ang, to) * t;
-          if (tur && tur.userData.laid !== false) tur.rotation.y = at;
+          // Laid onto it rather than set to it: a turret on its bearing stays
+          // on it until the bearing has really moved, and starts and stops
+          // like a thousand tons on a roller path (see glide in mounts.js),
+          // so the hundredths of a degree the solution wanders by do not
+          // shiver the barrels across the screen.
+          if (tur && tur.userData.laid !== false) {
+            const st = tur.userData.lay || (tur.userData.lay = {});
+            if (st.seen === undefined) { tur.rotation.y = at; st.seen = 1; }
+            else tur.rotation.y += glide(st, 't', angleDelta(tur.rotation.y, at), 0.5 * dt, dt, 0.005);
+          }
         });
       }
       // And everything else that trains: her secondary mountings and her
@@ -8916,7 +9071,7 @@ export class Battle {
     // A ship in Monster One's hands is where her hands are, and one she has
     // thrown is up in the air: after every ship has been put where the sea has
     // her, and after Monster One has been posed.
-    this.holdInHands(a.ships, dt);
+    this.holdInHands(a.ships, dt, b, t);
     audio.ships(heard);
 
     for (const [id] of this.scene.shipViews) {
@@ -9023,7 +9178,7 @@ export class Battle {
         const lb = Math.max(250, (sh.c - 180) / 0.10);
         bombsNow.push({ x, y, z, dx, dy, dz, len: Math.min(3.2, 1.1 + lb * 0.0006), r: Math.min(0.5, 0.12 + lb * 0.00008) });
       } else if (sh.rk) nr = rockets.set(nr, sh.i, x, y, z, dx, dy, dz);
-      else n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c);
+      else n = this.scene.shells.set(n, x, y, z, dx, dy, dz, sh.c, sh.k || 'ap');
       shells.push({ i: sh.i, x, y, z, c: sh.c, o: sh.o, tm: sh.tm, bm: sh.bm });
     }
     this.scene.bombs.carry(bombsNow);
@@ -10595,12 +10750,22 @@ export class Battle {
     this.building = true;
     return new Promise((resolve) => {
       let i = 0;
-      const finish = () => { this.building = false; resolve(); };
+      const due = [];
+      // Every ship's searchlight plan is still coming back from the card when
+      // the last of them is built (see lampPlanAsync); the battle waits for
+      // them a moment, so her lamps are fitted before she is shown, but never
+      // long.
+      const finish = () => {
+        const done = () => { this.building = false; resolve(); };
+        if (!due.length) return done();
+        Promise.race([Promise.all(due), new Promise((r) => { setTimeout(r, 3000); })]).then(done, done);
+      };
       const next = () => {
         if (this.disposed || !this.scene || i >= list.length) return finish();
         const r = list[i++];
         try {
-          if (shipReady(r.cls)) this.scene.prebuild(r.id, r.cls, r.team, r.id === this.shipId);
+          const v = shipReady(r.cls) ? this.scene.prebuild(r.id, r.cls, r.team, r.id === this.shipId) : null;
+          if (v?.lampsDue) due.push(v.lampsDue);
         } catch (e) {
           console.warn('Steel Currents: a ship could not be built ahead', e);
         }

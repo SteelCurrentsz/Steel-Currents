@@ -108,7 +108,56 @@ void main() {
 /** The height materials a plan is drawn with, by paint and by whether it is per vertex: a few dozen at most. */
 const HEIGHT_MATS = new Map();
 
+/**
+ * Her plan, worked out without making the page wait on the graphics card.
+ *
+ * Reading the picture straight back (measuredPlan) stops everything until the
+ * card has finished all it was given -- every ship being built and every
+ * shader being compiled behind the loading screen -- and it was done for each
+ * class in the battle in turn: more than half of the time a battle took to
+ * build. Here the picture is drawn and its pixels are fetched in the
+ * background, and the next ship is built while they come back.
+ */
+const PENDING = new Map();
+export function lampPlanAsync(view, renderer = null) {
+  const cls = view.cls;
+  const key = view.classId || cls?.id;
+  if (PLANS.has(key)) return Promise.resolve(PLANS.get(key));
+  if (PENDING.has(key)) return PENDING.get(key);
+  if ((cls && cls.lampSpots) || !renderer || !view.group || !renderer.readRenderTargetPixelsAsync) {
+    return Promise.resolve(lampPlan(view, renderer));
+  }
+  let drawn = null;
+  try { drawn = drawPlan(view, renderer); } catch { drawn = null; }
+  if (!drawn) return Promise.resolve(lampPlan(view, renderer));
+  const job = renderer.readRenderTargetPixelsAsync(drawn.rt, 0, 0, drawn.w, drawn.h, drawn.buf)
+    .then(() => readPlan(cls, drawn), () => null)
+    .then((plan) => {
+      drawn.rt.dispose();
+      PENDING.delete(key);
+      // Measured the slow way in the meantime, by something that could not wait.
+      if (PLANS.has(key)) return PLANS.get(key);
+      const out = plan || guessedPlan(cls);
+      PLANS.set(key, out);
+      return out;
+    });
+  PENDING.set(key, job);
+  return job;
+}
+
 function measuredPlan(view, renderer) {
+  const drawn = drawPlan(view, renderer);
+  if (!drawn) return null;
+  try {
+    renderer.readRenderTargetPixels(drawn.rt, 0, 0, drawn.w, drawn.h, drawn.buf);
+  } finally {
+    drawn.rt.dispose();
+  }
+  return readPlan(view.cls, drawn);
+}
+
+/** Her overhead picture, drawn into a target of its own and left there. */
+function drawPlan(view, renderer) {
   const g = view.group;
   const cls = view.cls;
   // Drawn in her own frame: where she is in the world is put back after.
@@ -192,7 +241,6 @@ function measuredPlan(view, renderer) {
     renderer.setRenderTarget(rt);
     renderer.clear();
     renderer.render(scene, cam);
-    renderer.readRenderTargetPixels(rt, 0, 0, w, h, buf);
   } finally {
     renderer.setRenderTarget(prevTarget);
     renderer.setClearColor(prevClear, prevAlpha);
@@ -204,8 +252,12 @@ function measuredPlan(view, renderer) {
     g.quaternion.copy(keep.q);
     g.scale.copy(keep.s);
     g.updateMatrixWorld(true);
-    rt.dispose();
   }
+  return { rt, w, h, halfX, halfZ, buf };
+}
+
+/** Her plan off the pixels of her overhead picture. */
+function readPlan(cls, { w, h, halfX, halfZ, buf }) {
   // Heights, in metres; NaN where there is nothing of her.
   const heights = new Float32Array(w * h);
   const dark = new Uint8Array(w * h);

@@ -99,30 +99,68 @@ export function barrelCount(mount) {
  * does it at its own speed, which is most of what tells a quadruple 2 cm from
  * a twin 8 inch when you watch them follow the same aeroplane.
  *
+ * And it is laid the way a layer lays it: it does not chase every hundredth
+ * of a degree the solution wanders by. A gun on its bearing stays there until
+ * the bearing has really moved; then it is got moving, runs, and is eased in
+ * onto the new one -- never jerked from stopped to full rate and back to
+ * stopped from one frame to the next. See `glide`.
+ *
  * `want` is a bearing in the ship's own frame and `elev` an angle above the
  * horizontal; pass null for either to send that axis back to its rest.
+ * `trainRate` and `elevRate` are the most each may move this frame, and `dt`
+ * the frame (taken as a sixtieth if not given).
  */
-export function layMount(mount, want, elev, trainRate, elevRate) {
+export function layMount(mount, want, elev, trainRate, elevRate, dt = 1 / 60) {
   const rest = mount.userData.rest || 0;
-  if (want !== null && want !== undefined) {
-    let d = want - rest - mount.rotation.y;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    mount.rotation.y += Math.max(-trainRate, Math.min(trainRate, d));
-  } else {
-    let d = -mount.rotation.y;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    mount.rotation.y += Math.max(-trainRate, Math.min(trainRate, d));
-  }
+  const st = mount.userData.lay || (mount.userData.lay = { tv: 0, ev: 0, tm: false, em: false });
+  let d = (want !== null && want !== undefined ? want - rest : 0) - mount.rotation.y;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  if (trainRate > 0) mount.rotation.y += glide(st, 't', d, trainRate, dt, 0.006);
   const node = mount.userData.gunNode;
   if (!node || node === mount) return;
   // Elevation is a rotation about the trunnion, and the barrels run out along
   // +Z, so raising the muzzle is a negative rotation about X.
   const restEl = mount.userData.elevRest || 0;
   const wantEl = elev === null || elev === undefined ? restEl : -elev;
-  const de = wantEl - node.rotation.x;
-  node.rotation.x += Math.max(-elevRate, Math.min(elevRate, de));
+  if (elevRate > 0) node.rotation.x += glide(st, 'e', wantEl - node.rotation.x, elevRate, dt, 0.004);
+}
+
+/**
+ * How far to move one axis of a mounting this frame, toward `err` away.
+ *
+ * Held still inside a small band about where it is laid (`band` radians),
+ * so a solution that wanders a little leaves the gun where it is; set going
+ * once it is outside it, worked up to its rate and eased down again as it
+ * closes, onto the new bearing without passing it. `step` is the most it
+ * may move in this frame of `dt` seconds.
+ *
+ * `st` keeps the axis's way and whether it is moving, under keys `k + 'v'`
+ * and `k + 'm'`.
+ */
+export function glide(st, k, err, step, dt, band = 0.006) {
+  const kv = k + 'v', km = k + 'm';
+  dt = Math.max(1e-4, dt);
+  const vmax = step / dt;
+  const ae = Math.abs(err);
+  if (!st[km]) {
+    // On its bearing: it stays there until there is a real change.
+    if (ae < band) { st[kv] = 0; return 0; }
+    st[km] = true;
+  }
+  // Got going over about a third of a second and brought to rest the same,
+  // whatever its rate: a heavy turret and a light mounting both start and
+  // stop, they never jump.
+  const acc = Math.max(vmax * 3, 0.05);
+  const want = Math.sign(err) * Math.min(vmax, Math.sqrt(2 * acc * ae) * 0.9);
+  let v = st[kv] || 0;
+  v += Math.max(-acc * dt, Math.min(acc * dt, want - v));
+  let mv = v * dt;
+  if ((mv > 0 && mv > err) || (mv < 0 && mv < err)) { mv = err; v = 0; }
+  st[kv] = v;
+  // Arrived: settled until the next real change.
+  if (Math.abs(err - mv) < band * 0.15 && Math.abs(v) < vmax * 0.2) { st[km] = false; st[kv] = 0; }
+  return mv;
 }
 
 /**

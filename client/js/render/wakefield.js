@@ -933,7 +933,13 @@ export class WakeField {
     const prevClear = renderer.getClearColor(new THREE.Color());
     const prevAlpha = renderer.getClearAlpha();
     renderer.setClearColor(0x000000, 0);
+    // The far patch is sixteen metres a texel, and nothing on the sea moves a
+    // texel of it in a frame: it is drawn every other frame. Its centre is
+    // kept with what was drawn, so the sea always reads it where it was laid.
+    this.tick = (this.tick || 0) + 1;
     for (const c of this.cascades) {
+      if (c.span !== NEAR_M && c.drawn && (this.tick & 1)) continue;
+      c.drawn = true;
       const texel = c.span / this.size;
       // The far patch stays under the eye: it is what carries the horizon, and
       // biasing it forward would drop the wakes astern of you off its edge.

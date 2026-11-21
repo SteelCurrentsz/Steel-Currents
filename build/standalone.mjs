@@ -28,6 +28,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPLIT = process.argv.includes('--split');
 const out = (...p) => path.join(ROOT, 'build', ...p);
 const HULLS = path.join(ROOT, 'client/js/render');
+// A data file bigger than this, unpacked, is packed tighter (see below).
+const SHUFFLE_OVER = Number(process.env.SHUFFLE_OVER || 12e6);
 
 // Split, the ships fetched on demand (see loadShips in ships.js) are chunks of
 // their own beside the page, so the page does not wait on their hulls: the
@@ -164,7 +166,9 @@ if (!SPLIT) {
   for (const f of named) {
     const src = fs.readFileSync(path.join(HULLS, f), 'utf8');
     const bin = f.replace(/\.js$/, '.wasm');
-    const { module, bytes } = packDataFile(src, bin);
+    // The biggest hulls packed tighter (pack-data.mjs, shuffled): what keeps
+    // the whole build inside what its host will hold for one version.
+    const { module, bytes } = packDataFile(src, bin, { shuffle: src.length > SHUFFLE_OVER });
     fs.writeFileSync(out('split', f), module);
     if (bytes) { fs.writeFileSync(out('split', bin), bytes); bins.set(f, bin); }
     const size = module.length + (bytes ? bytes.length : 0);

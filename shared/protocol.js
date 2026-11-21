@@ -99,8 +99,14 @@ export function shipSnapshot(ship, full, state = null) {
     ...(cls.monster ? { mo: monsterWire(ship) } : {}),
     // A ship in Monster One's hands -- whose, and whether she has been lifted
     // out of the water -- or thrown, and how high in the air she is.
-    ...(ship.heldBy ? { hb: ship.heldBy, hl: ship.held?.lifted ? 1 : 0 } : {}),
+    ...(ship.gripBy ? { hb: ship.gripBy, hl: ship.held?.lifted ? 1 : 0 } : {}),
     ...(ship.liftY ? { ly: r1(ship.liftY) } : {}),
+    // How far through her flight a thrown ship is, and which way she rolls;
+    // and how far back up out of the water she has come since she landed --
+    // so each screen can draw the arc and the rise smoothly between
+    // snapshots, and nothing about her jumps.
+    ...(ship.flung ? { fu: Math.round(Math.min(1, Math.max(0, ship.flung.t / ship.flung.T)) * 1000) / 1000, fo: ship.flung.roll || 0 } : {}),
+    ...(ship.splash ? { su: Math.round(Math.min(1, Math.max(0, ship.splash.t / ship.splash.T)) * 1000) / 1000, so: ship.splash.roll || 0 } : {}),
     // Which compartments have water in them and which are alight, in tenths,
     // so the fire and the water can be drawn where they actually are.
     wt: SECTIONS.map((k) => {
@@ -418,6 +424,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       rk: sh.rocket ? 1 : undefined,
       // An atomic bomb: drawn as itself, and followed down by anyone watching.
       nk: sh.atomic ? 1 : undefined,
+      // What kind of round, for the stripe painted round it: armour-piercing
+      // goes as nothing (it is most of what is fired), anything else by name.
+      k: !sh.bomb && !sh.rocket && sh.spec && sh.spec.type && sh.spec.type !== 'ap' ? sh.spec.type : undefined,
     });
   }
   const torps = [];

@@ -27,6 +27,8 @@ function context() {
   if (!canvas) return null;
   try {
     shared = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // No compile log read back on first draw: see CHECK_SHADERS in main.js.
+    if (!/[?&]shaders\b/.test(location.search)) shared.debug.checkShaderErrors = false;
     shared.setPixelRatio(1);
     shared.outputColorSpace = THREE.SRGBColorSpace;
     shared.autoClear = true;

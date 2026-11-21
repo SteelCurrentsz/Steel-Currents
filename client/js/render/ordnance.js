@@ -16,6 +16,7 @@
 // round and a 20 mm round on screen is the relationship they really have.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { SHELL_PROFILE } from './shellModel.data.js';
 
 /** How long a shell of this bore is drawn, in metres. */
 export function shellLength(caliber) {
@@ -23,28 +24,50 @@ export function shellLength(caliber) {
 }
 
 /**
- * One shell: ogive nose, parallel body, driving band, boat-tail.
- *
- * Built pointing down +Z, one metre long and one wide, so an instance can be
- * scaled to its own bore and rotated onto its own line of flight.
+ * The stripe painted round a shell to say what it is, by kind -- the kind the
+ * simulation fires it as (`spec.type` in shared/sim.js). Add a kind here and
+ * every round of it is drawn with its own colour; anything not listed is
+ * drawn with `other`.
  */
-export function shellGeometry() {
-  const RINGS = [
-    // [z along the shell, radius], nose first.
-    [0.50, 0.00], [0.44, 0.13], [0.38, 0.23], [0.30, 0.34],
-    [0.20, 0.44], [0.08, 0.49], [-0.16, 0.50], [-0.22, 0.50],
-    [-0.26, 0.46], [-0.42, 0.40], [-0.50, 0.38],
-  ];
-  const N = 10;
+export const SHELL_STRIPES = {
+  ap: 0xb3261e,    // armour-piercing: red
+  he: 0xe0b52a,    // high explosive: yellow
+  sap: 0x2f6fb8,   // semi-armour-piercing / common: blue
+  cpc: 0x2f6fb8,
+  aa: 0x3f8f3a,    // anti-aircraft, time-fuzed: green
+  star: 0xe8e8e8,  // star shell: white
+  other: 0x8a8f96,
+};
+
+/** A stripe colour for a kind of shell, as a three.js colour. */
+const _stripe = new Map();
+export function stripeColour(kind) {
+  const k = kind && SHELL_STRIPES[kind] !== undefined ? kind : kind ? 'other' : 'ap';
+  if (!_stripe.has(k)) _stripe.set(k, new THREE.Color(SHELL_STRIPES[k]));
+  return _stripe.get(k);
+}
+
+/** The radius of the shell at `z` along it, off the owner's model's profile. */
+function radiusAt(z) {
+  const P = SHELL_PROFILE;
+  for (let k = 0; k < P.length - 1; k++) {
+    const [z0, r0] = P[k], [z1, r1] = P[k + 1];
+    if (z <= z0 && z >= z1 && z0 !== z1) return r0 + ((r1 - r0) * (z0 - z)) / (z0 - z1);
+  }
+  return 0.11;
+}
+
+/** Turned on a lathe: rings of `N` round each [z, r] of a profile, nose first along +Z. */
+function lathe(profile, N) {
   const pos = [];
   const idx = [];
-  for (const [z, r] of RINGS) {
+  for (const [z, r] of profile) {
     for (let i = 0; i < N; i++) {
       const a = (i / N) * Math.PI * 2;
       pos.push(Math.cos(a) * r, Math.sin(a) * r, z);
     }
   }
-  for (let k = 0; k < RINGS.length - 1; k++) {
+  for (let k = 0; k < profile.length - 1; k++) {
     for (let i = 0; i < N; i++) {
       const j = (i + 1) % N;
       const a = k * N + i;
@@ -54,17 +77,40 @@ export function shellGeometry() {
       idx.push(a, c, d, a, d, b);
     }
   }
-  // The base, so she is not a tube seen from astern.
-  const hub = pos.length / 3;
-  const base = (RINGS.length - 1) * N;
-  pos.push(0, 0, RINGS[RINGS.length - 1][0]);
-  for (let i = 0; i < N; i++) idx.push(hub, base + ((i + 1) % N), base + i);
-
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
+}
+
+/**
+ * One shell, off the owner's model (build/prepare-shell.mjs): its ogive,
+ * bourrelet, body, driving band and base, turned on a lathe.
+ *
+ * Pointing down +Z, one metre long and as wide as the model is for that
+ * length, so an instance is scaled to its own bore and rotated onto its own
+ * line of flight.
+ */
+/** How wide the model is for its length: a round of bore `b` is this many times narrower than one unit. */
+export const SHELL_DIAMETER = 2 * Math.max(...SHELL_PROFILE.map((p) => p[1]));
+
+export function shellGeometry() {
+  return lathe(SHELL_PROFILE, 12);
+}
+
+/**
+ * The band of paint round a shell, just abaft the ogive where it was painted:
+ * a ring standing a hair proud of the steel so it is never lost in it.
+ */
+export function stripeGeometry() {
+  const z0 = 0.2, z1 = 0.1;
+  const ring = [];
+  for (let k = 0; k <= 4; k++) {
+    const z = z0 + ((z1 - z0) * k) / 4;
+    ring.push([z, radiusAt(z) * 1.04 + 0.002]);
+  }
+  return lathe(ring, 12);
 }
 
 /**
@@ -86,6 +132,14 @@ export class Shells {
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
+    // The stripe round each, in the colour of what it is (SHELL_STRIPES).
+    this.stripeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x111111 });
+    this.stripe = new THREE.InstancedMesh(stripeGeometry(), this.stripeMat, max);
+    this.stripe.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.stripe.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);
+    this.stripe.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    this.stripe.frustumCulled = false;
+    scene.add(this.stripe);
     // The hot base: a small additive disc that only the big rounds carry, so a
     // heavy salvo can be followed across the sky the way a spotter follows it.
     const glowGeo = new THREE.SphereGeometry(0.5, 10, 7);
@@ -110,7 +164,7 @@ export class Shells {
    * Place one shell. `dx/dy/dz` is where she has come from since the last
    * snapshot -- the line she is flying, not a velocity in any unit.
    */
-  set(n, x, y, z, dx, dy, dz, caliber) {
+  set(n, x, y, z, dx, dy, dz, caliber, kind = 'ap') {
     if (n >= this.max) return n;
     const len = shellLength(caliber);
     const d = this.dummy;
@@ -124,9 +178,13 @@ export class Shells {
       this.dir.set(0, 0, 1);
       d.quaternion.identity();
     }
-    d.scale.set(len * 0.34, len * 0.34, len);
+    // The model's own proportions, a shade fuller so a round far off still
+    // reads as a round.
+    d.scale.set(len * 1.2, len * 1.2, len);
     d.updateMatrix();
     this.mesh.setMatrixAt(n, d.matrix);
+    this.stripe.setMatrixAt(n, d.matrix);
+    this.stripe.setColorAt(n, stripeColour(kind));
     // The tracer, burning in the base -- behind the round, not inside it,
     // where the body would hide it. A salvo you cannot follow across the sky
     // is a salvo you cannot spot for, and at eight thousand yards this is the
@@ -155,13 +213,17 @@ export class Shells {
   hideFrom(from) {
     this.mesh.count = from;
     this.glow.count = from;
+    this.stripe.count = from;
     this.mesh.visible = from > 0;
     this.glow.visible = from > 0;
+    this.stripe.visible = from > 0;
   }
 
   flush() {
     this.mesh.instanceMatrix.needsUpdate = true;
     this.glow.instanceMatrix.needsUpdate = true;
+    this.stripe.instanceMatrix.needsUpdate = true;
+    this.stripe.instanceColor.needsUpdate = true;
   }
 }
 
@@ -335,7 +397,7 @@ export class Flak {
       const wide = Math.max(bore, far * px);
       d.position.set(x, y, z);
       d.quaternion.copy(this.quat);
-      d.scale.set(wide, wide, Math.max(len, wide * 2));
+      d.scale.set(wide / SHELL_DIAMETER, wide / SHELL_DIAMETER, Math.max(len, wide * 2));
       d.updateMatrix();
       this.mesh.setMatrixAt(n, d.matrix);
       // And the trace behind it: what the eye keeps of a round going at

@@ -130,13 +130,23 @@ export class MonsterBar {
     else if (w.act === 'fire') set('breath', 'Firing', { live: true, fill: 1 });
     else if (w.cool > 0) set('breath', `Ready in ${fmt(w.cool)}`, { wait: true, fill: 1 - w.cool / B.cooldown });
     else set('breath', `Ready · ${B.kt} kt`, { fill: 1 });
+    // Ships marked for it with the Attack key, waiting their turn.
+    const nm = (w.marks || []).length;
+    if (nm && w.act !== 'charge' && w.act !== 'fire') {
+      const span = this.keys.breath.querySelector('span');
+      const t = `${span.textContent} · ${nm} marked`;
+      if (span.textContent !== t) span.textContent = t;
+    }
     set('tail', w.act === 'tail' ? 'Swinging' : w.tailCool > 0 ? `${w.tailCool}s` : w.pose === 'deep' ? 'Surface first' : 'Ready',
       { wait: w.tailCool > 0 || w.pose === 'deep', live: w.act === 'tail' });
-    if (w.holdId) set('grab', 'Throw it', { live: true, label: 'Throw' });
-    else set('grab', w.act === 'reach' ? 'Reaching' : w.grabCool > 0 ? `${w.grabCool}s` : 'Ship ahead',
+    // A small ship in her hands is thrown; a big one held down is let go.
+    if (w.holdId && w.pin) set('grab', 'Too big to lift', { live: true, label: 'Let go' });
+    else if (w.holdId) set('grab', 'Throw it', { live: true, label: 'Throw' });
+    else set('grab', w.act === 'reach' ? 'Reaching' : w.grabCool > 0 ? `${w.grabCool}s` : 'Arm\'s length',
       { wait: w.grabCool > 0, live: w.act === 'reach', label: 'Grab' });
     const POSE = { deep: ['Deep', 'Surface ↑'], swim: ['Swimming', 'Stand ↑'], stand: ['Standing', 'Dive ↓'] }[w.pose] || ['Swimming', ''];
-    set('pose', POSE[1], { label: POSE[0] });
+    if (w.ashore) set('pose', 'On land', { label: 'Walking', wait: true });
+    else set('pose', POSE[1], { label: POSE[0] });
     set('crush', w.act === 'crush' ? 'Crushing' : !w.holdId ? 'Grab first' : w.crushCool > 0 ? `${w.crushCool}s` : 'Ready',
       { wait: !w.holdId || w.crushCool > 0, live: w.act === 'crush' });
     set('bite', w.act === 'bite' ? 'Biting' : w.biteCool > 0 ? `${w.biteCool}s` : w.holdId ? 'Ship in hands' : 'Ship ahead',

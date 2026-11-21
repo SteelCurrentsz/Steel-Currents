@@ -123,7 +123,7 @@ export class TitleScene {
     this.scene.add(this.sky);
 
     // -- the sea -------------------------------------------------------------
-    this.ocean = new Ocean('day', 44000, Math.min(240, q.oceanSegments));
+    this.ocean = new Ocean('day', 44000, Math.min(240, q.oceanSegments), { lite: !!q.oceanLite });
     this.ocean.setSeaState(3);
     {
       const u = this.ocean.material.uniforms;
