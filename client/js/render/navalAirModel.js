@@ -33,6 +33,8 @@ const SOURCES = {
   // And the Taiho's torpedo bomber, the Tenzan, in the texture her paint is
   // drawn on.
   tenzan: () => import('./tenzanModel.data.js').then((m) => [m.TENZAN_PIECES, m.TENZAN_META, m.TENZAN_TEXTURE]),
+  // And the Illustrious's Corsair, in the texture her paint is drawn on.
+  corsair: () => import('./corsairModel.data.js').then((m) => [m.CORSAIR_PIECES, m.CORSAIR_META, m.CORSAIR_TEXTURE]),
 };
 const PIECES = {};
 /**
@@ -137,7 +139,7 @@ function texturedMaterials(kind) {
 const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22, prop: 1 };
 
 /** How far each kind's legs rise into her as they come up. */
-const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2, tenzan: 1.3 };
+const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2, tenzan: 1.3, corsair: 1.2 };
 // (The A5M's and the B4Y's legs are fixed, in their spats: they have no `gear`.)
 
 /**

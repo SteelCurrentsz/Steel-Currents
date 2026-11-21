@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, arado, kingfisher, besson, loire, walrus, kor1, ro43,
-  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y, val, tenzan, muzzlesOf, dressPlane,
+  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y, val, tenzan, corsair, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -1092,6 +1092,8 @@ export function flightModels() {
   make('val', (g) => val(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Taiho's Tenzans.
   make('tenzan', (g) => tenzan(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  // And the Illustrious's Corsairs.
+  make('corsair', (g) => corsair(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Devastator the Hornet's torpedo squadron flew at Midway.
   out.devastator = devastatorFlightModel();
   MUZZLES.devastator = DEVASTATOR.guns.slice().sort((a, b) => a[0] - b[0]);
@@ -1156,7 +1158,7 @@ export const ROLE_TYPE = {
   fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'f35', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'a5m', 'b4y', 'val', 'tenzan', 'arado', 'kingfisher',
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'f35', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'a5m', 'b4y', 'val', 'tenzan', 'corsair', 'arado', 'kingfisher',
   'besson', 'loire', 'walrus', 'kor1', 'ro43', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */

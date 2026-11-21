@@ -7884,6 +7884,158 @@ export const SHIP_CLASSES = {
     },
   },
 
+  warspite: {
+    // HMS Warspite, the Grand Old Lady: a Queen Elizabeth of 1915, the first
+    // of the fast battleships -- eight 15-inch in four twin turrets, oil
+    // fired, twenty-four knots. Hit fifteen times at Jutland, her helm
+    // jammed under the guns of the High Seas Fleet, and home. Rebuilt from
+    // the keel up in 1934-37: new machinery, a tower bridge, her turrets
+    // given thirty degrees of elevation, her old 6-inch casemates cut to
+    // eight, four twin 4-inch HA and her pom-poms. She went up Narvik fjord
+    // in April 1940 and sank or saw sunk eight German destroyers; she hit
+    // the Giulio Cesare at twenty-six thousand yards off Calabria, one of
+    // the longest gunnery hits ever made at sea; she sank two cruisers at
+    // Matapan; a Fritz X went through her off Salerno; and she fired at
+    // Normandy, Brest and Walcheren. More battle honours than any ship of
+    // the Royal Navy.
+    //
+    // She is drawn from the owner's model (see warspite.js and build/prepare-
+    // warspite-hull.mjs) -- "HMS Warspite (War Thunder)" by KojfDiscord, under
+    // Creative Commons Attribution 4.0, credited on the Credits screen -- at
+    // 196.8 m over all, floated at 9.6 m, and armed as the model arms her.
+    id: 'warspite',
+    name: 'Warspite',
+    fullName: 'HMS Warspite',
+    className: 'Queen Elizabeth',
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'gbr',
+    blurb: 'The Grand Old Lady: Jutland, Narvik, Calabria, Matapan and Normandy, with eight fifteen-inch guns behind thirteen inches of belt.',
+    hull: {
+      // Where her one funnel comes out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0, 4.5, 24.5]], length: 196.8, beam: 31.7, draft: 9.6, superstructure: 1.3 },
+    hp: 60000,
+    // Eighty thousand horsepower after her rebuild: twenty-four knots, and a
+    // knot less when she was deep.
+    maxSpeed: 24 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.36,
+    turnRate: 0.05,
+    rudderShift: 14,
+    speedLossInTurn: 0.15,
+    concealment: 15200,
+    fireDetectPenalty: 6800,
+    // Type 284 for her guns and Type 279 for the air.
+    radarRange: 12500,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    // Thirteen inches of belt amidships and over her magazines, her decks
+    // thickened in the rebuild to three and a half inches over her
+    // magazines and more than two over her machinery.
+    armor: { belt: 330, deck: 89, citadel: 330, bow: 102, superstructure: 25 },
+    turrets: [
+      // A on her forecastle and B superfiring over it, trained ahead; X
+      // superfiring over Y on her quarterdeck, both trained astern; each
+      // where the model stood it.
+      { id: 0, name: 'A', x: 0, z: 51.515, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 8.51 },
+      { id: 1, name: 'B', x: 0, z: 37.395, angle: 0, arc: 2.6, rest: 0, guns: 2, my: 11.94 },
+      { id: 2, name: 'X', x: 0.039, z: -45.311, angle: 3.14, arc: 2.6, rest: 3.1416, guns: 2, my: 9.67 },
+      { id: 3, name: 'Y', x: 0.039, z: -59.268, angle: 3.14, arc: 2.6, rest: 3.1416, guns: 2, my: 6.63 },
+    ],
+    gun: {
+      name: '15"/42 Mk I', role: 'surface',
+      // Five below the horizontal to thirty up, in her turrets as rebuilt.
+      elev: { min: -0.087, max: 0.524 },
+      reach: 15.4,
+      caliber: 381, reload: 30, traverse: 0.05, range: 22000, sigma: 1.3,
+      // The 1,938 lb 6crh shell: 752 m/s.
+      shells: shells(381, 12300, 5600, 560, 752, 0.24),
+    },
+    torpedoes: null,
+    // Her eight 6-inch Mk XII in their casemates, four a side in her
+    // forecastle side under her shelter deck. A casemate gun bears from
+    // ahead round on to her beam and a little abaft it, never across her;
+    // the aftmost pair, drawn trained out on her quarters, bear abaft her
+    // beam.
+    secondary: {
+      name: '6"/45 BL Mk XII', role: 'surface', piece: 'sec',
+      elev: { min: -0.122, max: 0.349 },
+      reach: 5.0,
+      caliber: 152, reload: 7.5, traverse: 0.14, range: 12500, sigma: 1.4,
+      shells: shells(152, 2800, 2200, 140, 841, 0.10),
+      mounts: [
+        { x: 9.973, z: 29.226, angle: 0.85, arc: 1.15, rest: -0.0873, guns: 1, my: 6.12 },
+        { x: -9.97, z: 29.015, angle: -0.85, arc: 1.15, rest: 0, guns: 1, my: 5.69 },
+        { x: 12.447, z: 21.133, angle: 0.85, arc: 1.15, rest: -0.2443, guns: 1, my: 7.01 },
+        { x: -12.446, z: 21.133, angle: -0.85, arc: 1.15, rest: 0.2618, guns: 1, my: 6.92 },
+        { x: 12.712, z: 13.513, angle: 0.85, arc: 1.15, rest: 0.0524, guns: 1, my: 5.65 },
+        { x: -12.71, z: 13.513, angle: -0.85, arc: 1.15, rest: -0.0175, guns: 1, my: 6.52 },
+        { x: 12.853, z: 5.335, angle: 2.2, arc: 1.0, rest: 2.7751, guns: 1, my: 6.56 },
+        { x: -12.851, z: 5.335, angle: -2.2, arc: 1.0, rest: -2.7751, guns: 1, my: 6.56 },
+      ],
+    },
+    aa: {
+      range: 5000, dps: 70,
+      guns: [
+        // Her four twin 4-inch Mk XVI HA on her shelter deck, two a side.
+        { name: '4" QF Mk XVI twin', caliber: 102, role: 'dp', reload: 3.0, range: 5000, piece: 'dp',
+          elev: { min: -0.175, max: 1.40 },
+          mounts: [
+            { x: 10.757, z: 8.873, angle: 1.57, arc: 2.6, rest: -3.1416, guns: 2, my: 9.05 },
+            { x: -10.757, z: 8.873, angle: -1.57, arc: 2.6, rest: 3.1416, guns: 2, my: 9.05 },
+            { x: 12.363, z: -7.625, angle: 1.57, arc: 2.6, rest: 0, guns: 2, my: 9.05 },
+            { x: -12.363, z: -7.625, angle: -1.57, arc: 2.6, rest: 0, guns: 2, my: 9.05 },
+          ] },
+        // Her four eight-barrelled pom-poms, two a side on the platforms
+        // abreast her funnel.
+        { name: '2-pdr Mk VIII octuple', caliber: 40, role: 'aa', reload: 0.35, range: 3600, piece: 'pom',
+          elev: { min: -0.17, max: 1.40 },
+          mounts: [
+            { x: -7.823, z: 5.661, angle: -1.57, arc: 2.6, rest: -0.4712, guns: 8, my: 14.3 },
+            { x: 7.77, z: 5.661, angle: 1.57, arc: 2.6, rest: -0.4712, guns: 8, my: 14.3 },
+            { x: 8.778, z: -2.48, angle: 1.57, arc: 2.6, rest: 2.6704, guns: 8, my: 15.55 },
+            { x: -8.708, z: -2.482, angle: -1.57, arc: 2.6, rest: 2.8449, guns: 8, my: 15.55 },
+          ] },
+        // And her fifteen Oerlikons: on B's and X's roofs, about her bridge
+        // and her after superstructure, and one right aft on her quarterdeck.
+        { name: '20 mm Oerlikon', caliber: 20, role: 'aa', reload: 0.12, range: 1800, piece: 'aa1',
+          elev: { min: -0.17, max: 1.48 },
+          mounts: [
+            { x: -6.027, z: 39.374, angle: -1.57, arc: 2.6, rest: 3.1416, guns: 1, my: 8.39 },
+            { x: 6.027, z: 39.374, angle: 1.57, arc: 2.6, rest: 3.1416, guns: 1, my: 8.39 },
+            { x: -1.995, z: 37.088, angle: -1.57, arc: 2.6, rest: 3.1416, guns: 1, my: 15.25 },
+            { x: 1.995, z: 37.088, angle: 1.57, arc: 2.6, rest: 3.1416, guns: 1, my: 15.25 },
+            { x: -6.062, z: 27.465, angle: -1.57, arc: 2.6, rest: 3.1416, guns: 1, my: 11.28 },
+            { x: 6.062, z: 27.465, angle: 1.57, arc: 2.6, rest: 3.1416, guns: 1, my: 11.28 },
+            { x: -7.611, z: 19.731, angle: -1.57, arc: 2.6, rest: 3.1416, guns: 1, my: 11.28 },
+            { x: 7.609, z: 19.731, angle: 1.57, arc: 2.6, rest: 3.1416, guns: 1, my: 11.28 },
+            { x: -6.076, z: -39.569, angle: -1.57, arc: 2.6, rest: 0.7854, guns: 1, my: 8.42 },
+            { x: 6.075, z: -39.573, angle: 1.57, arc: 2.6, rest: -0.8029, guns: 1, my: 8.42 },
+            { x: -8.874, z: -42.642, angle: -1.57, arc: 2.6, rest: 0.8029, guns: 1, my: 5.99 },
+            { x: 8.873, z: -42.646, angle: 1.57, arc: 2.6, rest: -0.7854, guns: 1, my: 5.99 },
+            { x: -1.996, z: -44.149, angle: -1.57, arc: 2.6, rest: 0, guns: 1, my: 12.98 },
+            { x: 1.996, z: -44.149, angle: 1.57, arc: 2.6, rest: 0, guns: 1, my: 12.98 },
+            { x: 0, z: -87.201, angle: 3.14, arc: 2.9, rest: 3.1416, guns: 1, my: 6.11 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: {
+      displacement: 36450,
+      aircraft: 0,
+      mainRounds: 800,
+      torpedoesCarried: 0,
+      secondary: { caliber: 152, label: '6in', barrels: 8, rounds: 1040 },
+      tertiary: [
+        { caliber: 102, label: '4in', barrels: 8, rounds: 3200 },
+        { caliber: 40, label: '2pdr', barrels: 32, rounds: 57600 },
+        { caliber: 20, label: '20mm', barrels: 15, rounds: 36000 },
+      ],
+    },
+  },
+
   hood: {
     // HMS Hood, the last battlecruiser of the Royal Navy and for twenty years
     // the largest warship in the world: eight 15-inch in four twin turrets,
@@ -17290,6 +17442,148 @@ export const SHIP_CLASSES = {
     },
   },
 
+  illustrious: {
+    // HMS Illustrious, the first of the armoured carriers: her hangar a
+    // steel box under a three-inch flight deck with four and a half inches
+    // at its sides -- fewer aircraft than an open-hangared carrier of her
+    // size, and a ship that could be hit and steam on. On the night of 11
+    // November 1940 twenty-one of her Swordfish crippled the Italian fleet
+    // at anchor in Taranto. In January 1941 the Stukas hit her six times off
+    // Malta; she got into Grand Harbour burning, was bombed again there, and
+    // got away to be repaired in Norfolk, Virginia. She covered the landings
+    // at Madagascar and Salerno, struck at Sabang and Surabaya with the
+    // Eastern Fleet, and took the kamikazes off Okinawa with the British
+    // Pacific Fleet.
+    //
+    // She is drawn from the owner's model of her (see illustrious.js and
+    // build/prepare-illustrious-hull.mjs) -- "CV HMS Illustrious (War Thunder)"
+    // by KojfDiscord, under Creative Commons Attribution 4.0, credited on the
+    // Credits screen -- at her 225.6 m over all and floated at 8.8 m, armed as
+    // the model arms her: eight twin 4.5-inch in their gunhouses at the four
+    // corners of her flight deck and six eight-barrelled pom-poms about her
+    // island and her deck edge. Her runway is laid afresh over her flight
+    // deck with her two lifts in it, the forward and the after, both on her
+    // centreline.
+    id: 'illustrious',
+    name: 'Illustrious',
+    fullName: 'HMS Illustrious',
+    className: 'Illustrious',
+    type: 'CV',
+    typeName: 'Armoured Carrier',
+    nation: 'gbr',
+    blurb: 'Fifty-seven Corsairs and Avengers under an armoured flight deck: Taranto, the Malta convoys, and the kamikazes off Okinawa.',
+    hull: { length: 225.6, beam: 29.2, draft: 8.8, superstructure: 0.55, flightDeck: true },
+    hp: 46000,
+    // A hundred and eleven thousand horsepower on three shafts.
+    maxSpeed: 30.5 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.48,
+    turnRate: 0.056,
+    rudderShift: 11.0,
+    speedLossInTurn: 0.18,
+    concealment: 14200,
+    fireDetectPenalty: 5200,
+    // Type 79 and later 281 for the air, Type 272 for the surface.
+    radarRange: 14000,
+    repairCooldown: 90,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    // Four and a half inches of belt and of hangar side, and three inches of
+    // flight deck over the hangar: the armour that took a 1,000 lb bomb off
+    // Malta and kept her afloat.
+    armor: { belt: 114, deck: 76, citadel: 114, bow: 19, superstructure: 16 },
+    // Her eight twin 4.5-inch in their BD gunhouses, in pairs at the four
+    // corners of her flight deck, each where the model stands it. Each fires
+    // out over her own side and fore or aft.
+    turrets: [
+      { id: 0, name: 'P1', x: 11.682, z: 78.916, angle: 1.57, arc: 2.6, rest: 1.49, guns: 2, my: 12.34, piece: 'dp' },
+      { id: 1, name: 'S1', x: -11.925, z: 78.916, angle: -1.57, arc: 2.6, rest: -1.5759, guns: 2, my: 12.09, piece: 'dp' },
+      { id: 2, name: 'P2', x: 11.682, z: 71.494, angle: 1.57, arc: 2.6, rest: 1.5698, guns: 2, my: 12.11, piece: 'dp' },
+      { id: 3, name: 'S2', x: -11.93, z: 71.488, angle: -1.57, arc: 2.6, rest: -1.5675, guns: 2, my: 12.09, piece: 'dp' },
+      { id: 4, name: 'S3', x: -11.93, z: -78.99, angle: -1.57, arc: 2.6, rest: -1.5739, guns: 2, my: 12.11, piece: 'dp' },
+      { id: 5, name: 'P3', x: 11.688, z: -79.031, angle: 1.57, arc: 2.6, rest: 1.5678, guns: 2, my: 12.11, piece: 'dp' },
+      { id: 6, name: 'S4', x: -11.93, z: -86.394, angle: -1.57, arc: 2.6, rest: -1.5918, guns: 2, my: 12.09, piece: 'dp' },
+      { id: 7, name: 'P4', x: 11.688, z: -86.43, angle: 1.57, arc: 2.6, rest: 1.573, guns: 2, my: 12.09, piece: 'dp' },
+    ],
+    gun: {
+      name: 'QF 4.5" Mk III', role: 'dp',
+      elev: { min: -0.087, max: 1.40 },
+      reach: 4.89,
+      caliber: 113, reload: 4.2, traverse: 0.4, range: 11000, sigma: 2.1,
+      shells: shells(113, 1700, 1500, 70, 746, 0.08),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 3600, dps: 110,
+      guns: [
+        // Her six eight-barrelled pom-poms: two on the platforms forward of
+        // her island, one on it, one abaft it, and two at her port deck edge.
+        // The two on and abaft her island have it between them and her bow,
+        // and bear from her beam aft.
+        { name: 'QF 2-pdr Mk VIII octuple', caliber: 40, role: 'aa', reload: 0.3, range: 3200, piece: 'pp8',
+          mounts: [
+            { x: -14.834, z: 52.45, angle: -1.57, arc: 1.92, rest: -2.0246, guns: 8, my: 14.58 },
+            { x: -14.834, z: 40.997, angle: -1.57, arc: 1.92, rest: -2.0246, guns: 8, my: 14.59 },
+            { x: 14.425, z: 22.797, angle: 1.57, arc: 1.92, rest: 1.117, guns: 8, my: 12.62 },
+            { x: 14.427, z: 2.044, angle: 1.57, arc: 1.92, rest: 1.117, guns: 8, my: 12.62 },
+            { x: -14.977, z: 0.974, angle: -2.0, arc: 1.5, rest: -2.0246, guns: 8, my: 18.96 },
+            { x: -13.506, z: -7.632, angle: -2.0, arc: 1.5, rest: -2.0246, guns: 8, my: 14.58 },
+          ] },
+      ],
+    },
+    planes: {
+      squadrons: 3, perSquadron: 19, cruiseSpeed: 72, strikeRange: 13000,
+      // Where her aircraft put their wheels down coming home: just up the
+      // deck from her round-down.
+      touchdown: { z: -76, y: 13.5 },
+      // Her air group of 1945 with the British Pacific Fleet: Corsairs over
+      // the fleet and over the strike, and Avengers with a torpedo or with
+      // bombs.
+      types: { fighter: 'corsair', dive: 'avenger', torpedo: 'avenger' },
+      // Where and how high her deck run leaves each of her types, off the
+      // integrated launch from her own deck (see carrier.js).
+      runOut: { fighter: 264.1, dive: 239.3, torpedo: 239.3 },
+      runHeight: { fighter: 18.1, dive: 14.8, torpedo: 14.8 },
+      rearm: 42, torpDamage: 8600, torpSpeed: 33 * KNOTS, torpRange: 4200,
+      floodChance: 0.27, hp: 1300, dropSpread: 0.05,
+      // An Avenger's four 500 lb bombs, from a glide.
+      bombDamage: 3200, bombHit: 0.36, bombFire: 0.32, bombPen: 70, bombBore: 0.32,
+      // The air group she sails with: fifty-seven aircraft in her hangar and
+      // on her deck, split however her captain likes between her fighters and
+      // her Avengers.
+      group: {
+        total: 57,
+        min: { fighters: 0, dive: 0, torpedo: 0 },
+        max: { fighters: 57, dive: 57, torpedo: 0 },
+        minStrike: 0,
+        default: { fighters: 21, dive: 36, torpedo: 0 },
+      },
+      // What each of her two types is, and what the Avenger is loaded with:
+      // her torpedo, or her bombs.
+      slots: {
+        fighters: { type: 'corsair', label: 'Vought Corsair', role: 'fighter',
+          note: 'Corsair II: six .50 calibre guns and two thousand horsepower, over the fleet and over the strike' },
+        dive: {
+          type: 'avenger', label: 'TBF Avenger', rowLabel: 'TBF Avenger', default: 'torpedo',
+          loadouts: {
+            torpedo: { name: 'Torpedo Load Out', note: 'an 18-inch Mk XV aerial torpedo in her bay, run in low', role: 'torpedo' },
+            bombs: { name: 'Bomb Load Out', note: 'four 500 lb bombs in her bay, dropped from a glide', role: 'level', bomb: 4 },
+          },
+        },
+      },
+    },
+    datasheet: {
+      displacement: 28620,
+      aircraft: 0,
+      mainRounds: 6400,
+      secondary: null,
+      tertiary: [
+        { caliber: 40, label: '2-pdr', barrels: 48, rounds: 86400 },
+      ],
+    },
+  },
+
   lexington: {
     // USS Lexington (CV-2), "Lady Lex": laid down in 1921 as a battlecruiser,
     // converted under the Washington Treaty into one of the two largest
@@ -18836,8 +19130,8 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'suzuya', 'yodo', 'agano', 'aoba', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
-  'grafzeppelin', 'implacable', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the

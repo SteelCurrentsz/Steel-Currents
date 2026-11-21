@@ -1,7 +1,7 @@
 // The Nimitz's three aircraft, the Ka-27, and the Implacable's Seafire and
 // Firefly, from the glbs the owner uploaded to the pieces the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|a5m|b4y|val|tenzan
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|a5m|b4y|val|tenzan|corsair
 //     ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
@@ -370,6 +370,74 @@ const KINDS = {
     },
     spins: [{ name: 'prop', hub: [0, 0.05, 0.75], axis: 'z' }],
   },
+  // The Illustrious's fighter: the Vought F4U Corsair, the bent-winged
+  // fighter-bomber the Fleet Air Arm flew off its armoured carriers before
+  // the US Navy would fly her off its own, off the owner's model of her.
+  // The model is one bare welded skin, wheels down: her airscrew, her legs
+  // and her tailwheel are told from her airframe by where they are, and she
+  // is painted here as the British Pacific Fleet's Corsairs of 1945 were --
+  // Glossy Sea Blue all over, her airscrew black with yellow tips, and the
+  // Fleet's blue-and-white roundels on her wings and her sides, with the
+  // white bars either side of the ones on her fuselage.
+  corsair: {
+    src: 'F4UCorsair-maximum-compressed.glb', length: 10.2, keep: 0.05, nose: '-x',
+    // Her Hamilton Standard airscrew had three blades; the model draws two of
+    // them, a third of a turn apart, and her third is put back.
+    addBlade: { x: -0.69, hub: [0.143, 0], r: 0.06, pick: (y, z) => z > 0 },
+    // Her six .50 Brownings, three in each outer wing.
+    guns: [[-3.3, 1.8, 2.9], [-3.0, 1.8, 2.9], [-2.7, 1.8, 2.9], [2.7, 1.8, 2.9], [3.0, 1.8, 2.9], [3.3, 1.8, 2.9]],
+    // The model's frame: her nose at -x, her span along z, her airscrew's
+    // hub 0.143 up; her cowling's lip at -0.69; her main legs under the
+    // bend of her wings, her tailwheel under her tail.
+    piece: ({ o: [x, y, z] }) => {
+      if (x < -0.69) return 'spin0';
+      if (x > -0.58 && x < -0.37 && Math.abs(z) > 0.2 && Math.abs(z) < 0.34 && y < -0.115) return 'gear';
+      if (x > 0.44 && x < 0.54 && Math.abs(z) < 0.05 && y < -0.16) return 'gear';
+      return 'body';
+    },
+    paint: ({ piece }) => (piece === 'spin0' ? [0.08, 0.08, 0.08] : piece === 'gear' ? [0.11, 0.15, 0.24] : [0.11, 0.15, 0.24])
+      .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)),
+    atlas: {
+      size: 2048, pieces: ['body', 'spin0'],
+      layer: ({ o: [x, y, z], axis, sign, piece }) => {
+        if (piece !== 'body') return 'p';
+        // Her canopy, over her cockpit well aft of her wings.
+        if (x > -0.1 && x < 0.22 && y > 0.175 && Math.abs(z) < 0.08) return 'g';
+        if (axis === 1) return Math.abs(z) > 0.13 ? (sign > 0 ? 'uw' : 'lw') : 'f';
+        if (axis === 0) return x < -0.55 ? 'n' : 'm';
+        return Math.abs(z) < 0.13 ? 'f' : 'o';
+      },
+      paint: ({ piece, axis, layer, a, b }) => {
+        const BLUE = [0.11, 0.15, 0.24], ROUNDEL = [0.05, 0.08, 0.3], WHITE = [0.86, 0.86, 0.84];
+        const BLACK = [0.07, 0.07, 0.07], YELLOW = [0.85, 0.7, 0.1];
+        if (piece === 'spin0') {
+          // Black blades, yellow at the tips.
+          const r = axis === 0 ? Math.hypot(b - 0.143, a) : axis === 1 ? Math.abs(b) : Math.abs(b - 0.143);
+          return r > 0.175 ? YELLOW : BLACK;
+        }
+        if (layer === 'g') return [0.24, 0.3, 0.33];
+        const roundel = (d, R) => (d < R * 0.45 ? WHITE : d < R ? ROUNDEL : null);
+        if (axis === 1) {
+          const [x, z] = [a, b];
+          if (layer === 'uw' || layer === 'lw') return roundel(Math.hypot(x + 0.27, Math.abs(z) - 0.68), 0.075) || BLUE;
+          return BLUE;
+        }
+        if (axis === 2) {
+          const [x, y] = [a, b];
+          if (layer === 'f') {
+            // Her fuselage roundel, and the white bar either side of it.
+            const d = Math.hypot(x - 0.33, y - 0.0);
+            const r = roundel(d, 0.06);
+            if (r) return r;
+            if (Math.abs(y) < 0.025 && Math.abs(x - 0.33) < 0.13) return WHITE;
+          }
+          return BLUE;
+        }
+        return BLUE;
+      },
+    },
+    spins: [{ name: 'prop', hub: [0, 0.143, 0.74], axis: 'z' }],
+  },
   // The Taiho's torpedo bomber: the Nakajima B6N2 Tenzan -- "Jill" -- off
   // the owner's model of her: a Kasei under a long cowling, her three crew
   // under one long glasshouse, her Type 91 slung off to starboard of her
@@ -576,6 +644,49 @@ const { j, P, UV } = model;
 if (K.tilt) {
   const c = Math.cos(K.tilt), sn = Math.sin(K.tilt);
   for (let i = 0; i < P.length; i += 3) { const x = P[i], y = P[i + 1]; P[i] = x * c - y * sn; P[i + 1] = x * sn + y * c; }
+}
+// `addBlade`: a model whose airscrew is drawn a blade short -- two blades a
+// third of a turn apart, the third left off -- is given it: the faces of one
+// blade (forward of `x`, off the hub's centre by more than `r`, on the side
+// `pick` says), copied and turned about the hub's axis, along the model's x,
+// into the empty third of the disc.
+if (K.addBlade) {
+  const { x: X0, hub: [hy, hz], r: R0, pick } = K.addBlade;
+  const nT = T0Len();
+  function T0Len() { return model.T.length / 3; }
+  const angOf = (y, z) => Math.atan2(y - hy, z - hz);
+  const sel = [], other = [];
+  for (let t = 0; t < nT; t++) {
+    const c = [0, 1, 2].map((k) => (P[model.T[t * 3] * 3 + k] + P[model.T[t * 3 + 1] * 3 + k] + P[model.T[t * 3 + 2] * 3 + k]) / 3);
+    if (c[0] > X0 || Math.hypot(c[1] - hy, c[2] - hz) < R0) continue;
+    (pick(c[1], c[2]) ? sel : other).push([t, angOf(c[1], c[2])]);
+  }
+  const mean = (a) => Math.atan2(a.reduce((q, [, v]) => q + Math.sin(v), 0), a.reduce((q, [, v]) => q + Math.cos(v), 0));
+  const a1 = mean(sel), a2 = mean(other);
+  const gap = (v) => Math.min(Math.abs(Math.atan2(Math.sin(v - a1), Math.cos(v - a1))), Math.abs(Math.atan2(Math.sin(v - a2), Math.cos(v - a2))));
+  const turn = [2 * Math.PI / 3, -2 * Math.PI / 3].sort((p, q) => gap(a1 + q) - gap(a1 + p))[0];
+  const c = Math.cos(turn), sn = Math.sin(turn);
+  const map = new Map();
+  for (const [t] of sel) {
+    const tri = [];
+    for (let k = 0; k < 3; k++) {
+      const v = model.T[t * 3 + k];
+      let nv = map.get(v);
+      if (nv === undefined) {
+        nv = P.length / 3;
+        // Turned about the hub: (z, y) about (hz, hy) by `turn`, so the angle
+        // atan2(y, z) grows by it.
+        const dz = P[v * 3 + 2] - hz, dy = P[v * 3 + 1] - hy;
+        P.push(P[v * 3], hy + dz * sn + dy * c, hz + dz * c - dy * sn);
+        UV.push(UV[v * 2] || 0, UV[v * 2 + 1] || 0);
+        model.NY.push(0);
+        map.set(v, nv);
+      }
+      tri.push(nv);
+    }
+    model.T.push(...tri); model.M.push(model.M[t]); model.L.push(model.L[t]);
+  }
+  console.log(`addBlade: ${sel.length} faces of a blade at ${(a1 * 180 / Math.PI).toFixed(0)} deg copied to ${((a1 + turn) * 180 / Math.PI).toFixed(0)} deg (the other at ${(a2 * 180 / Math.PI).toFixed(0)})`);
 }
 const P0 = Float64Array.from(P);
 if (K.nose === '+x') {

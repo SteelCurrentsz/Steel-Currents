@@ -307,6 +307,7 @@ import {
 import * as SORYU_SHIP from '../client/js/render/soryu.js';
 import * as AKAGI_SHIP from '../client/js/render/akagi.js';
 import * as TAIHO_SHIP from '../client/js/render/taiho.js';
+import * as ILLUSTRIOUS_SHIP from '../client/js/render/illustrious.js';
 import { b4y as planekitB4y } from '../client/js/render/planekit.js';
 import { val as planekitVal } from '../client/js/render/planekit.js';
 import {
@@ -4570,6 +4571,79 @@ check('the Aoba, the Agano, the Renown, the Repulse and the Taihō come in the y
   // The Hipper's four twin 20.3 cm and the Richelieu's two quadruple 380 mm.
   assert.deepEqual(SHIP_CLASSES.hipper.turrets.map((t) => t.guns), [2, 2, 2, 2]);
   assert.deepEqual(SHIP_CLASSES.richelieu.turrets.map((t) => t.guns), [4, 4]);
+});
+
+// ---- the Warspite and the Illustrious ---------------------------------------
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs: the
+// Warspite put together by krissShip.js, the Illustrious by carrier.js.
+const KOJF_RN = [
+  { id: 'warspite', after: 'rodney', link: 'https://skfb.ly/pHUJr', title: 'HMS Warspite (War Thunder)', type: 'BB' },
+  { id: 'illustrious', after: 'implacable', link: 'https://sketchfab.com/3d-models/cv-hms-illustrious-war-thunder-472e192959ae49b3b38a0df8c0340a37', title: 'CV HMS Illustrious (War Thunder)', type: 'CV' },
+];
+check('the Warspite and the Illustrious come in the yard, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of KOJF_RN) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, 'gbr', `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    assert.equal(SHIP_ORDER.indexOf(m.id), SHIP_ORDER.indexOf(m.after) + 1, `${m.id} is not after the ${m.after} in the yard`);
+    assert.ok(WWII_ORDER.includes(m.id), `${m.id} is not in the WWII yard`);
+    const at = screen.indexOf(`${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes('KojfDiscord')
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+  }
+  assert.notEqual(silhouette('warspite'), silhouette('renown'), 'the Warspite is drawn as the Renown in the yard');
+  // The Warspite's four twin 15-inch, A and B forward and X and Y aft, and
+  // her eight 6-inch in their casemates, four a side.
+  const W = SHIP_CLASSES.warspite;
+  assert.deepEqual(W.turrets.map((t) => t.guns), [2, 2, 2, 2]);
+  assert.deepEqual(W.turrets.map((t) => t.z > 0), [true, true, false, false]);
+  assert.equal(W.gun.caliber, 381);
+  assert.equal(W.secondary.caliber, 152);
+  assert.equal(W.secondary.mounts.filter((m) => m.x > 0).length, 4);
+  assert.equal(W.secondary.mounts.filter((m) => m.x < 0).length, 4);
+  // A casemate gun never bears across her on to the other beam.
+  for (const m of W.secondary.mounts) assert.ok(Math.sign(m.angle) === Math.sign(m.x) && Math.abs(m.angle) - m.arc > -0.35, 'a casemate of hers bears across her');
+});
+
+check('the Illustrious flies fifty-seven Corsairs and Avengers off her two lifts', () => {
+  const cls = SHIP_CLASSES.illustrious;
+  assert.equal(cls.planes.group.total, 57);
+  assert.equal(cls.planes.squadrons * cls.planes.perSquadron, 57);
+  const d = cls.planes.group.default;
+  assert.equal(d.fighters + d.dive + d.torpedo, 57);
+  assert.deepEqual(cls.planes.types, { fighter: 'corsair', dive: 'avenger', torpedo: 'avenger' });
+  // Her Corsair is her own, off the owner's model.
+  flightModels();
+  assert.equal(gunsOf('corsair').length, 6, 'her Corsair does not have her six fifties');
+  assert.equal(cls.turrets.length, 8);
+  const built = buildShip('illustrious');
+  assert.equal(built.lifts.length, 2);
+  const ud = built.group.userData;
+  const ys = (t) => { ud.step(t); return built.lifts.map((l) => l.group.position.y); };
+  const a = ys(0), b = ys(21);
+  assert.ok(a.some((y, i) => Math.abs(y - b[i]) > 1), 'no lift of hers moved');
+  for (let t = 0; t < 42; t += 0.5) {
+    ud.step(t);
+    for (const l of built.lifts) {
+      assert.ok(l.group.position.y <= ILLUSTRIOUS_SHIP.fdY(l.group.position.z) + 0.01, 'a lift of hers rose over her deck');
+      assert.ok(l.group.position.y >= ILLUSTRIOUS_SHIP.HANGAR - 0.01, 'a lift of hers went through her hangar deck');
+    }
+  }
+  const P = cls.planes;
+  for (const role of ['fighter', 'dive', 'torpedo']) {
+    const e = ud.deck.endPoses[role];
+    assert.ok(Math.abs(P.runOut[role] - e.z) < 6 && Math.abs(P.runHeight[role] - e.y) < 1.5,
+      `her deck leaves her ${role}s at ${e.z.toFixed(1)}, ${e.y.toFixed(1)} up, and the simulation puts them up at ${P.runOut[role]}, ${P.runHeight[role]}`);
+  }
 });
 
 check('the Taihō flies a hundred and twenty-six Zeros, Suiseis and Tenzans off her two lifts', () => {

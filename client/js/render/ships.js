@@ -102,6 +102,7 @@ const SCULPTED = {
   agano: () => import('./agano.js').then((m) => { KRISS.agano = m.buildAgano; }),
   renown: () => import('./renown.js').then((m) => { KRISS.renown = m.buildRenown; }),
   repulse: () => import('./repulse.js').then((m) => { KRISS.repulse = m.buildRepulse; }),
+  warspite: () => import('./warspite.js').then((m) => { KRISS.warspite = m.buildWarspite; }),
   shimakaze: () => import('./shimakaze.js').then((m) => { KRISS.shimakaze = m.buildShimakaze; }),
   yugumo: () => import('./yugumo.js').then((m) => { KRISS.yugumo = m.buildYugumo; }),
   dunkerque: () => import('./dunkerque.js').then((m) => { KRISS.dunkerque = m.buildDunkerque; }),
@@ -115,6 +116,7 @@ const SCULPTED = {
   type7c41: () => import('./type7c41.js').then((m) => { KRISS.type7c41 = m.buildType7c41; }),
   uclass3: () => import('./uclass3.js').then((m) => { KRISS.uclass3 = m.buildUclass3; }),
   implacable: () => import('./implacable.js').then((m) => { CARRIERS.implacable = m.buildImplacable; }),
+  illustrious: () => import('./illustrious.js').then((m) => { CARRIERS.illustrious = m.buildIllustrious; }),
   hosho: () => import('./hosho.js').then((m) => { CARRIERS.hosho = m.buildHosho; }),
   soryu: () => import('./soryu.js').then((m) => { CARRIERS.soryu = m.buildSoryu; }),
   akagi: () => import('./akagi.js').then((m) => { CARRIERS.akagi = m.buildAkagi; }),
@@ -173,7 +175,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'essex', 'lexington'].includes(classId) ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'essex', 'lexington', 'illustrious'].includes(classId) ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */

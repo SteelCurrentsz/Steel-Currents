@@ -103,6 +103,9 @@ export function rnPaint(f) {
 // upperworks, and their weather decks planked where they lie flat and low.
 export const RENOWN_PAINTS = { ...RN_PAINTS, wood: 0x9a8a6c };
 export const renownPaint = (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 13 && f.ny > 0.97 ? 'wood' : rnPaint(f));
+// The Warspite the same, but her model draws her decks wound either way up:
+// a flat face low on her is planked whichever way it was wound.
+export const warspitePaint = (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 13 && Math.abs(f.ny) > 0.97 ? 'wood' : rnPaint(f));
 
 // The Kriegsmarine's destroyers: light grey (Hellgrau 50) over hull and
 // upperworks, the steel weather decks dark grey (Dunkelgrau 51), a black

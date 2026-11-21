@@ -401,6 +401,21 @@ const HULLS = {
     <rect x="45" y="25" width="23" height="4"/>
     <path d="M60 26 L61.2 7 L62.2 7 L63.8 26 Z"/>
     <rect x="76" y="26.6" width="5" height="3.4"/>`,
+  // The Warspite as rebuilt: a short battleship hull with her forecastle
+  // carried well aft, A and B forward, a tower bridge, one broad funnel, a
+  // pole mainmast over her hangars, and X and Y aft.
+  warspite: `
+    <path d="M2 27 L58 28.4 L58 30 L94 30 L98 31.2 L95 37 L6 37 Z"/>
+    <rect x="18" y="24.6" width="5.5" height="3"/>
+    <rect x="25" y="22" width="5.5" height="4"/>
+    <rect x="32.5" y="15" width="9" height="13.5"/>
+    <rect x="33.6" y="11.5" width="6" height="4"/>
+    <rect x="37" y="3" width="1.1" height="9"/>
+    <rect x="44.5" y="14.5" width="6" height="11.5"/>
+    <rect x="42" y="24.5" width="22" height="4.5"/>
+    <rect x="59" y="9" width="1.1" height="16"/>
+    <rect x="66" y="25" width="5.5" height="3.8"/>
+    <rect x="73" y="26.8" width="5.5" height="3.2"/>`,
   // The Agano: a long, slim, flush-sided light cruiser hull with a sheer
   // up to her bow, two twin turrets forward -- No.2 superfiring -- a compact
   // tower bridge, one tall raked funnel, her catapult and tube banks
@@ -669,7 +684,7 @@ export function silhouette(classId, { flip = false, cls = '', badge = null } = {
   // Maya off the Takao, the Missouri off the Iowa, which she is with missiles
   // on her, and the Hornet off the Enterprise, the Yorktown she was built to
   // the drawings of.
-  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise', nimitz: 'enterprise', ford: 'enterprise', essex: 'enterprise', lexington: 'enterprise', fubuki: 'yukikaze', shimakaze: 'yukikaze', yugumo: 'yukikaze', victory: 'liberty', dunkerque: 'richelieu', texas: 'northcarolina', newmexico: 'northcarolina', maryland: 'northcarolina', pennsylvania: 'northcarolina', ise: 'yamato', implacable: 'enterprise', uclass3: 'uclass', type7c: 'viic', type7c41: 'viic41' }[classId] || classId] || HULLS.fletcher;
+  const body = HULLS[{ spee: 'scheer', maya: 'takao', missouri: 'iowa', hornet: 'enterprise', nimitz: 'enterprise', ford: 'enterprise', essex: 'enterprise', lexington: 'enterprise', fubuki: 'yukikaze', shimakaze: 'yukikaze', yugumo: 'yukikaze', victory: 'liberty', dunkerque: 'richelieu', texas: 'northcarolina', newmexico: 'northcarolina', maryland: 'northcarolina', pennsylvania: 'northcarolina', ise: 'yamato', implacable: 'enterprise', illustrious: 'enterprise', uclass3: 'uclass', type7c: 'viic', type7c41: 'viic41' }[classId] || classId] || HULLS.fletcher;
   const mark = badge ? BADGES[badge] || '' : '';
   // Room either side for the arrow, and above for the cross. Equal margins, so
   // the box's centre line is the hull's centre line and the mirror below maps
