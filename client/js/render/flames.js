@@ -66,24 +66,36 @@ ${NOISE}
 
 void main() {
   vec2 p = vUv * 2.0 - 1.0;
+  float seed = vLook.z;
+  // Never the same shape twice, and never a disc: each puff is squashed and
+  // stretched its own way before anything is drawn on it.
+  p *= vec2(0.82 + 0.36 * fract(seed * 7.13), 0.82 + 0.36 * fract(seed * 3.71));
   float r = length(p);
   if (r > 1.0) discard;
-  float seed = vLook.z;
-  // Billowing: the edge of the puff is the noise, not a circle, and it turns
-  // over slowly while it is in the air.
-  vec2 q = p * 1.35 + vec2(seed * 31.0, seed * 17.0);
-  float n = fbm3(q + vec2(0.0, -uTime * 0.06));
-  float m = fbm3(q * 2.3 + 7.1 - vec2(uTime * 0.04, 0.0));
-  float edge = r + (n - 0.5) * 0.85 + (m - 0.5) * 0.30;
-  float d = 1.0 - smoothstep(0.35, 1.0, edge);
+  // Billowing: the noise is looked up where other noise says (a domain warp),
+  // which turns round blobs into curls and folds, and it turns over slowly
+  // while the puff is in the air.
+  vec2 q = p * 1.6 + vec2(seed * 31.0, seed * 17.0);
+  vec2 w = vec2(fbm3(q * 0.8 + vec2(0.0, -uTime * 0.05)),
+                fbm3(q * 0.8 + vec2(5.2, 1.3) + vec2(uTime * 0.04, 0.0))) - 0.5;
+  float n = fbm3(q + w * 1.8 + vec2(0.0, -uTime * 0.06));
+  float m = fbm3(q * 2.7 + w * 2.4 + 7.1 - vec2(uTime * 0.05, 0.0));
+  // The outline: pushed in and out hard by the low octaves and frayed by the
+  // high ones, so what shows against the sky is a torn, lumpy edge with rags
+  // coming off it -- a circle with a noisy rim is still a circle.
+  float edge = r + (n - 0.5) * 1.15 + (m - 0.5) * 0.55;
+  float d = 1.0 - smoothstep(0.15, 0.95, edge);
+  // And thick only in places. Smoke is knots and veils, not a solid ball:
+  // the thin parts let the sky through.
+  d *= smoothstep(0.18, 0.62, n * 0.7 + m * 0.3 + (1.0 - r) * 0.25);
   float a = d * vLook.x;
   if (a < 0.004) discard;
   // Soot: near black where it is thick, browner and greyer where it is thin
   // and the light gets into it, and lit from above by the sky.
   float thin = 1.0 - d;
-  float top = clamp(0.5 + p.y * 0.5, 0.0, 1.0);
-  vec3 soot = mix(vec3(0.030, 0.027, 0.025), vec3(0.150, 0.135, 0.120), thin * 0.7 + (n - 0.5) * 0.4);
-  soot += uSky * (0.07 + 0.16 * top) * (0.35 + thin * 0.65);
+  float top = clamp(0.5 + p.y * 0.5 + (n - 0.5) * 0.6, 0.0, 1.0);
+  vec3 soot = mix(vec3(0.035, 0.032, 0.030), vec3(0.20, 0.185, 0.17), thin * 0.8 + (m - 0.5) * 0.5);
+  soot += uSky * (0.08 + 0.20 * top) * (0.35 + thin * 0.65);
   // And from underneath, while it is still over the flame.
   vec3 fire = vec3(1.0, 0.36, 0.08) * vLook.y * (1.0 - top) * (0.55 + 0.45 * n);
   vec3 col = mix(soot + fire, uFogColor, vFog);
@@ -288,15 +300,15 @@ export class Flames {
       x: f.x + (Math.random() - 0.5) * s.w * 0.5,
       y: top + Math.random() * s.h * 0.2,
       z: f.z + (Math.random() - 0.5) * s.w * 0.5,
-      vx: (Math.random() - 0.5) * 1.5,
-      vy: 7 + 7 * s.heat + Math.random() * 3,
-      vz: (Math.random() - 0.5) * 1.5,
+      vx: (Math.random() - 0.5) * 3,
+      vy: 6 + 7 * s.heat + Math.random() * 5,
+      vz: (Math.random() - 0.5) * 3,
       r0,
       // How fast it spreads, metres a second, early on.
       spread: 2.4 + 2.2 * s.heat + Math.random() * 1.2,
       age: 0,
       ttl: 20 + 12 * s.heat + Math.random() * 6,
-      opa: 0.78 + 0.2 * s.heat,
+      opa: 0.9 + 0.1 * s.heat,
       seed: Math.random(),
       spin: Math.random() * Math.PI * 2,
       turn: (Math.random() - 0.5) * 0.12,
@@ -324,7 +336,7 @@ export class Flames {
       const size = p.r0 + p.spread * Math.pow(p.age, 0.75) * 1.5;
       const u = p.age / p.ttl;
       // Dense as it leaves the flame, thinning as it spreads and gone at the end.
-      const thin = Math.pow(p.r0 / size, 0.22);
+      const thin = Math.pow(p.r0 / size, 0.38);
       const alpha = p.opa * Math.min(1, p.age / 0.4) * (1 - u * u) * thin;
       out.push(p);
       if (alpha < 0.01) continue;

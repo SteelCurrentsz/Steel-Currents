@@ -72,9 +72,14 @@ const INTERP_DELAY = 0.15;
  * The losses that are held until the picture reaches the moment they happened
  * at; see lateEvents.
  */
+const HIT_AT = new THREE.Vector3();
 const LATE_EVENTS = new Set([
   'planeDown', 'planesLost', 'bomberDown', 'bomberOut', 'wreckHit', 'wreckIn', 'midAir',
   'planeCrash', 'ram', 'trap', 'nuke',
+  // A round striking a ship. The rounds are drawn a moment behind the battle,
+  // like everything else; a burst played the moment the word came in went off
+  // in the air a hundred metres short of her, with the shell still on its way.
+  'hit',
 ]);
 // What the batsman saw, for a captain watching one of his own go round.
 const WAVE_OFF = {
@@ -3012,15 +3017,21 @@ export class Battle {
   onCollide(ev, d) {
     const fx = this.scene.effects;
     const big = clamp((ev.v || 0) / 10, 0.2, 1.6);
+    // Steel into steel. Nothing in a collision burns unless something
+    // explodes, and a collision only sets off what it breaks into -- which
+    // the battle settles and sends as its own detonation (see ram in sim.js).
+    // What is seen here is the sea thrown up between them, plating torn off
+    // and falling cold into the water, and the sparks of it grinding.
     if (ev.kind === 'rise' || ev.kind === 'keel') {
       // Under her keel: what comes up is sea, thrown up round her by a boat's
       // buoyancy or by her bottom going over one, and the wreckage of a boat
       // that broke on her.
-      fx.splash(ev.x, ev.z, 300 + big * 420, { kind: 'bow' });
-      if ((ev.out || []).some((o) => o.what === 'split')) this.scene.debris.burst(ev.x, 1, ev.z, 3 + big * 4, 0.5);
+      fx.splash(ev.x, ev.z, 200 + big * 260, { kind: 'bow' });
+      if ((ev.out || []).some((o) => o.what === 'split')) this.scene.debris.burst(ev.x, 1, ev.z, 2 + big * 3, 0.4, 0);
     } else {
-      fx.splash(ev.x, ev.z, 160 + big * 360, { kind: 'bow' });
-      this.scene.debris.burst(ev.x, 5, ev.z, 3 + big * 7, 0.6);
+      fx.splash(ev.x, ev.z, 90 + big * 160, { kind: 'bow' });
+      if (big > 0.35) this.scene.debris.burst(ev.x, 4, ev.z, 1 + big * 3, 0.35, 0);
+      fx.sparks?.shower(ev.x, 5, ev.z, Math.round(12 + big * 30), { speed: 18 + big * 16, life: 0.9, ny: 0.5, spread: 1 });
     }
     if (ev.kind === 'rise' || ev.kind === 'keel') audio.slam({ x: ev.x, y: -2, z: ev.z }, 0.4 + big * 0.5);
     audio.crash({ x: ev.x, y: 3, z: ev.z }, ev.v || 0);
@@ -3100,9 +3111,12 @@ export class Battle {
       view.group.localToWorld(p);
       const size = 0.5 + view.cls.hull.length / 320;
       const near = this.distanceFade(p.x, p.z);
-      this.scene.debris.burst(p.x, 6, p.z, 6 + size * 6, 0.9);
-      fx.splash(p.x, p.z, 420 + size * 300, { kind: 'bomb' });
-      fx.splash(p.x + (Math.random() - 0.5) * 12, p.z + (Math.random() - 0.5) * 12, 300, { kind: 'shell' });
+      // Cut by a stem, she is torn, not blown: plating and the sea, and no
+      // fire. Anything else that parts her went off to do it.
+      const rammed = ev.why === 'ram';
+      this.scene.debris.burst(p.x, 6, p.z, (rammed ? 3 : 6) + size * (rammed ? 3 : 6), rammed ? 0.5 : 0.9, rammed ? 0 : 1);
+      fx.splash(p.x, p.z, (rammed ? 260 : 420) + size * (rammed ? 200 : 300), { kind: rammed ? 'bow' : 'bomb' });
+      if (!rammed) fx.splash(p.x + (Math.random() - 0.5) * 12, p.z + (Math.random() - 0.5) * 12, 300, { kind: 'shell' });
       // And everything in her bunkers on that length of her, onto the sea.
       this.scene.oil.spill(p.x, p.z, 40 + view.cls.hull.length * 0.6, false);
       audio.tear({ x: p.x, y: 3, z: p.z }, size);
@@ -3209,6 +3223,12 @@ export class Battle {
     // The bridge you are standing on.
     const bridge = this.conned();
     for (const ev of events) {
+      // Where a round struck and when, for the round itself: it is flown on
+      // to that point and put out there (see the shells in syncEntities).
+      if (!late && ev.e === 'hit' && ev.si != null && Number.isFinite(ev.tk)) {
+        (this.shellImpacts || (this.shellImpacts = new Map()))
+          .set(ev.si, { x: ev.x, y: ev.y ?? 8, z: ev.z, st: ev.tk * DT });
+      }
       if (!late && this.holdBack(ev)) continue;
       const d = this.distanceFade(ev.x, ev.z);
       // The people in the towns hear it, and run -- or are caught by it.
@@ -3725,6 +3745,21 @@ export class Battle {
             break;
           }
           this.eventLog?.impact(ev, this.batteryName(ev.owner));
+          // On her, where she is drawn: the point it struck in her own frame,
+          // put back out into the world off her model. Our own ship is drawn
+          // where she is now rather than a moment ago, and a burst placed off
+          // the battle's world point went off a few metres off her side.
+          {
+            const hv = this.scene.shipViews.get(ev.victim);
+            if (hv && ev.kind !== 'splash' && Number.isFinite(ev.lx) && Number.isFinite(ev.lz)) {
+              const p = HIT_AT.set(ev.x, ev.y ?? 8, ev.z);
+              hv.group.updateMatrixWorld(true);
+              hv.group.worldToLocal(p);
+              p.x = ev.lx; p.z = ev.lz;
+              hv.group.localToWorld(p);
+              if (Number.isFinite(p.x) && Number.isFinite(p.z)) { ev.x = p.x; ev.y = p.y; ev.z = p.z; }
+            }
+          }
           // A round that got into her goes off inside her: an explosion, as
           // big as the damage it did. One that did not get in is a flash and
           // a puff against her armour. Neither leaves a mark on the ship.
@@ -8941,14 +8976,33 @@ export class Battle {
     const rockets = this.scene.rockets;
     rockets.begin(dt);
     let nr = 0;
+    const impacts = this.shellImpacts;
+    const nowST = this.renderST;
+    if (impacts && impacts.size && Number.isFinite(nowST)) {
+      for (const [id, q] of impacts) if (q.st < nowST - 3) impacts.delete(id);
+    }
     for (const sh of a.shells) {
       const prev = b ? b.shells.find((x) => x.i === sh.i) : null;
-      const x = prev ? lerp(sh.x, prev.x, t) : sh.x;
-      const y = prev ? lerp(sh.y, prev.y, t) : sh.y;
-      const z = prev ? lerp(sh.z, prev.z, t) : sh.z;
-      const dx = prev ? prev.x - sh.x : Math.sin(sh.b || 0);
-      const dy = prev ? prev.y - sh.y : 0.2;
-      const dz = prev ? prev.z - sh.z : Math.cos(sh.b || 0);
+      let x = prev ? lerp(sh.x, prev.x, t) : sh.x;
+      let y = prev ? lerp(sh.y, prev.y, t) : sh.y;
+      let z = prev ? lerp(sh.z, prev.z, t) : sh.z;
+      let dx = prev ? prev.x - sh.x : Math.sin(sh.b || 0);
+      let dy = prev ? prev.y - sh.y : 0.2;
+      let dz = prev ? prev.z - sh.z : Math.cos(sh.b || 0);
+      // Gone by the next snapshot: it struck something in between. It used to
+      // be held where the last snapshot had it -- short of her, by as far as a
+      // shell goes in a tenth of a second -- while the burst went off on her
+      // plating. Flown on to the point it struck instead, and put out the
+      // moment it gets there, which is the moment the burst is played.
+      if (!prev && impacts && Number.isFinite(nowST)) {
+        const q = impacts.get(sh.i);
+        if (q) {
+          if (nowST >= q.st) continue;
+          const f = clamp((nowST - a.st) / Math.max(1e-3, q.st - a.st), 0, 1);
+          dx = q.x - sh.x; dy = q.y - sh.y; dz = q.z - sh.z;
+          x = sh.x + dx * f; y = sh.y + dy * f; z = sh.z + dz * f;
+        }
+      }
       // A heavy's bomb is a bomb, drawn as one and at her own size beside
       // the formation that let her go -- not as a gun's round of the same
       // weight, glowing like tracer and five times as long.

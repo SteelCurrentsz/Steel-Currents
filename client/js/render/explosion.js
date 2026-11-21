@@ -157,7 +157,9 @@ void main() {
   // Soot: made in the flame, rolled out to the surface, and thickening as she
   // cools. The veins of it across the face are most of what separates a
   // fireball from a glowing balloon.
-  float vein = smoothstep(0.34, 0.80, fbm3dLow(q * 2.05 + w * 0.8 + 3.1) * 1.34);
+  // Broad, not spotted: veins at a finer scale than the heads come out as a
+  // leopard's coat over the ball, which no fireball has ever worn.
+  float vein = smoothstep(0.30, 0.92, fbm3dLow(q * 1.15 + w * 0.9 + 3.1) * 1.34);
   // Gas this hot cools in a moment; what is left burns on much longer, dirty
   // and red. Holding the white too long is what makes a blast read as a lamp.
   float cool = smoothstep(0.14, 1.45, e);
@@ -172,22 +174,26 @@ void main() {
                    * (1.0 - smoothstep(0.0, 0.42, rn)));
   heat = clamp(heat, 0.0, 1.0);
 
-  float soot = clamp(smoothstep(0.20, 1.25, e) * (0.55 + 0.60 * vein)
-                     * (1.0 - thick * 0.30), 0.0, 1.0);
-  vec3 col = mix(ramp(heat), vec3(0.130, 0.108, 0.094), soot);
+  float soot = clamp(smoothstep(0.16, 1.05, e) * (0.70 + 0.45 * vein)
+                     * (1.0 - thick * 0.25), 0.0, 1.0);
+  // Soot is not one colour: thick it is near black, thin it is a dirty
+  // brown-grey with the daylight in it.
+  vec3 sootCol = mix(vec3(0.075, 0.068, 0.062), vec3(0.25, 0.23, 0.215), smoothstep(0.2, 0.9, n) * (1.0 - thick * 0.6));
+  vec3 col = mix(ramp(heat), sootCol, soot);
   // The underside of the cloud stands over a burning port and is lit by it, and
   // there is fire inside it for a long while yet, showing in the gaps between
   // the heads. Soot that takes no light off what it is sitting above and none
   // off what it is made of is a hole in the picture, not smoke.
   col = mix(col, uLit, soot * (1.0 - smoothstep(-0.55, 0.95, pn.y)) * 0.45
                       * (1.0 - smoothstep(1.0, 2.6, e)));
-  col += uLit * (1.0 - vein) * (1.0 - smoothstep(0.3, 1.7, e)) * 0.45;
+  col += uLit * (1.0 - vein) * (1.0 - smoothstep(0.3, 1.4, e)) * 0.28;
   // Fire still breaking out through the soot: the lobes that stand proudest
   // are the ones still burning, and they show orange against the black long
   // after the face of her has gone dark.
-  float burst = smoothstep(0.42, 0.95, N) * smoothstep(0.3, 0.9, F * 0.5 + 0.5)
-              * smoothstep(0.15, 0.6, e) * (1.0 - smoothstep(1.2, 2.8, e));
-  col = mix(col, ramp(0.55 + 0.25 * F), burst * 0.85);
+  // Only the biggest heads, and only for a moment: speckled with fire all
+  // over the soot reads as embers on a cartoon bomb.
+  float burst = smoothstep(0.60, 1.0, N) * smoothstep(0.15, 0.5, e) * (1.0 - smoothstep(0.7, 1.7, e));
+  col = mix(col, ramp(0.50 + 0.18 * F), burst * 0.6);
   // Lit on the top by the sky and dark underneath, so the soot has a shape.
   col *= 0.86 + 0.28 * smoothstep(-0.6, 0.8, pn.y) * soot;
 
@@ -204,7 +210,12 @@ void main() {
   // is cool and the soot is warm, and taken to the full the two average out to
   // a green nobody has ever seen over a burning town.
   col = mix(col, uFogColor, vFog * 0.62);
-  gl_FragColor = vec4(col, clamp(a * thin * gone * uKeep, 0.0, 1.0));
+  // Let go not by thinning evenly -- a ball going uniformly transparent is a
+  // ghost of itself, with every head's outline showing through the others --
+  // but by tearing: the thin places go first and the knots last, so she
+  // comes apart into rags of soot.
+  float tear = smoothstep(1.0 - uKeep - 0.05, 1.0 - uKeep + 0.30, n * 0.6 + fine * 0.25 + thick * 0.35);
+  gl_FragColor = vec4(col, clamp(a * thin * gone * tear * min(1.0, uKeep * 1.6), 0.0, 1.0));
 }
 `;
 
@@ -363,6 +374,12 @@ void main() {
   vUv = uv;
   ${CARD_VARY.map((n) => `v_${n} = ${PER_CARD[n]};`).join('\n  ')}
   vec4 centre = viewMatrix * vec4(iPos + vec3(0.0, iA.y, 0.0), 1.0);
+  // Brought forward toward the eye by half its own size. A blast goes off on
+  // or in a ship, and a flat card standing in her is cut through by her side
+  // and her deck: the ball and the flash came out with a ruled edge down them
+  // wherever her plating crossed them.
+  float cd = length(centre.xyz);
+  centre.xyz *= max(0.05, (cd - min(iA.x * 0.35, cd * 0.5)) / max(cd, 1e-3));
   centre.xy += position.xy * iA.x;
   // Drawn through the same haze as everything else at that range, or a blast
   // two kilometres off is the only sharp thing in the frame.
@@ -846,9 +863,9 @@ export class ExplosionSystem {
       }
 
       s.flash.material.uniforms.uAge.value = age;
-      s.flash.material.uniforms.uSize.value = s.size * 4.2;
+      s.flash.material.uniforms.uSize.value = s.size * 2.8;
       s.glare.material.uniforms.uAge.value = age;
-      s.glare.material.uniforms.uSize.value = s.size * 3.4;
+      s.glare.material.uniforms.uSize.value = s.size * 2.6;
       s.glare.material.uniforms.uRise.value = rise * 0.7;
 
       if (s.plumeOn) {

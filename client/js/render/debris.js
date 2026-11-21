@@ -95,7 +95,7 @@ export class Debris {
    * they go -- all of which a magazine does more of than a shell, and none of
    * which is a different effect.
    */
-  burst(x, y, z, power = 1, up = 1) {
+  burst(x, y, z, power = 1, up = 1, burn = 1) {
     const want = Math.min(110, Math.round(8 + power * 10));
     const speed = 14 + power * 5.5;
     for (let i = 0; i < want; i++) {
@@ -111,7 +111,9 @@ export class Debris {
       // rare.
       const size = (0.18 + Math.pow(Math.random(), 3) * 0.9) * (1 + power * 0.07);
       const shade = 0.22 + Math.random() * 0.38;
-      const burning = Math.random() < 0.35 + Math.min(0.25, power * 0.025);
+      // `burn` is how much of it is alight: none of it, for steel torn by
+      // steel in a collision, which throws plating and no fire.
+      const burning = Math.random() < (0.35 + Math.min(0.25, power * 0.025)) * burn;
       this.items.push({
         x, y, z,
         vx: Math.sin(a) * out * v,

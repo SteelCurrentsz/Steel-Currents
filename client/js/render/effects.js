@@ -7,74 +7,128 @@ import { Splashes } from './splash.js';
 import { MuzzleBlasts, blastSize } from './muzzleblast.js';
 import { SmokeTrails } from './trails.js';
 import { Shards } from './shards.js';
+import { Sparks } from './sparks.js';
 import { PuffBatches } from './puffs.js';
 
-function softTexture(inner = 'rgba(255,255,255,0.95)', outer = 'rgba(255,255,255,0)') {
-  const size = 128;
+// The size every picture on the puff sheet is drawn at. Big enough that a
+// puff filling a quarter of the screen still has curls in it rather than a
+// blur.
+const TEX = 256;
+
+/** Value noise on a lattice that wraps, so the pictures have no seams. */
+function makeNoise(seed) {
+  let st = seed >>> 0;
+  const rnd = () => {
+    st = (st * 1664525 + 1013904223) >>> 0;
+    return st / 4294967296;
+  };
+  const N = 64;
+  const lat = new Float32Array(N * N);
+  for (let i = 0; i < lat.length; i++) lat[i] = rnd();
+  const at = (x, y) => lat[((y % N + N) % N) * N + ((x % N + N) % N)];
+  const vn = (x, y) => {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    let fx = x - ix, fy = y - iy;
+    fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+    const a = at(ix, iy), b = at(ix + 1, iy), c = at(ix, iy + 1), d = at(ix + 1, iy + 1);
+    return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+  };
+  const fbm = (x, y, oct = 5) => {
+    let v = 0, amp = 0.5, f = 1, norm = 0;
+    for (let o = 0; o < oct; o++) { v += vn(x * f, y * f) * amp; norm += amp; amp *= 0.5; f *= 2.03; }
+    return v / norm;
+  };
+  return { fbm, rnd };
+}
+
+const smooth = (e0, e1, x) => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * A wisp of smoke, or of glow.
+ *
+ * Not a radial gradient. A disc that fades evenly to its edge is the one thing
+ * smoke never is, and a few hundred of them laid over each other add up to a
+ * fog bank with a round outline. What a photograph of smoke shows is density
+ * that comes and goes inside it -- thick knots and thin places -- and an edge
+ * that is torn, eaten into by the air round it, with rags hanging off it.
+ *
+ * So the picture is fractal noise, domain-warped so it curls rather than
+ * mottles, cut back to a rough blob by a falloff whose radius is itself
+ * pushed in and out by the noise. The colour channel carries the knots as
+ * well as the alpha, so the thick parts read darker and the thin parts paler,
+ * which is what gives a puff some depth when it is tinted.
+ */
+function smokeTexture(seed, { core = 0.95, rag = 0.55, warp = 1.1, shade = 0.35, glow = false } = {}) {
   const c = document.createElement('canvas');
-  c.width = c.height = size;
+  c.width = c.height = TEX;
   const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, inner);
-  g.addColorStop(0.45, inner.replace(/[\d.]+\)$/, '0.45)'));
-  g.addColorStop(1, outer);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
+  const img = ctx.createImageData(TEX, TEX);
+  const { fbm } = makeNoise(seed);
+  const half = TEX / 2;
+  for (let y = 0; y < TEX; y++) {
+    for (let x = 0; x < TEX; x++) {
+      const u = (x - half) / half, v = (y - half) / half;
+      const r = Math.hypot(u, v);
+      // Warped: the noise is looked up where other noise says, which turns
+      // blobs into curls.
+      const wx = fbm(u * 2.2 + 5.1, v * 2.2 + 1.7, 3) - 0.5;
+      const wy = fbm(u * 2.2 + 9.4, v * 2.2 + 3.3, 3) - 0.5;
+      const n = fbm(u * 3.1 + wx * warp * 3 + 11, v * 3.1 + wy * warp * 3 + 7, 5);
+      // The edge, pushed in and out by the low octaves so the outline is a
+      // lumpy, ragged thing and never a circle.
+      const edgeN = fbm(Math.atan2(v, u) * 1.3 + 40, r * 2.0 + 13, 3);
+      const R = 0.62 + (edgeN - 0.5) * rag;
+      let a = 1 - smooth(R * 0.35, R + 0.12, r + (n - 0.5) * 0.45);
+      // Thin where the noise is thin, thick where it is thick.
+      a *= smooth(0.22, 0.72, n * 0.85 + (1 - r) * 0.35);
+      // And nothing at all at the border of the card.
+      a *= 1 - smooth(0.82, 0.98, r);
+      a = Math.max(0, Math.min(1, a * core * 1.35));
+      // Knots darker, wisps lighter -- or, for a lit one, the hot middle
+      // brightest.
+      const lum = glow
+        ? Math.min(1, 0.6 + 0.55 * (1 - r) + (n - 0.5) * 0.5)
+        : Math.min(1, Math.max(0, 1 - shade * smooth(0.35, 0.75, n) - shade * 0.3 * (1 - r)));
+      const i = (y * TEX + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(lum * 255);
+      img.data[i + 3] = Math.round(a * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   return new THREE.CanvasTexture(c);
 }
 
 /**
- * A puff with lumps in it.
- *
- * Smoke and fireballs are not soft round blobs, and a hundred soft round blobs
- * do not add up to one either -- they add up to fog, which is what every
- * explosion in this game used to look like. What a burning ship and a
- * detonating magazine have in common is the cauliflower: a mass of rounded
- * lobes, each one lit on the side the fire is on and dark on the other, packed
- * together with hard edges between them.
- *
- * So the sprite carries the lobes rather than the drift. One texture, drawn
- * once: a dozen overlapping circles inside the disc, each with its own soft
- * falloff, the whole thing masked back to a circle so it still fades at the
- * rim instead of ending on a square edge.
+ * A soft glow: a flash, a lamp-like seat of fire. Light has no edge to tear,
+ * so this one is round -- but not a clean disc either: a hot core with a
+ * skirt that breaks up.
  */
-function billowTexture(inner = 'rgba(255,255,255,0.95)') {
-  const size = 128;
-  const half = size / 2;
+function glowTexture(seed) {
   const c = document.createElement('canvas');
-  c.width = c.height = size;
+  c.width = c.height = TEX;
   const ctx = c.getContext('2d');
-  // A deterministic scatter, so every client draws the same smoke.
-  let seed = 20240617;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  const lobe = (cx, cy, r, a) => {
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    g.addColorStop(0, inner.replace(/[\d.]+\)$/, `${a})`));
-    g.addColorStop(0.55, inner.replace(/[\d.]+\)$/, `${a * 0.72})`));
-    g.addColorStop(1, inner.replace(/[\d.]+\)$/, '0)'));
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-  };
-  lobe(half, half, half * 0.9, 0.55);
-  for (let i = 0; i < 14; i++) {
-    const a = rnd() * Math.PI * 2;
-    const d = Math.sqrt(rnd()) * half * 0.46;
-    lobe(half + Math.cos(a) * d, half + Math.sin(a) * d,
-      half * (0.2 + rnd() * 0.28), 0.4 + rnd() * 0.45);
+  const img = ctx.createImageData(TEX, TEX);
+  const { fbm } = makeNoise(seed);
+  const half = TEX / 2;
+  for (let y = 0; y < TEX; y++) {
+    for (let x = 0; x < TEX; x++) {
+      const u = (x - half) / half, v = (y - half) / half;
+      const r = Math.hypot(u, v);
+      const n = fbm(u * 3 + 3, v * 3 + 8, 4);
+      const k = r * (1 + (n - 0.5) * 0.7);
+      let a = Math.exp(-k * k * 5.5) * 0.9 + Math.exp(-k * 3.2) * 0.25;
+      a *= 1 - smooth(0.75, 0.98, r);
+      const i = (y * TEX + x) * 4;
+      img.data[i] = 255;
+      img.data[i + 1] = Math.round(255 * Math.min(1, 0.8 + 0.2 * (1 - k)));
+      img.data[i + 2] = Math.round(255 * Math.min(1, 0.6 + 0.4 * (1 - k)));
+      img.data[i + 3] = Math.round(Math.max(0, Math.min(1, a)) * 255);
+    }
   }
-  // Back to a disc: a square-edged puff reads as a card, and a hundred cards
-  // read as a wall.
-  ctx.globalCompositeOperation = 'destination-in';
-  const mask = ctx.createRadialGradient(half, half, half * 0.42, half, half, half);
-  mask.addColorStop(0, 'rgba(0,0,0,1)');
-  mask.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = mask;
-  ctx.fillRect(0, 0, size, size);
+  ctx.putImageData(img, 0, 0);
   return new THREE.CanvasTexture(c);
 }
 
@@ -105,16 +159,21 @@ const POOL_SIZE = 900;
 const TMP_COLOR = new THREE.Color();
 const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const MUZZLE_DIR = new THREE.Vector3();
+// A light breeze for the smoke to lean on, metres a second, when the scene has
+// not said otherwise (Effects.wind).
+const WIND = { x: 4, z: 2 };
 
 export class Effects {
   constructor(scene, intensity = 1) {
     this.scene = scene;
     this.intensity = intensity;
-    this.puffTex = softTexture('rgba(255,255,255,0.9)');
-    this.glowTex = softTexture('rgba(255,236,190,1)');
-    // The lumpy ones, for anything that is meant to boil rather than drift.
-    this.billowTex = billowTexture('rgba(255,255,255,0.95)');
-    this.emberTex = billowTexture('rgba(255,240,205,1)');
+    // Wisps: thin, ragged smoke, for anything that drifts.
+    this.puffTex = smokeTexture(20240617, { core: 0.8, rag: 0.7, warp: 1.4, shade: 0.25 });
+    this.glowTex = glowTexture(7);
+    // Thicker, knotted smoke, for anything that is meant to boil rather than
+    // drift -- and its lit version, for flame.
+    this.billowTex = smokeTexture(918273, { core: 1.0, rag: 0.5, warp: 1.0, shade: 0.45 });
+    this.emberTex = smokeTexture(55511, { core: 1.0, rag: 0.55, warp: 1.2, glow: true });
 
     // The puffs themselves: as many as there ever were room for, drawn in
     // one draw call however many are up (see puffs.js).
@@ -139,6 +198,8 @@ export class Effects {
       { maxPx: 480 });
     // And the scraps one blown apart throws. See shards.js.
     this.shards = new Shards(scene, Math.round(1500 + 1500 * Math.min(1.6, intensity)));
+    // And the sparks off steel struck by steel. See sparks.js.
+    this.sparks = new Sparks(scene, Math.round(2500 + 2500 * Math.min(1.6, intensity)));
     // The fireballs, lent by the scene once it has them (see ExplosionSystem):
     // the same boiling heads of fire and soot a hit inside a ship is drawn
     // with, rather than a glowing disc.
@@ -279,19 +340,110 @@ export class Effects {
   /** Something of an aeroplane dragging through the sea. See Splashes.skim. */
   skim(x, z, vx, vz, depth, dt) { this.splashes.skim(x, z, vx, vz, depth, dt); }
 
+  /**
+   * A round striking something solid.
+   *
+   * One that does not get in -- shattered on the plate, glanced off it, or
+   * only dented it -- does not burst and makes no cloud. What it makes is
+   * sparks: a stab of flash where it struck, a shower of white-hot splinters
+   * spraying back off the armour and dying out orange as they fall, a few
+   * pieces of the shell itself tumbling into the sea, and a wisp of dirty
+   * smoke off the burnt paint that the wind has away in a couple of seconds.
+   *
+   * One that goes off -- high explosive bursting on the surface, a round into
+   * the ground -- is a small hard fireball that is soot almost as soon as it
+   * is fire, the fragments and the smoke standing over it.
+   */
   hit(x, y, z, kind, caliber = 152) {
     if (kind === 'air') { this.strike(x, y, z, caliber); return; }
-    const big = kind === 'citadel' ? 2.4 : kind === 'pen' ? 1.3 : 0.8;
-    this.flash(x, y + 6, z, big);
-    this.spawn({ x, y: y + 4, z, size: 16 * big, grow: 34 * big, ttl: 0.35, glow: true, color: 0xffd08a, opacity: 1 });
-    const puffs = Math.max(1, Math.round(3 * big * this.intensity));
-    for (let i = 0; i < puffs; i++) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    const bore = Math.max(0.04, caliber / 1000);
+    // How much a round of this size throws, against a six-inch shell.
+    const sz = Math.sqrt(bore / 0.152);
+    const k = Math.min(1.5, this.intensity);
+    if (kind === 'shatter' || kind === 'ricochet' || kind === 'splash') {
+      const glance = kind === 'ricochet';
+      const dent = kind === 'splash';
+      // The flash: small, hard, and gone in a few hundredths of a second.
+      this.flash(x, y + 1, z, 0.35 * sz);
       this.spawn({
-        x, y: y + 4 + i * 3, z,
-        vx: (Math.random() - 0.5) * 12, vy: 5 + Math.random() * 8, vz: (Math.random() - 0.5) * 12,
-        size: 12 * big, grow: 18, ttl: 1.6 + Math.random(),
-        color: kind === 'shatter' || kind === 'ricochet' ? 0xcfd8e0 : 0x53565a, opacity: 0.7,
+        x, y, z, size: (2.2 + 1.6 * sz) * (dent ? 0.6 : 1), grow: 10 * sz, ttl: 0.07,
+        glow: true, color: 0xffe7b8, opacity: 0.9,
       });
+      // The shower. Out and up off her side: most of it goes back the way
+      // the shell came, the rest everywhere. A glancing round throws its
+      // sparks on along its own line, in a narrower fan.
+      const n = Math.round((dent ? 10 : glance ? 24 : 44) * Math.min(2, sz) * k);
+      this.sparks.shower(x, y, z, n, {
+        speed: (glance ? 70 : 55) * Math.min(1.6, sz),
+        life: glance ? 0.55 : 0.75,
+        ny: 0.55, spread: glance ? 0.6 : 0.95,
+      });
+      // Pieces of the shell itself, dull and cold, into the sea.
+      const bits = dent ? 1 : Math.round((glance ? 2 : 5) * k);
+      for (let i = 0; i < bits; i++) {
+        const d = this.sphere(0.2);
+        const v = 10 + Math.random() * 22;
+        this.shards.throw(x, y, z, d.x * v, Math.abs(d.y) * v + 6, d.z * v, {
+          life: 2 + Math.random() * 1.5, size: (0.25 + Math.random() * 0.35) * sz, hot: i === 0 ? 1 : 0,
+        });
+      }
+      // Burnt paint and the dust off the plate: a little, dark, and soon
+      // gone -- a wisp, not a cloud.
+      const wind = this.wind || WIND;
+      const wisps = dent ? 1 : 2;
+      for (let i = 0; i < wisps; i++) {
+        const d = this.sphere(0.4);
+        this.air.puff(x + d.x, y + d.y, z + d.z,
+          d.x * 3 + wind.x * 0.6, 1.5 + Math.random() * 2, d.z * 3 + wind.z * 0.6, {
+            delay: i * 0.04, life: 1.6 + Math.random() * 1.2,
+            size: 0.9 * sz, grow: (2.6 + Math.random()) * sz,
+            tone: 0.16 + Math.random() * 0.1,
+          });
+      }
+      return;
+    }
+    // A burst on the surface.
+    const big = kind === 'citadel' ? 2.4 : kind === 'pen' ? 1.3 : 0.8;
+    const s = big * Math.max(0.6, sz);
+    this.flash(x, y + 3, z, big);
+    if (this.bursts) {
+      this.bursts.blast(x, y + 1, z, {
+        size: 2.2 + 3.2 * s, duration: 0.35 + 0.25 * s,
+        debris: Math.round((4 + 6 * s) * k), light: false, plume: false, ring: false,
+        linger: 1.6, power: Math.min(0.6, s / 3),
+      });
+    } else {
+      this.spawn({ x, y: y + 2, z, size: 5 * s, grow: 26 * s, ttl: 0.22, glow: true, billow: true,
+        color: 0xffc27a, cool: 0x8a3a12, opacity: 0.9 });
+    }
+    this.sparks.shower(x, y + 1, z, Math.round(14 * s * k), { speed: 45 * Math.min(1.6, s), life: 0.6, ny: 0.7 });
+    this.smokeOver(x, y + 2, z, 0.8 * s);
+  }
+
+  /**
+   * The smoke a burst leaves standing over where it went off: dark, dirty,
+   * boiling up on its own heat and taken off by the wind as it goes. Lumpy
+   * puffs of soot from the trail pool, each its own shade, so it breaks up
+   * into separate gouts the way smoke does instead of fading as one ball.
+   */
+  smokeOver(x, y, z, scale = 1, { dark = 0.08, count = 7, life = 7 } = {}) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    const k = Math.min(1.5, this.intensity);
+    const wind = this.wind || WIND;
+    const n = Math.max(2, Math.round(count * k * Math.min(1.6, Math.sqrt(scale))));
+    for (let i = 0; i < n; i++) {
+      const d = this.sphere(0.45);
+      const sp = (1.5 + Math.random() * 4) * Math.sqrt(scale);
+      this.air.puff(
+        x + d.x * 2 * scale, y + Math.abs(d.y) * 2 * scale, z + d.z * 2 * scale,
+        d.x * sp + wind.x * 0.8, 2.5 + Math.random() * 4 * Math.sqrt(scale), d.z * sp + wind.z * 0.8, {
+          // Coming out of the fire over its first half second, not all at once.
+          delay: 0.05 + Math.random() * 0.45,
+          life: life * (0.7 + Math.random() * 0.6),
+          size: (1.6 + Math.random() * 1.6) * scale, grow: (4 + Math.random() * 3.5) * scale,
+          burn: i < 2 ? 0.05 : 0.015, tone: dark + Math.random() * 0.14,
+        });
     }
   }
 
@@ -903,29 +1055,51 @@ export class Effects {
     // over the flame and given a long life and a lot of growth, so what builds
     // up over a burning ship is a tall boiling stack rather than a haze that
     // has blown away by the time the next one is spawned.
+    //
+    // Not a solid black cone, though. Smoke is translucent at its edges and
+    // thick only in knots; it comes off the fire in separate gouts, each a
+    // shade of its own, and the wind takes it -- so the column leans and
+    // shreds as it climbs instead of standing up as a funnel of ink.
+    const wind = this.wind || WIND;
     for (let i = 0; i < 2; i++) {
       const up = i * 0.5 + Math.random() * 0.5;
+      // Each gout its own grey: from the near-black of burning oil to the
+      // brown-grey of paint and wood, and paler in a small fire.
+      const g = (h > 0.5 ? 0.07 : 0.2) + Math.random() * 0.1;
+      const col = TMP_COLOR.setRGB(g * 1.04, g, g * 0.95).getHex();
       this.spawn({
         x: x + (Math.random() - 0.5) * (3 + up * 10) * h,
         y: y + 8 + up * 22 * h,
         z: z + (Math.random() - 0.5) * (3 + up * 10) * h,
-        vy: 11 + 9 * h, vx: (Math.random() - 0.5) * 4, vz: (Math.random() - 0.5) * 4,
-        size: (5 + 7 * h) * (1 + up), grow: 13 + 22 * h,
-        ttl: 11 + 13 * h, drag: 0.1, billow: true, lift: 1.6 + 2.2 * h,
-        // Oily black over a bad fire, grey over a small one; and it darkens
-        // further as it rises and cools, which is why the top of a column is
-        // blacker than the bottom.
-        color: h > 0.5 ? 0x17181a : 0x3c4247,
-        cool: h > 0.5 ? 0x0a0b0c : 0x23272b,
-        opacity: 0.55 + 0.4 * h,
+        vy: 9 + 8 * h + Math.random() * 4,
+        vx: (Math.random() - 0.5) * 5 + wind.x * (0.5 + up),
+        vz: (Math.random() - 0.5) * 5 + wind.z * (0.5 + up),
+        size: (5 + 7 * h) * (0.8 + up * 0.8) * (0.8 + Math.random() * 0.5),
+        // Spreading as it climbs, but by mixing, which is slow: grown at the
+        // rate it used to be, a minute's smoke was a single blur three
+        // hundred metres across with no shape left in it.
+        grow: (4 + 7 * h) * (0.8 + Math.random() * 0.5),
+        ttl: 10 + 12 * h + Math.random() * 4, drag: 0.02, billow: Math.random() < 0.7,
+        lift: 1.4 + 2.0 * h, spin: (Math.random() - 0.5) * 0.25,
+        color: col,
+        // Paler as it thins and spreads, the way a column greys toward its top.
+        cool: TMP_COLOR.setRGB(g + 0.16, g + 0.16, g + 0.17).getHex(),
+        opacity: 0.4 + 0.32 * h,
       });
     }
   }
 
   funnelSmoke(x, y, z, load) {
+    // A wisp, carried off on the wind and torn up as it goes, not a ball.
+    const wind = this.wind || WIND;
+    const g = 0.17 + Math.random() * 0.08;
     this.spawn({
-      x, y, z, vy: 5 + load * 5, vx: (Math.random() - 0.5) * 3, vz: (Math.random() - 0.5) * 3,
-      size: 7, grow: 16, ttl: 3.2, color: 0x2f343a, opacity: 0.22 + load * 0.2,
+      x: x + (Math.random() - 0.5) * 1.5, y, z: z + (Math.random() - 0.5) * 1.5,
+      vy: 3 + load * 4, vx: (Math.random() - 0.5) * 1.5 + wind.x, vz: (Math.random() - 0.5) * 1.5 + wind.z,
+      size: 3.5 + Math.random() * 2, grow: 3.5 + Math.random() * 3, ttl: 5 + Math.random() * 2,
+      drag: 0.03, lift: 0.2, spin: (Math.random() - 0.5) * 0.3,
+      color: TMP_COLOR.setRGB(g, g * 1.02, g * 1.06).getHex(),
+      cool: 0x5a5f66, opacity: 0.2 + load * 0.2,
     });
   }
 
@@ -1042,6 +1216,7 @@ export class Effects {
     this.trails.update(dt);
     this.air.update(dt);
     this.shards.update(dt);
+    this.sparks.update(dt);
     for (let i = this.active.length - 1; i >= 0; i--) {
       const p = this.active[i];
       p.life += dt;
@@ -1070,6 +1245,10 @@ export class Effects {
       } else {
         p.opacity = p.opacity0 * (1 - k * k);
       }
+      // Smoke thickens out of nothing over its first moments rather than
+      // appearing whole: a puff that pops in at full strength is a card being
+      // laid down, and a column of them flickers.
+      if (!p.glow) p.opacity *= Math.min(1, p.life / Math.min(0.35, p.ttl * 0.12));
     }
     for (const p of this.active) this.puffs.add(p);
     this.puffs.write(camera);

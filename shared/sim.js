@@ -1915,6 +1915,8 @@ function ram(state, R, T, cr, ct, pr, pt, v, out) {
       damageShip(state, T, R, ct.hp * 0.06, 'ram', whereT);
       cutHer(state, T, pt.station, R.id, 'ram');
       struck(out, T, pt, 'cut', ct.hull.beam);
+      // Driven right through her magazine, it may well set it off.
+      ramMagazine(state, T, R, ct, whereT, 0.55);
     } else {
       // A gash in her side, as deep as the stem got.
       // As wide as her stem drove it and no wider than her stem is: a much
@@ -1924,6 +1926,9 @@ function ram(state, R, T, cr, ct, pr, pt, v, out) {
       damageShip(state, T, R, ct.hp * (0.02 + 0.1 * k * k) * Math.min(1.2, edge), 'ram', whereT);
       openHull(state, T, whereT, 2 + 20 * k * k * edge, pt.side, ct.hull.draft * 0.55);
       struck(out, T, pt, 'gash', Math.min(stemWidth(cr) * 1.2, 0.5 + Math.min(ct.hull.beam, 40) * 0.12 * k * edge + 1.2 * k));
+      // Only a stem driven deep into her gets as far as her magazine; a dent
+      // in her side never does.
+      if (k > 0.45) ramMagazine(state, T, R, ct, whereT, 0.35 * k * k * Math.min(1.5, edge));
     }
     // And her own bow pays for it: crumpled plating and a sprung forefoot.
     const bowR = sectionAt(pr.station);
@@ -1942,7 +1947,30 @@ function ram(state, R, T, cr, ct, pr, pt, v, out) {
     damageShip(state, T, R, ct.hp * (0.002 + 0.05 * k) * (0.3 + 0.7 * mass), 'ram', whereT);
     if (k > 0.2) openHull(state, T, whereT, 1 + 10 * k * k, pt.side, ct.hull.draft * 0.5);
     struck(out, T, pt, 'gash', 0.3 + stemWidth(cr) * 0.55 * k);
+    // A heavy ship driven hard into her can still crush her side in as far as
+    // her magazine, even if her stem goes too.
+    if (k > 0.45) ramMagazine(state, T, R, ct, whereT, 0.4 * k * k * Math.min(1, margin + 0.1));
   }
+}
+
+/**
+ * A stem driven into a compartment with a magazine in it.
+ *
+ * A collision does not explode. Steel is torn and the sea comes in, and that
+ * is all -- unless what the stem tore into was a magazine: the charges in it
+ * crushed, the handling rooms opened and something struck alight. Then it
+ * goes, as any magazine goes (see detonate): a big-gun magazine takes the ship
+ * with it, a small one burns. `odds` is the chance it does, for how deep the
+ * stem went in.
+ */
+function ramMagazine(state, ship, by, cls, where, odds) {
+  if (!ship.alive || cls.monster) return;
+  if (where !== 'fwd' && where !== 'aft') return;
+  // Only a compartment that has one: a destroyer whose guns are all forward
+  // has nothing aft to set off.
+  if (!(cls.turrets || []).some((t) => magazineOf(cls, t) === where)) return;
+  if (!(odds > 0) || state.rng() >= Math.min(0.75, odds)) return;
+  detonate(state, ship, where, by);
 }
 
 /**
@@ -5569,6 +5597,7 @@ function resolveTankHit(state, sh, bat, hit) {
   state.events.push({
     e: 'hit', x: r(w.x), y: r(w.y), z: r(w.z), cal, kind, victim: bat.id, owner: sh.owner,
     battery: true, tank: 1, dmg: Math.round(dmg), pt: first.k, br: broke,
+    si: sh.id, tk: state.tick,
   });
   if (bat.alive && bat.hp <= 0) knockOutTank(state, bat, false);
 }
@@ -7263,6 +7292,7 @@ function resolveBatteryHit(state, sh, bat) {
   state.events.push({
     e: 'hit', x: bat.x, y: bat.y + 5, z: bat.z, cal: sh.caliber,
     kind: through ? 'pen' : 'shatter', victim: bat.id, battery: true,
+    si: sh.id, tk: state.tick,
   });
   if (bat.hp <= 0 && bat.alive) {
     bat.alive = false;
@@ -9150,6 +9180,10 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   state.events.push({
     e: 'hit', kind, part: sec.part,
     x: cx, y: cy, z: cz, cal: sh.caliber,
+    // The round and the tick it struck on, so a client drawing the battle a
+    // moment behind can carry that round on to the point it struck and burst
+    // it there, rather than bursting it in the air short of her.
+    si: sh.id, tk: state.tick,
     victim: target.id, owner: sh.owner, dmg: Math.round(dmg),
     pl: layers.map((L, i) => [L.k, Math.round(L.t), walk.met[i] ?? Math.round(L.t)]),
     ps: walk.stop,

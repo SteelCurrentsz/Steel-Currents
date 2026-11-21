@@ -2586,6 +2586,8 @@ export class BattleScene {
       this.effects.blasts.setAtmosphere({
         preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
       });
+      // And the smoke off fires, funnels and bursts leans on the same wind.
+      this.effects.wind = { x: dx * speed, z: dz * speed };
       // The sea against the ships: kept off their decks, and thrown up their
       // sides as spray under the same sky and down the same wind.
       // And the white water out of every splash, under the same sky.
@@ -2890,17 +2892,28 @@ export class BattleScene {
    * her whole superstructure.
    */
   shipBurst(x, y, z, scale = 1) {
+    // The fire of it is over quickly -- a shell's burst is a flash and a ball
+    // that is soot within half a second -- and what stands there afterwards
+    // is smoke, which is the effects' lumpy smoke rather than the fireball
+    // left to fade as a grey balloon.
     this.bursts.blast(x, y, z, {
-      size: 5 + 7 * scale,
-      duration: 0.7 + 0.45 * scale,
+      size: 4.5 + 6.5 * scale,
+      duration: 0.55 + 0.35 * scale,
       debris: Math.round(6 + 14 * scale),
       light: false,
       plume: false,
       ring: false,
-      linger: 1.5,
+      linger: 1.25,
       power: Math.min(1, scale / 2),
     });
     this.effects.flash?.(x, y + 4, z, 1.2 * scale);
+    const fx = this.effects;
+    if (fx.sparks) {
+      fx.sparks.shower(x, y + 1, z, Math.round((12 + 16 * scale) * Math.min(1.5, fx.intensity || 1)), {
+        speed: 40 + 25 * Math.min(2, scale), life: 0.8, ny: 0.75,
+      });
+    }
+    fx.smokeOver?.(x, y + 2, z, 0.9 + 0.9 * scale, { count: 6 + Math.round(4 * Math.min(2, scale)), life: 6 + 3 * Math.min(2, scale) });
   }
 
   /**
