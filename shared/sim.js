@@ -13415,22 +13415,27 @@ const DIVE_AT = 170;           // and the range -- just inside the release
 /**
  * How she gets from the perch into the dive: not by pushing the stick
  * forward, which puts her crew on the canopy and her engine out of fuel, but
- * by rolling. Brakes out first, on the level, so she is slowed and steady
- * before anything else happens; then one smooth barrel roll, all the way
- * round, toward the side her target is on -- easing into it, quickest as she
- * goes over on her back, and easing out of it again. The nose comes down
- * through the horizon while she is over on her back, with the g on her the
- * right way, so she comes out of the roll upright, wings level, already well
- * down and with the ship in her sight.
+ * over on her back. Brakes out first, on the level, so she is slowed and
+ * steady before anything else happens; then she rolls most of the way over
+ * toward the side her target is on, pulls the nose down through the horizon
+ * while she is on her back -- with the g on her the right way, pressing the
+ * crew into their seats -- and once she is pointing well down at the ship
+ * rolls upright again round her own nose, seventy degrees down with her
+ * brakes out and the ship in her sight.
  *
- * It used to be a half roll: over onto her back at a fixed rate, a hang there
- * while she pulled, and back the way she came -- three moves with a stop
- * between each.
+ * Each part runs into the next: the pull starts as the wings go past the
+ * vertical, and the roll back starts as the nose comes onto the dive.
+ *
+ * It was for a while one barrel roll all the way round, with the nose coming
+ * down through the whole of it -- which put her on her side with the nose
+ * being dragged down past the horizon, a sideways slither no aeroplane can
+ * fly, and that was what made the dive look wrong.
  */
 const DIVE_ANGLE = 1.22;       // seventy degrees: the dive she rolls out into
-const DIVE_ROLL_TIME = 4.2;    // seconds, all the way round
-/** Where in the roll -- 0 at its start, 1 upright again -- her nose starts down, and where it is down. */
-const DIVE_NOSE = [0.12, 0.72];
+const DIVE_OVER = 2.6;         // how far over she goes: a hundred and fifty degrees
+const DIVE_OVER_TIME = 1.5;    // seconds to roll over onto her back
+const DIVE_OUT_TIME = 1.4;     // and to roll upright again in the dive
+const DIVE_OUT_AT = 0.2;       // she starts back upright this far short of her dive angle
 /**
  * And how hard she pulls in each part of it, in gravities: the roll-in is a
  * hard pull with her on her back, and the pull-out at the bottom is the
@@ -13439,6 +13444,9 @@ const DIVE_NOSE = [0.12, 0.72];
  */
 const DIVE_PULL_IN = 3.4;
 const DIVE_PULL_OUT = 5.2;
+/** The climb she zooms up at out of the bottom of the dive, and for how long. */
+const DIVE_ZOOM = 0.45;
+const DIVE_ZOOM_FOR = 5;
 /**
  * And the speed she settles at coming down, which is what the brakes are for.
  *
@@ -13499,14 +13507,32 @@ const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800, level: 1
  */
 function diveStage(state, p, dt) {
   const V = Math.max(30, p.as ?? Math.hypot(p.speed || 0, p.vy || 0));
-  if (p.dv === 'pull') {
+  if (p.dv === 'pull' || p.dv === 'zoom') {
     // Out of it: brakes in, as hard as she will stand until the nose is
-    // above the horizon, and then the climb home. She comes out wings level,
-    // which is what is drawn.
+    // above the horizon -- and then on up, a real zoom climb on the speed
+    // the dive gave her, away from the flak, before she settles into the
+    // climb home. She used to level off at the bottom and potter away at a
+    // cruise climb a few degrees nose up, which is not how anybody left a
+    // ship they had just bombed.
+    //
+    // Drawn banked as far as she is actually turning and no further: she
+    // used to be held wings level the whole way out while the autopilot
+    // swung her round for home, which was a flat skid across the sky.
     p.brkWant = 0;
-    p.show = 0;
-    if ((p.vy || 0) > 2) { p.dv = undefined; p.show = undefined; return null; }
-    return { vy: 30, g: DIVE_PULL_OUT };
+    const was = p.show || 0;
+    p.show = was + clamp((p.bank || 0) - was, -2.2 * dt, 2.2 * dt);
+    if (p.dv === 'pull') {
+      if ((p.vy || 0) > 2) { p.dv = 'zoom'; p.dvT = 0; }
+      return { vy: V * Math.sin(DIVE_ZOOM), g: DIVE_PULL_OUT };
+    }
+    p.dvT = (p.dvT || 0) + dt;
+    // Up through her zoom angle and held there while the speed lasts, then
+    // eased over onto her ordinary climb.
+    if (p.dvT > DIVE_ZOOM_FOR || (p.dvT > 1.5 && V < 72)) {
+      p.dv = undefined; p.dvS = undefined; p.show = undefined;
+      return null;
+    }
+    return { vy: V * Math.sin(DIVE_ZOOM), g: p.dvT < 1.5 ? DIVE_PULL_OUT * 0.7 : 1.6 };
   }
   if (p.phase !== 'outbound' || !(p.bomb > 0) || p.dropped) {
     p.dv = undefined; p.show = undefined; p.brkWant = 0;
@@ -13515,6 +13541,16 @@ function diveStage(state, p, dt) {
   const mark = p.targetBat
     ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
     : state.ships.find((q) => q.id === p.targetId && q.alive);
+  // The ship she was diving on has gone, or she has been given another a
+  // long way off. She does not fly on frozen half way round her roll-in, or
+  // carry on down a dive at a ship miles away: she pulls out of it, rolling
+  // level as she does, and goes after whatever is next from the top again.
+  if (p.dv && (!mark || mark.id !== p.dvMark)) {
+    p.dv = 'pull';
+    p.dvS = undefined;
+    p.brkWant = 0;
+    return { vy: V * Math.sin(DIVE_ZOOM), g: DIVE_PULL_OUT };
+  }
   if (!mark) { p.brkWant = 0; return null; }
   const d = dist(p.x, p.z, mark.x, mark.z);
   if (!p.dv) {
@@ -13541,8 +13577,12 @@ function diveStage(state, p, dt) {
     // Over the top. Which way she rolls is the way her target is turning out
     // from under her, so she comes out of it already pointing at it.
     p.dv = 'roll';
+    p.dvS = 'over';
     p.dvT = 0;
     p.show = 0;
+    // What she is diving on. Should that change under her -- it sinks, or
+    // she is given another -- this dive is over: see below.
+    p.dvMark = mark.id;
     // Where the bomb leaves her, fixed for this dive at the height she has
     // to start it from.
     p.dropY = releaseFor((p.y ?? 0) - (mark.y || 0));
@@ -13559,28 +13599,43 @@ function diveStage(state, p, dt) {
   const down = -V * Math.sin(steep);
   if (p.dv === 'roll') {
     p.dvT += dt;
-    // How far round she is. Eased at both ends -- the rate of roll is nought
-    // as she starts and as she finishes, and twice its average with her on
-    // her back -- so it starts and stops like an aeroplane and not a switch.
-    const u = clamp(p.dvT / DIVE_ROLL_TIME, 0, 1);
-    const turned = u - Math.sin(2 * Math.PI * u) / (2 * Math.PI);
-    p.show = wrapAngle(p.dvSide * 2 * Math.PI * turned);
+    const path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0));
+    // Eased at both ends of each roll: the rate is nought as it starts and
+    // as it stops, so she rolls like an aeroplane and not like a switch.
+    const ease = (u) => { const c = clamp(u, 0, 1); return c * c * c * (c * (c * 6 - 15) + 10); };
+    if (p.dvS !== 'out') {
+      // Over onto her back.
+      const bank = DIVE_OVER * ease(p.dvT / DIVE_OVER_TIME);
+      p.show = p.dvSide * bank;
+      // And down through the horizon, as hard as the wing is pointed at the
+      // sea: nothing while it is still on the level side of the vertical,
+      // all of it on her back.
+      const into = clamp((-Math.cos(bank) - 0.05) / 0.8, 0, 1);
+      // A dive that has gone wrong somewhere -- she was knocked about on the
+      // way over -- is still a dive: after six seconds she is in it.
+      if ((into > 0.9 && path <= -(DIVE_ANGLE - DIVE_OUT_AT)) || p.dvT > 6) {
+        p.dvS = 'out';
+        p.dvT0 = p.dvT;
+        p.dvB = bank;
+      }
+      return { vy: into > 0 ? down : 3 - 3 * clamp(p.dvT / DIVE_OVER_TIME, 0, 1),
+        g: into > 0 ? lerp(1.2, DIVE_PULL_IN, into) : 1.2 };
+    }
+    // Upright again round her own nose, the way she went over, with the last
+    // of the pull coming off as the wings come level.
+    const u = (p.dvT - p.dvT0) / DIVE_OUT_TIME;
+    const bank = (p.dvB ?? DIVE_OVER) * (1 - ease(u));
+    p.show = p.dvSide * bank;
     if (u >= 1) {
       p.dv = 'dive';
+      p.dvS = undefined;
       p.show = 0;
       // The line she dives down starts where she is now, at the height she
       // has now: the roll and the pull through have used some of both.
       p.diveFrom = Math.max(DIVE_AT + 120, d);
       p.perch = Math.max((mark.y || 0) + dropHeight(p, mark) + 60, p.y);
-      return { vy: down, g: DIVE_PULL_IN };
     }
-    // The nose. Held up while the wings go round toward the vertical, pulled
-    // down through the horizon while she is over on her back, and down the
-    // sight by the time she is upright.
-    const [n0, n1] = DIVE_NOSE;
-    const k = clamp((u - n0) / (n1 - n0), 0, 1);
-    const nose = k * k * (3 - 2 * k);
-    return { vy: lerp(3, down, nose), g: lerp(1.2, DIVE_PULL_IN, Math.min(1, nose * 3)) };
+    return { vy: down, g: lerp(1.6, DIVE_PULL_IN, clamp(-Math.cos(bank), 0, 1)) };
   }
   // In the dive: down her sight onto the ship, wings level, brakes out. She
   // is drawn off her own path from here -- see protocol.js -- so the nose is
@@ -13615,7 +13670,7 @@ function diveAirspeed(p, cruise, dt) {
   // The throttle. Open for the pull-out and the climb away; closed in the
   // dive; on the level, as much as holds her at an approach speed a little
   // under her cruise, whatever the brakes are doing.
-  const pull = p.dv === 'pull' || p.dropped;
+  const pull = p.dv === 'pull' || p.dv === 'zoom' || p.dropped;
   const A = pull ? kIn * cruise * cruise + 2.2
     : p.dv ? DIVE_IDLE
       : k * (cruise * 0.88) ** 2;
@@ -16283,7 +16338,10 @@ function stepPlanes(state, dt) {
       // be hauled about in a dive and can be at cruise.
       const tas = Math.max(18, Math.hypot(p.speed || frm.vMax * 0.7, p.vy || 0));
       // A shot-about wing will not be hauled round as far.
-      const most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1);
+      // And one hauling herself out of the bottom of a dive pulls straight
+      // ahead, more or less, and only rolls into her turn for home once she
+      // is climbing.
+      const most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1) * (p.dv === 'pull' ? 0.3 : 1);
       // What she asks for is a rate, and the bank is what it takes to get it.
       //
       // This is the right way round and the other way round does not work. A
@@ -16693,7 +16751,7 @@ function stepPlanes(state, dt) {
         } else state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
         p.dropped = true;
         // And out of it. See diveStage.
-        if (p.role === 'dive') { p.dv = 'pull'; p.show = undefined; }
+        if (p.role === 'dive') { p.dv = 'pull'; p.show = 0; }
         p.runOn = 0;
         // A fighter that has dropped her bombs still has her guns and her
         // missiles, and stays to use them: see the fighter's attack above.

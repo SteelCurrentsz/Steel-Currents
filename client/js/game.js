@@ -4493,7 +4493,12 @@ export class Battle {
           const from = (this.planesNow || []).find((q) => q.i === ev.i);
           const y = Number.isFinite(ev.y) ? ev.y : (from ? this.planeHeight(from) : 200);
           const ty = Number.isFinite(ev.ty) ? ev.ty : (ev.air ? y - 8 : 22);
-          this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
+          // Out of the barrels of the machines as they are drawn, every gun
+          // of every one of them -- not a spray from somewhere round the
+          // middle of the formation where the simulation has her leader.
+          if (!this.airGunsDrawn(ev.i, ev.tx, ty, ev.tz, fx)) {
+            this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
+          }
           // The flicker at her muzzles, off her own model: a strike coming in
           // has guns going on the wings of the machines flying it.
           // Drawn on her, at each gun, for as long as the burst lasts -- see
@@ -4518,7 +4523,7 @@ export class Battle {
           for (let i = 0; i < d.n; i++) {
             const mz = this.rearMuzzle(d, g, i, RG_V);
             if (!mz) continue;
-            this.scene.flak.fire(mz.x, mz.y, mz.z, tx, ty, tz, 7.7, 6, fx, 7, 0);
+            this.scene.flak.stream(mz.x, mz.y, mz.z, tx, ty, tz, 7.7, 2, fx, d.v, 7);
           }
           break;
         }
@@ -4537,7 +4542,8 @@ export class Battle {
           const ty = mine ? mine.y : tgt ? this.planeHeight(tgt) : ev.y;
           const tz = mine ? mine.z : tgt ? tgt.z : ev.z;
           const cal = /12\.7|0\.5|\.50/.test((BOMBERS[bm.b] || {}).calibre || '') ? 12.7 : 7.7;
-          this.scene.flak.fire(mz.x, mz.y, mz.z, tx, ty, tz, cal, 6, fx, 7, 0);
+          const hv = { x: Math.sin(bm.h) * (bm.s || 0), y: 0, z: Math.cos(bm.h) * (bm.s || 0) };
+          this.scene.flak.stream(mz.x, mz.y, mz.z, tx, ty, tz, cal, 2, fx, hv, 7);
           break;
         }
         case 'turretOut': {
@@ -7838,10 +7844,9 @@ export class Battle {
   wingGuns(f, p) {
     // Down the bore, which lies along her nose -- not along her flight path.
     // At low speed those are ten degrees apart, and a fighter hanging on her
-    // propeller shoots where she is pointed.
-    const aim = p.attitude;
-    const bank = p.bank || 0;
-    const cp = Math.cos(aim);
+    // propeller shoots where she is pointed. Her nose is taken off the same
+    // attitude she is drawn at (see attitudeOf), so the tracer leaves the
+    // barrels on the screen and not a few metres off them.
     const R = GUN_REACH;
     // Where the guns are laid to meet. A long way out, and every tracer is
     // run on to the same point on the bore line at the end of its reach, so
@@ -7849,17 +7854,19 @@ export class Battle {
     // than crossing a couple of hundred metres out and fanning apart after.
     const CONVERGE = GUN_REACH;
     const q = this.gunQuat || (this.gunQuat = new THREE.Quaternion());
-    const e = this.gunEuler || (this.gunEuler = new THREE.Euler(0, 0, 0, 'YXZ'));
     const v = this.gunVec || (this.gunVec = new THREE.Vector3());
-    e.set(-aim, p.heading, -bank);
-    q.setFromEuler(e);
+    const fwd = this.gunFwd || (this.gunFwd = new THREE.Vector3());
+    if (typeof p.body === 'function') q.copy(attitudeOf(p));
+    else {
+      const e = this.gunEuler || (this.gunEuler = new THREE.Euler(0, 0, 0, 'YXZ'));
+      q.setFromEuler(e.set(-p.attitude, p.heading, -(p.bank || 0)));
+    }
+    fwd.set(0, 0, 1).applyQuaternion(q);
     // The point every barrel is pointed at, and the point they are all fired
     // through at the far end.
-    const nose = {
-      x: p.x + Math.sin(p.heading) * cp * CONVERGE,
-      y: p.y + Math.sin(aim) * CONVERGE,
-      z: p.z + Math.cos(p.heading) * cp * CONVERGE,
-    };
+    const nose = { x: p.x + fwd.x * CONVERGE, y: p.y + fwd.y * CONVERGE, z: p.z + fwd.z * CONVERGE };
+    const n = pathOf(p);
+    const vel = { x: n.x * p.v, y: n.y * p.v, z: n.z * p.v };
     // Through the harmonisation point and on: the line from the muzzle to
     // where the guns cross, run out to where the tracer dies.
     const k = R / CONVERGE;
@@ -7871,10 +7878,53 @@ export class Battle {
       const ex = mx + (nose.x - mx) * k;
       const ey = my + (nose.y - my) * k;
       const ez = mz + (nose.z - mz) * k;
-      this.scene.flak.fire(mx, my, mz, ex, ey, ez, f.calibre, 8, this.scene.effects);
+      this.scene.flak.stream(mx, my, mz, ex, ey, ez, f.calibre, 2, this.scene.effects, vel, 6);
       // The flash at the muzzle and the smoke off it are drawn on her every
       // frame the trigger is held -- see airFx -- not left in the air here.
     }
+  }
+
+  /**
+   * A burst off the wire from a flight nobody here is flying, out of the
+   * barrels of every machine of hers as she was last drawn, at `tx, ty, tz`.
+   *
+   * Each gun's rounds go at the target when it is somewhere in front of her
+   * and straight down her bore when it is not: guns fixed in the wings do not
+   * swing round to meet something off to one side. Returns false when she has
+   * not been drawn lately, and the caller falls back on the old line.
+   */
+  airGunsDrawn(id, tx, ty, tz, fx) {
+    const d = this.planeDrawn.get(id);
+    if (!d || !d.n || this.time - d.at > 1) return false;
+    const kind = d.kind;
+    const guns = gunsOf(kind);
+    const cal = kind === 'zero' ? guns.map((m) => (Math.abs(m[0]) < 0.6 ? 7.7 : 20))
+      : (GUN_CALIBRE[kind] ?? 12.7);
+    const P = this.agP || (this.agP = new THREE.Vector3());
+    const B = this.agB || (this.agB = new THREE.Vector3());
+    // A big formation would put a great many rounds in the air at once:
+    // fewer per gun the more of them there are.
+    const per = d.n * guns.length > 12 ? 1 : 2;
+    for (let i = 0; i < d.n; i++) {
+      const m = d.mats[i];
+      if (!m) continue;
+      B.set(m.elements[8], m.elements[9], m.elements[10]).normalize();
+      guns.forEach((g, j) => {
+        P.set(g[0], g[1], g[2]).applyMatrix4(m);
+        let ex = tx - P.x, ey = ty - P.y, ez = tz - P.z;
+        const span = Math.hypot(ex, ey, ez) || 1;
+        const reach = Math.min(span, 900);
+        // Within a cone ahead of her, it goes where it was aimed.
+        if ((ex * B.x + ey * B.y + ez * B.z) / span > 0.9) {
+          ex = P.x + (ex / span) * reach; ey = P.y + (ey / span) * reach; ez = P.z + (ez / span) * reach;
+        } else {
+          ex = P.x + B.x * reach; ey = P.y + B.y * reach; ez = P.z + B.z * reach;
+        }
+        this.scene.flak.stream(P.x, P.y, P.z, ex, ey, ez, Array.isArray(cal) ? cal[j] : cal, per, fx,
+          d.v, 5);
+      });
+    }
+    return true;
   }
 
   /**
@@ -7908,8 +7958,13 @@ export class Battle {
     const ex = eye.x + dx * R;
     const ey = eye.y + dy * R;
     const ez = eye.z + dz * R;
-    this.scene.flak.fire(eye.x, eye.y, eye.z, ex, ey, ez, cal, 8,
-      this.scene.effects);
+    // Out of the guns he is behind, not scattered round the turret.
+    const fp = this.flight && this.flight.pilot;
+    const fv = fp && typeof fp.v === 'number' ? (() => {
+      const n = pathOf(fp);
+      return { x: n.x * fp.v, y: n.y * fp.v, z: n.z * fp.v };
+    })() : null;
+    this.scene.flak.stream(eye.x, eye.y, eye.z, ex, ey, ez, cal, 3, this.scene.effects, fv, 6);
     this.scene.effects.wingGun(eye.x, eye.y, eye.z, dx, dy, dz, cal);
   }
 
@@ -9307,9 +9362,16 @@ export class Battle {
               h: pl.h + angleDelta(pl.h, h2) * t,
               bk: pl.bk + angleDelta(pl.bk, bk2) * t,
               pt: lerp(pl.pt || 0, pt2, t),
+              ptr: (pt2 - (pl.pt || 0)) / T,
             };
           }
-          return { bk: pl.bk + angleDelta(pl.bk, nx.bk) * t, pt: lerp(pl.pt, nx.pt, t) };
+          // And how fast her path is turning up or down, which is how hard
+          // she is pulling: the angle her nose sits above her path goes with it.
+          return {
+            bk: pl.bk + angleDelta(pl.bk, nx.bk) * t,
+            pt: lerp(pl.pt, nx.pt, t),
+            ptr: ((nx.pt || 0) - (pl.pt || 0)) / T,
+          };
         })() : {}),
         // Her height and how she is going through the air, blended like the
         // rest of her. They used not to be, so a squadron slid smoothly across
@@ -9388,12 +9450,27 @@ export class Battle {
       // Somebody flying her sends the pitch of her flight path, which goes
       // past the vertical and over on her back as nothing worked out from a
       // rate of climb can; her nose sits above it by what her wing is doing.
+      //
+      // How hard her wing is working is not always one g. Seventy degrees
+      // down a dive it is holding up a third of her weight and her nose is on
+      // her path; hauling out at the bottom it is five, and her nose is well
+      // above it. Taken as one g whatever she was doing, a dive bomber went
+      // down her dive cocked nose-up off the line she was flying, which is
+      // what made the dive look wrong. The g is off the turn of her path and
+      // her bank: the lift, tilted by her bank, is what bends the path.
+      let load = 1;
+      if (flown) {
+        const V = Math.hypot(gs, pl.vy || 0);
+        const cb = Math.cos(bank);
+        const bend = Math.cos(pl.pt || 0) + (V * (pl.ptr || 0)) / 9.81;
+        load = Math.abs(cb) > 0.3 ? clamp(bend / cb, 0, 6) : 1 / Math.max(0.3, Math.abs(cb));
+      }
       // A helicopter's nose is not on her path: she hangs level in the hover,
       // going straight up or down, and dips it a few degrees going ahead.
       const pitchWant = a.rotor && !flown
         ? -0.07 * clamp((gs - 12) / 50, 0, 1)
         : flown
-          ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), 1) * Math.cos(bank)
+          ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), load) * Math.cos(bank)
           : flightAttitude(a, gs, pl.vy || 0, 1 / Math.max(0.35, Math.cos(bank)));
       // Eased like her bank, on the autopilot: her rate of climb comes off the
       // wire a tenth of a metre a second at a time, and her nose nodded with

@@ -28765,10 +28765,12 @@ check('a dive bomber puts her brakes out, rolls over, pulls through on her back 
   assert.ok(sawWire, 'the dive went out on the wire without her brakes or her pitch');
 });
 
-check('a dive bomber rolls in with one smooth barrel roll, all the way round', () => {
-  // She used to go over on her back at a fixed rate, hang there while she
-  // pulled, and roll back the way she came. Now it is one roll, eased in and
-  // out, all the way round to upright, with the nose down by the end of it.
+check('a dive bomber rolls over onto her back, pulls through and rolls upright again, smoothly', () => {
+  // Over most of the way onto her back, the nose pulled down through the
+  // horizon only once the wing is pointed at the sea, and back upright round
+  // her own nose in the dive. It was for a while a barrel roll all the way
+  // round with the nose coming down the whole time -- on her side with the
+  // path bending down past her wingtip, a slither no aeroplane can fly.
   const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
   const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
   const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
@@ -28776,27 +28778,64 @@ check('a dive bomber rolls in with one smooth barrel roll, all the way round', (
   ship.aimX = foe.x; ship.aimZ = foe.z;
   ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
   assert.ok(launchStrike(state, ship), 'she would not launch at all');
-  let id = null, prev = 0, turned = 0, first = null, lastStep = null, worst = 0, path = null;
+  let id = null, prev = 0, first = null, lastStep = null, worst = 0, path = null, most = 0;
+  let slither = 0;
   for (let i = 0; i < 400 / DT; i++) {
     step(state, DT);
     const p = id ? state.planes.find((q) => q.id === id) : state.planes.find((q) => q.role === 'dive' && q.dv === 'roll');
     if (!p) { if (id) break; continue; }
     if (p.dv !== 'roll') { if (id) { path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0)); break; } continue; }
     id = p.id;
-    const d = angleDelta(prev, p.show || 0);
+    const bank = p.show || 0;
+    const d = bank - prev;
     if (first === null) first = Math.abs(d);
     lastStep = Math.abs(d);
     worst = Math.max(worst, Math.abs(d));
-    turned += d;
-    prev = p.show || 0;
+    most = Math.max(most, Math.abs(bank));
+    prev = bank;
+    const pa = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0));
+    // While her wing is still on the level side of the vertical, her path
+    // does not go down below the horizon past her wingtip.
+    if (p.dvS === 'over' && Math.abs(bank) < Math.PI / 2) slither = Math.max(slither, -pa);
   }
   assert.ok(id, 'no dive bomber ever rolled in');
-  assert.ok(Math.abs(Math.abs(turned) - 2 * Math.PI) < 0.05,
-    `she rolled ${(turned * 57.3).toFixed(0)} degrees, not once all the way round`);
+  assert.ok(most > 2.4 && most < Math.PI, `she went ${(most * 57.3).toFixed(0)} degrees over, not onto her back`);
+  assert.ok(Math.abs(prev) < 0.01, `she came out of it still banked ${(prev * 57.3).toFixed(0)} degrees`);
   // Eased at both ends, and never a lurch in between.
   assert.ok(first < 0.01 && lastStep < 0.01, `her roll started at ${first} and stopped at ${lastStep} a tick`);
   assert.ok(worst < 0.12, `her roll jumped ${(worst * 57.3).toFixed(1)} degrees in a tick`);
+  assert.ok(slither < 0.08, `her nose went ${(slither * 57.3).toFixed(0)} degrees down with her wings still on the level side`);
   assert.ok(path !== null && path < -0.85, `she came out of the roll ${path === null ? 'never' : (-path * 57.3).toFixed(0)} degrees down`);
+});
+
+check('a dive bomber whose target goes in under her pulls out of her roll-in rather than flying on half rolled', () => {
+  // She used to be left in her roll-in, banked however far round she had got,
+  // and diving down at nothing, for as long as it took something else to
+  // change her phase.
+  const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
+  const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
+  foe.x = ship.x + 9000; foe.z = ship.z + 3000;
+  ship.aimX = foe.x; ship.aimZ = foe.z;
+  ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
+  assert.ok(launchStrike(state, ship), 'she would not launch at all');
+  let id = null, killedAt = null, stuck = 0, last = null, levelBy = null;
+  for (let i = 0; i < 400 / DT; i++) {
+    step(state, DT);
+    const p = id ? state.planes.find((q) => q.id === id)
+      : state.planes.find((q) => q.role === 'dive' && q.dv === 'roll' && q.dvT > 0.8);
+    if (!p) { if (id) break; continue; }
+    if (!id) { id = p.id; foe.alive = false; killedAt = i; }
+    const w = buildSnapshot(state, 0).planes.find((q) => q.i === p.id);
+    const bk = w && w.bk !== undefined ? w.bk : 0;
+    if (last !== null && Math.abs(bk) > 0.2 && Math.abs(bk - last) < 1e-6) stuck++;
+    last = bk;
+    if (levelBy === null && Math.abs(bk) < 0.05 && (p.vy || 0) > -5) levelBy = (i - killedAt) * DT;
+    if ((i - killedAt) * DT > 12) break;
+  }
+  assert.ok(id, 'no dive bomber ever rolled in');
+  assert.ok(stuck * DT < 0.5, `her bank sat frozen for ${(stuck * DT).toFixed(1)} s`);
+  assert.ok(levelBy !== null && levelBy < 4, `she was not level and out of it ${levelBy === null ? 'ever' : levelBy.toFixed(1) + ' s'} after her target went`);
 });
 
 check('a dive bomber\'s bomb comes down on the ship, where she will be when it lands', () => {
