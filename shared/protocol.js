@@ -39,6 +39,9 @@ export function shipSnapshot(ship, full, state = null) {
     // Out of the fight and still going down (go), or gone under (un): the
     // picture draws her as the battle has her until she is under.
     ...(!ship.alive && ship.sinking ? (ship.sinking.under ? { un: 1 } : { go: 1 }) : {}),
+    // Going down but still fighting: she has stopped making way through the
+    // water, so whoever sees her draws no wake off her.
+    ...(ship.alive && ship.sinking ? { sg: 1 } : {}),
     f: ship.fires, fl: ship.flooding,
     tu: ship.turrets.map((t) => r3(t.angle)),
     // How far up the guns are. It is what a turret most obviously does and

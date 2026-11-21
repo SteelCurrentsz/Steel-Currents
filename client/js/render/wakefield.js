@@ -524,6 +524,13 @@ export class Wake {
   /** Where she is now, and how fast. Lays another piece of track if she has run far enough. */
   update(dt, x, z, heading, speed) {
     this.clock += dt;
+    // Under way again after lying stopped, diving or being written off: a
+    // fresh track from where she is, at full strength. Joined to the old one,
+    // it would rule a band of wake from wherever she stopped.
+    if (this.opacity < 1) {
+      if (this.opacity <= 0) this.pts = [];
+      this.setOpacity(1);
+    }
     const bx = x + Math.sin(heading) * this.bowOffset;
     const bz = z + Math.cos(heading) * this.bowOffset;
     // How far she is from the last piece of water she laid. Further than she
@@ -632,10 +639,10 @@ export class Wake {
    * more is laid, and what is there is taken out quickly. A Kelvin pattern
    * running away from a hull standing on end is nonsense.
    */
-  stop(dt = 0) {
+  stop(dt = 0, rate = 0.8) {
     this.clock += dt;
     if (this.pts.length) {
-      this.setOpacity(Math.max(0, this.opacity - dt * 0.8));
+      this.setOpacity(Math.max(0, this.opacity - dt * rate));
       if (this.opacity <= 0) this.pts = [];
       else { this.lay(); return; }
     }

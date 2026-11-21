@@ -73,6 +73,8 @@ const INTERP_DELAY = 0.15;
  * at; see lateEvents.
  */
 const HIT_AT = new THREE.Vector3();
+// Under this, metres a second, a ship is lying stopped and lays no wake.
+const WAKE_MIN_SPEED = 0.6;
 const LATE_EVENTS = new Set([
   'planeDown', 'planesLost', 'bomberDown', 'bomberOut', 'wreckHit', 'wreckIn', 'midAir',
   'planeCrash', 'ram', 'trap', 'nuke',
@@ -8773,8 +8775,15 @@ export class Battle {
       // a hull pushing the surface aside, and a submarine at thirty metres is
       // not touching the surface at all -- the wake she left on the way down
       // washes out behind her and there is nothing to see.
-      const foundering = !s.a || view.going || (view.depth || 0) > 1.2;
+      // Nor one that is sinking but still in the fight, or one gone under.
+      const foundering = !s.a || s.sg || s.go || s.un || Number.isFinite(s.sn)
+        || view.going || (view.depth || 0) > 1.2;
+      // And a ship lying stopped makes no wake: what she laid while she was
+      // under way washes out behind her in a few seconds, and nothing more
+      // comes off her until she gathers way again.
+      const stopped = Math.abs(speed) < WAKE_MIN_SPEED;
       if (foundering) view.wake.stop(dt);
+      else if (stopped) view.wake.stop(dt, 0.35);
       else view.wake.update(dt, x, z, h, speed);
       const load = clamp(Math.abs(speed) / cls.maxSpeed, 0, 1);
       // How hard she is burning, for the founder to read. A ship that goes
