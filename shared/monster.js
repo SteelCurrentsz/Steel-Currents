@@ -124,7 +124,15 @@ export const MONSTER = {
   // Her jaws are where her head is: standing, a little ahead of her chest,
   // and lunging down to the water; swimming, out at the front of her. A hull
   // has to be within `reach` of them.
-  bite: { time: 1.3, hitAt: 0.55, head: { stand: 34, swim: 66 }, reach: 14, share: 0.14, flat: 7000, cooldown: 5 },
+  bite: { time: 1.3, hitAt: 0.55, head: { stand: 34, swim: 66 }, reach: 14, share: 0.14, flat: 7000, cooldown: 5,
+    // Her head can be turned while her jaws are on a ship (see `aim`): this
+    // far either side of straight ahead, metres, at the end of its swing.
+    swing: 30,
+    // Her teeth still in it, a swing of her head this far across tears a
+    // second mouthful out where they have been dragged to -- `drag` of a full
+    // bite's harm -- and as many as `drags` of those to a bite.
+    tug: 0.45, drag: 0.5, drags: 2,
+  },
   // How long, after the last thing that hurt her, before she starts to heal,
   // and how fast she does: a share of her whole life a second.
   heal: { after: 25, rate: 0.0016 },
@@ -224,6 +232,10 @@ export function monsterOf(ship) {
       // how long before she can do it again.
       aim: null, aimId: 0, charge: 0, cool: 0, glow: 0,
       tailCool: 0, grabCool: 0, biteCool: 0, crushCool: 0,
+      // Where her head is turned when she bites: x across her, -1 her left
+      // to 1 her right; y -1 down at the waterline and below it, 1 up at
+      // the upperworks. Her jaws close where it points.
+      head: { x: 0, y: 0 },
       // A ship in her hands.
       holdId: 0, pin: false,
       // When she was last hurt, for her healing.
@@ -291,6 +303,7 @@ function startAct(m, act) {
  *   { a: 'throw', x, z }            throw the ship she has, toward a point
  *   { a: 'crush' }                  crush the ship she has in her hands
  *   { a: 'bite', target }           bite the ship in her hands, or in front of her
+ *   { a: 'head', hx, hy }           turn her head: where her jaws go in (see m.head)
  *   { a: 'pose', pose }             'deep', 'swim' or 'stand'
  *   { a: 'roar' }
  *   { a: 'cancel' }                 stop gathering the breath
@@ -426,6 +439,14 @@ export function monsterOrder(state, ship, o, hooks) {
       m.throwAt = Number.isFinite(o.x) && Number.isFinite(o.z) ? { x: o.x, z: o.z } : null;
       startAct(m, 'throw');
       m.thrown = false;
+      return '';
+    }
+    case 'head': {
+      const hx = Number(o.hx), hy = Number(o.hy);
+      if (!Number.isFinite(hx) || !Number.isFinite(hy)) return 'bad';
+      const h = m.head || (m.head = { x: 0, y: 0 });
+      h.x = clamp(hx, -1, 1);
+      h.y = clamp(hy, -1, 1);
       return '';
     }
     case 'roar': {
@@ -838,38 +859,74 @@ function stepCrush(state, ship, m, hooks) {
     hooks.damageShip(state, t, ship, t.maxHp * C.share + C.flat, 'ram');
     // What her fingers tore out of the hull, and any gun they closed on.
     const torn = hooks.tear ? hooks.tear(state, t, ship, 'claw') : null;
-    state.events.push({ e: 'moCrush', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z), ...(torn ? { tr: torn } : {}) });
+    const tr = torn ? { lx: torn.lx, ly: torn.ly, lz: torn.lz, r: torn.r, sd: torn.sd } : null;
+    state.events.push({ e: 'moCrush', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z), ...(tr ? { tr } : {}) });
     if (!t.alive) { letGo(state, ship, hooks); m.act = ''; return; }
   }
   if (m.actT >= C.time) startAct(m, 'hold');
 }
 
-/** Her jaws: on the ship in her hands, or lunging for one in front of her. */
+/**
+ * Her jaws: on the ship in her hands, or lunging for one in front of her.
+ *
+ * They go in where her head is turned (m.head) and nowhere else: what they
+ * tear out, and all the harm the bite does, is in the one compartment they
+ * closed on -- the bow, the machinery, the upperworks -- and none of it is
+ * shared out over the rest of the ship. Her head swung across while her
+ * teeth are still set in the steel drags them through it, and tears out
+ * another mouthful where they have got to.
+ */
 function stepBite(state, ship, m, hooks) {
   const B = MONSTER.bite;
+  const head = m.head || (m.head = { x: 0, y: 0 });
   if (!m.biteHit && m.actT >= B.hitAt) {
     m.biteHit = true;
     const t = state.ships.find((s) => s.id === m.biteId);
     // In her hands she cannot miss; in the water it has to be in front of her still.
     const lands = t && t.alive && (t.gripBy === ship.id || biteable(state, ship, t));
     if (lands) {
-      hooks.damageShip(state, t, ship, t.maxHp * B.share + B.flat, 'ram');
       if (t.gripBy !== ship.id) t.rockRate = (t.rockRate || 0) + 0.15;
-      // A mouthful of her: hull torn out, and sometimes a gun with it.
-      const torn = hooks.tear ? hooks.tear(state, t, ship, 'bite') : null;
-      state.events.push({ e: 'moBite', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z), ...(torn ? { tr: torn } : {}) });
+      biteInto(state, ship, t, hooks, 1);
+      m.biteAt = { x: head.x, y: head.y };
+      m.biteDrags = 0;
+      m.biteIn = t.id;
     } else {
+      m.biteIn = 0;
       state.events.push({ e: 'moBite', ship: ship.id, at: 0, x: Math.round(ship.x + Math.sin(ship.heading) * 120), z: Math.round(ship.z + Math.cos(ship.heading) * 120) });
     }
     if (m.holdId) {
       const h = state.ships.find((s) => s.id === m.holdId);
       if (!h || !h.alive) letGo(state, ship, hooks);
     }
+  } else if (m.biteHit && m.biteIn && m.biteAt && m.actT < B.time - 0.1 && (m.biteDrags || 0) < B.drags) {
+    // Her teeth still in her: dragged through her plating as her head turns.
+    if (Math.hypot(head.x - m.biteAt.x, head.y - m.biteAt.y) >= B.tug) {
+      const t = state.ships.find((s) => s.id === m.biteIn);
+      if (t && t.alive) {
+        biteInto(state, ship, t, hooks, B.drag);
+        m.biteAt = { x: head.x, y: head.y };
+        m.biteDrags = (m.biteDrags || 0) + 1;
+      } else m.biteIn = 0;
+    }
   }
   if (m.actT >= B.time) {
+    m.biteIn = 0;
     if (m.holdId) startAct(m, 'hold');
     else m.act = '';
   }
+}
+
+/** One mouthful out of `t`, where her head is turned, `k` of a full bite's harm. */
+function biteInto(state, ship, t, hooks, k) {
+  const B = MONSTER.bite;
+  // What comes away in her teeth, and where on her that is.
+  const torn = hooks.tear ? hooks.tear(state, t, ship, 'bite') : null;
+  const where = torn && torn.where;
+  // All of it into the compartment her jaws closed on, and none of it
+  // passed on to the rest of her.
+  hooks.damageShip(state, t, ship, (t.maxHp * B.share + B.flat) * k, 'ram', where || null, !!where);
+  const tr = torn ? { lx: torn.lx, ly: torn.ly, lz: torn.lz, r: torn.r, sd: torn.sd } : null;
+  state.events.push({ e: 'moBite', ship: ship.id, at: t.id, x: Math.round(t.x), z: Math.round(t.z), ...(tr ? { tr } : {}) });
 }
 
 /** Let go of whatever is in her hands, where it is. */
@@ -1120,6 +1177,8 @@ export function monsterWire(ship) {
     m.ashore ? 1 : 0,
     // The ships marked for her breath, in order.
     (m.marks || []).slice(0, 6),
+    // Where her head is turned, for her jaws: hundredths, across and up.
+    [Math.round((m.head?.x || 0) * 100), Math.round((m.head?.y || 0) * 100)],
   ];
 }
 
@@ -1143,6 +1202,7 @@ export function readMonsterWire(w) {
     pin: !!w[15],
     ashore: !!w[16],
     marks: Array.isArray(w[17]) ? w[17] : [],
+    aim: Array.isArray(w[18]) ? { x: (w[18][0] || 0) / 100, y: (w[18][1] || 0) / 100 } : { x: 0, y: 0 },
   };
 }
 
@@ -1200,6 +1260,7 @@ export function stepMonsterBot(state, ship, brain, dt, conned, hooks) {
   const P = B.plan || { go: null, pose: 'swim', notch: 2 };
   // Her orders, issued once.
   if (P.order && !m.act) {
+    if (P.order.a === 'bite') botHead(state, m);
     const why = monsterOrder(state, ship, P.order, hooks);
     if (!why || why === 'cooling' || why === 'none' || why === 'close') P.order = null;
   }
@@ -1210,6 +1271,7 @@ export function stepMonsterBot(state, ship, brain, dt, conned, hooks) {
     monsterOrder(state, ship, { a: 'crush' }, hooks);
   } else if (m.act === 'hold' && m.actT > 0.8 && m.biteCool <= 0 && !m.botBitten) {
     m.botBitten = true;
+    botHead(state, m);
     monsterOrder(state, ship, { a: 'bite' }, hooks);
   } else if (m.act === 'hold' && m.pin && m.actT > 2.5 && m.botCrushed && m.botBitten) {
     // One too big to throw: crushed and bitten, and let go of.
@@ -1243,6 +1305,11 @@ function nearestOther(ship, list, not) {
     if (d < bd) { bd = d; best = s; }
   }
   return best;
+}
+
+/** Her own mind's choice of where on a ship to put her jaws: anywhere along her, mostly about her deck. */
+function botHead(state, m) {
+  m.head = { x: state.rng() * 2 - 1, y: state.rng() * 1.3 - 0.5 };
 }
 
 /** What she means to do for the next half second. */

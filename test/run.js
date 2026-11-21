@@ -32952,6 +32952,50 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.ok(ships[1].hp < before);
   });
 
+  check('Monster One\'s bite goes in where her head is turned, and harms only that part of the ship', () => {
+    const { state, mo, ships } = field([['iowa', 0, 50]]);
+    const t = ships[0];
+    t.speed = 0; t.notch = 1;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab', target: t.id }, SIM.MONSTER_HOOKS), '');
+    run(state, 2.4);
+    assert.equal(t.gripBy, mo.id, 'she did not take hold of her');
+    run(state, 0.5);
+    const hp = () => Object.fromEntries(Object.entries(t.sections).map(([k, c]) => [k, c.hp]));
+    const bite = (hx, hy) => {
+      mo.mo.biteCool = 0;
+      if (mo.mo.act !== 'hold') mo.mo.act = 'hold';
+      assert.equal(SIM.monsterOrder(state, mo, { a: 'head', hx, hy }, SIM.MONSTER_HOOKS), '');
+      const was = hp();
+      assert.equal(SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS), '');
+      const ev = run(state, MO.MONSTER.bite.hitAt + 0.05);
+      const b = ev.find((e) => e.e === 'moBite' && e.at === t.id);
+      assert.ok(b && b.tr, 'no bite on the ship in her hands');
+      const now = hp();
+      // (Anything under a few points is the hold and the sea, not her teeth.)
+      const hurt = Object.keys(now).filter((k) => now[k] < was[k] - 200);
+      assert.equal(hurt.length, 1, `one bite hurt ${hurt.map((k) => k + ' ' + (now[k] - was[k]).toFixed(0)).join(', ')}`);
+      run(state, MO.MONSTER.bite.time);
+      return { tr: b.tr, hurt: hurt[0] };
+    };
+    const left = bite(-1, 0);
+    const right = bite(1, 0);
+    assert.notEqual(left.hurt, right.hurt, 'her head swung from end to end of her and bit the same place');
+    assert.ok(Math.abs(left.tr.lz - right.tr.lz) > 100, `${left.tr.lz} and ${right.tr.lz} are not her two ends`);
+    const high = bite(0, 1);
+    assert.equal(high.hurt, 'works', 'her head up did not bite her upperworks');
+    const low = bite(0, -1);
+    assert.ok(low.tr.ly < 0, 'her head down did not bite under the waterline');
+    // Her head swung across with her teeth still in her: a second mouthful.
+    mo.mo.biteCool = 0;
+    mo.mo.act = 'hold';
+    SIM.monsterOrder(state, mo, { a: 'head', hx: -0.6, hy: 0 }, SIM.MONSTER_HOOKS);
+    SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS);
+    let ev = run(state, MO.MONSTER.bite.hitAt + 0.05);
+    SIM.monsterOrder(state, mo, { a: 'head', hx: 0.4, hy: 0 }, SIM.MONSTER_HOOKS);
+    ev = ev.concat(run(state, 0.2));
+    assert.equal(ev.filter((e) => e.e === 'moBite' && e.at === t.id).length, 2, 'dragging her teeth through her tore nothing');
+  });
+
   check('Monster One\'s breath goes off from the button however close the crosshair is to her', () => {
     const { state, mo, ships } = field([['fletcher', 0, 3000]]);
     // The sea under the button at the foot of the screen: right under her.

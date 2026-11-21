@@ -21,12 +21,13 @@
 // sea itself (burstMarks in ocean.js), and the wave that follows is the sea
 // itself too (burstSwell): neither is a mesh laid on the water.
 //
-// The cloud is built of billows: each a sphere drawn on a card, lit by the
-// sun and the sky and by the fire inside it, lumpy at its edge and in its
-// surface off a noise texture, and solid -- it writes its own depth, so one
-// billow sits into the next the way the heads of a cumulus do rather than
-// lying flat over it. That is what makes it cauliflower and not a heap of
-// soft dots, and being solid it costs nothing in sorting or blending.
+// The mushroom is one solid surface (see Nukes.cloud and CLOUD_VERT): the
+// outline of a cap rolled over on itself, a stem and a skirt, turned about
+// the stem and pushed in and out by a cauliflower noise fixed to it -- so it
+// keeps its shape as it rises and grows, the way the real thing does, rather
+// than being a heap of separate puffs. Only what is soft about a burst --
+// the collar round the stem, the dust or spray of the shock and the base
+// surge -- is drawn as billows of mist.
 //
 // Everything is made once for the battle and compiled before the bomb goes
 // (see warm): nothing about a burst compiles a shader or brings a light into
@@ -356,6 +357,255 @@ void main() {
 }
 `;
 
+// The mushroom itself: one closed surface, a lathe of the cloud's outline
+// (see Nukes.cloud) turned about its stem, every point of it pushed out or
+// in by a cauliflower noise that is fixed to the cloud -- so it grows and
+// rises as one thing, its lumps staying where they are on it, and does not
+// boil away into loose puffs. The outline is handed over each frame as a
+// small texture: radius, height, distance along the outline from the crown
+// down, and how hard it is lumped; then how hot it is there and how white.
+const SIMPLEX3 = /* glsl */`
+vec4 permute(vec4 x) { return mod(((x * 34.0) + 1.0) * x, 289.0); }
+vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+float snoise(vec3 v) {
+  const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+  const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+  vec3 i = floor(v + dot(v, C.yyy));
+  vec3 x0 = v - i + dot(i, C.xxx);
+  vec3 g = step(x0.yzx, x0.xyz);
+  vec3 l = 1.0 - g;
+  vec3 i1 = min(g.xyz, l.zxy);
+  vec3 i2 = max(g.xyz, l.zxy);
+  vec3 x1 = x0 - i1 + C.xxx;
+  vec3 x2 = x0 - i2 + 2.0 * C.xxx;
+  vec3 x3 = x0 - 1.0 + 3.0 * C.xxx;
+  i = mod(i, 289.0);
+  vec4 p = permute(permute(permute(i.z + vec4(0.0, i1.z, i2.z, 1.0))
+    + i.y + vec4(0.0, i1.y, i2.y, 1.0)) + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+  float n_ = 1.0 / 7.0;
+  vec3 ns = n_ * D.wyz - D.xzx;
+  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+  vec4 x_ = floor(j * ns.z);
+  vec4 y_ = floor(j - 7.0 * x_);
+  vec4 x = x_ * ns.x + ns.yyyy;
+  vec4 y = y_ * ns.x + ns.yyyy;
+  vec4 h = 1.0 - abs(x) - abs(y);
+  vec4 b0 = vec4(x.xy, y.xy);
+  vec4 b1 = vec4(x.zw, y.zw);
+  vec4 s0 = floor(b0) * 2.0 + 1.0;
+  vec4 s1 = floor(b1) * 2.0 + 1.0;
+  vec4 sh = -step(h, vec4(0.0));
+  vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+  vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+  vec3 p0 = vec3(a0.xy, h.x);
+  vec3 p1 = vec3(a0.zw, h.y);
+  vec3 p2 = vec3(a1.xy, h.z);
+  vec3 p3 = vec3(a1.zw, h.w);
+  vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
+  p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+  vec4 m = max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0);
+  m = m * m;
+  return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+}
+// Cauliflower: the absolute of each octave is a round head with a sharp fold
+// between it and the next, and the heads are made of smaller heads. Two
+// octaves on the mesh (finer than that is finer than the mesh, and facets); the finer folds are the fragment shader's.
+float billow(vec3 q) {
+  float s = 0.0, a = 0.66;
+  for (int o = 0; o < 2; o++) {
+    s += a * abs(snoise(q));
+    q = q * 2.07 + vec3(1.7, 9.2, 3.1);
+    a *= 0.42;
+  }
+  return s;
+}
+`;
+
+const CLOUD_VERT = /* glsl */`
+attribute vec2 ia;            // which point of the outline, and the angle round
+uniform sampler2D uProf;
+uniform float uNP;
+uniform float uL;             // the size of its biggest lumps, metres
+uniform float uDrift;         // how far its surface has rolled, metres
+varying vec3 vN;
+varying vec3 vW;
+varying vec3 vQ;
+varying float vLump;
+varying float vHeat;
+varying float vWhite;
+#include <fog_pars_vertex>
+${SIMPLEX3}
+vec4 prof(float fi, float row) {
+  fi = clamp(fi, 0.0, uNP - 1.0);
+  float i0 = floor(fi);
+  float i1 = min(i0 + 1.0, uNP - 1.0);
+  return mix(texture2D(uProf, vec2((i0 + 0.5) / uNP, row)),
+    texture2D(uProf, vec2((i1 + 0.5) / uNP, row)), fi - i0);
+}
+float lumpAt;
+vec3 place(float fi, float a) {
+  vec4 p = prof(fi, 0.25);
+  vec4 b = prof(fi - 0.5, 0.25), c = prof(fi + 0.5, 0.25);
+  vec2 o = normalize(vec2(-(c.y - b.y), c.x - b.x) + vec2(1e-5, 0.0));
+  float ca = cos(a), sa = sin(a);
+  vec3 q = vec3(ca * max(p.x, 1.0), sa * max(p.x, 1.0), p.z + uDrift) / uL;
+  lumpAt = billow(q);
+  return vec3(ca * (p.x + o.x * (lumpAt - 0.3) * p.w), p.y + o.y * (lumpAt - 0.3) * p.w,
+    sa * (p.x + o.x * (lumpAt - 0.3) * p.w));
+}
+void main() {
+  float fi = ia.x, a = ia.y;
+  vec3 p0 = place(fi, a);
+  float l0 = lumpAt;
+  vec4 p = prof(fi, 0.25);
+  // Across the lumps, for which way the surface faces.
+  float da = clamp(uL * 0.12 / max(p.x, 1.0), 0.002, 0.08);
+  vec3 p1 = place(fi, a + da);
+  vec3 p2 = place(fi + 0.35, a);
+  vec3 p3 = place(fi - 0.35, a);
+  vec3 n = normalize(cross(p2 - p3, p1 - p0));
+  vec2 o = normalize(vec2(-(prof(fi + 0.5, 0.25).y - prof(fi - 0.5, 0.25).y),
+    prof(fi + 0.5, 0.25).x - prof(fi - 0.5, 0.25).x) + vec2(1e-5, 0.0));
+  vec3 out3 = vec3(cos(a) * o.x, o.y, sin(a) * o.x);
+  if (dot(n, out3) < 0.0) n = -n;
+  vec4 h = prof(fi, 0.75);
+  vHeat = h.x;
+  vWhite = h.y;
+  vLump = clamp(l0 * 1.7, 0.0, 1.0);
+  vQ = vec3(cos(a) * max(p.x, 1.0), sin(a) * max(p.x, 1.0), p.z + uDrift) / uL;
+  vec4 w = modelMatrix * vec4(p0, 1.0);
+  vW = w.xyz;
+  vN = normalize(mat3(modelMatrix) * n);
+  vec4 mvPosition = viewMatrix * w;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}
+`;
+
+const CLOUD_FRAG = /* glsl */`
+uniform sampler2D uNoise;
+uniform vec3 uSunDir;
+uniform vec3 uSun;
+uniform vec3 uSky;
+uniform vec3 uGround;
+uniform vec3 uDirt;
+uniform vec3 uFire;
+uniform vec4 uFireAt;     // the fireball, in the world, and how bright
+uniform float uGone;      // 0 whole, 1 dispersed
+uniform float uTime;
+varying vec3 vN;
+varying vec3 vW;
+varying vec3 vQ;
+varying float vLump;
+varying float vHeat;
+varying float vWhite;
+#include <common>
+#include <fog_pars_fragment>
+void main() {
+  // The finer folds, off the noise texture laid on it three ways.
+  vec3 an = abs(normalize(vN));
+  an /= (an.x + an.y + an.z);
+  vec3 f = vQ * 2.7;
+  vec4 nx = texture2D(uNoise, f.yz + vec2(0.0, uTime * 0.002));
+  vec4 ny = texture2D(uNoise, f.xz);
+  vec4 nz = texture2D(uNoise, f.xy + vec2(uTime * 0.002, 0.0));
+  vec4 fine = nx * an.x + ny * an.y + nz * an.z;
+  // Thinning out at the end from its folds, its heads going last.
+  if (uGone > 0.0 && vLump * 0.55 + fine.r * 0.45 < uGone * 1.05) discard;
+  vec3 n = normalize(normalize(vN) + (fine.gba - 0.5) * 0.7);
+  float sd = dot(n, normalize(uSunDir));
+  float sun = clamp(sd * 0.6 + 0.4, 0.0, 1.0);
+  // Dark in its folds, bright on its heads.
+  float fold = mix(0.62, 1.0, smoothstep(0.0, 0.8, vLump)) * mix(0.82, 1.05, fine.r);
+  vec3 alb = mix(uDirt, vec3(0.96, 0.95, 0.94), vWhite);
+  // Lit through: a cloud scatters light in from all round, so its shaded
+  // side is soft grey, never black.
+  vec3 light = uSun * sun + mix(uGround * 1.6 + uSky * 0.25, uSky, n.y * 0.5 + 0.5) * 1.15;
+  vec3 col = alb * light * fold * 0.55;
+  // The fireball under the cap lights the belly of it.
+  vec3 tf = uFireAt.xyz - vW;
+  float df = length(tf);
+  float lf = max(0.0, dot(n, tf / max(df, 1.0))) * uFireAt.w / (1.0 + df * df * 2.5e-7);
+  col += alb * uFire * lf * fold;
+  // Fire still inside it, showing in its folds.
+  float heat = vHeat * smoothstep(0.05, 0.9, (1.0 - vLump) * 0.75 + fine.a * 0.5);
+  vec3 flame = uFire * (1.2 + 1.8 * fine.b);
+  col = mix(col, flame, clamp(heat, 0.0, 0.92));
+  col += uFire * heat * heat * 1.6;
+  gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}
+`;
+
+/** Points along the cloud's outline, and round it. */
+const CLOUD_NP = 160;
+const CLOUD_NA = 128;
+
+let CLOUD_GEO = null;
+function cloudGeometry() {
+  if (CLOUD_GEO) return CLOUD_GEO;
+  const NP = CLOUD_NP, NA = CLOUD_NA;
+  const ia = new Float32Array(NP * (NA + 1) * 2);
+  const idx = [];
+  for (let i = 0; i < NP; i++) {
+    for (let j = 0; j <= NA; j++) {
+      const o = (i * (NA + 1) + j) * 2;
+      ia[o] = i;
+      ia[o + 1] = (j / NA) * Math.PI * 2;
+    }
+  }
+  for (let i = 0; i < NP - 1; i++) {
+    for (let j = 0; j < NA; j++) {
+      const a = i * (NA + 1) + j, b = a + NA + 1;
+      idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('ia', new THREE.BufferAttribute(ia, 2));
+  // Three wants a position to count vertices by; the shader places them.
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NP * (NA + 1) * 3), 3));
+  g.setIndex(idx);
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
+  g.userData.shared = true;
+  CLOUD_GEO = g;
+  return g;
+}
+
+function cloudMesh() {
+  const data = new Float32Array(CLOUD_NP * 2 * 4);
+  const tex = new THREE.DataTexture(data, CLOUD_NP, 2, THREE.RGBAFormat, THREE.FloatType);
+  tex.magFilter = tex.minFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+      uProf: { value: null }, uNP: { value: CLOUD_NP }, uL: { value: 300 }, uDrift: { value: 0 },
+      uNoise: { value: null },
+      uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+      uSun: { value: new THREE.Color(1, 1, 1) },
+      uSky: { value: new THREE.Color(0.5, 0.55, 0.6) },
+      uGround: { value: new THREE.Color(0.15, 0.17, 0.2) },
+      uDirt: { value: new THREE.Color(0.5, 0.42, 0.34) },
+      uFire: { value: new THREE.Color(1.0, 0.35, 0.08) },
+      uFireAt: { value: new THREE.Vector4() },
+      uGone: { value: 0 },
+      uTime: { value: 0 },
+    }]),
+    vertexShader: CLOUD_VERT,
+    fragmentShader: CLOUD_FRAG,
+    fog: true,
+    side: THREE.DoubleSide,
+  });
+  mat.uniforms.uProf.value = tex;
+  mat.uniforms.uNoise.value = noiseTexture();
+  const mesh = new THREE.Mesh(cloudGeometry(), mat);
+  mesh.frustumCulled = false;
+  mesh.visible = false;
+  // Dense working outline, resampled to CLOUD_NP evenly spaced points.
+  return { mesh, tex, data, work: [] };
+}
+
 const SHOCK_VERT = /* glsl */`
 varying vec3 vN;
 varying vec3 vV;
@@ -411,9 +661,8 @@ const smooth = (e0, e1, x) => {
   return t * t * (3 - 2 * t);
 };
 
-/** How many billows one burst can be made of, solid and as mist. */
-const BILLOWS = 1100;
-const MISTS = 420;
+/** How many billows of mist one burst can be made of. */
+const MISTS = 520;
 
 /**
  * Bursts kept made up and compiled for the next one: a burst takes its parts
@@ -500,6 +749,10 @@ function putBillow(b, x, y, z, r, white, heat, gone, seed) {
 
 const SEA_DIRT = new THREE.Color(0.74, 0.78, 0.82);
 const LAND_DIRT = new THREE.Color(0.5, 0.4, 0.31);
+// What the mushroom is where it is not white: dust and smoke over the land,
+// spray and steam grey over the sea.
+const SEA_CLOUD = new THREE.Color(0.58, 0.6, 0.63);
+const LAND_CLOUD = new THREE.Color(0.42, 0.33, 0.26);
 const FIRE = new THREE.Color(1.0, 0.3, 0.06);
 const TMPV = new THREE.Vector3();
 const TMPC = new THREE.Color();
@@ -545,7 +798,8 @@ export class Nukes {
     const parts = this.parts(false);
     const scene = new THREE.Scene();
     for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson']) scene.add(parts[k]);
-    scene.add(parts.billows.mesh);
+    parts.cloud.mesh.visible = true;
+    scene.add(parts.cloud.mesh);
     scene.add(parts.mist.mesh);
     // The shock is drawn in a pass of its own, with no lights and no fog,
     // and a program is compiled for the scene it is drawn in.
@@ -639,12 +893,11 @@ export class Nukes {
       toneMapped: false,
     }));
     shock.frustumCulled = false;
-    const billows = billowBatch(BILLOWS);
-    billows.mesh.material.uniforms.uDirt.value.copy(land ? LAND_DIRT : SEA_DIRT);
+    const cloud = cloudMesh();
     const mist = billowBatch(MISTS, true);
     mist.mesh.material.uniforms.uDirt.value.copy(land ? LAND_DIRT : SEA_DIRT);
     mist.mesh.renderOrder = 3;
-    return { ball, glow, flare, sky, wilson, shock, billows, mist };
+    return { ball, glow, flare, sky, wilson, shock, cloud, mist };
   }
 
   /**
@@ -660,15 +913,15 @@ export class Nukes {
     g.position.set(x, 0, z);
     this.scene.add(g);
     const p = this.pool.pop() || this.parts(land);
-    for (const b of [p.billows, p.mist]) {
-      b.mesh.material.uniforms.uDirt.value.copy(land ? LAND_DIRT : SEA_DIRT);
-      b.n = 0;
-      b.mesh.geometry.instanceCount = 0;
-      b.mesh.visible = true;
-    }
+    p.mist.mesh.material.uniforms.uDirt.value.copy(land ? LAND_DIRT : SEA_DIRT);
+    p.mist.n = 0;
+    p.mist.mesh.geometry.instanceCount = 0;
+    p.mist.mesh.visible = true;
+    p.cloud.mesh.material.uniforms.uDirt.value.copy(land ? LAND_CLOUD : SEA_CLOUD);
+    p.cloud.mesh.visible = false;
     p.wilson.visible = false;
     for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson']) g.add(p[k]);
-    g.add(p.billows.mesh);
+    g.add(p.cloud.mesh);
     g.add(p.mist.mesh);
     // The shock is not in the battle's scene but in its own pass.
     const ss = this.shockScene || (this.shockScene = new THREE.Scene());
@@ -700,7 +953,7 @@ export class Nukes {
     this.shockScene?.remove(n.shock);
     this.dropLamp(n);
     const p = { ball: n.ball, glow: n.glow, flare: n.flare, sky: n.sky, wilson: n.wilson, shock: n.shock,
-      billows: n.billows, mist: n.mist };
+      cloud: n.cloud, mist: n.mist };
     // Kept for the next burst, made up as it is (see POOL).
     if (this.pool.length < POOL) { this.pool.push(p); return; }
     this.disposeParts(p);
@@ -708,10 +961,10 @@ export class Nukes {
 
   disposeParts(p) {
     for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson', 'shock']) p[k].material?.dispose?.();
-    for (const b of [p.billows, p.mist]) {
-      b.mesh.material.dispose();
-      b.mesh.geometry.dispose();
-    }
+    p.mist.mesh.material.dispose();
+    p.mist.mesh.geometry.dispose();
+    p.cloud.mesh.material.dispose();
+    p.cloud.tex.dispose();
   }
 
   /** The battle is over: give back the kept shaders and anything still burning. */
@@ -823,53 +1076,55 @@ export class Nukes {
         }
       }
       n.front = front;
-      const bend = 0.075 * Math.max(0, 1 - t / 11) * Math.min(1, t * 8);
-      n.shock.visible = bend > 1e-4;
-      n.shock.scale.setScalar(Math.max(1, front));
-      n.shock.position.y = n.y * 0.5;
-      n.shock.material.uniforms.uBend.value = bend;
-      // Its skin of condensation only flashes: past the first half second a
-      // white line on it is a circle drawn on the sky.
-      n.shock.material.uniforms.uSkin.value = 0.9 * Math.exp(-t / 0.35);
-      // The condensation cloud, the cap of Baker, and on land a brief skirt.
-      this.wilson(n, t, front, L);
+      // The shock is felt (the jolt, above) and seen in what it does to the
+      // sea and the ground, not drawn as a shell in the sky: a ring of
+      // bent light standing over the burst read as a soap bubble, and so did
+      // the condensation dome. Neither is drawn.
+      n.shock.visible = false;
+      n.wilson.visible = false;
       // The cloud: not built at all when it is out of sight.
       const seen = !camera || this.frustum.intersectsSphere(
-        TMPS.set(TMPV.set(n.x, n.y + 1600 * K, n.z), 4200 * K));
-      n.billows.mesh.visible = n.mist.mesh.visible = seen;
+        TMPS.set(TMPV.set(n.x, n.y + 2200 * K, n.z), 4600 * K));
+      n.cloud.mesh.visible = n.mist.mesh.visible = seen;
       if (!seen) continue;
-      // How many of its billows are worth drawing: all of the B-29's close
-      // to, fewer for a smaller burst, a far one, or one of several.
+      // How many billows of mist are worth drawing: all of them close to,
+      // fewer for a smaller burst, a far one, or one of several.
       const keep = Math.min(1, Math.max(0.3,
         (0.55 + 0.3 * K) * crowd * (far > 0 ? Math.min(1, Math.max(0.55, 1.35 - far / (30000 * K))) : 1)));
-      if (camera) TMPV.set(n.x, n.ball.position.y, n.z).applyMatrix4(camera.matrixWorldInverse);
-      for (const b of [n.billows, n.mist]) {
-        const u = b.mesh.material.uniforms;
+      const m = n.mist;
+      {
+        const u = m.mesh.material.uniforms;
         u.uTime.value = t;
         u.uSunDir.value.copy(L.dir);
         u.uSun.value.copy(L.sun);
         u.uSky.value.copy(L.sky);
         u.uGround.value.copy(L.ground);
         u.uFire.value.copy(FIRE);
-        // The fireball's light on the cloud, in the eye's frame.
-        if (camera) u.uFireAt.value.set(TMPV.x, TMPV.y, TMPV.z, fire * 30 * K);
-        b.n = 0;
-        b.k = K;
-        b.oy = n.y;
-        b.keep = keep;
-        b.fat = Math.pow(keep, -0.35);
+        if (camera) {
+          TMPV.set(n.x, n.ball.position.y, n.z).applyMatrix4(camera.matrixWorldInverse);
+          u.uFireAt.value.set(TMPV.x, TMPV.y, TMPV.z, fire * 30 * K);
+        }
+        m.n = 0;
+        m.k = K;
+        m.oy = n.y;
+        m.keep = keep;
+        m.fat = Math.pow(keep, -0.35);
       }
-      // The solid cloud a third fatter than its billows are laid out for, so
-      // each one presses into its neighbours and the whole of it reads as one
-      // mass rather than a heap of balls.
-      n.billows.fat *= 1.32;
-      if (n.land) this.mushroom(n, t);
-      else this.column(n, t);
-      for (const b of [n.billows, n.mist]) {
-        b.mesh.geometry.instanceCount = b.n;
-        b.at.needsUpdate = true;
-        b.tint.needsUpdate = true;
+      {
+        const u = n.cloud.mesh.material.uniforms;
+        u.uTime.value = t;
+        u.uSunDir.value.copy(L.dir);
+        u.uSun.value.copy(L.sun);
+        u.uSky.value.copy(L.sky);
+        u.uGround.value.copy(L.ground);
+        u.uFire.value.copy(FIRE);
+        u.uFireAt.value.set(n.x, n.ball.position.y, n.z, fire * 30 * K);
       }
+      this.cloud(n, t);
+      this.surge(n, t);
+      m.mesh.geometry.instanceCount = m.n;
+      m.at.needsUpdate = true;
+      m.tint.needsUpdate = true;
     }
   }
 
@@ -877,26 +1132,32 @@ export class Nukes {
   fireball(n, t) {
     const K = n.k;
     const grow = 1 - Math.exp(-t / 0.45);
-    const rise = Math.max(0, t - 1.5);
+    const rise = Math.max(0, t - 1.2);
     // On the ground nothing of it goes into boiling the sea: it is bigger,
     // brighter, and it burns for longer. Worked out at the B-29's size, as the
-    // cloud is (see putBillow), and drawn at the burst's own.
-    const R = NUKE.fireball * (n.land ? 1.4 : 1) * grow * (1 + Math.min(0.6, rise * 0.03));
-    let y, opacity, cool;
+    // cloud is (see cloud), and drawn at the burst's own.
+    const R = NUKE.fireball * (n.land ? 1.4 : 1.15) * grow * (1 + Math.min(0.6, rise * 0.03));
+    // Up off the ground or the sea as it cools, until it is the heart of the
+    // cap: the mushroom is built round it (see cloud).
+    n.capY = n.y + NUKE.fireball * 0.8 + (n.land ? 3200 : 2900) * (1 - Math.exp(-rise / 26));
+    const y = t < 1.2 ? n.y + R * 0.6 : Math.max(n.y + R * 0.6, n.capY);
+    let opacity, cool;
     if (n.land) {
-      // Up off the ground as it cools, until it is the heart of the cap.
-      n.capY = n.y + NUKE.fireball * 0.8 + 3200 * (1 - Math.exp(-rise / 26));
-      y = Math.max(n.y + R * 0.6, t < 1.5 ? n.y + R * 0.6 : n.capY);
       cool = Math.min(1, t / 22);
-      opacity = Math.max(0, 1 - Math.max(0, t - 12) / 24);
+      opacity = Math.max(0, 1 - Math.max(0, t - 10) / 20);
     } else {
-      // In the sea it is swallowed by the water it throws up in a second or
-      // two: what is left is the column.
-      y = n.y + R * 0.35;
-      cool = Math.min(1, t / 2.2);
-      opacity = Math.max(0, 1 - Math.max(0, t - 0.9) / 1.6);
+      // Over the sea it is drowned in the steam and spray it throws up, and
+      // burns out sooner.
+      cool = Math.min(1, t / 12);
+      opacity = Math.max(0, 1 - Math.max(0, t - 4) / 10);
     }
-    n.ball.scale.setScalar(Math.max(1, R * K));
+    // Once the cap has formed round it, it is the fire in the heart of the
+    // cap and no bigger than the cap is thick: drawn any bigger it stood out
+    // of the top of the cloud as a ball.
+    const Rc = R * 0.42 + 860 * (1 - Math.exp(-Math.max(0, t - 0.25) / 26));
+    const inCap = smooth(2, 7, t);
+    const Rb = R + (Math.min(R, Rc * 0.6 * 0.8) - R) * inCap;
+    n.ball.scale.setScalar(Math.max(1, Rb * K));
     n.ball.position.y = n.y + (y - n.y) * K;
     const u = n.ball.material.uniforms;
     u.uCool.value = cool;
@@ -904,305 +1165,196 @@ export class Nukes {
     u.uOpacity.value = opacity;
     n.ball.visible = opacity > 0.01;
     n.R = R;
-    return (1 - cool * 0.7) * (n.land ? Math.max(0, 1 - t / 80) : Math.max(0, 1 - t / 4));
-  }
-
-  /** The smooth white condensation cloud, out behind the shock and gone. */
-  wilson(n, t, front, L) {
-    const K = n.k;
-    const w = n.wilson;
-    const u = w.material.uniforms;
-    u.uTime.value = t;
-    // White fog, lit by the sky and the sun the way the cloud is -- and by
-    // the flash, which at night is the only light on it.
-    const glow = 0.5 * Math.exp(-t / 3);
-    TMPC.copy(L.sky).multiplyScalar(0.8);
-    u.uLit.value.copy(L.sun).multiplyScalar(0.7).add(TMPC).multiplyScalar(1 / Math.PI)
-      .addScalar(0.12 + glow);
-    // A dome standing on the water or the ground over the whole burst, out
-    // just behind the shock: as the shock passes, the damp air it leaves
-    // behind it is cooled into fog, and the fog clears again as it warms.
-    let op, r, thin;
-    if (n.land) {
-      // Over dry land there is less in the air to condense: thinner, and
-      // gone in a few seconds, round a fireball that is still rising.
-      op = t < 0.3 ? 0 : Math.min(0.4, (t - 0.3) * 1.4) * (1 - smooth(1.5, 5, t));
-      r = Math.min(front * 0.9, 1600 * K);
-      thin = 0.6 + 0.4 * smooth(1, 5, t);
-    } else {
-      // Over the sea it is Baker's: a wall of white over the whole fleet in
-      // the first second, the column's head bursting up through its top,
-      // and clearing from the top down in a quarter of a minute.
-      // Kept to the first seconds: a dome hanging there for half a minute
-      // is a great glass bowl over the sea and not a burst at all.
-      op = t < 0.2 ? 0 : Math.min(0.8, (t - 0.2) * 2.2) * (1 - smooth(3, 9, t));
-      r = Math.min(front * 0.92, 1900 * K) + Math.max(0, t - 3) * 18 * K;
-      thin = 0.25 + 0.75 * smooth(1.5, 6, t);
-    }
-    w.scale.set(r, r, r);
-    w.position.y = n.y + 1.5;
-    u.uShape.value.set(n.y + 1.5, r, thin);
-    u.uOpacity.value = op;
-    w.visible = op > 0.01;
+    return (1 - cool * 0.7) * (n.land ? Math.max(0, 1 - t / 80) : Math.max(0, 1 - t / 30));
   }
 
   /**
-   * Baker: the column of water, its cauliflower head, the spray thrown out
-   * round its foot in the first seconds, and the base surge rolling out over
-   * the sea as it falls back.
+   * The outline of the mushroom at time `t`, as one line from the top of its
+   * crown out over the cap, round the rolled rim of it and in underneath to
+   * the stem, down the stem to the ground and out along the skirt of dust or
+   * spray round its foot -- and how hot and how white it is along that line.
+   * Laid out at the B-29's size about the foot of the burst; the mesh is
+   * scaled to the burst's own.
    */
-  column(n, t) {
-    const b = n.billows;
-    const m = n.mist;
-    if (t < 0.15) return;
-    let k = 0;
-    // The column: up a mile in a few seconds, standing for a dozen, then
-    // falling back into itself.
-    const up = 1 - Math.exp(-t / 1.4);
-    const fall = smooth(30, 150, t);
-    const H = 1850 * up * (1 - 0.85 * fall);
-    const Rc = 300 + 120 * up + 160 * fall;
-    const gone = smooth(45, 210, t);
-    // In its first seconds the fireball is still inside its foot, lighting
-    // the water it is throwing up from within.
-    const core = Math.exp(-t / 2.6);
-    for (let i = 0; i < 300; i++, k++) {
-      const u = hash(i, 0);
-      const a = hash(i, 1) * Math.PI * 2 + t * 0.02 * (hash(i, 2) - 0.5);
-      // Solid through: on its skin and filling it.
-      const rr = Rc * (0.2 + 0.8 * Math.sqrt(hash(i, 3)));
-      const y = n.y + H * u;
-      const r = (115 + 80 * hash(i, 4)) * (0.8 + 0.4 * up) * (1 + fall * 0.6);
-      // Churned and dirty low down, where the sea floor and the wreckage come
-      // up with it; white spray higher.
-      const white = 0.62 + 0.3 * smooth(0, 0.6, u) + 0.06 * hash(i, 5);
-      const heat = core * Math.max(0, 1 - u * 1.6) * (0.55 + 0.45 * hash(i, 2));
-      putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, white, heat, gone, k);
-    }
-    // Its head: a cauliflower of spray on top of it, spreading as it stands.
-    const Rh = 360 + 260 * up + Math.min(260, t * 5) + 300 * fall;
-    const hy = n.y + H + Rh * 0.15 - fall * 400;
-    for (let i = 0; i < 170; i++, k++) {
-      const a = hash(i, 6) * Math.PI * 2;
-      const el = Math.asin(hash(i, 7) * 1.4 - 0.4);
-      const rr = Rh * (0.55 + 0.45 * hash(i, 8));
-      const x = Math.cos(a) * Math.cos(el) * rr;
-      const z = Math.sin(a) * Math.cos(el) * rr;
-      const y = hy + Math.sin(el) * rr * 0.75;
-      const r = Rh * (0.2 + 0.16 * hash(i, 9));
-      putBillow(b, x, y, z, r * Math.min(1, up * 1.3), 0.9 + 0.1 * hash(i, 10), 0, smooth(35, 180, t), k);
-    }
-    // The spray thrown out round its foot in the first seconds: a mound of
-    // white water banked up against the column, lower further out.
-    if (t < 90) {
-      const R0 = 250 + 1000 * (1 - Math.exp(-t / 2.2));
-      for (let i = 0; i < 130; i++, k++) {
-        const a = hash(i, 11) * Math.PI * 2;
-        const u = Math.sqrt(hash(i, 12));
-        const rr = Rc * 0.8 + (R0 - Rc * 0.8) * u;
-        const r = (150 - 90 * u) * (0.7 + 0.6 * hash(i, 14)) * Math.min(1, t * 1.5);
-        const y = n.y + r * (0.35 + 0.6 * (1 - u)) * (1 + 0.8 * hash(i, 13));
-        putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.95, 0, smooth(25, 90, t), k);
-      }
-    }
-    // The spray jets: the sea thrown out of the crater in the water in
-    // great curving plumes, out past the column's foot and falling back, in
-    // the first quarter of a minute -- the spokes every film of Baker shows.
-    if (t < 26) {
-      const out = 1 - Math.exp(-t / 1.6);
-      const fade = smooth(9, 26, t);
-      for (let j = 0; j < 36; j++) {
-        const a = hash(j + 900, 0) * Math.PI * 2;
-        const reachJ = (900 + 900 * hash(j + 900, 1)) * out;
-        const lift = (700 + 900 * hash(j + 900, 2)) * out;
-        for (let q = 0; q < 4; q++, k++) {
-          const u = 0.3 + 0.7 * (q / 3);
-          // A plume's arc: up steeply off the foot and over, curving down.
-          const rr = Rc * 0.7 + reachJ * u;
-          const y = n.y + lift * Math.sin(Math.PI * Math.min(1, u * 0.95 + 0.05)) * (1 - 0.6 * smooth(4, 20, t) * u);
-          const r = (70 + 60 * (1 - u) + 40 * hash(j + 900, 3)) * (0.6 + 0.6 * out);
-          putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.96, 0, Math.max(fade, 1 - Math.min(1, t * 3)), k);
-        }
-      }
-    }
-    // Wreckage and burning stuff flung out of the burst on long arcs, and
-    // black smoke torn off it, coming down far out over the sea.
-    if (t < 14) {
-      for (let i = 0; i < 48; i++, k++) {
-        const a = hash(i + 1300, 0) * Math.PI * 2;
-        const v = 140 + 180 * hash(i + 1300, 1);
-        const el = 0.55 + 0.75 * hash(i + 1300, 2);
-        const tt = Math.min(t, 13);
-        const rr = 200 + v * Math.cos(el) * tt;
-        const y = n.y + 60 + v * Math.sin(el) * tt - 0.5 * 18 * tt * tt;
-        if (y < n.y + 10) continue;
-        const burnE = Math.max(0, 1 - t / 10);
-        putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, 24 + 26 * hash(i + 1300, 3), 0.25,
-          burnE * (0.6 + 0.4 * hash(i + 1300, 4)), smooth(8, 14, t), k);
-      }
-    }
-    // The base surge: what falls out of the column, rolling out over the sea
-    // in a ring of white a mile and more across, and hanging there.
-    if (t > 7) {
-      const s = t - 7;
-      const Rb = 400 + 3000 * (1 - Math.exp(-s / 40));
-      const hb = 140 + 300 * smooth(0, 60, s);
-      const thin = smooth(150, NUKE.life - 5, t);
-      for (let i = 0; i < 260; i++, k++) {
-        const a = hash(i, 15) * Math.PI * 2;
-        const rr = Rb * (0.35 + 0.65 * Math.sqrt(hash(i + 300, 0)));
-        const y = n.y + hb * (0.25 + 0.75 * hash(i + 300, 1));
-        const r = (150 + 160 * hash(i + 300, 2)) * (0.6 + 0.4 * smooth(0, 20, s));
-        putBillow(m, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.9, 0,
-          Math.max(thin, 1 - smooth(0, 6, s)), k);
-      }
-    }
-  }
-
-  /**
-   * On the ground: the cap rolling over itself, the stem drawn up into it,
-   * the collar of condensation round the stem, and the dust going out.
-   */
-  mushroom(n, t) {
-    const b = n.billows;
-    const m = n.mist;
-    if (t < 0.5) return;
-    const age = t - 0.5;
-    let k = 0;
-    const capY = n.capY ?? n.y + NUKE.fireball;
+  cloud(n, t) {
+    const C = n.cloud;
+    const age = t - 0.25;
+    const life = n.land ? MUSHROOM_LIFE : NUKE.life;
+    if (age <= 0) { C.mesh.visible = false; return; }
+    const land = n.land;
     const R = n.R || NUKE.fireball;
-    // How long the fire shows in it: bright at first, and still glowing in
-    // its heart for well over a minute, and hanging there for minutes more.
-    const burn = Math.max(0, 1 - age / 85);
-    const thin = smooth(200, MUSHROOM_LIFE - 5, t);
-    // The cap: a vortex ring, turning over on itself and widening as it climbs.
-    const Rt = R * 0.8 + 950 * (1 - Math.exp(-age / 28));
-    const tube = Rt * 0.55;
-    const grow = Math.min(1, age / 2.5);
-    for (let i = 0; i < 330; i++, k++) {
-      const a = hash(i, 1) * Math.PI * 2;
-      const roll = hash(i, 2) * Math.PI * 2 + age * 0.22;
-      const tr = tube * (0.55 + 0.45 * hash(i, 3));
-      const rr = Rt * 0.72 + Math.cos(roll) * tr;
-      const y = capY + Math.sin(roll) * tr * 0.72;
-      const r = tube * (0.32 + 0.24 * hash(i, 4)) * grow;
-      // The fire is in the heart of the ring and under it, where it is
-      // still being fed from the stem.
-      const inner = 0.5 - 0.5 * Math.cos(roll) * 0.6 - 0.4 * Math.sin(roll);
-      const heat = burn * burn * Math.min(1, inner * 1.3) * (0.5 + 0.5 * hash(i, 5));
-      putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.55 + 0.35 * hash(i, 6), heat, thin, k);
+    const grow = 1 - Math.exp(-age / 26);
+    // The cap: a ring of cloud rolling over on itself round the top of the
+    // stem, with the crown domed over it.
+    const Rc = R * 0.42 + 860 * grow;
+    const T = Rc * 0.6;
+    const Yc = (n.capY ?? n.y + NUKE.fireball) - n.y;
+    // The stem: drawn up off the ground into the cap in the first seconds.
+    const f = smooth(0.6, 9, age);
+    const sTop = Rc * 0.3 + 50;
+    const sW = Rc * 0.2 + 45;
+    const sB = Rc * (land ? 0.36 : 0.42) + 70;
+    // Fire: everything glowing at first (the fireball turning into the
+    // cloud), then only its belly and its folds, and then nothing.
+    const burn = Math.pow(Math.max(0, 1 - age / (land ? 85 : 28)), 2);
+    const flash = Math.exp(-age / (land ? 6 : 3.5));
+    const W = C.work;
+    W.length = 0;
+    const put = (r, y, amp, heat, white) => W.push(r, y, amp, Math.min(1.4, heat), white);
+    // Its crown.
+    const topY = Yc + T * 0.82;
+    for (let i = 0; i <= 14; i++) {
+      const u = i / 14;
+      put(Rc * u, topY + T * 0.32 * Math.pow(1 - u * u, 1.5), T * 0.5,
+        burn * 0.15 + flash, land ? 0.42 : 0.9);
     }
-    // Its crown, so the top of it is closed.
-    for (let i = 0; i < 150; i++, k++) {
-      const a = hash(i, 7) * Math.PI * 2;
-      const el = 0.25 + hash(i, 8) * 1.2;
-      const rr = Rt * (0.9 + 0.2 * hash(i, 9));
-      const x = Math.cos(a) * Math.cos(el) * rr * 0.85;
-      const z = Math.sin(a) * Math.cos(el) * rr * 0.85;
-      const y = capY + tube * 0.2 + Math.sin(el) * rr * 0.55;
-      putBillow(b, x, y, z, tube * (0.3 + 0.2 * hash(i, 10)) * grow, 0.7 + 0.25 * hash(i, 11),
-        burn * burn * 0.15, thin, k);
+    // The rolled rim, from the top of it out and down and in underneath.
+    for (let i = 1; i <= 64; i++) {
+      const ph = Math.PI / 2 - (i / 64) * (Math.PI * 0.5 + Math.PI * 0.68);
+      const sn = Math.sin(ph);
+      const under = Math.max(0, -sn);
+      put(Rc + T * Math.cos(ph), Yc + T * 0.82 * sn, T * 0.55,
+        burn * (0.25 + 0.85 * under) + flash, (land ? 0.26 : 0.8) + (land ? 0.16 : 0.1) * Math.max(0, sn));
     }
-    // The stem: drawn up off the ground into the cap, narrow in its waist,
-    // with the fire still in it low down.
-    const top = capY - tube * 0.6;
-    const sr = 250 + Math.min(300, age * 7);
-    for (let i = 0; i < 250; i++, k++) {
-      const u = hash(i, 12);
-      const y = n.y + (top - n.y) * Math.min(1, u * Math.min(1, age / 5));
-      const waist = 0.6 + 0.4 * Math.abs(u - 0.45) * 2;
-      const rr = sr * waist * (0.45 + 0.55 * Math.sqrt(hash(i, 13)));
-      const a = hash(i, 14) * Math.PI * 2 + age * 0.12 * (u - 0.5);
-      const r = (120 + 90 * hash(i, 15)) * (0.8 + 0.4 * Math.min(1, age / 10));
-      const heat = burn * burn * Math.max(0, 1 - u * 1.1) * (0.4 + 0.6 * hash(i + 400, 0));
-      putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, r, 0.45 + 0.3 * u, heat, thin, k);
+    // In under the cap to the top of the stem.
+    const ph1 = -Math.PI * 0.68;
+    const jx = Rc + T * Math.cos(ph1), jy = Yc + T * 0.82 * Math.sin(ph1);
+    const stemTop = Yc - T * 0.95;
+    for (let i = 1; i <= 10; i++) {
+      const u = i / 10;
+      const cx = sTop + (jx - sTop) * 0.25, cy = jy - T * 0.1;
+      const r = (1 - u) * (1 - u) * jx + 2 * (1 - u) * u * cx + u * u * sTop;
+      const y = (1 - u) * (1 - u) * jy + 2 * (1 - u) * u * cy + u * u * stemTop;
+      put(r, y, T * 0.45, burn * 1.05 + flash, land ? 0.28 : 0.74);
     }
-    // The ground under it, alight: everything that will burn for a mile
-    // round the foot of the stem, low and red under the smoke.
-    if (age < 120) {
-      const Rg = 300 + 1300 * (1 - Math.exp(-age / 3));
-      const blaze = (1 - smooth(40, 120, age)) * Math.min(1, age * 2);
-      for (let i = 0; i < 50; i++, k++) {
-        const a = hash(i + 800, 0) * Math.PI * 2;
-        const rr = Rg * Math.sqrt(hash(i + 800, 1));
-        const r = (60 + 80 * hash(i + 800, 2)) * (0.6 + 0.4 * Math.min(1, age / 6));
-        putBillow(b, Math.cos(a) * rr, n.y + r * 0.5, Math.sin(a) * rr, r, 0.35,
-          blaze * (0.5 + 0.5 * hash(i + 800, 3)), Math.max(thin, 1 - blaze), k);
+    // Down the stem, as far as it has got.
+    const bot = stemTop - stemTop * f;
+    const full = f > 0.995;
+    for (let i = 1; i <= 48; i++) {
+      const u = i / 48;
+      const y = stemTop + (bot - stemTop) * u;
+      // How far down the whole stem this is, for its shape.
+      const v = stemTop > 1 ? 1 - y / stemTop : 0;
+      let r = sTop + (sB - sTop) * Math.pow(v, 2.4);
+      r -= (sTop - sW) * Math.sin(Math.PI * Math.min(1, v * 1.15)) * 0.8;
+      // A stem still on its way up ends in a rounded tip.
+      if (!full) r *= Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (u - 0.8) / 0.2), 2)));
+      const low = Math.max(0, v - 0.5) * 2;
+      put(Math.max(0, r), y, Math.max(20, r * 0.55),
+        burn * (0.3 + 0.6 * low) + flash * 0.6 * (1 - v), land ? 0.22 + 0.12 * (1 - v) : 0.93);
+    }
+    // And out round its foot along the ground: the dust drawn in under it,
+    // or the spray thrown up round it.
+    if (full) {
+      const skirt = sB * (1.5 + 1.6 * grow);
+      const hS = sB * (land ? 0.5 : 0.65);
+      for (let i = 1; i <= 16; i++) {
+        const u = i / 16;
+        const r = sB + (skirt - sB) * u;
+        const y = hS * Math.pow(1 - u, 1.6) * (1 - 0.3 * u) + 2;
+        put(r, Math.max(1, y), hS * 0.8, burn * 0.5 * (1 - u), land ? 0.2 : 0.96);
       }
     }
-    // The pileus: a smooth white ice-cap the climbing cloud pushes up into
-    // the cold air over it, sitting on its crown for a few seconds before
-    // the cap boils up through it.
-    if (age > 2 && age < 26) {
-      const py = capY + tube * 1.35 + 120;
-      const pr = Rt * 1.25;
-      const form = smooth(2, 5, age);
-      const go = smooth(14, 26, age);
-      for (let i = 0; i < 54; i++, k++) {
-        const a = hash(i + 1000, 0) * Math.PI * 2;
-        const u = Math.sqrt(hash(i + 1000, 1));
-        const rr = pr * u;
-        const y = py + (1 - u * u) * tube * 0.35 + age * 10;
-        putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, (90 + 70 * hash(i + 1000, 2)) * form * (1.2 - 0.4 * u),
-          1, 0, go, k);
-      }
+    // Resampled to evenly spaced points along it.
+    const NP = CLOUD_NP;
+    const nW = W.length / 5;
+    const S = new Float32Array(nW);
+    for (let i = 1; i < nW; i++) {
+      S[i] = S[i - 1] + Math.hypot(W[i * 5] - W[(i - 1) * 5], W[i * 5 + 1] - W[(i - 1) * 5 + 1]);
     }
-    // Wreckage and burning stuff flung out of the fireball on long arcs,
-    // trailing fire, and coming down far out over the ground.
-    if (age < 16) {
-      for (let i = 0; i < 44; i++, k++) {
-        const a = hash(i + 1100, 0) * Math.PI * 2;
-        const v = 120 + 160 * hash(i + 1100, 1);
-        const el = 0.5 + 0.7 * hash(i + 1100, 2);
-        const tt = Math.min(age, 15);
-        const rr = 150 + v * Math.cos(el) * tt;
-        const y = n.y + 80 + v * Math.sin(el) * tt - 0.5 * 18 * tt * tt;
-        if (y < n.y + 10) continue;
-        const burnE = Math.max(0, 1 - age / 14);
-        putBillow(b, Math.cos(a) * rr, y, Math.sin(a) * rr, 26 + 22 * hash(i + 1100, 3), 0.3,
-          burnE * (0.7 + 0.3 * hash(i + 1100, 4)), smooth(10, 16, age), k);
-      }
+    const total = S[nW - 1] || 1;
+    const D = C.data;
+    let j = 0;
+    for (let i = 0; i < NP; i++) {
+      const s = (i / (NP - 1)) * total;
+      while (j < nW - 2 && S[j + 1] < s) j++;
+      const f2 = Math.min(1, Math.max(0, (s - S[j]) / Math.max(1e-6, S[j + 1] - S[j])));
+      const a = j * 5, b = (j + 1) * 5;
+      const o = i * 4, o2 = (NP + i) * 4;
+      D[o] = W[a] + (W[b] - W[a]) * f2;
+      D[o + 1] = W[a + 1] + (W[b + 1] - W[a + 1]) * f2;
+      D[o + 2] = s;
+      D[o + 3] = W[a + 2] + (W[b + 2] - W[a + 2]) * f2;
+      D[o2] = W[a + 3] + (W[b + 3] - W[a + 3]) * f2;
+      D[o2 + 1] = W[a + 4] + (W[b + 4] - W[a + 4]) * f2;
+      D[o2 + 2] = 0;
+      D[o2 + 3] = 0;
     }
+    C.tex.needsUpdate = true;
+    const u = C.mesh.material.uniforms;
+    // Its lumps grow with it, so it keeps the one shape as it grows rather
+    // than sprouting new ones.
+    u.uL.value = Math.max(80, T * 0.85);
+    // Its surface rolling slowly over the rim of the cap.
+    u.uDrift.value = age * 2.5;
+    u.uGone.value = smooth(life - 110, life - 4, t);
+    C.mesh.scale.setScalar(n.k);
+    C.mesh.position.y = n.y;
+    C.mesh.visible = true;
+  }
+
+  /**
+   * What is soft about a burst, and stays soft: the collar of condensation
+   * round the stem, the wall of dust or spray the shock throws up as it goes
+   * out along the ground or the sea, and the base surge rolling out after it
+   * from the foot of the stem and hanging there.
+   */
+  surge(n, t) {
+    const m = n.mist;
+    const age = t - 0.5;
+    if (age <= 0) return;
+    let k = 0;
+    const land = n.land;
+    const life = land ? MUSHROOM_LIFE : NUKE.life;
+    const thin = smooth(life - 120, life - 5, t);
+    const capY = n.capY ?? n.y + NUKE.fireball;
     // The collar: a ring of white condensation that forms round the stem as
     // the cap goes up through damp air, and is gone inside a minute.
     if (age > 3 && age < 60) {
-      const cy = n.y + (capY - n.y) * 0.42;
-      const cr = sr * 2.2 + 120 + age * 12;
+      const Rc = (n.R || NUKE.fireball) * 0.42 + 860 * (1 - Math.exp(-age / 26));
+      const cy = n.y + (capY - n.y) * 0.45;
+      const cr = Rc * 0.75 + age * 10;
       const fade = 1 - smooth(30, 60, age);
       const form = smooth(3, 6, age);
-      // As fog, soft and uneven, not a string of beads round the stem.
-      for (let i = 0; i < 60; i++, k++) {
-        const a = (i / 60) * Math.PI * 2 + hash(i, 1) * 0.2;
-        const rr = cr * (0.82 + 0.3 * hash(i + 500, 0));
-        putBillow(m, Math.cos(a) * rr, cy + (hash(i + 500, 1) - 0.5) * 90, Math.sin(a) * rr,
-          (110 + 80 * hash(i + 500, 2)) * form, 1, 0, 1 - fade * (0.5 + 0.5 * hash(i + 500, 3)), k);
+      for (let i = 0; i < 90; i++, k++) {
+        const a = (i / 90) * Math.PI * 2 + hash(i, 1) * 0.1;
+        const rr = cr * (0.9 + 0.15 * hash(i + 500, 0));
+        putBillow(m, Math.cos(a) * rr, cy + (hash(i + 500, 1) - 0.5) * 50, Math.sin(a) * rr,
+          (110 + 60 * hash(i + 500, 2)) * form, 1, 0, 1 - fade * (0.6 + 0.4 * hash(i + 500, 3)), k);
       }
     }
-    // The dust thrown up by the shock where it struck the ground, in the
-    // first seconds, and the base surge after it rolling out along the ground.
-    // The shock across the ground is a wall of dust racing out with it --
-    // the thing that shows where it is.
-    const front = nukeFront(t, true);
-    if (t < 20) {
-      for (let i = 0; i < 130; i++, k++) {
-        const a = hash(i, 2) * Math.PI * 2;
-        const rr = front * (0.86 + 0.12 * hash(i + 600, 0));
-        const r = (110 + 130 * hash(i + 600, 2)) * (1 + 0.6 * smooth(0, 8, t));
-        putBillow(m, Math.cos(a) * rr, n.y + r * 0.4 + 60 * hash(i + 600, 1), Math.sin(a) * rr,
-          r, 0.42, 0, smooth(4, 20, t), k);
+    // The wall of dust or spray racing out with the shock, in the first
+    // seconds: the thing that shows where it is.
+    const front = nukeFront(t, land);
+    if (t < 14) {
+      // Low and thin -- a skirt along the ground or the water, not a wall
+      // to hide the cloud behind -- and packed close all the way round, so
+      // it is one ring and not a string of puffs.
+      const r0 = (70 + 0.022 * front) * (1 + 0.4 * smooth(0, 6, t));
+      const N = Math.min(220, Math.max(60, Math.ceil((Math.PI * 2 * front) / (r0 * 0.9))));
+      for (let i = 0; i < N; i++, k++) {
+        const a = ((i + hash(i, 2) * 0.6) / N) * Math.PI * 2;
+        const rr = front * (0.92 + 0.06 * hash(i + 600, 0));
+        const r = r0 * (0.8 + 0.4 * hash(i + 600, 2));
+        putBillow(m, Math.cos(a) * rr, n.y + r * 0.15 + 10 * hash(i + 600, 1), Math.sin(a) * rr,
+          r, land ? 0.42 : 0.95, 0, smooth(2.5, 14, t), k);
       }
     }
-    // Low, and pale with dust: a skirt round the foot of the stem, not a
-    // second cloud.
-    const Rb = Math.min(front * 0.8, 2600 * (1 - Math.exp(-age / 22)));
-    for (let i = 0; i < 200; i++, k++) {
-      const a = hash(i, 3) * Math.PI * 2;
-      const u = Math.sqrt(hash(i + 700, 0));
-      const rr = Rb * (0.25 + 0.75 * u);
-      const r = (70 + 80 * hash(i + 700, 2)) * Math.min(1, 0.4 + age / 12) * (1.25 - 0.45 * u);
-      const y = n.y + r * 0.45 + 110 * hash(i + 700, 1) * (1 - u) * Math.min(1, age / 8);
-      putBillow(m, Math.cos(a) * rr, y, Math.sin(a) * rr, r * 1.2, 0.6 + 0.3 * hash(i + 700, 3), 0,
-        Math.max(thin, smooth(120, 260, t)), k);
+    // The base surge: low, rolling out from the foot of the stem and hanging
+    // there -- dust over the land, a ring of white mist over the sea.
+    const s = Math.max(0, age - (land ? 0 : 5));
+    if (s > 0) {
+      const Rb = Math.min(front * 0.8, (land ? 2600 : 3200) * (1 - Math.exp(-s / (land ? 22 : 35))));
+      const hb = land ? 110 : 140 + 200 * smooth(0, 60, s);
+      for (let i = 0; i < 260; i++, k++) {
+        const a = hash(i, 3) * Math.PI * 2;
+        const u = Math.sqrt(hash(i + 700, 0));
+        const rr = Rb * (0.3 + 0.7 * u);
+        const r = (90 + 110 * hash(i + 700, 2)) * Math.min(1, 0.4 + s / 12) * (1.25 - 0.45 * u);
+        const y = n.y + r * 0.45 + hb * hash(i + 700, 1) * (1 - 0.5 * u);
+        putBillow(m, Math.cos(a) * rr, y, Math.sin(a) * rr, r * 1.2,
+          land ? 0.6 + 0.3 * hash(i + 700, 3) : 0.92, 0, Math.max(thin, 1 - smooth(0, 6, s)), k);
+      }
     }
   }
 

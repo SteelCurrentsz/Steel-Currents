@@ -714,6 +714,23 @@ export class MonsterRig {
       // wide as it goes.
       jaw = Math.min(jaw, 0.12) + 0.1 * gnaw * Math.max(0, Math.sin(t * 4.2)) + 0.45 * smooth(0.5, 0.42, left) * (left > 0.2 ? 1 : 0);
     }
+    // Her head turned where her captain has put her jaws (S.aim), while they
+    // are in a ship or one is in her hands: her neck carrying most of the
+    // swing across and the bend up and down, her head the rest. +y on a bone
+    // turns her toward +x, her left; +x nods her head down.
+    {
+      const on = act === 'bite' || S.holding ? 1 : 0;
+      const A = this.aimNow || (this.aimNow = { x: 0, y: 0, on: 0 });
+      const k = 1 - Math.exp(-dt / 0.18);
+      A.on += (on - A.on) * k;
+      A.x += ((S.aim?.x || 0) - A.x) * k;
+      A.y += ((S.aim?.y || 0) - A.y) * k;
+      const ax = A.x * A.on, ay = A.y * A.on;
+      add('neck1', 0.16 * -ay, -0.22 * ax);
+      add('neck2', 0.14 * -ay, -0.26 * ax);
+      add('head', 0.1 * -ay, -0.16 * ax, 0.06 * ax);
+      add('chest', 0, -0.08 * ax);
+    }
     // Her look, which is her head's and her neck's: added below in the
     // world's up, not here. Her jaw, eased.
     this.jawNow += (jaw - this.jawNow) * (1 - Math.exp(-dt / 0.12));

@@ -43,7 +43,18 @@ const CSS = `
 .mo-hp { position: absolute; left: 10px; right: 10px; top: -7px; height: 4px; border-radius: 2px;
   background: rgba(255, 255, 255, 0.12); overflow: hidden; }
 .mo-hp i { display: block; height: 100%; background: linear-gradient(90deg, #ff5a4a, #ffd27a 45%, #58d6ff); }
+.mo-aim { position: relative; width: 74px; min-width: 74px; border-radius: 10px; cursor: crosshair;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); touch-action: none; }
+.mo-aim.live { border-color: rgba(255, 150, 90, 0.9); box-shadow: 0 0 14px rgba(255, 120, 70, 0.45) inset; }
+.mo-aim .mo-ship { position: absolute; left: 10%; right: 10%; top: 40%; height: 40%;
+  border-radius: 40% 40% 8px 8px / 60% 60% 8px 8px; background: rgba(160, 190, 210, 0.25); }
+.mo-aim .mo-sea { position: absolute; left: 0; right: 0; top: 74%; border-top: 1px dashed rgba(88, 214, 255, 0.45); }
+.mo-aim .mo-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: #ff8a5a; box-shadow: 0 0 8px #ff6a3a; left: 50%; top: 50%; }
+.mo-aim b { position: absolute; left: 0; right: 0; bottom: 3px; font-size: 0.62rem; text-align: center;
+  color: #dff6ff; opacity: 0.7; letter-spacing: 0.04em; pointer-events: none; }
 @media (max-width: 640px) {
+  .mo-aim { width: 58px; min-width: 58px; min-height: 46px; }
   .mo-bar { bottom: 150px; gap: 4px; padding: 5px; flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 32px); }
   .mo-key { min-width: 54px; padding: 6px 5px 7px; }
   .mo-key b { font-size: 0.8rem; }
@@ -52,7 +63,12 @@ const CSS = `
 }`;
 
 export class MonsterBar {
-  constructor(parent, order) {
+  /**
+   * `order` sends her an order; `aim(x, y)`, when given, turns her head for
+   * her jaws (x -1 her left to 1 her right, y -1 low to 1 high) -- the pad
+   * on the bar is the same thing as the arrow keys.
+   */
+  constructor(parent, order, aim = null) {
     if (!document.getElementById('mo-bar-css')) {
       const st = document.createElement('style');
       st.id = 'mo-bar-css';
@@ -83,6 +99,32 @@ export class MonsterBar {
     key('crush', 'Crush', 'C', () => order({ a: 'crush' }));
     key('bite', 'Bite', 'B', () => order({ a: 'bite' }));
     key('roar', 'Roar', 'R', () => order({ a: 'roar' }));
+    // Where her jaws go in: a little picture of a hull side-on, and a dot on
+    // it where her head is turned. Drag on it, or use the arrow keys.
+    this.pad = document.createElement('div');
+    this.pad.className = 'mo-aim';
+    this.pad.title = 'Where her jaws go in: arrow keys, or drag here';
+    this.pad.innerHTML = '<div class="mo-sea"></div><div class="mo-ship"></div><i class="mo-dot"></i><b>Jaws ←↑↓→</b>';
+    this.dot = this.pad.querySelector('.mo-dot');
+    const fromPointer = (e) => {
+      const r = this.pad.getBoundingClientRect();
+      const x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      const y = 1 - ((e.clientY - r.top) / r.height) * 2;
+      if (aim) aim(Math.max(-1, Math.min(1, x)), Math.max(-1, Math.min(1, y)));
+    };
+    this.pad.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      try { this.pad.setPointerCapture(e.pointerId); } catch { /* fine */ }
+      this.dragging = true;
+      fromPointer(e);
+    });
+    this.pad.addEventListener('pointermove', (e) => { if (this.dragging) { e.stopPropagation(); fromPointer(e); } });
+    const end = (e) => { this.dragging = false; e.stopPropagation(); };
+    this.pad.addEventListener('pointerup', end);
+    this.pad.addEventListener('pointercancel', end);
+    this.pad.addEventListener('click', (e) => e.stopPropagation());
+    this.el.appendChild(this.pad);
     // Fold it away, and back.
     this.fold = document.createElement('button');
     this.fold.type = 'button';
@@ -96,6 +138,19 @@ export class MonsterBar {
     parent.appendChild(this.el);
     this.seen = 0;
     this.timer = setInterval(() => { if (performance.now() - this.seen > 500) this.el.hidden = true; }, 250);
+  }
+
+  /**
+   * Where her head is turned for her jaws, on the pad: the captain's own aim
+   * as he moves it (`a`), and lit while her jaws are in a ship or one is in
+   * her hands.
+   */
+  showAim(a, live = false) {
+    if (!a) return;
+    const left = `${50 + a.x * 42}%`, top = `${50 - a.y * 40}%`;
+    if (this.dot.style.left !== left) this.dot.style.left = left;
+    if (this.dot.style.top !== top) this.dot.style.top = top;
+    this.pad.classList.toggle('live', live);
   }
 
   /** Fold the bar away to a tab, or open it again. */
@@ -152,6 +207,7 @@ export class MonsterBar {
     set('bite', w.act === 'bite' ? 'Biting' : w.biteCool > 0 ? `${w.biteCool}s` : w.holdId ? 'Ship in hands' : 'Ship ahead',
       { wait: w.biteCool > 0, live: w.act === 'bite' });
     set('roar', w.act === 'roar' ? 'Roaring' : '', { live: w.act === 'roar' });
+    this.showAim(this.aimNow || w.aim, w.act === 'bite' || !!w.holdId);
     const hp = this.el.querySelector('.mo-hp i');
     const frac = s.hp != null ? s.hp / (s.mhp || getClass(s.c).hp) : null;
     if (frac != null) hp.style.width = `${Math.round(frac * 100)}%`;

@@ -1597,6 +1597,9 @@ export class Battle {
       beamTo: w.act === 'fire' ? beamTo : null,
       holding: !!w.holdId,
       pinned: !!w.pin,
+      // Where her head is turned for her jaws: her own captain's as he moves
+      // it, everybody else's off the wire.
+      aim: s.i === this.conned() && this.moAim ? this.moAim : w.aim,
       ground,
     });
     // Gone under, she is not drawn.
@@ -1641,7 +1644,7 @@ export class Battle {
   /** Her own controls: made the first time she is conned. */
   monsterBar() {
     if (!this.moBar) {
-      this.moBar = new MonsterBar(document.body, (o) => this.monsterOrder(o));
+      this.moBar = new MonsterBar(document.body, (o) => this.monsterOrder(o), (x, y) => this.monsterAim(x, y));
     }
     return this.moBar;
   }
@@ -1673,8 +1676,33 @@ export class Battle {
       }
     }
     if (o.a === 'throw') o = { ...o, x: this.aimPoint.x, z: this.aimPoint.z };
+    // Her head where her captain has turned it, before her jaws go in.
+    if (o.a === 'bite') this.flushMonsterAim(true);
     this.net.send({ t: 'monster', ship, o });
     audio.click();
+  }
+
+  /**
+   * Turn Monster One's head for her jaws: x -1 her left to 1 her right, y -1
+   * low (at her waterline and under it) to 1 high (her upperworks). Sent no
+   * more than ten times a second, and the last of a movement always.
+   */
+  monsterAim(x, y) {
+    const a = this.moAim || (this.moAim = { x: 0, y: 0, sent: 0, sx: 0, sy: 0 });
+    a.x = clamp(x, -1, 1);
+    a.y = clamp(y, -1, 1);
+    if (this.moBar) this.moBar.aimNow = a;
+    this.flushMonsterAim();
+  }
+
+  flushMonsterAim(force = false) {
+    const a = this.moAim;
+    if (!a || (a.x === a.sx && a.y === a.sy)) return;
+    const now = performance.now();
+    if (!force && now - a.sent < 100) return;
+    a.sent = now;
+    a.sx = a.x; a.sy = a.y;
+    this.net.send({ t: 'monster', ship: this.conned(), o: { a: 'head', hx: Math.round(a.x * 100) / 100, hy: Math.round(a.y * 100) / 100 } });
   }
 
   /** Whether a ship off the snapshot is Monster One. */
@@ -3747,9 +3775,17 @@ export class Battle {
               });
           }
           if (ev.at) {
-            fx.hit(p.x, p.y + 8, p.z, 'he', bite ? 300 : 406);
-            fx.debris(p.x, p.y + 6, p.z, bite ? 18 : 30);
-            audio.crash({ x: p.x, y: p.y + 4, z: p.z }, bite ? 11 : 16);
+            // Where her jaws or her fingers went in, and only there -- not a
+            // burst in the middle of the ship as though the whole of her had
+            // been hit.
+            let w = { x: p.x, y: (p.y || 0) + 8, z: p.z };
+            if (v && ev.tr) {
+              v.group.updateMatrixWorld(true);
+              w = v.group.localToWorld(new THREE.Vector3(ev.tr.lx, ev.tr.ly, ev.tr.lz));
+            }
+            fx.hit(w.x, w.y, w.z, 'he', bite ? 220 : 406);
+            fx.debris(w.x, w.y, w.z, bite ? 14 : 30);
+            audio.crash({ x: w.x, y: w.y, z: w.z }, bite ? 11 : 16);
           } else {
             fx.splash(ev.x, ev.z, 450, { kind: 'bomb' });
           }
@@ -8484,7 +8520,17 @@ export class Battle {
     const ARROW = 340 * dt;
     const kx = (this.input.down('ArrowRight') ? 1 : 0) - (this.input.down('ArrowLeft') ? 1 : 0);
     const ky = (this.input.down('ArrowDown') ? 1 : 0) - (this.input.down('ArrowUp') ? 1 : 0);
-    if ((kx || ky) && !this.man) this.panCamera(-kx * ARROW, -ky * ARROW, dt);
+    // Conning Monster One, they turn her head instead: where her jaws go
+    // into the ship ahead of her or in her hands -- left and right along
+    // it, up to her upperworks and down to her waterline.
+    const jaws = this.conningMonster() ? readMonsterWire(this.shownShip()?.mo) : null;
+    if (jaws && (jaws.act === 'bite' || jaws.holdId)) {
+      if (kx || ky) {
+        const a = this.moAim || { x: 0, y: 0 };
+        this.monsterAim(a.x + kx * 1.4 * dt, a.y - ky * 1.4 * dt);
+      } else this.flushMonsterAim();
+    } else if ((kx || ky) && !this.man) this.panCamera(-kx * ARROW, -ky * ARROW, dt);
+    else if (jaws) this.flushMonsterAim();
 
     // Predict our own hull, then take up whatever is left of the difference
     // between her and the server's version of her. See correctOwn.
