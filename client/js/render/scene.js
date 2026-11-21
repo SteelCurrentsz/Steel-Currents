@@ -2892,28 +2892,25 @@ export class BattleScene {
    * her whole superstructure.
    */
   shipBurst(x, y, z, scale = 1) {
-    // The fire of it is over quickly -- a shell's burst is a flash and a ball
-    // that is soot within half a second -- and what stands there afterwards
-    // is smoke, which is the effects' lumpy smoke rather than the fireball
-    // left to fade as a grey balloon.
+    // A shell bursting inside a ship, the way the gun-camera film and the
+    // newsreels show it: a short, dull flash, and then a ragged mass of black
+    // and grey smoke with dark wreckage flung up out of it. No embers, no
+    // glowing sparks raining down -- the fire of it is over in a moment and
+    // what is left is smoke and steel. The smoke that stands afterwards is the
+    // effects' (see Effects.burstRemains), not the ball left to fade.
     this.bursts.blast(x, y, z, {
-      size: 4.5 + 6.5 * scale,
-      duration: 0.55 + 0.35 * scale,
-      debris: Math.round(6 + 14 * scale),
+      size: 4 + 5.5 * scale,
+      duration: 0.5 + 0.3 * scale,
+      debris: 0,
       light: false,
       plume: false,
       ring: false,
-      linger: 1.25,
+      linger: 1.15,
       power: Math.min(1, scale / 2),
+      grim: 1,
     });
-    this.effects.flash?.(x, y + 4, z, 1.2 * scale);
-    const fx = this.effects;
-    if (fx.sparks) {
-      fx.sparks.shower(x, y + 1, z, Math.round((12 + 16 * scale) * Math.min(1.5, fx.intensity || 1)), {
-        speed: 40 + 25 * Math.min(2, scale), life: 0.8, ny: 0.75,
-      });
-    }
-    fx.smokeOver?.(x, y + 2, z, 0.9 + 0.9 * scale, { count: 6 + Math.round(4 * Math.min(2, scale)), life: 6 + 3 * Math.min(2, scale) });
+    this.effects.flash?.(x, y + 4, z, 0.8 * scale);
+    this.effects.burstRemains?.(x, y, z, scale);
   }
 
   /**

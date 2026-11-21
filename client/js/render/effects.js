@@ -403,22 +403,44 @@ export class Effects {
       }
       return;
     }
-    // A burst on the surface.
+    // A burst on the surface: the same grim burst as one inside a ship.
     const big = kind === 'citadel' ? 2.4 : kind === 'pen' ? 1.3 : 0.8;
     const s = big * Math.max(0.6, sz);
-    this.flash(x, y + 3, z, big);
+    this.flash(x, y + 3, z, 0.7 * big);
     if (this.bursts) {
       this.bursts.blast(x, y + 1, z, {
-        size: 2.2 + 3.2 * s, duration: 0.35 + 0.25 * s,
-        debris: Math.round((4 + 6 * s) * k), light: false, plume: false, ring: false,
-        linger: 1.6, power: Math.min(0.6, s / 3),
+        size: 2.2 + 3 * s, duration: 0.35 + 0.22 * s,
+        debris: 0, light: false, plume: false, ring: false,
+        linger: 1.15, power: Math.min(0.6, s / 3), grim: 1,
       });
-    } else {
-      this.spawn({ x, y: y + 2, z, size: 5 * s, grow: 26 * s, ttl: 0.22, glow: true, billow: true,
-        color: 0xffc27a, cool: 0x8a3a12, opacity: 0.9 });
     }
-    this.sparks.shower(x, y + 1, z, Math.round(14 * s * k), { speed: 45 * Math.min(1.6, s), life: 0.6, ny: 0.7 });
-    this.smokeOver(x, y + 2, z, 0.8 * s);
+    this.burstRemains(x, y, z, 0.6 * s);
+  }
+
+  /**
+   * What a shell bursting in a ship leaves: dark wreckage thrown up out of
+   * the cloud and falling cold, and a column of black and grey smoke climbing
+   * off the place and leaning away down the wind.
+   */
+  burstRemains(x, y, z, scale = 1) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    const k = Math.min(1.5, this.intensity);
+    const sc = Math.min(2.2, scale);
+    // Plating, splinters, fittings: black against the sky, tumbling, into
+    // the sea. Not one of them alight.
+    const bits = Math.round((8 + 10 * sc) * k);
+    for (let i = 0; i < bits; i++) {
+      const d = this.sphere(0.1);
+      const v = (14 + Math.random() * 26) * Math.sqrt(sc);
+      this.shards.throw(x, y + 2, z, d.x * v * 0.7, (0.6 + Math.random() * 0.9) * v, d.z * v * 0.7, {
+        life: 2.5 + Math.random() * 2.5,
+        size: (0.3 + Math.pow(Math.random(), 2.5) * 1.6) * Math.sqrt(sc),
+        hot: 0,
+      });
+    }
+    this.smokeOver(x, y + 2, z, 0.9 + 0.9 * scale, {
+      count: 6 + Math.round(4 * sc), life: 7 + 3 * sc,
+    });
   }
 
   /**
@@ -442,8 +464,27 @@ export class Effects {
           delay: 0.05 + Math.random() * 0.45,
           life: life * (0.7 + Math.random() * 0.6),
           size: (1.6 + Math.random() * 1.6) * scale, grow: (4 + Math.random() * 3.5) * scale,
-          burn: i < 2 ? 0.05 : 0.015, tone: dark + Math.random() * 0.14,
+          burn: 0, tone: dark + Math.random() * 0.14,
         });
+    }
+    // And the heavy gouts of it, torn and knotted, climbing and leaning off
+    // downwind: the body of the column.
+    const gouts = Math.max(2, Math.round(count * 0.6 * k));
+    for (let i = 0; i < gouts; i++) {
+      const up = i / gouts;
+      const g = 0.05 + Math.random() * 0.12;
+      this.later(up * 0.5 + Math.random() * 0.15, () => this.spawn({
+        x: x + (Math.random() - 0.5) * 3 * scale, y: y + up * 4 * scale,
+        z: z + (Math.random() - 0.5) * 3 * scale,
+        vx: (Math.random() - 0.5) * 4 + wind.x * 0.8, vy: 5 + Math.random() * 6 * Math.sqrt(scale),
+        vz: (Math.random() - 0.5) * 4 + wind.z * 0.8,
+        size: (3 + Math.random() * 2.5) * scale, grow: (2.2 + Math.random() * 1.8) * scale,
+        ttl: life * (0.8 + Math.random() * 0.5), drag: 0.15, lift: 0.6, billow: true,
+        spin: (Math.random() - 0.5) * 0.2,
+        color: TMP_COLOR.setRGB(g, g, g * 1.03).getHex(),
+        cool: TMP_COLOR.setRGB(g + 0.17, g + 0.17, g + 0.18).getHex(),
+        opacity: 0.7,
+      }));
     }
   }
 
