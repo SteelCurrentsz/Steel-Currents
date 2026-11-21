@@ -92,6 +92,12 @@ export const MONSTER = {
     // How far in from the edge of a hull her hands close on it: on the
     // plating, not on the air beside it.
     inset: 3,
+    // Her free hand: how far across her from where she holds a ship it can
+    // reach to rip something out of it (her aim, m.head, from one side to the
+    // other), and how big a piece it takes -- her palm's breadth, metres from
+    // its middle to its edge.
+    rip: 26,
+    palm: 5.5,
     // She keeps hold of what she has until her captain has her let it go --
     // throws it, puts it down, goes deep, breathes -- or it breaks up in her
     // hands. (Her own mind lets go when it has done with it: see
@@ -1319,6 +1325,8 @@ export function stepMonsterBot(state, ship, brain, dt, conned, hooks) {
   // looks for somewhere to put her.
   if (m.act === 'hold' && m.actT > 0.8 && m.crushCool <= 0 && !m.botCrushed) {
     m.botCrushed = true;
+    // Her free hand put somewhere along her, as her jaws are.
+    botHead(state, m);
     monsterOrder(state, ship, { a: 'crush' }, hooks);
   } else if (m.act === 'hold' && m.actT > 0.8 && m.biteCool <= 0 && !m.botBitten) {
     m.botBitten = true;

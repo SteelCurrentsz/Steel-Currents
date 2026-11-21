@@ -1590,7 +1590,11 @@ export class Battle {
       view.moActT += dt;
       view.moActT += ((w.actT || 0) - view.moActT) * (1 - Math.exp(-dt / 0.5));
     }
+    // Where her jaws and her free hand go into the ship she is at: points on
+    // its hull, worked out here so they are put into it and not short of it.
+    const reach = s.a ? this.monsterReach(s, w, x, z, h, a.ships, rig) : null;
     rig.update(dt, {
+      reach,
       pose: s.a ? w.pose : 'swim',
       speed: Math.abs(speed || 0),
       yawRate: view.monsterYaw,
@@ -1714,6 +1718,90 @@ export class Battle {
     this.net.send({ t: 'monster', ship: this.conned(), o: { a: 'head', hx: Math.round(a.x * 100) / 100, hy: Math.round(a.y * 100) / 100 } });
   }
 
+  /**
+   * Monster One's reach this frame: { mouth, hand: { side, p } }, world
+   * points on the hull of the ship in her hands (or the one in front of her
+   * jaws), where her captain's aim (or the wire's) puts them -- the same aim
+   * the battle uses to say what is torn out. One hand holds a ship she has
+   * lifted (rig.holdSide, +1 her left) and the other is the one that rips;
+   * which is which is settled when she takes hold, by which side she is
+   * aimed at then. Also leaves on the ship's view where her free hand is
+   * going (view.ripLocal), for the way the ship hangs from the other.
+   */
+  monsterReach(s, w, x, z, h, ships, rig) {
+    const aim = (s.i === this.conned() && this.moAim) ? this.moAim : (w.aim || { x: 0, y: 0 });
+    let tv = null;
+    if (w.holdId) tv = this.scene.shipViews.get(w.holdId);
+    else if (w.act === 'bite') {
+      const jx = x + Math.sin(h) * MONSTER.bite.head.stand, jz = z + Math.cos(h) * MONSTER.bite.head.stand;
+      let bd = 140;
+      for (const q of ships) {
+        if (!q.a || q.i === s.i || getClass(q.c)?.monster) continue;
+        const d = Math.hypot(q.x - jx, q.z - jz) - (getClass(q.c)?.hull.length || 0) / 2;
+        if (d < bd) { bd = d; tv = this.scene.shipViews.get(q.i); }
+      }
+    }
+    if (!w.holdId) { rig.holdSide = 0; rig.holdFor = 0; }
+    else if (rig.holdFor !== w.holdId) {
+      // Aimed off to her right: her right hand is the one that rips, and her
+      // left holds. (Aim +x is her right; the rig's +x, and side +1, her left.)
+      rig.holdSide = aim.x >= 0 ? 1 : -1;
+      rig.holdFor = w.holdId;
+    }
+    if (!tv || !tv.group.parent) return null;
+    const fx = Math.sin(h), fz = Math.cos(h), rx = -Math.cos(h), rz = Math.sin(h);
+    const base = w.holdId ? rig.gripPoint(new THREE.Vector3())
+      : new THREE.Vector3(x + fx * MONSTER.bite.head.stand, 0, z + fz * MONSTER.bite.head.stand);
+    const spot = (span, jaws) => {
+      tv.group.updateMatrixWorld(true);
+      const L = tv.group.worldToLocal(new THREE.Vector3(base.x + rx * aim.x * span, base.y, base.z + rz * aim.x * span));
+      const me = tv.group.worldToLocal(new THREE.Vector3(x, 10, z));
+      const cls = tv.cls;
+      const half = cls.hull.length / 2 * 0.88, beam = cls.hull.beam / 2;
+      const fb = freeboardOf(cls);
+      const side = me.x >= 0 ? 1 : -1;
+      L.z = clamp(L.z, -half, half);
+      L.y = aim.y >= 0 ? fb * 0.55 + aim.y * (fb * 0.45 + (jaws ? 5 : 0)) : fb * 0.55 + aim.y * (fb * 0.55 + cls.hull.draft * 0.35);
+      L.x = side * beam * (jaws && L.y > fb + 1 ? 0.4 : 0.9);
+      // Onto her plating there, if there is plating there.
+      const near = tv.plating ? tv.plating.nearest(L.x, L.y, L.z, 10) : null;
+      if (near) L.set(near[0], near[1], near[2]);
+      return { local: L, world: tv.group.localToWorld(L.clone()) };
+    };
+    const out = {};
+    if (w.act === 'bite') out.mouth = spot(MONSTER.bite.swing, true).world;
+    if (w.holdId) {
+      const r = spot(MONSTER.grab.rip, false);
+      tv.ripLocal = r.local;
+      // Held down: the hand on that side of her. Lifted: the one not holding.
+      const side = w.pin ? (rig.group.worldToLocal(r.world.clone()).x >= 0 ? 1 : -1) : -(rig.holdSide || 1);
+      out.hand = { side, p: r.world };
+    }
+    return out;
+  }
+
+  /**
+   * An event that happened to a ship Monster One has up in her hand, or has
+   * thrown: the battle has her where she floats, on the water, and it is
+   * there that its bursts, fires and splashes would go off -- under the hull,
+   * in the sea. Moved, in her own frame, to where she is drawn. A copy: the
+   * event itself is left as it came (a replay goes over it again).
+   */
+  liftEvent(ev) {
+    if (!ev || ev.lifted || !Number.isFinite(ev.x) || !Number.isFinite(ev.z)) return ev;
+    const id = ev.victim || (ev.e && ev.e.startsWith('mo') ? ev.at : 0) || ev.ship;
+    const view = id ? this.scene.shipViews.get(id) : null;
+    const P = view && view.lifted ? view.liftPose : null;
+    if (!P || !Number.isFinite(P.x) || !Number.isFinite(P.h)) return ev;
+    const dx = ev.x - P.x, dz = ev.z - P.z;
+    const lx = dx * Math.cos(P.h) - dz * Math.sin(P.h);
+    const lz = dx * Math.sin(P.h) + dz * Math.cos(P.h);
+    view.group.updateMatrixWorld(true);
+    const w = view.group.localToWorld(new THREE.Vector3(lx, Number.isFinite(ev.y) ? ev.y : 4, lz));
+    // (Marked, so an event held back and drawn later is not moved twice.)
+    return { ...ev, x: w.x, y: w.y, z: w.z, lifted: 1 };
+  }
+
   /** The settings' word on Monster One's breath, left to her own mind, to the battle. */
   sendMonsterRules() {
     const st = getSettings();
@@ -1795,11 +1883,16 @@ export class Battle {
       if (!view) continue;
       const next = b ? b.ships.find((q) => q.i === s.i) : null;
       const g = view.group;
+      // Up out of the water, in her hand or in the air: where the battle
+      // puts anything that happens to her has to be moved up to where she
+      // is drawn (see liftEvent).
+      view.lifted = !!((s.hb && s.hl) || s.ly || s.fu != null);
+      view.liftPose = view.lifted ? { x: s.x, z: s.z, h: s.h } : null;
       if (s.hb && s.hl) {
         const mv = this.scene.shipViews.get(s.hb);
         const rig = mv?.group.userData.monster;
         if (rig) {
-          rig.handsPoint(at);
+          rig.gripPoint(at);
           const cls = getClass(s.c);
           // Where the hull sits in her hands once she has it up: her palms
           // under her keel, a little up from it.
@@ -1810,37 +1903,54 @@ export class Battle {
           // they go from then on -- what was between them and where it
           // rests in them taken up as she straightens with it, so it neither
           // floats up ahead of her hands nor sinks through them.
-          // Held by where her hands closed on her (`hg`: along her and across
+          // Held by where her hand closed on her (`hg`: along her and across
           // her, in her own frame), not by her middle: that point of her is
-          // in her hands, and the rest of her stands out from them as she
-          // lay -- she is not turned about in them.
+          // in her hand, and the rest of her stands out from it as she lay --
+          // she is not turned about in it. She hangs from one hand (see
+          // MonsterRig.gripPoint), and the end of her that hand is not under
+          // sags: the end her free hand is working at goes down, and the
+          // other comes up.
           const ga = s.hg ? s.hg[0] || 0 : 0, gc = s.hg ? s.hg[1] || 0 : 0;
-          const hh = g.rotation.y, sx = Math.sin(hh), cz = Math.cos(hh);
-          const mx = at.x - (sx * ga + cz * gc), mz = at.z - (cz * ga - sx * gc);
+          view.heldSway = (view.heldSway || 0) + dt;
+          const k0 = view.carryK || 0;
+          const kk = k0 * k0 * (3 - 2 * k0);
+          // A gentle sway in her hand: rolled no further than keeps her
+          // masts out of her face.
+          view.carryRoll = 0.06 * Math.sin(view.heldSway * 1.7) * kk;
+          view.carryPitch = 0.05 * Math.sin(view.heldSway * 1.1) * kk;
+          // The sag: toward the end her free hand is at, the further from
+          // her grip the more; +x on her pitch puts her bow down.
+          let droopWant = 0;
+          if (view.ripLocal && rig.oneHand > 0.2) {
+            const dz = view.ripLocal.z - ga;
+            droopWant = Math.sign(dz) * 0.2 * clamp(Math.abs(dz) / 14, 0, 1) * rig.oneHand;
+          }
+          view.droop = (view.droop || 0) + (droopWant - (view.droop || 0)) * (1 - Math.exp(-dt / 0.6));
+          g.rotation.z += view.carryRoll;
+          g.rotation.x += view.carryPitch + view.droop;
+          // Her middle, put where that point of her is in her hand, whatever
+          // way she is turned and tipped.
+          const G0 = new THREE.Vector3(gc, -rest, ga).applyQuaternion(new THREE.Quaternion().setFromEuler(g.rotation));
+          const mx = at.x - G0.x, my = at.y - G0.y, mz = at.z - G0.z;
           if (!view.carryFrom) {
-            view.carryFrom = { x: g.position.x - mx, y: g.position.y - at.y, z: g.position.z - mz };
+            view.carryFrom = { x: g.position.x - mx, y: g.position.y - my, z: g.position.z - mz };
             view.carryK = 0;
           }
           view.carryK = Math.min(1, view.carryK + dt / 0.9);
           const k = view.carryK * view.carryK * (3 - 2 * view.carryK);
           const f = view.carryFrom;
-          g.position.set(mx + f.x * (1 - k), at.y + f.y + (rest - f.y) * k, mz + f.z * (1 - k));
-          view.heldSway = (view.heldSway || 0) + dt;
-          // A gentle sway in her hands: rolled no further than keeps her
-          // masts out of her face.
-          view.carryRoll = 0.06 * Math.sin(view.heldSway * 1.7) * k;
-          view.carryPitch = 0.05 * Math.sin(view.heldSway * 1.1) * k;
-          g.rotation.z += view.carryRoll;
-          g.rotation.x += view.carryPitch;
-          // Kept, so that when her hands let go the hull goes on from where
-          // they had it and not from where the battle reckons it.
-          view.carryAt = { x: g.position.x, y: g.position.y, z: g.position.z, r: view.carryRoll, p: view.carryPitch };
+          g.position.set(mx + f.x * (1 - k), my + f.y * (1 - k), mz + f.z * (1 - k));
+          // Kept, so that when her hand lets go the hull goes on from where
+          // it had it and not from where the battle reckons it.
+          view.carryAt = { x: g.position.x, y: g.position.y, z: g.position.z, r: view.carryRoll, p: view.carryPitch + view.droop };
           view.carryOff = null;
         }
         view.wake.stop(dt);
       } else {
         view.carryK = 0;
         view.carryFrom = null;
+        view.droop = 0;
+        view.ripLocal = null;
         if (s.hb) view.wake.stop(dt);
       }
       const lerpOf = (key, other) => (next ? (s[key] || 0) + ((next[key] ?? other) - (s[key] || 0)) * t : (s[key] || 0));
@@ -1855,7 +1965,7 @@ export class Battle {
         // climbs and down as she falls, and level again as she comes down.
         const u = next && next.fu != null ? lerpOf('fu', 1) : next ? s.fu + (1 - s.fu) * t : s.fu;
         const arc = Math.sin(Math.PI * u);
-        g.rotation.z += (s.fr ?? 1) * 0.55 * arc;
+        g.rotation.z += (Number.isFinite(s.flr) ? s.flr : 1) * 0.55 * arc;
         g.rotation.x += 0.22 * arc * (1 - 2 * u);
       } else if (s.su != null) {
         // Back up out of the water she went into: a roll that dies away.
@@ -3425,7 +3535,8 @@ export class Battle {
     const fx = this.scene.effects;
     // The bridge you are standing on.
     const bridge = this.conned();
-    for (const ev of events) {
+    for (let ev of events) {
+      ev = this.liftEvent(ev);
       // Where a round struck and when, for the round itself: it is flown on
       // to that point and put out there (see the shells in syncEntities).
       if (!late && ev.e === 'hit' && ev.si != null && Number.isFinite(ev.tk)) {
@@ -3814,6 +3925,9 @@ export class Battle {
                 palms = [-9, 9].map((s) => new THREE.Vector3(g.position.x + fx * 38 + rx * s, y, g.position.z + fz * 38 + rz * s));
               }
               palms.forEach((w, k) => tv.clawDents(w.x, w.y, w.z, (ev.ship * 31 + ev.at * 7 + k) >>> 0));
+              // Her plating's corners numbered now, on a frame of their own,
+              // so the first piece she tears out of her does not wait on it.
+              if (tv.plating) (tv.jobs || (tv.jobs = [])).push(() => tv.plating && tv.plating.cornerIds());
             }
           }
           fx.splash(ev.x, ev.z, 500, { kind: 'bomb' });
@@ -3838,6 +3952,19 @@ export class Battle {
             const mo = this.scene.shipViews.get(ev.ship);
             const from = mo ? mo.group.position : { x: ev.x, z: ev.z };
             const r = ev.tr.r;
+            // Where her teeth, or the fingers of her free hand, actually are
+            // on the hull as drawn: the hole is torn there and nowhere else.
+            // (The battle's own point, off the same aim, if they are not on
+            // her plating.)
+            const mrig = mo?.group.userData.monster;
+            if (mrig) {
+              const p0 = bite ? mrig.mouthPoint(new THREE.Vector3())
+                : mrig.palmPoint(mrig.ripSide || -(mrig.holdSide || 1), new THREE.Vector3());
+              v.group.updateMatrixWorld(true);
+              const L = v.group.worldToLocal(p0);
+              const near = v.plating ? v.plating.nearest(L.x, L.y, L.z, 9) : null;
+              if (near) ev = { ...ev, tr: { ...ev.tr, lx: near[0], ly: near[1], lz: near[2] } };
+            }
             v.tearOut(ev.tr.lx, ev.tr.ly, ev.tr.lz, r, ev.tr.sd || 0,
               p.x - from.x, p.z - from.z, !bite, bite ? mo?.group.userData.monster : null, {
                 // Each claw going in: a burst of paint and splinters, and the

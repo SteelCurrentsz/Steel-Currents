@@ -8036,11 +8036,13 @@ function monsterTear(state, t, mo, how) {
     const rx = -Math.cos(mo.heading), rz = Math.sin(mo.heading);
     let px, pz;
     if (held) {
-      // In her hands: anywhere along the ship, end to end, as her head goes
-      // from one side of her to the other.
-      const span = Math.max(B.swing, half);
-      px = t.x + rx * aim.x * span;
-      pz = t.z + rz * aim.x * span;
+      // In her hands: across from where she has hold of her, as far as her
+      // neck swings her head either side -- what her jaws can actually be
+      // put into, and nothing further along her than that.
+      const G = MONSTER.grab;
+      const ahead = t.held && t.held.lifted ? G.carry : G.hands;
+      px = mo.x + Math.sin(mo.heading) * ahead + rx * aim.x * B.swing;
+      pz = mo.z + Math.cos(mo.heading) * ahead + rz * aim.x * B.swing;
     } else {
       // In the water ahead of her: the part of her nearest the jaws, as far
       // across as her neck swings.
@@ -8061,39 +8063,26 @@ function monsterTear(state, t, mo, how) {
     // High up, her upperworks stand in from her sides.
     lx = side * beam * (ly > fb + 1 ? 0.4 : 0.85);
   } else {
-    // Where her hands are on her, and nowhere else: one hand or the other,
-    // a palm's width either side of the point between them, on the side of
-    // the ship nearest it. A ship up in her hands is held out in front of
-    // her chest; one held down is under them where they came down.
+    // One of her hands holds the ship; the other goes in where her captain
+    // has it aimed (the same aim as her jaws, m.head): across her from where
+    // she has hold, as far as her free arm reaches, and up or down the hull
+    // from below the waterline to the deck.
     const G = MONSTER.grab;
     const ahead = t.held && t.held.lifted ? G.carry : G.hands;
+    const aim = (mo.mo && mo.mo.head) || { x: 0, y: 0 };
     const rx = -Math.cos(mo.heading), rz = Math.sin(mo.heading);
-    const hand = (state.rng() < 0.5 ? -1 : 1) * 9;
-    const px = mo.x + Math.sin(mo.heading) * ahead + rx * hand;
-    const pz = mo.z + Math.cos(mo.heading) * ahead + rz * hand;
+    const px = mo.x + Math.sin(mo.heading) * ahead + rx * aim.x * G.rip;
+    const pz = mo.z + Math.cos(mo.heading) * ahead + rz * aim.x * G.rip;
     const l = worldToLocal(px - t.x, pz - t.z, t.heading);
-    lz = clamp(l.z + (state.rng() - 0.5) * 4, -half * 0.85, half * 0.85);
+    lz = clamp(l.z, -half * 0.85, half * 0.85);
     const me = worldToLocal(mo.x - t.x, mo.z - t.z, t.heading);
     lx = (Math.abs(l.x) > beam * 0.3 ? Math.sign(l.x) : me.x >= 0 ? 1 : -1) * beam * 0.9;
-    // A ship up in her hands is all within her reach: her claws go for the
-    // gun on her nearest them, wherever along her it stands.
-    if (held && t.held && t.held.lifted) {
-      let best = null, bd = Infinity;
-      for (const g of standing(t, cls)) {
-        if (mountFell(t, g.k, g.i)) continue;
-        const d = Math.abs(g.s.z - lz) + Math.abs((g.s.x || 0) - lx) * 0.5;
-        if (d < bd) { bd = d; best = g; }
-      }
-      if (best) {
-        lz = clamp(best.s.z, -half * 0.85, half * 0.85);
-        lx = ((best.s.x || 0) === 0 ? Math.sign(lx) || 1 : Math.sign(best.s.x)) * beam * 0.9;
-      }
-    }
+    ly = aim.y < 0 ? fb * 0.5 + (fb * 0.5 + cls.hull.draft * 0.4) * aim.y : fb * 0.5 + fb * 0.5 * aim.y;
   }
   const claw = how === 'claw';
   // Her jaws take no more than goes into her mouth -- a few metres across --
   // whatever the size of the ship; her hands take a slab as broad as her palm.
-  const rad = claw ? clamp(beam * 0.6, 3.5, 11) : clamp(beam * 0.3, 2.5, MONSTER.bite.mouth);
+  const rad = claw ? clamp(beam * 0.35, 3, MONSTER.grab.palm) : clamp(beam * 0.3, 2.5, MONSTER.bite.mouth);
   // Her claws close round the hull low down, below the waterline as often as
   // not; her teeth go in where her head put them.
   if (ly === null) ly = -cls.hull.draft * 0.4 + state.rng() * (fb * 0.5 + cls.hull.draft * 0.4);

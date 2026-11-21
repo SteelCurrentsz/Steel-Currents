@@ -32903,9 +32903,22 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
       run(state, 2.5);
       ships[0].hp = ships[0].maxHp * 50; ships[0].maxHp *= 50;
       for (const k of Object.keys(ships[0].sections)) { ships[0].sections[k].max *= 50; ships[0].sections[k].hp = ships[0].sections[k].max; }
-      assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), '');
-      const ev = run(state, MO.MONSTER.crush.time + 0.1);
-      assert.ok(ev.some((e) => e.e === 'toss' && e.how === 'claw' && e.ship === ships[0].id && e.by === mo.id), 'her claws took no gun');
+      // Her free hand put along the hull, one place after another: wherever
+      // it closes on a gun, it has it -- and it goes in where it is aimed.
+      let took = 0;
+      const at = [];
+      for (const hx of [-1, -0.5, 0, 0.5, 1]) {
+        mo.mo.crushCool = 0; mo.mo.act = 'hold';
+        SIM.monsterOrder(state, mo, { a: 'head', hx, hy: 0.4 }, SIM.MONSTER_HOOKS);
+        assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), '');
+        const ev = run(state, MO.MONSTER.crush.time + 0.1);
+        took += ev.filter((e) => e.e === 'toss' && e.how === 'claw' && e.ship === ships[0].id && e.by === mo.id).length;
+        const c = ev.find((e) => e.e === 'moCrush');
+        assert.ok(c && c.tr && c.tr.r <= MO.MONSTER.grab.palm, 'no piece the size of her palm');
+        at.push(c.tr.lz);
+      }
+      assert.ok(took >= 1, 'her claws took no gun');
+      assert.ok(Math.max(...at) - Math.min(...at) > 30, `her hand went into the same place wherever it was aimed (${at.join(', ')})`);
     }
     {
       const { state, mo, ships } = field([['fletcher', 0, 45]]);
@@ -33086,8 +33099,10 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     };
     const left = bite(-1, 0);
     const right = bite(1, 0);
-    assert.notEqual(left.hurt, right.hurt, 'her head swung from end to end of her and bit the same place');
-    assert.ok(Math.abs(left.tr.lz - right.tr.lz) > 100, `${left.tr.lz} and ${right.tr.lz} are not her two ends`);
+    // As far either way as her neck swings her head, and no further: her
+    // jaws go into what they can reach.
+    const span = Math.abs(left.tr.lz - right.tr.lz);
+    assert.ok(span > MO.MONSTER.bite.swing * 1.6 && span < MO.MONSTER.bite.swing * 2.4, `her head swung across ${span} m of her`);
     const high = bite(0, 1);
     assert.equal(high.hurt, 'works', 'her head up did not bite her upperworks');
     const low = bite(0, -1);

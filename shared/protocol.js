@@ -104,12 +104,12 @@ export function shipSnapshot(ship, full, state = null) {
       hg: [r1(ship.held?.ga || 0), r1(ship.held?.gc || 0)] } : {}),
     ...(ship.liftY ? { ly: r1(ship.liftY) } : {}),
     // How far through her flight a thrown ship is, and which way she rolls
-    // (`fr`: not `fo`, which is how she floats, and which this once overwrote
+    // (`flr`: not `fo`, how she floats, nor `fr`, her fires -- each of which this once overwrote
     // -- the picture failed every frame she was in the air);
     // and how far back up out of the water she has come since she landed --
     // so each screen can draw the arc and the rise smoothly between
     // snapshots, and nothing about her jumps.
-    ...(ship.flung ? { fu: Math.round(Math.min(1, Math.max(0, ship.flung.t / ship.flung.T)) * 1000) / 1000, fr: ship.flung.roll || 0 } : {}),
+    ...(ship.flung ? { fu: Math.round(Math.min(1, Math.max(0, ship.flung.t / ship.flung.T)) * 1000) / 1000, flr: ship.flung.roll || 0 } : {}),
     ...(ship.splash ? { su: Math.round(Math.min(1, Math.max(0, ship.splash.t / ship.splash.T)) * 1000) / 1000, so: ship.splash.roll || 0 } : {}),
     // Which compartments have water in them and which are alight, in tenths,
     // so the fire and the water can be drawn where they actually are.
