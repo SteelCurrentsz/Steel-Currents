@@ -32,6 +32,7 @@ import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
 import { Breakers } from './breakers.js';
+import { BowWaves } from './bowwave.js';
 import { lampPlan, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
 import { prepareSoup, clearSoups } from './section.js';
@@ -2588,6 +2589,7 @@ export class BattleScene {
       });
       // And the smoke off fires, funnels and bursts leans on the same wind.
       this.effects.wind = { x: dx * speed, z: dz * speed };
+      this.effects.splashes.wind = this.effects.wind;
       // The sea against the ships: kept off their decks, and thrown up their
       // sides as spray under the same sky and down the same wind.
       // And the white water out of every splash, under the same sky.
@@ -2596,6 +2598,16 @@ export class BattleScene {
       this.breakers.setAtmosphere({
         preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
       });
+      // The roll of water she heaps up along her sides under way, and the
+      // spray she throws over her bow when she drives it into a sea. Lit by
+      // the same sky and sea as the water it is made of.
+      this.bowWaves = new BowWaves(this.scene, this.effects, { intensity: q.particles });
+      {
+        const ou = this.ocean.material.uniforms;
+        this.bowWaves.setAtmosphere({
+          sky: ou.uSkyTint.value, sun: ou.uLightColor.value, deep: ou.uDeep.value, sunDir: p.lightDir,
+        });
+      }
     }
     // Flame is geometry, not a billboard: see flames.js.
     this.flames = new Flames(this.scene, q.particles);
@@ -2951,6 +2963,7 @@ export class BattleScene {
     // After the sea has moved and before anything is drawn on it: where every
     // ship is now is where the sea has to keep out of her this frame.
     this.breakers.update(dt, this.camera, this.shipViews.values());
+    this.bowWaves?.update(dt, this.camera, this.shipViews.values());
     this.effects.update(dt, this.camera);
     this.bursts.update(dt, this.camera);
     // The air the smoke goes off on.

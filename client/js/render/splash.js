@@ -275,9 +275,14 @@ function vnoise(x, y, z) {
 function makePlumeGeometry() {
   // The profile, foot to head: a waist low down, swelling to the head, and a
   // rounded top. Radius over height, both out of one.
+  // Not a stalk with a ball on it. In every photograph of a fall of shot the
+  // column is one broad mass of white water straight up out of the sea --
+  // as wide at its foot as anywhere, a little drawn in up its body, and
+  // feathered off into spray and mist at its top rather than swelling into
+  // a head.
   const prof = [
-    [0.5, 0], [0.56, 0.04], [0.46, 0.14], [0.44, 0.28], [0.5, 0.42], [0.6, 0.55],
-    [0.74, 0.66], [0.86, 0.76], [0.88, 0.84], [0.78, 0.9], [0.6, 0.95], [0.34, 0.985], [0.001, 1],
+    [0.62, 0], [0.68, 0.03], [0.6, 0.1], [0.54, 0.24], [0.5, 0.4], [0.49, 0.56],
+    [0.5, 0.7], [0.47, 0.8], [0.4, 0.88], [0.28, 0.95], [0.12, 0.985], [0.001, 1],
   ].map(([r, y]) => new THREE.Vector2(r, y));
   const g = new THREE.LatheGeometry(prof, 22);
   const p = g.attributes.position;
@@ -623,10 +628,10 @@ function flush(c, n) {
  * and `reach` how far out it runs.
  */
 const KINDS = {
-  shell: { tall: 1, wide: 1, stem: 0.4, side: [0, 2], head: 10, bloom: 1.5, surge: 18, reach: 1.7, drops: 1, delay: 0 },
-  bomb: { tall: 0.85, wide: 1.2, stem: 0.46, side: [1, 3], head: 12, bloom: 1.8, surge: 22, reach: 2.0, drops: 1.4, delay: 0, maxH: 70 },
+  shell: { tall: 1, wide: 1, stem: 0.78, side: [0, 2], head: 10, bloom: 1.5, surge: 18, reach: 1.7, drops: 1, delay: 0 },
+  bomb: { tall: 0.85, wide: 1.2, stem: 0.86, side: [1, 3], head: 12, bloom: 1.8, surge: 22, reach: 2.0, drops: 1.4, delay: 0, maxH: 70 },
   dc: { tall: 0.6, wide: 1.15, stem: 0.5, side: [2, 3], head: 13, bloom: 1.6, surge: 24, reach: 2.0, drops: 1.8, delay: 0.32, maxH: 45 },
-  torp: { tall: 1, wide: 1, stem: 0.5, side: [2, 3], head: 13, bloom: 1.25, surge: 18, reach: 1.8, drops: 1.2, delay: 0, maxH: 70 },
+  torp: { tall: 1, wide: 1, stem: 0.82, side: [2, 3], head: 13, bloom: 1.25, surge: 18, reach: 1.8, drops: 1.2, delay: 0, maxH: 70 },
   drop: { tall: 0.5, wide: 0.8, stem: 0.4, side: [0, 1], head: 4, bloom: 1.2, surge: 9, reach: 1.4, drops: 0.6, delay: 0, maxH: 25 },
   // A sea broken against her bow: low and wide, thrown out and back along her
   // side rather than up, with no column in the middle of it.
@@ -959,7 +964,12 @@ export class Splashes {
     const radius = base.radius * kind.wide;
     // Which way it came in, which is the way it throws: a shell arrives on a
     // slant and the water goes on the way it was going.
-    const lean = Number.isFinite(opts.heading) ? opts.heading : Math.random() * Math.PI * 2;
+    // Downwind, when there is a wind: every column of a salvo leans the same
+    // way and trails its mist the same way, as they do in every photograph.
+    const lean = Number.isFinite(opts.heading) ? opts.heading
+      : this.wind && Math.hypot(this.wind.x, this.wind.z) > 0.3
+        ? Math.atan2(this.wind.x, this.wind.z) + rnd(-0.35, 0.35)
+        : Math.random() * Math.PI * 2;
     // A little splash thrown up by the spray off a big one is spires, foam and
     // a ring: the columns are kept for the rounds that carry the information.
     // The plumes are the splash now (see spires). The old translucent column
@@ -1201,8 +1211,8 @@ export class Splashes {
       if (slot === undefined) return;
       const stem = i === 0;
       const a = lean + (Math.random() - 0.5) * Math.PI * 2;
-      const off = stem ? radius * rnd(0, 0.08) : radius * rnd(0.12, 0.3);
-      const h = height * (stem ? rnd(0.96, 1.04) : rnd(0.55, 0.85));
+      const off = stem ? radius * rnd(0, 0.08) : radius * rnd(0.1, 0.24);
+      const h = height * (stem ? rnd(0.96, 1.04) : rnd(0.7, 0.95));
       // Up over a second or more on a heavy shell, not a flick: a column of
       // water eighty metres high is a great many tons being driven up.
       const rise = (0.25 + h * 0.011) * (stem ? 1 : rnd(0.9, 1.15));
@@ -1265,33 +1275,32 @@ export class Splashes {
    * opening out as it hangs and drifting off downwind.
    */
   crest(x, z, height, radius, kind, lean, child) {
-    const n = Math.round(kind.head * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
+    // Spray standing all the way up the column, not a head on top of it: the
+    // water torn off its sides as it goes up, softening its outline into the
+    // misty edge every photograph shows, and at its top a cloud of the finest
+    // of it that the wind takes off downwind and leans the whole thing over.
+    const n = Math.round(kind.head * 1.3 * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
     const w = radius * kind.stem * (this.thick || 1);
     const rise = 0.25 + height * 0.011;
+    const fall = Math.sqrt((2 * height) / G);
+    const dx = Math.sin(lean), dz = Math.cos(lean);
     for (let i = 0; i < n; i++) {
-      // Up the top half of the stem, crowding toward the top.
-      const u = 0.5 + 0.5 * Math.pow(Math.random(), 0.6);
-      const a = lean + Math.random() * Math.PI * 2;
-      const off = w * (0.3 + kind.bloom * (u - 0.5) * 1.6) * rnd(0.4, 1);
-      const size = w * (0.7 + kind.bloom * (u - 0.4)) * rnd(0.75, 1.15);
-      // Water does not hang in the air. What is in the head is still going up
-      // when the stem runs out of push; it carries on a little, stops, and
-      // comes straight back down under its own weight -- a curtain of it
-      // collapsing round the column and onto the sea a few seconds later,
-      // which is the whole second half of every splash on film. Hung up as a
-      // cloud it read as a puff of cotton wool parked over the sea.
-      const y0 = height * u * 0.92;
-      const vy = Math.sqrt(2 * G * height * rnd(0.02, 0.09));
-      const ttl = (vy + Math.sqrt(vy * vy + 2 * G * y0)) / G * rnd(0.95, 1.1);
-      const sp = w * kind.bloom * rnd(0.5, 1.2) * 0.9;
+      const u = 0.12 + 0.95 * Math.pow(Math.random(), 0.75);
+      const a = Math.random() * Math.PI * 2;
+      const top = Math.max(0, (u - 0.7) / 0.35);
+      const off = w * rnd(0.12, 0.34) * (1 + top * 0.4);
+      const size = w * rnd(0.62, 0.9) * (1 + top * 0.45);
+      // The higher it is, the further the wind carries it, and the longer it
+      // hangs: the mist off the top outlasts the column it came off.
+      const drift = w * (0.2 + 1.1 * top) * rnd(0.6, 1.2);
       this.puff({
-        x: x + Math.sin(a) * off, z: z + Math.cos(a) * off, y: y0,
-        vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, vy,
-        s0: size * 0.45, s1: size * 1.3, squash: rnd(1.05, 1.35),
-        // Each one blooms as the top of the stem goes past it.
-        delay: kind.delay + rise * u * rnd(0.85, 1.05), ttl: ttl * rnd(0.85, 1.15),
-        // Softer and thinner than the stem it came off.
-        peak: rnd(0.5, 0.72), spread: 0.5,
+        x: x + Math.sin(a) * off, z: z + Math.cos(a) * off, y: height * Math.min(1, u) * 0.94,
+        dx: dx * drift + Math.sin(a) * w * 0.3, dz: dz * drift + Math.cos(a) * w * 0.3,
+        dy: -height * u * rnd(0.35, 0.55) * (1 - 0.3 * top),
+        s0: size * 0.6, s1: size * (1.2 + 0.5 * top), squash: rnd(1.2, 1.6) - top * 0.35,
+        delay: kind.delay + rise * Math.min(1, u) * rnd(0.8, 1.0),
+        ttl: (rise + fall) * rnd(0.8, 1.0) * (1 + top * 0.2),
+        peak: rnd(0.32, 0.48) * (1 - top * 0.3), spread: 0.25,
       });
     }
   }
