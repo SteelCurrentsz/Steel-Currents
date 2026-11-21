@@ -25,7 +25,7 @@ import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim, glide } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
-import { Plating, holeRadius } from './plating.js';
+import { Plating, holeRadius, wallStandIn } from './plating.js';
 import { holePlating, lineInside } from './shellholes.js';
 import { GPU } from './gpusafe.js';
 import { Fittings } from './pieces.js';
@@ -40,12 +40,13 @@ import { cutMaterial, cutUniforms } from './sever.js';
 import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
 import { applyGunLook, LOOK } from './gunlooks.js';
-import { Tossed, hullPiece, setTossHulls } from './toss.js';
+import { Tossed, hullPiece, setTossHulls, pieceMaterial } from './toss.js';
 import { ClawTear, CLAW_BREAK } from './clawtear.js';
 import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import { renderCulled } from './pixelcull.js';
 import { buildLodsNow, resetLods } from './lod.js';
+import { bindWarm, unbindWarm, showWhenReady, cancelWarm } from './warmgate.js';
 import { Scars, scarUniforms, cutLand } from './scars.js';
 import {
   MAP_HALF, landMask, groundHeight, keelGround, getWeather, islandRadius, islandHeight,
@@ -1310,6 +1311,7 @@ export class ShipView {
    */
   tearOut(lx, ly, lz, r, seed = 0, dx = 0, dz = 0, claw = false, rig = null, fx = null) {
     if (this.rupture || !this.group.parent) return;
+    this.readyToTear();
     if (claw && this.plating) {
       const world = (p) => this.group.localToWorld(p.clone());
       const tear = new ClawTear(this, {
@@ -1334,6 +1336,10 @@ export class ShipView {
    */
   clawDents(wx, wy, wz, seed = 0) {
     if (!this.plating || this.rupture) return false;
+    // She has hold of her now, and is about to tear her: what tearing her
+    // needs worked out once is worked out on the next frame, not in the frame
+    // the piece comes away.
+    this.readyToTear();
     this.group.updateMatrixWorld(true);
     const p = this.group.worldToLocal(new THREE.Vector3(wx, wy, wz));
     const near = this.plating.nearest(p.x, p.y, p.z, 22);
@@ -1361,6 +1367,20 @@ export class ShipView {
       this.plating.dent(f[0], f[1], f[2], 2.4, 0.42 + rnd() * 0.18);
     }
     return true;
+  }
+
+  /**
+   * Which corners of her plating are the same corner, across every buffer
+   * she is drawn in (see Plating.cornerIds): wanted for the edge of the first
+   * rent torn in her, and the best part of a tenth of a second to work out
+   * for a big hull. Put on a frame of its own ahead of that edge, once.
+   */
+  readyToTear() {
+    const P = this.plating;
+    if (!P || this.cornersQueued) return;
+    if (P.cornerOf && P.cornerOf.size >= P.parts.length) return;
+    this.cornersQueued = true;
+    (this.jobs || (this.jobs = [])).push(() => { if (this.plating) this.plating.cornerIds(); });
   }
 
   /** The rent itself, and what came out of it: see tearOut. */
@@ -1400,6 +1420,7 @@ export class ShipView {
     const piece = hullPiece(tris, carried);
     if (!piece) return;
     this.group.add(piece);
+    showWhenReady(piece);
     const tossed = this.tossed || (this.tossed = new Tossed());
     // In her jaws: hers to gnaw on and throw away.
     if (rig && rig.mouthPoint) {
@@ -1438,11 +1459,11 @@ export class ShipView {
    * thrown away from the burst, rolled over and going down on its own, and
    * every gun on her torn off and scattered. See Rupture's shatter.
    */
-  shatter(bx, bz) {
+  shatter(bx, bz, force = 0) {
     if (this.rupture || this.halves || this.severed || !this.group.parent) return false;
     this.rupture = new Rupture(this, 0, 0, {
       v: this.speedNow || 0, h: this.group.rotation.y,
-    }, { shatter: { x: bx, z: bz } });
+    }, { shatter: { x: bx, z: bz, force, deck: freeboardOf(this.cls) } });
     return true;
   }
 
@@ -1687,7 +1708,7 @@ export class ShipView {
       // A batch that spans the whole of her belongs to neither half -- see
       // Rims in plating.js -- so it stops being drawn rather than jumping to
       // one end of her.
-      if (child.userData.noSplit) { child.visible = false; continue; }
+      if (child.userData.noSplit) { cancelWarm(child); child.visible = false; continue; }
       // Which side of the break it is on, by where it actually sits.
       let z = child.position.z;
       if (child.isMesh && child.geometry) {
@@ -2579,6 +2600,14 @@ export class ShipView {
 
   dispose(scene) {
     this.disposed = true;
+    // The light the battle lent her is given back, dark, and stays in the
+    // scene for the next (see monsterLight).
+    const rig = this.group.userData.monster;
+    if (rig && rig.light && rig.light.userData.lent) {
+      rig.light.intensity = 0;
+      rig.light.userData.lent = false;
+      rig.light = new THREE.PointLight(rig.light.color, 0, rig.light.distance, rig.light.decay);
+    }
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
     if (this.tossed) this.tossed.dispose();
@@ -2895,6 +2924,35 @@ export class BattleScene {
     // Its shaders compiled now, in the background, rather than in the frame
     // the bomb goes off.
     this.nukes.warm(this.renderer, this.camera);
+    // And whatever is made in the middle of the battle -- a hull's torn faces
+    // and insides, the pieces torn out of her -- compiled as it is made and
+    // shown once it is ready, not built in the frame it is first drawn.
+    bindWarm(this.renderer, this.camera, this.scene);
+    // A light each for as many Monster Ones as a battle has (one a side),
+    // in the scene and dark from the start, whether she is in it or not. A
+    // light that comes with her changes how many lights there are, and with
+    // it every shader drawn so far -- and every one compiled ahead of time --
+    // is built again: at the moment she comes in, and again, piecemeal, as
+    // each thing first drawn after that is drawn.
+    this.monsterLights = [0, 1].map(() => {
+      const l = new THREE.PointLight(0x8fd0ff, 0, 700, 2);
+      l.userData.lent = false;
+      this.scene.add(l);
+      return l;
+    });
+    // And the torn faces of a hull's cut edges, drawn with nothing in them
+    // from the start, so their shader is built now and not at the first rent.
+    this.scene.add(wallStandIn());
+    // And what a hull is torn into -- the piece out of her side in Monster
+    // One's jaws, the sheets an atomic burst strips off her -- the same way.
+    {
+      const g = new THREE.BufferGeometry();
+      for (const k of ['position', 'normal', 'color']) g.setAttribute(k, new THREE.BufferAttribute(new Float32Array(9), 3));
+      const m = new THREE.Mesh(g, pieceMaterial());
+      m.frustumCulled = false;
+      m.userData.alwaysDraw = true;
+      this.scene.add(m);
+    }
     // And the wakes', into the map they are drawn into.
     this.wakes?.warm?.(this.renderer);
     // And the oil a wreck leaves, which a burst makes a great deal of at once.
@@ -2961,7 +3019,7 @@ export class BattleScene {
     let v = this.shipViews.get(id);
     // Drawn as her stand-in, and her own model is in now: she is built again
     // as herself, if nothing has happened to the stand-in worth keeping.
-    if (v && v.standIn && !v.marked && !v.sinking && !(v.sinkY > 0.3) && shipReady(classId)) {
+    if (v && v.standIn && !v.marked && !v.sinking && !(v.sinkY > 0.3) && !v.rupture && !v.halves && !v.severed && shipReady(classId)) {
       this.removeShipView(id);
       v = null;
     }
@@ -3004,6 +3062,10 @@ export class BattleScene {
   makeShipView(classId, team, isSelf) {
     const v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
       this.wakes, this.wreck);
+    // Monster One's breath lights the sea and the ships round her with a
+    // light the battle has had from the start.
+    const rig = v.group.userData.monster;
+    if (rig && rig.light) rig.light = this.monsterLight(rig.light);
     // Her searchlights, found off her own model and dark until somebody
     // switches one on. See searchlights.js. Her plan is read back from the
     // card in the background (lampPlanAsync) and her lamps are fitted when it
@@ -3039,6 +3101,21 @@ export class BattleScene {
     // the battle is up.
     try { buildLodsNow(v.group); } catch (e) { console.warn('Steel Currents: ship detail levels', e); }
     return v;
+  }
+
+  /** One of the battle's own lights, made like `own`, for Monster One; `own` itself, put on her, if all are out. */
+  monsterLight(own) {
+    const l = (this.monsterLights || []).find((x) => !x.userData.lent && x.parent === this.scene);
+    if (!l) return own;
+    // (Put on her by her first pose, if that came first: taken off again
+    // before it is ever drawn.)
+    if (own.parent) own.parent.remove(own);
+    l.color.copy(own.color);
+    l.distance = own.distance;
+    l.decay = own.decay;
+    l.intensity = 0;
+    l.userData.lent = true;
+    return l;
   }
 
   removeShipView(id) {
@@ -3431,6 +3508,7 @@ export class BattleScene {
   dispose() {
     // Nothing of this battle is waiting to have its detail levels made.
     resetLods();
+    unbindWarm(this.scene);
     const keep = new Set([this.renderer, this.camera, this.scene, this.world]);
     const free = (v) => {
       if (!v || typeof v !== 'object' || keep.has(v) || v.isObject3D) return;

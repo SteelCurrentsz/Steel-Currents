@@ -438,19 +438,20 @@ float nkShockR(float age, float k) { return ${F(NUKE.reach)} * k * (1.0 - exp(-a
 // How much more water a burst of scale k throws up than the B-29's bomb:
 // waveHeight in shared/nuke.js, the square up to it and less past it.
 float nkGrow(float k) { return k <= 1.0 ? k * k : pow(k, 1.5); }
-float nkHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float nkNoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(nkHash(i), nkHash(i + vec2(1.0, 0.0)), u.x),
-             mix(nkHash(i + vec2(0.0, 1.0)), nkHash(i + vec2(1.0, 1.0)), u.x), u.y);
-}
+// (Further down; wanted here.)
+float onoise(vec2 p);
 
 // What a burst has done to the look of the water here: x the white water --
 // the crest of the wave breaking, the sea boiling over the burst, the spray
 // thrown up where the shock first meets it -- and y the slick: the shock in
 // the water darkening the surface in a ring that races out ahead of
 // everything else, as every film of Baker shows it.
+//
+// The white water is laced as a wake's is (the folded noise below, warped so
+// it curls), not laid on in blobs: a value noise put through a threshold came
+// out as soft-edged squares on a square grid, and over the miles of sea a
+// burst whitens that read as the sea turned to a tiled floor. And it is
+// worked out only where a burst has reached: the rest of the sea pays nothing.
 vec2 burstMarks(vec2 p) {
   vec2 o = vec2(0.0);
   for (int i = 0; i < ${MAX_BURSTS}; i++) {
@@ -459,33 +460,49 @@ vec2 burstMarks(vec2 p) {
     if (b.w <= 0.0) continue;
     float age = uTime - b.z;
     if (age <= 0.0) continue;
-    float r = length(p - b.xy);
-    float lace = nkNoise(p * 0.045 + age * 0.08) * 0.6 + nkNoise(p * 0.17 - age * 0.11) * 0.4;
+    vec2 lp = p - b.xy;
+    float r = length(lp);
+    float Rs = nkShockR(age, b.w);
+    float R = nkWaveR(age, b.w);
+    float lam = 160.0 + 0.06 * R;
+    float big = max(1.0, b.w);
+    // The boiling patch over the burst: its column's own footprint, not half
+    // the sea inside the wave, and breaking up as it dies.
+    float poolR = min(R * 0.9, 1100.0 * sqrt(max(b.w, 0.05))) / big;
+    float reachW = max(age < 22.0 ? Rs + 80.0 + 0.05 * Rs : 0.0, max(R + lam * 0.4, poolR));
+    if (r > reachW) continue;
+    // The lace, in the burst's own frame: warped by a coarse noise so the
+    // foam marbles and curls, and folded about its middle so a threshold on
+    // it is a net of threads and streaks rather than a field of blots.
+    vec2 warp = vec2(onoise(lp * 0.011 + age * 0.006), onoise(lp * 0.011 + 5.3 - age * 0.007)) - 0.5;
+    vec2 qw = lp + warp * 46.0;
+    float n1 = onoise(qw * 0.052 + vec2(age * 0.02, -age * 0.013));
+    float n2 = onoise(qw * 0.19 - age * 0.03);
+    float vein = 1.0 - abs(n1 - 0.47) * 2.6;
+    float lace = clamp(mix(n1 * 0.6 + n2 * 0.4, vein * 0.72 + n2 * 0.28, 0.55), 0.0, 1.0);
     // The shock, in the first twenty seconds.
     if (age < 22.0) {
-      float Rs = nkShockR(age, b.w);
       float w = 60.0 + 0.05 * Rs;
       float s = r - Rs;
       float band = exp(-(s + w * 0.6) * (s + w * 0.6) / (w * w)) * step(s, w);
       o.y = max(o.y, 0.55 * band * (1.0 - age / 22.0));
       float edge = exp(-(s * s) / (14.0 * 14.0 + Rs * 0.4));
-      o.x = max(o.x, edge * smoothstep(0.3, 0.7, lace) * (1.0 - smoothstep(2.0, 9.0, age)));
+      o.x = max(o.x, edge * smoothstep(0.35, 0.7, lace) * (1.0 - smoothstep(2.0, 9.0, age)));
     }
     // The wave: white along its crest, torn into streaks down its back.
-    float R = nkWaveR(age, b.w);
-    float lam = 160.0 + 0.06 * R;
     float s = r - R;
     float fade = clamp((${F(NUKE.life)} - age) / 60.0, 0.0, 1.0) * min(1.0, age / 4.0);
     float crest = exp(-(s + lam * 0.05) * (s + lam * 0.05) / (lam * lam * 0.018));
     float back = exp(-(s + lam * 0.55) * (s + lam * 0.55) / (lam * lam * 0.25)) * 0.55;
     float h = clamp((${F(NUKE.waveHigh)} * nkGrow(b.w) * exp(-R / (${F(NUKE.waveFall)} * b.w)) + 1.5) / 14.0, 0.15, 1.0);
-    o.x = max(o.x, (crest + back * smoothstep(0.45, 0.8, lace)) * smoothstep(0.25, 0.65, lace + crest * 0.4) * fade * h);
-    // And over the burst itself, the sea boiling white for a minute and more.
-    // (A burst bigger than the B-29's -- Monster One's breath -- boils a
-    // patch the size of its own column, not half the sea inside its wave.)
-    float big = max(1.0, b.w);
-    float pool = smoothstep(R * 0.9 / big, R * 0.45 / big, r) * max(0.0, 1.0 - age / 110.0);
-    o.x = max(o.x, pool * smoothstep(0.3, 0.75, lace + 0.25 * (1.0 - age / 110.0)));
+    o.x = max(o.x, (crest + back * smoothstep(0.5, 0.82, lace)) * smoothstep(0.3, 0.7, lace + crest * 0.35) * fade * h);
+    // And over the burst itself, the sea boiling white -- solid at first,
+    // then torn into streaks and patches with dark water between them, and
+    // gone in a minute and a half.
+    float life = max(0.0, 1.0 - age / 95.0);
+    float pool = smoothstep(poolR, poolR * 0.5, r) * life;
+    float cut = mix(0.66, 0.34, life * life);
+    o.x = max(o.x, pool * smoothstep(cut, cut + 0.2, lace) * mix(0.6, 0.95, life));
   }
   return o;
 }

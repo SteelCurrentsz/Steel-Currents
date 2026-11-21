@@ -338,6 +338,7 @@ const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _lw = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _yq = new THREE.Quaternion();
 const _pq = new THREE.Quaternion();
@@ -854,12 +855,16 @@ export class MonsterRig {
     const throat = smooth(0.82, 1, U.uCharge.value) * this.glowNow;
     const firing = act === 'fire' ? window01(S.actT || 0, 0, 0.15, 2.8, 3.8) : 0;
     this.mouthPoint(_v);
+    _lw.copy(_v);
     this.group.worldToLocal(_v);
     this.mouthGlow.position.copy(_v);
     this.mouthGlow.material.opacity = Math.min(1, throat * 0.8 + firing);
     this.mouthGlow.scale.setScalar(10 + 14 * throat + 22 * firing + Math.sin(this.t * 37) * 2 * throat);
     this.mouthGlow.visible = this.mouthGlow.material.opacity > 0.01;
-    this.light.position.copy(_v);
+    // Hers, or one the battle keeps in the scene for her (see lendLight in
+    // scene.js) and puts where her mouth is in the world.
+    if (!this.light.parent) this.group.add(this.light);
+    this.light.position.copy(this.light.parent === this.group ? _v : _lw);
     // Always in the scene, and only ever turned up and down: a light that
     // comes and goes changes how many lights there are, and every lit
     // material in the battle has its shader built again for it -- a stall
@@ -1115,23 +1120,41 @@ export function buildMonsterOne() {
   }));
   mouthGlow.visible = false;
   group.add(mouthGlow);
+  // Not put on her: a battle hands her one of the lights it has had in the
+  // scene from the start (see monsterLight in scene.js), because a light
+  // coming into the scene with her -- or going when she is gone, or hidden
+  // with her while she is held back behind the loading screen -- changes how
+  // many lights there are, and every shader built before is built again.
+  // Anything else that draws her (the yard, the title) puts this one on her.
   const light = new THREE.PointLight(BREATH_BLUE, 0, 700, 2);
-  group.add(light);
   const beams = [beamMesh(1.8, 3.2), beamMesh(0.9, 8)];
   for (const m of beams) { m.scale.set(1e-3, 1e-3, 1e-3); group.add(m); }
   // The cracks her claws run through a hull and the pieces they and her
   // jaws tear out of it are drawn with materials of their own: a triangle of
   // each, with no area, drawn with her from the start so their shaders are
   // built when she comes into the battle and not in the middle of a bite.
-  for (const mat of [CRACK_MAT, pieceMaterial()]) {
+  // Each with the attributes it is drawn with -- the cracks have nothing but
+  // their corners, the pieces their normals and colours too -- because what
+  // a geometry carries is part of its shader as well, and a stand-in that
+  // carried more built the wrong one.
+  // In a group of their own: what is set straight into hers is welded into
+  // her plating, attributes and all, and comes out a different shader.
+  const warm = new THREE.Group();
+  warm.name = 'warm';
+  group.add(warm);
+  for (const [mat, lit] of [[CRACK_MAT, false], [pieceMaterial(), true]]) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
-    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(9), 3));
+    if (lit) {
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(9), 3));
+    }
     const m = new THREE.Mesh(g, mat);
     m.frustumCulled = false;
+    // (Not left out as smaller than a pixel, which it is: see pixelcull.js.)
+    m.userData.alwaysDraw = true;
     m.renderOrder = -1;
-    group.add(m);
+    warm.add(m);
   }
 
   // The sparks off her plates: the tips of each, a few dozen of them.

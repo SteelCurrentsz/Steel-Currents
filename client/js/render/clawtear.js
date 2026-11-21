@@ -17,6 +17,7 @@
 // ones that ran out into the plating round it stay.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { showWhenReady } from './warmgate.js';
 
 /** When the cracks have gone round and the piece breaks off, seconds after her claws go in. */
 export const CLAW_BREAK = 1.35;
@@ -146,6 +147,7 @@ export class ClawTear {
     this.mesh = new THREE.Mesh(this.geo, CRACK_MAT);
     this.mesh.renderOrder = 2;
     view.group.add(this.mesh);
+    showWhenReady(this.mesh);
     this.onHer = onHer;
   }
 

@@ -15,6 +15,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { cloneMaterial } from './sever.js';
+import { showWhenReady } from './warmgate.js';
 
 /** How many holes a ship carries in her shaders before the oldest are made the old way. */
 export const HOLE_SLOTS = 24;
@@ -176,6 +177,7 @@ export function lineInside(meshes, U = null) {
     inner.castShadow = false;
     inner.receiveShadow = false;
     mesh.add(inner);
+    showWhenReady(inner);
   }
 }
 

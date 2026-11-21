@@ -28,6 +28,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { markable } from './pieces.js';
+import { showWhenReady } from './warmgate.js';
 
 // How the triangles are filed for lookup: one bucket per this many metres of
 // her length. A hit only ever tests the buckets its own radius reaches, so
@@ -413,6 +414,26 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const crossV = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const dotV = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
+function wallMaterial() {
+  return new THREE.MeshPhongMaterial({ vertexColors: true, side: THREE.DoubleSide, shininess: 6, specular: 0x0c0c0c });
+}
+
+/**
+ * The faces of a cut edge as the battle first draws them: nothing, with the
+ * same material and the same attributes, so their shader is built with
+ * everything else when the battle opens and not at the first tear.
+ */
+export function wallStandIn() {
+  const geo = new THREE.BufferGeometry();
+  for (const k of ['position', 'normal', 'color']) geo.setAttribute(k, new THREE.BufferAttribute(new Float32Array(9), 3));
+  geo.setDrawRange(0, 0);
+  const m = new THREE.Mesh(geo, wallMaterial());
+  m.frustumCulled = false;
+  m.userData.alwaysDraw = true;
+  m.castShadow = false;
+  return m;
+}
+
 class Walls {
   constructor(group) {
     const n = WALL_SLOTS * WALL_VERTS * 3;
@@ -427,7 +448,7 @@ class Walls {
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
     // Lit as her plating is lit, so the lip round a hole is the same paint
     // under the same light as the plate it is part of.
-    this.mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ vertexColors: true, side: THREE.DoubleSide, shininess: 6, specular: 0x0c0c0c }));
+    this.mesh = new THREE.Mesh(geo, wallMaterial());
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = false;
     this.mesh.userData.noSplit = true;
@@ -1224,7 +1245,10 @@ export class Plating {
 
   /** The faces of her cut edges, made when first wanted. */
   get walls() {
-    if (!this.cut) this.cut = new Walls(this.group);
+    if (!this.cut) {
+      this.cut = new Walls(this.group);
+      showWhenReady(this.cut.mesh);
+    }
     return this.cut;
   }
 

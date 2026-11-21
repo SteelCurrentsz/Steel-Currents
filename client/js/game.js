@@ -7,7 +7,7 @@ import { BattleScene } from './render/scene.js';
 import { glide } from './render/mounts.js';
 import { loadShips, shipReady } from './render/ships.js';
 import { BATTERIES, batteryGun } from '../../shared/batteries.js';
-import { nukeScale } from '../../shared/nuke.js';
+import { nukeScale, NUKE } from '../../shared/nuke.js';
 import { Hud, readTarget, THROTTLE_MAX, MISSILE_KEYS } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { TargetingView } from './render/targetview.js';
@@ -3821,7 +3821,7 @@ export class Battle {
           this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land, t0, kv);
           // Its wave is the sea from here on (see burstSwell).
           if (!ev.land && t0 != null) this.scene.ocean.addBurst(ev.x, ev.z, t0, k);
-          (this.nukeAt || (this.nukeAt = new Map())).set(ev.i, { x: ev.x, z: ev.z });
+          (this.nukeAt || (this.nukeAt = new Map())).set(ev.i, { x: ev.x, z: ev.z, k, land: !!ev.land });
           const eye = this.scene.camera.position;
           const far = Math.hypot(eye.x - ev.x, eye.z - ev.z);
           // The flash, as bright as the burst is big and near.
@@ -3839,13 +3839,36 @@ export class Battle {
           const view = this.scene.shipViews.get(ev.ship);
           const at = this.nukeAt && this.nukeAt.get(ev.i);
           // Close in, taken apart: her hull in pieces and her guns scattered.
+          if (!view && ev.sh) {
+            // Not drawn yet -- the shock got to her before the first sight of
+            // her did: she is taken apart the moment she is (see syncEntities).
+            (this.pendingShatter || (this.pendingShatter = new Map())).set(ev.ship, { ev, until: performance.now() + 30000 });
+          }
           if (view && ev.sh && view.shatter) {
             const p = view.group.position;
             const from = at || { x: p.x + 300, z: p.z };
-            if (view.shatter(from.x, from.z)) {
-              fx.explosion(p.x, p.y + 10, p.z, 4);
-              this.scene.debris.burst(p.x, p.y + 12, p.z, 26, 1.6);
-              fx.splash(p.x, p.z, 900);
+            // How far in she was: 1 inside the fireball, nothing at the edge
+            // of what takes a ship apart at all.
+            const k = at ? at.k || 1 : 1;
+            const reach = at && at.land ? NUKE.landReach : 1;
+            const d = Math.hypot(p.x - from.x, p.z - from.z);
+            const f0 = NUKE.fireball * k * reach, f1 = NUKE.lethal * k * reach;
+            const force = at ? Math.max(0, Math.min(1, 1 - (d - f0) / Math.max(1, f1 - f0))) : 0.5;
+            if (view.shatter(from.x, from.z, force)) {
+              fx.explosion(p.x, p.y + 10, p.z, 4 + force * 1.5);
+              this.scene.debris.burst(p.x, p.y + 12, p.z, 26 + force * 14, 1.6 + force * 0.8);
+              fx.splash(p.x, p.z, 900 + force * 1400);
+              // And all along her, the nearer in the more of it: what was in
+              // her going up as the shock goes through her.
+              const len = view.cls.hull.length;
+              const h = view.group.rotation.y;
+              const bursts = Math.round(force * Math.min(3, 1 + len / 80));
+              for (let i = 0; i < bursts; i++) {
+                const z = (i / Math.max(1, bursts - 1) - 0.5) * len * 0.8;
+                const bx = p.x + Math.sin(h) * z, bz = p.z + Math.cos(h) * z;
+                fx.explosion(bx, p.y + 6, bz, 1.5 + force);
+                this.scene.debris.burst(bx, p.y + 8, bz, 6 + force * 6, 1 + force * 0.5);
+              }
             }
           } else if (view && at && view.blastSteps) {
             const q = this.blasts || (this.blasts = []);
@@ -9018,6 +9041,17 @@ export class Battle {
 
   /** Interpolate every remote entity and drive its view model. */
   syncEntities(dt) {
+    // A ship the atomic shock took apart before she was ever drawn, now that
+    // she is.
+    if (this.pendingShatter && this.pendingShatter.size) {
+      const now = performance.now();
+      for (const [id, q] of this.pendingShatter) {
+        if (now > q.until) { this.pendingShatter.delete(id); continue; }
+        if (!this.scene.shipViews.get(id)) continue;
+        this.pendingShatter.delete(id);
+        try { this.onEvents([q.ev], true); } catch (e) { console.warn('Steel Currents: shatter', e); }
+      }
+    }
     if (!this.snapshots.length) return;
     // On the server's clock, not on the arrival times. See onSnapshot.
     const pair = this.snapshotPair(this.stepRenderClock());
