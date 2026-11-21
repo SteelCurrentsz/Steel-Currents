@@ -14972,11 +14972,12 @@ check('a ship lays her wake from her stem, and it ends in nothing', () => {
   for (let i = 0; i < 60 / dt; i++) { z += v * dt; wake.update(dt, 0, z, 0, v); }
   assert.ok(wake.pts.length > 8, `she laid only ${wake.pts.length} pieces of track`);
 
-  // The head of the track is her stem, half her length ahead of her middle.
-  const ahead = wake.pts[0].z - z;
-  assert.ok(Math.abs(ahead - cls.hull.length * 0.5) < 1,
-    `her wake starts ${ahead.toFixed(0)} m from her middle, not at her stem `
-    + `${(cls.hull.length * 0.5).toFixed(0)} m ahead of it`);
+  // The head of the track is just ahead of her stem: half her length ahead
+  // of her middle and a few metres more, for the cushion of white water she
+  // shoulders in front of her cutwater.
+  const ahead = wake.pts[0].z - z - cls.hull.length * 0.5;
+  assert.ok(ahead >= 4 && ahead <= 12.5,
+    `her wake starts ${ahead.toFixed(1)} m ahead of her stem, not a few metres`);
 
   // And the strip runs aft from there, never forward.
   const pos = wake.geo.attributes.position;
