@@ -710,7 +710,8 @@ export async function prepare(cfg) {
   if (process.env.PROBE) {
     const B = JSON.parse(process.env.PROBE);
     for (const p of parts) {
-      if (!inBox(B, ...p.mid) || p.tris.length < +(process.env.PROBE_MIN || 20)) continue;
+      const hit = process.env.PROBE_ANY ? [0, 1, 2].every((c) => p.lo[c] <= (B[['x', 'y', 'z'][c]] || [-1e9, 1e9])[1] && p.hi[c] >= (B[['x', 'y', 'z'][c]] || [-1e9, 1e9])[0]) : inBox(B, ...p.mid);
+      if (!hit || p.tris.length < +(process.env.PROBE_MIN || 20)) continue;
       console.log(`  run node ${p.node}${HULL_PIECES.has(p.node) ? '(hull)' : ''} ${p.tris.length}t x ${p.lo[0].toFixed(2)}..${p.hi[0].toFixed(2)} y ${p.lo[1].toFixed(2)}..${p.hi[1].toFixed(2)} z ${p.lo[2].toFixed(2)}..${p.hi[2].toFixed(2)}`);
     }
     process.exit(0);
