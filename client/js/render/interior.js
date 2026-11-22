@@ -23,6 +23,7 @@
 import * as THREE from '../../../vendor/three.module.js';
 import { SECTIONS, sectionAt } from '../../../shared/sim.js';
 import { box, cyl, tubeZ, tubeX } from './shipkit.js';
+import { interiorModel } from './interiorModel.js';
 
 // The yard's own colours: painted bulkheads, dark deck plating, machinery in
 // oiled steel, and the red lead they primed everything with.
@@ -47,6 +48,50 @@ const mat = (c) => {
   return MATS[c];
 };
 const M = new Proxy({}, { get: (_, k) => mat(P[k]) });
+// And the one her modelled machinery is drawn with: painted at its corners
+// off the model's own colours (see interiorModel.js), lit the same way.
+const painted = () => {
+  if (!MATS.painted) {
+    MATS.painted = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
+  }
+  return MATS.painted;
+};
+
+/**
+ * One of the modelled fittings -- a boiler, a turbine, a rack of shells --
+ * stood on the floor at (x, y, z) and fitted inside a room `w` wide, `h` high
+ * and `d` long, turned `turn` quarter turns about the vertical first.
+ *
+ * Kept to its own proportions as far as the room lets it be, and stretched
+ * along an axis by no more than `give` over that: a boiler room is the shape
+ * it is, and a boiler squeezed into a destroyer's is still a boiler, not a
+ * pancake. Returns the size it came out at, [w, h, d], or null if there is no
+ * model of that kind -- the caller then builds its own.
+ */
+function fitted(g, kind, w, h, d, x, y, z, { turn = 0, give = 0.3 } = {}) {
+  const m = interiorModel(kind);
+  if (!m || w <= 0 || h <= 0 || d <= 0) return null;
+  const q = ((turn % 4) + 4) % 4;
+  const [ex, ey, ez] = q % 2 ? [m.size[2], m.size[1], m.size[0]] : m.size;
+  let sx = w / ex, sy = h / ey, sz = d / ez;
+  const s = Math.min(sx, sy, sz);
+  sx = Math.min(sx, s * (1 + give));
+  sy = Math.min(sy, s * (1 + give));
+  sz = Math.min(sz, s * (1 + give));
+  const o = new THREE.Mesh(m.geometry, painted());
+  const bb = m.geometry.boundingBox;
+  // Its own scale is along its own axes, which a quarter turn swaps.
+  o.scale.set(q % 2 ? sz : sx, sy, q % 2 ? sx : sz);
+  o.rotation.y = (q * Math.PI) / 2;
+  o.updateMatrix();
+  // Stood on the floor and centred where it was asked for, wherever the
+  // model's own box sits about its origin.
+  const c = new THREE.Vector3((bb.min.x + bb.max.x) / 2, bb.min.y, (bb.min.z + bb.max.z) / 2)
+    .applyMatrix4(o.matrix);
+  o.position.set(x - c.x, y - c.y, z - c.z);
+  g.add(o);
+  return [ex * sx, ey * sy, ez * sz];
+}
 
 /** Whether a material is one her insides are drawn with -- they are welded
  *  in with the rest of her, so this is how they are told apart. */
@@ -355,7 +400,17 @@ function machinery(g, hull, sole, top) {
       const x = abreast === 1 ? 0 : (s ? 1 : -1) * beam * 0.24;
       const yc = sole + rBoiler + 0.35;
       // The boiler itself: a drum lying athwartships on its saddles, with the
-      // front plate and the row of furnace doors a stoker looks at.
+      // front plate and the row of furnace doors a stoker looks at, its
+      // mountings and safety valves on top -- as tall as the room lets it
+      // stand, and as deep as the row it is in.
+      const b = fitted(g, 'boiler', drum, Math.max(1.2, top - sole - 0.6), Math.min(pitch * 0.85, rBoiler * 4), x, sole + 0.12, z, { give: 0.4 });
+      if (b) {
+        const roof = sole + 0.12 + b[1] * 0.78;
+        const up = Math.max(0.6, top - roof);
+        cyl(g, M.pipe, rBoiler * 0.42, rBoiler * 0.52, up, x, roof + up / 2, z, 8);
+        tubeZ(g, M.pipe, rBoiler * 0.11, pitch * 0.9, x + b[0] * 0.3, sole + 0.12 + b[1] * 0.66, z + pitch * 0.4, 6);
+        continue;
+      }
       tubeX(g, M.boiler, rBoiler, drum, x, yc, z, 12);
       for (const e of [-1, 1]) {
         cyl(g, M.frame, rBoiler * 1.04, rBoiler * 1.04, 0.22,
@@ -385,10 +440,24 @@ function machinery(g, hull, sole, top) {
   const L = Math.max(3, (z1 - ez0) * 0.62);
   for (let i = 0; i < shafts; i++) {
     const x = shafts === 1 ? 0 : (i ? 1 : -1) * beam * 0.22;
-    // Turbine casing, low and long, with the gearcase abaft it.
-    box(g, M.machine, beam * 0.24, head * 0.34, L, x, sole + head * 0.22, ez0 + L * 0.5);
-    tubeZ(g, M.machine, beam * 0.085, L * 0.8, x, sole + head * 0.44, ez0 + L * 0.5, 10);
-    box(g, M.machine, beam * 0.2, head * 0.42, 2.2, x, sole + head * 0.24, ez0 + L + 1.1);
+    // The turbine sets, the high- and low-pressure casings bolted to their
+    // gearcase, as many in tandem down the shaft as the room is long for --
+    // a battleship's engine room is two of them end to end.
+    const tw = beam * (shafts === 1 ? 0.3 : 0.26);
+    const th = Math.max(1.2, head * 0.62);
+    const one = interiorModel('turbine');
+    const sets = one ? Math.max(1, Math.min(3, Math.round((L + 2.2) / (Math.min(tw / one.size[0], th / one.size[1]) * 1.3)))) : 0;
+    const each = (L + 2.2) / Math.max(1, sets);
+    let drawn = 0;
+    for (let k = 0; k < sets; k++) {
+      if (fitted(g, 'turbine', tw, th, each * 0.94, x, sole + 0.12, ez0 + each * (k + 0.5), { turn: k % 2 ? 2 : 0 })) drawn++;
+    }
+    if (!drawn) {
+      // Turbine casing, low and long, with the gearcase abaft it.
+      box(g, M.machine, beam * 0.24, head * 0.34, L, x, sole + head * 0.22, ez0 + L * 0.5);
+      tubeZ(g, M.machine, beam * 0.085, L * 0.8, x, sole + head * 0.44, ez0 + L * 0.5, 10);
+      box(g, M.machine, beam * 0.2, head * 0.42, 2.2, x, sole + head * 0.24, ez0 + L + 1.1);
+    }
     // Condenser underneath, and the shaft aft out through the bulkhead.
     tubeZ(g, M.frame, beam * 0.06, L * 0.7, x, sole + 0.5, ez0 + L * 0.5, 8);
     // Aft as far as she still has the depth for a shaft, which is short of the
@@ -404,6 +473,16 @@ function machinery(g, hull, sole, top) {
     const zEnd = hull.zAt ? hull.zAt(stop, shaftY) : zOf(hull, stop);
     const tail = Math.max(2, (ez0 + L + 2.2) - zEnd);
     tubeZ(g, M.frame, rad, tail, x, shaftY, ez0 + L + 2.2 - tail / 2, 8);
+  }
+  // The turbo-generators, which make the ship's electricity -- her lights,
+  // her fans, her turrets' training gear -- in the room left between the
+  // turbines and the forward end of the engine room, one either side.
+  const gz0 = ez0 + L + 2.4;
+  const room = z1 - 0.6 - gz0;
+  if (room > 1.6) {
+    for (const s of [-1, 1]) {
+      fitted(g, 'generator', beam * 0.2, Math.max(1, head * 0.5), room * 0.9, s * beam * 0.2, sole + 0.12, gz0 + room / 2);
+    }
   }
   // Floor plates over the bilge, which is what you stand on down there, and
   // the gratings above them.
@@ -425,7 +504,34 @@ function magazine(g, hull, t0, t1, sole, top, cal) {
   // space down the middle, which is how a magazine is arranged and why a
   // magazine is the length it is.
   const tier = head * 0.42;
-  for (const s of [-1, 1]) {
+  // The racks themselves, modelled: the shells stood on end in their frames
+  // down each wing of the shell room, facing the working space between, as
+  // tall as both tiers. Half a dozen to a side at most, kept to their own
+  // proportions and spaced down the room -- a battleship carries her insides
+  // whether or not anyone has opened her up, and a rack stretched to fill a
+  // twenty-metre magazine is a trough, not a rack.
+  const Lr = Math.abs(zOf(hull, t1) - zOf(hull, t0)) * 0.7;
+  const rack = interiorModel('shells');
+  if (rack) {
+    const deep = Math.min(half * 0.4, Math.max(r * 7, 1.4));
+    // No taller than the two tiers of shelving it stands in for: a magazine
+    // forward is where her sides are falling in fastest, and the top of a
+    // rack stood any higher is out through the plating of a fine-ended ship.
+    const tall = Math.min(tier * 2 - 0.1, tier + r * 5 + 0.3);
+    const one = Math.min(deep / rack.size[0], tall / rack.size[1]) * rack.size[2];
+    const n = Math.max(1, Math.min(6, Math.floor(Lr / (one * 1.15))));
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < n; i++) {
+        fitted(g, 'shells', deep, tall, Math.min(one * 1.3, (Lr / n) * 0.96), s * (half * 0.58), sole + 0.2,
+          zc - Lr / 2 + (Lr * (i + 0.5)) / n, { turn: s > 0 ? 2 : 0, give: 0.4 });
+      }
+      // And the charge cases outboard of them, in their own racks, both tiers.
+      for (let t = 0; t < 2; t++) {
+        box(g, M.cordite, r * 1.8, r * 3.2, Lr * 0.9, s * (half * 0.58 + deep * 0.5 + r * 1.2), sole + 0.2 + t * tier + r * 1.7, zc);
+      }
+    }
+  }
+  for (const s of rack ? [] : [-1, 1]) {
     for (let t = 0; t < 2; t++) {
       const y = sole + 0.2 + t * tier;
       const x = s * half * 0.58;
@@ -472,6 +578,27 @@ function steering(g, hull, sole) {
   // The rudder stock coming up through the counter into the tiller flat, the
   // quadrant keyed to it, and the two rams that swing it.
   cyl(g, M.machine, half * 0.13, half * 0.13, 3.4 * k, 0, sole + 1.7 * k, z, 12);
+  // The quadrant, its rams and its motor, modelled, sat on the stock -- on a
+  // flat raised as far as it takes to have the breadth for them over their
+  // whole height, and no wider than that: right aft a hull is a V at the tank
+  // top, half a metre across, and the gear stood on the tank top there has
+  // its feet out through the bottom of her.
+  const tall = 3.2 * k;
+  const along = Math.max(0.4, half * 1.1);
+  const ta = stationAt(hull, z + half * 0.3 - along / 2, sole + 0.5);
+  const tb = stationAt(hull, z + half * 0.3 + along / 2, sole + 0.5);
+  let yb = sole + 0.05;
+  let room = fits(hull, Math.min(ta, tb), Math.max(ta, tb), yb, yb + tall);
+  for (let up = 0.1; up <= 1.6 && room < half * 0.8; up += 0.1) {
+    yb = sole + 0.05 + up;
+    room = fits(hull, Math.min(ta, tb), Math.max(ta, tb), yb, yb + tall);
+  }
+  if (room > 0.5 && yb + tall < hull.sheer(t) - 0.1
+    && fitted(g, 'steering', Math.min(half, room) * 1.8, tall, along, 0, yb, z + half * 0.3)) {
+    if (yb > sole + 0.1) platform(g, M.deck, hull, yb - 0.05, Math.min(ta, tb) - 0.02, Math.max(ta, tb) + 0.02, 0.2, 4);
+    platform(g, M.deck, hull, sole + 0.05, t - 0.1, -0.60, 0.2, 8);
+    return;
+  }
   cyl(g, M.machine, half * 0.62, half * 0.62, 0.5 * k, 0, sole + 2.6 * k, z, 14);
   box(g, M.machine, half * 1.2, 0.42 * k, 0.7, 0, sole + 2.6 * k, z + half * 0.25);
   for (const s of [-1, 1]) {
@@ -893,6 +1020,36 @@ function spanAt(tris, list, y, z) {
 }
 
 /**
+ * Whether her plating closes round a block standing from `x0` to `x1` across
+ * her, at heights `ys` and stations `zs` -- asked of the plating itself, both
+ * sides, because her lines say how wide she is and not whether she is plated
+ * there: a ship whose side is open at some deck has nothing to hold a block
+ * of bunks in, and the bunks are left out rather than stood in the air.
+ */
+function enclosed(tris, x0, x1, ys, zs) {
+  const SLAB = 1;
+  if (!tris.slabs) {
+    const m = new Map();
+    for (let i = 0; i < tris.length; i += 9) {
+      const a = tris[i + 2], b = tris[i + 5], c = tris[i + 8];
+      for (let k = Math.floor(Math.min(a, b, c) / SLAB); k <= Math.floor(Math.max(a, b, c) / SLAB); k++) {
+        let l = m.get(k);
+        if (!l) m.set(k, l = []);
+        l.push(i);
+      }
+    }
+    tris.slabs = m;
+  }
+  for (const z of zs) {
+    for (const y of ys) {
+      const sp = spanAt(tris, tris.slabs.get(Math.floor(z / SLAB)), y, z);
+      if (!sp || sp.lo > x0 - 0.25 || sp.hi < x1 + 0.25) return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Every triangle of plating in the group, in her own frame, as a flat array of
  * nine numbers apiece.
  *
@@ -1305,6 +1462,7 @@ export function buildInterior(g, hull) {
   // Platform deck, lower deck, and the underside of the main deck: three of
   // them in anything cruiser-sized, two in a destroyer.
   const levels = [];
+  let bunked = 0;
   const n = hull.loa > 150 ? 3 : 2;
   for (let i = 1; i <= n; i++) {
     const y = sole + ((deck - sole) * i) / (n + 1);
@@ -1347,6 +1505,26 @@ export function buildInterior(g, hull) {
       box(inside, M.bulkhead, half * 2, hgt * 0.94, 0.16, 0, (y0 + y1) / 2, z);
       // A door through it, so it reads as a bulkhead and not a wall.
       box(inside, M.frame, half * 0.28, hgt * 0.6, 0.2, half * 0.4, y0 + hgt * 0.3, z);
+      // And the men who live there: a block of bunks and lockers either side
+      // of the centreline bulkhead in the mess deck abaft it, on the decks
+      // above the machinery -- every third, which is still a ship's
+      // company's worth, and is what her insides can afford.
+      if (li > 0 && bunked++ % 3 === 0 && hgt > 1.9) {
+        const zb = z - Math.min(step * 0.3, 3);
+        const hb = roomAt(hull, zb, 1.6, y0 + 0.1, y1 - 0.1) * 0.94;
+        const deep = Math.min(hb * 0.42, 1.7);
+        if (deep > 0.6) {
+          const lb = Math.min(step * 0.42, 4.2);
+          for (const sd of [-1, 1]) {
+            const xa = sd > 0 ? 0.1 : -0.1 - deep;
+            const nz = Math.ceil(lb / 0.5);
+            const zs = Array.from({ length: nz + 1 }, (_, i) => zb - lb / 2 + (lb * i) / nz);
+            if (!enclosed(tris, xa, xa + deep, [y0 + 0.3, y0 + hgt * 0.45, y0 + hgt * 0.86], zs)) continue;
+            fitted(inside, 'bunks', deep, hgt * 0.86, lb, sd * (0.1 + deep / 2), y0 + 0.06, zb,
+              { turn: sd > 0 ? 0 : 2, give: 0.6 });
+          }
+        }
+      }
     }
     // The centreline bulkhead, fore and aft, that the flats are either side of.
     // Stopped short of where her keel comes up to meet the counter and the

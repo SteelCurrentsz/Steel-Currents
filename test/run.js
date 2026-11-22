@@ -436,18 +436,32 @@ function shellRuler(group) {
   // starboard and four metres wide: "fourteen metres off the centreline" is
   // true of it and is also true of a point thirteen metres out on the other
   // side, in the air over her port catwalk, where there is no island at all.
-  return (y, z) => {
+  //
+  // And not off one ray alone. Her plating is welded out of plates that do
+  // not all share their corners, and where one plate's edge meets the middle
+  // of another's there is a crack a hundredth of a plate wide; a ray down it
+  // misses that side of her altogether, and anything fitted inside her on
+  // that exact line reads as standing out in the air. So the ray and four
+  // more a centimetre round it, and the widest of them -- far finer than
+  // anything this is used to catch.
+  const one = (y, z, span) => {
     const l = bucket.get(Math.floor(z / SLAB));
-    if (!l) return null;
-    let lo = Infinity;
-    let hi = -Infinity;
+    if (!l) return;
     for (let n = 0; n < l.length; n++) {
       const h = rayX(l[n], y, z);
       if (Number.isNaN(h)) continue;
-      if (h < lo) lo = h;
-      if (h > hi) hi = h;
+      if (h < span.lo) span.lo = h;
+      if (h > span.hi) span.hi = h;
     }
-    return hi < lo ? null : { lo, hi };
+  };
+  return (y, z) => {
+    const span = { lo: Infinity, hi: -Infinity };
+    one(y, z, span);
+    one(y + 0.01, z, span);
+    one(y - 0.01, z, span);
+    one(y, z + 0.01, span);
+    one(y, z - 0.01, span);
+    return span.hi < span.lo ? null : span;
   };
 }
 import {

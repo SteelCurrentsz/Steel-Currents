@@ -653,7 +653,10 @@ const SURFACES = new Map();
 function surface(m, planked) {
   const hex = m.color ? m.color.getHex() : 0x808080;
   // Its side is part of it: a sheet drawn from both faces stays so.
-  const key = `${hex}:${planked ? 'w' : 's'}:${m.side}`;
+  // And so is whether it is painted at its corners: a model painted off its
+  // own texture (see interiorModel.js) given a plain white coat comes out
+  // white, every boiler and turbine in her the same blank.
+  const key = `${hex}:${planked ? 'w' : 's'}:${m.side}:${m.vertexColors ? 'c' : '-'}`;
   let out = SURFACES.get(key);
   if (out) return out;
   out = new THREE.MeshPhongMaterial({
@@ -670,6 +673,7 @@ function surface(m, planked) {
     // a step rather than as a painted line.
     specularMap: planked ? woodMap() : steelMap(),
     flatShading: m.flatShading === true,
+    vertexColors: m.vertexColors === true,
     side: m.side,
   });
   finish(out, planked ? 'wood' : 'steel');
