@@ -1182,7 +1182,12 @@ export function rawGround(world, x, z) {
     // than the island rising out of deep water like a post.
     const d = Math.hypot(x - i.x, z - i.z);
     const R = islandRadius(i, Math.atan2(x - i.x, z - i.z));
-    if (d > R && d < R + L * SHELF_OUT) near = Math.max(near, shelfAt(d - R, L));
+    // From the waterline itself (d == R) out: a point exactly on the
+    // outline -- every vertex of an island's beach ring is one -- is neither
+    // on the island (islandHeight gives it nothing) nor past it, and used to
+    // fall through to the coarse shore field below and come back as anything
+    // from thirty metres under water to a few metres of hill.
+    if (d >= R && d < R + L * SHELF_OUT) near = Math.max(near, shelfAt(d - R, L));
   }
   if (top > 0) return top;
   if (near > -Infinity) return near;
@@ -1423,7 +1428,7 @@ export const ISLE_RINGS = [
 ];
 
 // Out over the shelf, in its own lengths off the beach.
-const SHELF_RINGS = [0.06, 0.15, 0.28, 0.45, 0.68, 1, 1.45, 2.05, 2.9, 4, 5.3, SHELF_OUT];
+const SHELF_RINGS = [0.03, 0.06, 0.1, 0.15, 0.21, 0.28, 0.36, 0.45, 0.56, 0.68, 0.83, 1, 1.45, 2.05, 2.9, 4, 5.3, SHELF_OUT];
 const RINGS = new WeakMap();
 
 /**
@@ -1445,7 +1450,13 @@ export function isleRings(isle) {
 
 /** How many spokes an island's mesh is built with. */
 export function isleSpokes(isle) {
-  return Math.max(48, Math.min(120, Math.round(isle.r / 8)));
+  // A whole number of spokes to every one of the outline's own samples
+  // (RIM_N), so a spoke stands on each of them. The outline turns a corner
+  // at every sample, and a spoke count that did not land on them drew a
+  // straight edge across the corner: a beach the mesh had up to sixteen
+  // metres inside the outline every hull and shell was tested against.
+  const want = Math.max(48, Math.min(120, Math.round(isle.r / 8)));
+  return Math.round(want / RIM_N) * RIM_N;
 }
 
 // The mesh's vertices, kept once they have been worked out. Each is the true
@@ -1498,7 +1509,13 @@ function makeIsleVertex(world, isle, spokes, i, j) {
   // own beach it stays under the water: where its shelf runs in under a
   // neighbour's hill, the neighbour's mesh is the one that draws that hill.
   const y = keelGround(world, x, z);
-  return [x, f > 1 ? Math.min(y, -0.3) : y, z];
+  if (f <= 1) return [x, y, z];
+  // Out over its shelf it is its own shelf and no higher: where it runs in
+  // over a neighbour's, the neighbour's own mesh -- finer there, close in
+  // under its beach -- is the one that draws that ground. Lofted between
+  // its own few far rings over a neighbour's slope instead, it drew a shoal
+  // nine metres high in water twelve deep, and a keel touched it.
+  return [x, Math.min(y, -0.3, shelfAt(R * (f - 1), shelfRun(isle))), z];
 }
 
 // Height inside triangle abc at (x, z), or NaN when the point is outside it.
@@ -1527,9 +1544,22 @@ function isleDrawn(world, isle, x, z) {
   const i = Math.floor(t) % spokes;
   const i2 = (i + 1) % spokes;
   const v = (s, j) => isleVertex(world, isle, spokes, s, j);
-  // Only the ring the point is in and the one either side of it are worth
-  // trying: the quads are chords, so it is never further out than that.
-  const f = d / islandRadius(isle, bearing);
+  // Which ring it is in, as the mesh has it: the rings are drawn as straight
+  // chords between the spokes, so a point's place between them is its
+  // weights on the two spokes' rim points (p = α·A + β·B; on ring r,
+  // α + β = r) -- not its distance over the outline's radius on its own
+  // bearing, which bows out between the spokes. Read that way, a point on
+  // the beach, where the rings are half a percent of the radius apart, was
+  // looked for several rings from where it was, not found on its own
+  // island, and given the depth of a neighbour's shelf.
+  const a0 = (i / spokes) * TAU, a1 = (i2 / spokes) * TAU;
+  const R0 = islandRadius(isle, a0), R1 = islandRadius(isle, a1);
+  const Ax = Math.sin(a0) * R0, Az = Math.cos(a0) * R0;
+  const Bx = Math.sin(a1) * R1, Bz = Math.cos(a1) * R1;
+  const det = Ax * Bz - Az * Bx;
+  const f = Math.abs(det) > 1e-9
+    ? ((dx * Bz - dz * Bx) + (Ax * dz - Az * dx)) / det
+    : d / islandRadius(isle, bearing);
   let k = 0;
   while (k < last && rings[k + 1] <= f) k++;
   // The summit fan, then ring by ring outward: the same triangles the
@@ -1539,14 +1569,28 @@ function isleDrawn(world, isle, x, z) {
     h = inTri(v(i, 0), v(i, 1), v(i2, 1), x, z);
     if (!Number.isNaN(h)) return h;
   }
-  for (let j = Math.max(1, k - 1); j < Math.min(last, k + 2); j++) {
+  const quad = (j) => {
     const a = v(i, j);
     const b = v(i, j + 1);
     const c = v(i2, j);
-    const d = v(i2, j + 1);
-    h = inTri(a, b, d, x, z);
+    const e = v(i2, j + 1);
+    const q = inTri(a, b, e, x, z);
+    return Number.isNaN(q) ? inTri(a, e, c, x, z) : q;
+  };
+  for (let j = Math.max(1, k - 1); j < Math.min(last, k + 2); j++) {
+    h = quad(j);
     if (!Number.isNaN(h)) return h;
-    h = inTri(a, d, c, x, z);
+  }
+  // Rounding on a quad's edge: the rest of this wedge, nearest first.
+  for (let s = 2; s < last; s++) {
+    for (const j of [k - s, k + s]) {
+      if (j < 1 || j >= last) continue;
+      h = quad(j);
+      if (!Number.isNaN(h)) return h;
+    }
+  }
+  if (k > 1) {
+    h = inTri(v(i, 0), v(i, 1), v(i2, 1), x, z);
     if (!Number.isNaN(h)) return h;
   }
   return NaN;
@@ -1670,8 +1714,26 @@ export function islandAt(world, x, z, pad = 0) {
   // from the mask after the exact test above had already said it was in the
   // water. The rim is the answer for an island; the mask is the answer for a
   // coast; a battlefield never has both.
-  if (world.land?.length && landAt(world, x, z, pad)) return SHORE;
+  if (world.land?.length && coastLand(world, x, z, pad)) return SHORE;
   return null;
+}
+
+/**
+ * Ashore on a real coast: the ground itself above the water, here or
+ * anywhere round the pad. The ground, and not the hundred-and-fifty-metre
+ * cells of the land mask it is drawn from: the shore as drawn runs between
+ * the cells' middles, and a point half a cell either side of it was land to
+ * one test and sea to the other.
+ */
+function coastLand(world, x, z, pad) {
+  if (!landAt(world, x, z, pad + MASK_CELL)) return false;
+  if (rawGround(world, x, z) > 0) return true;
+  if (pad <= 0) return false;
+  for (let a = 0; a < 8; a++) {
+    const th = (a / 8) * Math.PI * 2;
+    if (rawGround(world, x + Math.cos(th) * pad, z + Math.sin(th) * pad) > 0) return true;
+  }
+  return false;
 }
 
 /** What islandAt hands back for the real coastline. */

@@ -6314,6 +6314,29 @@ function shellOwner(state, sh) {
  * line is picked up a little way out along the bearing, past the gun's own
  * ground — which is what a gun on a hill actually shoots over.
  */
+/**
+ * How high a ship's masthead stands, in metres: where her lookouts are, and
+ * the first of her a lookout elsewhere sees come up over the horizon or over
+ * a low island. Roughly an eighth of her length, within reason.
+ */
+function mastheadOf(ship) {
+  const cls = shipClass(ship);
+  if (cls?.dive && submerged(ship)) return 1;
+  return clamp((cls?.hull?.length || 100) * 0.12, 6, 38);
+}
+
+/**
+ * Whether the land between two points hides one from the other, eye height
+ * to eye height. The flat test first (blockedByLand: is there land on the
+ * line at all), which is all most sight lines ever need; and only where
+ * there is, the line itself through the ground: the islands are low now,
+ * and a masthead sees over an islet it would once have been hidden behind.
+ */
+export function landHides(world, ax, ay, az, bx, by, bz, ignore = null) {
+  if (!blockedByLand(world, ax, az, bx, bz, ignore)) return false;
+  return !!solidHit(world, ax, ay, az, bx, by, bz, 12, false);
+}
+
 function batteryEye(state, bat, bearing) {
   const limit = bat.own ? (bat.own.rmax || bat.own.r) * 2 + 300 : 900;
   for (let r = 150; r <= limit; r += 150) {
@@ -6384,7 +6407,7 @@ function batteryTarget(state, bat, b, gun, arcLimit = true) {
     // way it stops a ship's — but not the hill the gun is standing on.
     if (c.d > 900) {
       const eye = batteryEye(state, bat, c.bearing);
-      if (blockedByLand(state.world, eye.x, eye.z, c.ship.x, c.ship.z, bat.own)) continue;
+      if (landHides(state.world, eye.x, (bat.y || 0) + 6, eye.z, c.ship.x, mastheadOf(c.ship), c.ship.z, bat.own)) continue;
     }
     return c.ship;
   }
@@ -6774,7 +6797,7 @@ function mortarTarget(state, bat, gun) {
     // post -- which is the only report a battery out on its own has.
     if (!inSight(ship, bat.team) && !state.world.arcade && d > 900) {
       const eye = batteryEye(state, bat, headingTo(bat.x, bat.z, ship.x, ship.z));
-      if (blockedByLand(state.world, eye.x, eye.z, ship.x, ship.z, bat.own)) continue;
+      if (landHides(state.world, eye.x, (bat.y || 0) + 6, eye.z, ship.x, mastheadOf(ship), ship.z, bat.own)) continue;
     }
     bv = v;
     best = ship;
@@ -20642,7 +20665,8 @@ function stepDetection(state) {
       const radar = d < oc.radarRange * 0.55 && !smoked
         && !(tc.dive && submerged(target));
       if (d > (smoked ? conceal * 0.22 : conceal) && !radar) continue;
-      if (d > 900 && blockedByLand(state.world, observer.x, observer.z, target.x, target.z)) continue;
+      if (d > 900 && landHides(state.world, observer.x, mastheadOf(observer), observer.z,
+        target.x, mastheadOf(target), target.z)) continue;
       target.spottedBy[observer.team] = true;
     }
   }

@@ -27,7 +27,7 @@ import {
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
   siteBattery, batteryPad, afloatAt, seabedRoom,
   commandBattery, pinBattery, layBattery, triggerBattery, readTrack, predictTrack, PLOT_WATCH,
-  trainBattery, orderAttack, embarkTank, driveTank, tankGround, TANK_MAX_GRADE,
+  trainBattery, orderAttack, embarkTank, driveTank, tankGround, TANK_MAX_GRADE, landHides,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
@@ -6531,6 +6531,52 @@ check('every island and coast is low and gentle enough for a tank to drive anywh
     assert.ok(shore < 0.4, `the shore stands up at ${shore.toFixed(2)} in one`);
     assert.ok(landCeiling(w) < 200, `land ${landCeiling(w)}m high`);
   }
+});
+
+check('an island is drawn where it is: the beach the eye sees is the beach a hull and a shell are tested on', () => {
+  for (const [seed, map] of [[777, 'coral_shelf'], [12345, 'solomon_narrows'], [9911, 'solomon_narrows']]) {
+    const w = generateWorld(seed, map);
+    let rnd = seed;
+    const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
+    for (const isle of w.islands) {
+      // A spoke on every corner of the outline.
+      assert.equal(isleSpokes(isle) % 24, 0, 'the mesh cuts across the corners of the outline');
+      for (let k = 0; k < 4000; k++) {
+        const a = rand() * Math.PI * 2;
+        const R = islandRadius(isle, a);
+        const f = 0.9 + rand() * 0.2;
+        const x = isle.x + Math.sin(a) * R * f, z = isle.z + Math.cos(a) * R * f;
+        const g = groundHeight(w, x, z), d = drawnGround(w, x, z);
+        if (g > -15 || d > -15) {
+          assert.ok(Math.abs(g - d) < 1.5, `at ${f.toFixed(3)} of her radius the beach is ${g.toFixed(1)} and drawn at ${d.toFixed(1)}`);
+        }
+        // Land to one test is land to the other.
+        if (Math.abs(g) > 0.5) assert.equal(!!islandAt(w, x, z, 0), g > 0, 'the outline and the ground disagree');
+      }
+    }
+  }
+  // And on a real coast: ashore is where the ground is above the water.
+  const c = generateWorld(42, 'north_atlantic', null, undefined, { lon: -5.5, lat: 50.1 });
+  let rnd = 7;
+  const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 40000; k++) {
+    const x = (rand() * 2 - 1) * c.half, z = (rand() * 2 - 1) * c.half;
+    const g = groundHeight(c, x, z);
+    if (Math.abs(g) > 0.5) assert.equal(!!islandAt(c, x, z, 0), g > 0, `the coast says ${g.toFixed(1)}m but the shore test disagrees`);
+  }
+});
+
+check('a low island hides a ship no more than it stands in front of her: a masthead sees over an islet, not through a hill', () => {
+  const w = generateWorld(4242, 'open_ocean');
+  const isle = (height) => ({ x: 0, z: 0, r: 300, rmax: 300, height });
+  w.islands = [isle(12)];
+  // Line of sight passes straight over it, two masts thirty metres up.
+  assert.ok(blockedByLand(w, -4000, 0, 4000, 0), 'the islet is not on the line at all');
+  assert.ok(!landHides(w, -4000, 30, 0, 4000, 30, 0), 'a twelve-metre islet hides a masthead thirty metres up');
+  // A hill does.
+  const w2 = generateWorld(4242, 'open_ocean');
+  w2.islands = [isle(90)];
+  assert.ok(landHides(w2, -4000, 30, 0, 4000, 30, 0), 'a ninety-metre hill hides nothing');
 });
 
 check('a Higgins boat run up on a beach drops her ramp the moment she takes it, takes no harm, and stays', () => {
