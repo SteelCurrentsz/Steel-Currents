@@ -30,7 +30,7 @@ await prepare({
       { x: [-6.6, -2.6], y: [6.6, 10.4], z: [35.6, 44.0] },
     ], gun: { whole: true, tris: 1400, error: 0.01 } },
     // Her forty 61 cm Type 92 tubes in ten quadruple banks, five a side.
-    tubes: { boxes: [[-46.4, -35.4], [-32.0, -21.4], [-18.0, -7.4], [-3.0, 7.6], [11.6, 22.0]].flatMap(([a, b]) => [bank(1, a, b), bank(-1, a, b)]),
+    tubes: { boxes: [[-46.4, -35.4], [-32.0, -21.4], [-18.0, -7.4], [-3.0, 7.6], [11.6, 20.8]].flatMap(([a, b]) => [bank(1, a, b), bank(-1, a, b)]),
       gun: { tubes: 4, tris: 1400, rest: 'axis' } },
     // Her twin 25 mm Type 96, one a side on her bridge.
     aa2: { auto: { regions: [{ y: [11, 15], z: [40, 48] }], nodes: [160], size: [0.8, 3], minFaces: 300, gap: 0.2 },

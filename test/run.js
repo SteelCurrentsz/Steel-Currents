@@ -7097,8 +7097,8 @@ check('the Credits screen credits the model the Mutsu is drawn from', () => {
   assert.ok(screen.includes('https://skfb.ly/ptQvY') && screen.includes('kriss50'), 'the credit is not as its licence asks');
 });
 
-check('HMS Agincourt is in a yard of her own, the Great War\'s, armed with seven twin 12-inch', () => {
-  assert.deepEqual(WWI_ORDER, ['agincourt'], 'the Great War yard is not the Agincourt alone');
+check('HMS Agincourt is in the Great War\'s yard with the Revenge, armed with seven twin 12-inch', () => {
+  assert.deepEqual([...WWI_ORDER].sort(), ['agincourt', 'revenge'], 'the Great War yard is not the Agincourt and the Revenge');
   assert.ok(!WWII_ORDER.includes('agincourt'), 'she is in the Second World War yard');
   assert.ok(!MODERN_ORDER.includes('agincourt'), 'she is in the Modern yard');
   // And the ship icon offers the Great War first, left of the Second.

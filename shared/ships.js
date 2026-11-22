@@ -19969,10 +19969,10 @@ Object.assign(SHIP_CLASSES, {
           launch: { eject: 9, stagger: 0.35, lanes: [-0.853,-0.077,0.698,1.473], lie: -2.41, muzzle: 2.09, height: 5.22, fish: { len: 9, r: 0.305, kind: 'type93' } } },
         { id: 7, x: -5.566, z: 1.08, angle: -1.57, arc: 1.8, rest: 0, tubes: 4, my: 5.22,
           launch: { eject: 9, stagger: 0.35, lanes: [-1.473,-0.698,0.077,0.853], lie: -2.43, muzzle: 2.07, height: 5.22, fish: { len: 9, r: 0.305, kind: 'type93' } } },
-        { id: 8, x: 5.183, z: 16.804, angle: 1.57, arc: 1.8, rest: 0, tubes: 4, my: 5.22,
-          launch: { eject: 9, stagger: 0.35, lanes: [-0.732,0.043,0.818,1.593], lie: -4.75, muzzle: -0.25, height: 5.22, fish: { len: 9, r: 0.305, kind: 'type93' } } },
-        { id: 9, x: -5.162, z: 16.804, angle: -1.57, arc: 1.8, rest: 0, tubes: 4, my: 5.22,
-          launch: { eject: 9, stagger: 0.35, lanes: [-1.615,-0.84,-0.064,0.711], lie: -4.75, muzzle: -0.25, height: 5.22, fish: { len: 9, r: 0.305, kind: 'type93' } } },
+        { id: 8, x: 5.164, z: 15.192, angle: 1.57, arc: 1.8, rest: 0, tubes: 4, my: 5.22,
+          launch: { eject: 9, stagger: 0.35, lanes: [-0.712,0.063,0.838,1.613], lie: -3.13, muzzle: 1.37, height: 5.22, fish: { len: 9, r: 0.305, kind: 'type93' } } },
+        { id: 9, x: -5.164, z: 15.192, angle: -1.57, arc: 1.8, rest: 0, tubes: 4, my: 5.22,
+          launch: { eject: 9, stagger: 0.35, lanes: [-1.613,-0.838,-0.063,0.712], lie: -3.13, muzzle: 1.37, height: 5.22, fish: { len: 9, r: 0.305, kind: 'type93' } } },
       ],
       name: '610 mm Type 93 torpedo', role: 'surface', caliber: 610, kind: 'type93',
       tubeLabel: '610 mm',
@@ -20021,7 +20021,7 @@ Object.assign(SHIP_CLASSES, {
     hull: {
       // Where her funnels come out, [across, along, up] in metres off her
       // model: what she makes smoke from. See funnelsOf in game.js.
-      funnels: [[0,13.5,12],[0,2,12],[0,-10.5,12]], length: 142.9, beam: 12.3, draft: 4, superstructure: 1.2 },
+      funnels: [[0,13.5,12],[0,2,12],[0,-10.5,12]], length: 142.9, beam: 12.3, draft: 4, superstructure: 1.2, heavePeriod: 3.8 },
     hp: 12500,
     maxSpeed: 33 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -20174,7 +20174,7 @@ Object.assign(SHIP_CLASSES, {
     hull: {
       // Where her funnels come out, [across, along, up] in metres off her
       // model: what she makes smoke from. See funnelsOf in game.js.
-      funnels: [[0,7.5,13]], length: 139.5, beam: 12, draft: 3.6, superstructure: 1.2 },
+      funnels: [[0,7.5,13]], length: 139.5, beam: 12, draft: 3.6, superstructure: 1.2, heavePeriod: 3.6 },
     hp: 11000,
     maxSpeed: 35.5 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -20834,8 +20834,8 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'ushakov', 'burke', 'cleveland', 'fargo', 'brooklyn', 'atlanta', 'ajax', 'county', 'indianapolis', 'pensacola', 'neworleans', 'wichita', 'borgia', 'trento', 'kirov', 'algerie', 'hipper', 'spee', 'scheer', 'suzuya', 'yodo', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'agano', 'furutaka', 'aoba', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'doria', 'roma', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'tennessee', 'northcarolina', 'massachusetts', 'iowa', 'maine', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'ushakov', 'cleveland', 'brooklyn', 'ajax', 'fargo', 'atlanta', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'trento', 'algerie', 'kirov', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
