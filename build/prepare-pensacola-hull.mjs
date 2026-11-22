@@ -10,7 +10,7 @@
 //   npm i --no-save meshoptimizer@0.22 sharp     (see build/sculpt-source.mjs)
 //   node build/prepare-pensacola-hull.mjs
 import { prepare } from './kriss-hull.mjs';
-import { light } from './_paint-light.mjs';
+import { USN_CRUISER_PAINTS, usnCruiserPaint, BOOT } from './kriss-paints.mjs';
 
 const box = (x0, x1, y0, y1, z0, z1) => ({ x: [x0, x1], y: [y0, y1], z: [z0, z1], hullToo: true });
 const five = (x, z, y0 = 5.4, y1 = 10.6) => box(x - 2.6, x + 2.6, y0, y1, z - 2.6, z + 2.6);
@@ -22,7 +22,7 @@ await prepare({
   credit: '"USS Pensacola (War Thunder)" by KojfDiscord (https://skfb.ly/pLHuu), CC BY 4.0',
   // 178.5 m over all (585 ft 6 in), 5.9 m deep.
   loa: 178.5, draught: 5.9, bow: '+z', groupDepth: 2,
-  ...light,
+  paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
   deckFallback: 6, hullTris: 80000,
   rigging: { y: 14 },
   kinds: {

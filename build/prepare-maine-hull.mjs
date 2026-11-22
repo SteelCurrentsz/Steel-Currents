@@ -9,7 +9,7 @@
 //   npm i --no-save meshoptimizer@0.22 sharp     (see build/sculpt-source.mjs)
 //   node build/prepare-maine-hull.mjs
 import { prepare } from './kriss-hull.mjs';
-import { light } from './_paint-light.mjs';
+import { USN_CRUISER_PAINTS, usnCruiserPaint, BOOT } from './kriss-paints.mjs';
 
 const box = (x0, x1, y0, y1, z0, z1) => ({ x: [x0, x1], y: [y0, y1], z: [z0, z1], hullToo: true });
 /** A mounting whose middle stands at (x, z), `r` metres round, from y0 to y1. */
@@ -23,7 +23,7 @@ await prepare({
   credit: '"Maine" by vvmilleriii (https://skfb.ly/pzRIK), CC BY 4.0',
   // 280.8 m over all (921 ft 3 in), 11 m deep.
   loa: 280.8, draught: 11.0, bow: '+z', groupDepth: 2,
-  ...light,
+  paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
   deckFallback: 8, hullTris: 90000,
   rigging: { y: 16 },
   kinds: {

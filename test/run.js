@@ -4628,6 +4628,75 @@ check('the Warspite and the Illustrious come in the yard, are credited, and buil
   for (const m of W.secondary.mounts) assert.ok(Math.sign(m.angle) === Math.sign(m.x) && Math.abs(m.angle) - m.arc > -0.35, 'a casemate of hers bears across her');
 });
 
+// ---- the nineteen ships of November 2026 ----------------------------------
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs, put
+// together by krissShip.js.
+const NOV26 = [
+  { id: 'revenge', type: 'BB', nation: 'gbr', era: 'wwi', link: 'https://skfb.ly/oTGEQ', title: 'HMS Revenge 1915', by: 'martyn169' },
+  { id: 'roma', type: 'BB', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/pyzRx', title: 'RN Roma (War Thunder) Leviathans', by: 'KojfDiscord' },
+  { id: 'doria', type: 'BB', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/pzSsC', title: 'Andrea Doria (World of Warships)', by: 'KojfDiscord' },
+  { id: 'wichita', type: 'CA', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pGVpu', title: 'USS Wichita WoWS', by: 'Jimphf' },
+  { id: 'fargo', type: 'CL', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pFCKK', title: 'USS Fargo War Thunder', by: 'Jimphf' },
+  { id: 'atlanta', type: 'CL', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pLHuw', title: 'USS Atlanta (War Thunder)', by: 'KojfDiscord' },
+  { id: 'pensacola', type: 'CA', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pLHuu', title: 'USS Pensacola (War Thunder)', by: 'KojfDiscord' },
+  { id: 'neworleans', type: 'CA', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pBB8p', title: 'USS New Orleans (War Thunder)', by: 'KojfDiscord' },
+  { id: 'furutaka', type: 'CA', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/pvYqC', title: 'IJN Furutaka (War Thunder)', by: 'KojfDiscord' },
+  { id: 'kitakami', type: 'CL', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/ptTKo', title: 'Japanese Cruiser Kitakami', by: 'kriss50' },
+  { id: 'tenryu', type: 'CL', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/ptRpM', title: 'Japanese Cruiser Tatsuta', by: 'kriss50' },
+  { id: 'oyodo', type: 'CL', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/pEsIT', title: 'IJN Oyodo (War Thunder) Line Of Contact', by: 'KojfDiscord' },
+  { id: 'yubari', type: 'CL', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/pwovz', title: 'IJN Yubari', by: '42manako' },
+  { id: 'kirov', type: 'CL', nation: 'sov', era: 'wwii', link: 'https://skfb.ly/ptMsq', title: 'Soviet Cruiser Voroshilov', by: 'kriss50' },
+  { id: 'algerie', type: 'CA', nation: 'fra', era: 'wwii', link: 'https://skfb.ly/pOtYK', title: 'Algerie (War Thunder) Sky Odyssey', by: 'KojfDiscord' },
+  { id: 'trento', type: 'CA', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/pyzQZ', title: 'RN Trento (War Thunder)', by: 'KojfDiscord' },
+  { id: 'ushakov', type: 'CA', nation: 'sov', era: 'modern', link: 'https://skfb.ly/pBNos', title: 'Kirov-class cruiser', by: 'SB-129' },
+  { id: 'maine', type: 'BB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pzRIK', title: 'Maine', by: 'vvmilleriii' },
+  { id: 'tennessee', type: 'BB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/oP7AS', title: 'USS California', by: 'HappySunpore' },
+];
+check('the nineteen ships of November 2026 come in their yards, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of NOV26) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    assert.ok(SHIP_ORDER.includes(m.id), `${m.id} is not in the yard`);
+    const era = WWI_ORDER.includes(m.id) ? 'wwi' : MODERN_ORDER.includes(m.id) ? 'modern' : WWII_ORDER.includes(m.id) ? 'wwii' : null;
+    assert.equal(era, m.era, `${m.id}: her era`);
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+});
+
+check('the Tatsuta is sailed as the Tenryū, the Voroshilov as the Kirov and the California as the Tennessee', () => {
+  assert.equal(SHIP_CLASSES.tenryu.name, 'Tenryū');
+  assert.equal(SHIP_CLASSES.kirov.name, 'Kirov');
+  assert.equal(SHIP_CLASSES.tennessee.name, 'Tennessee');
+  for (const c of Object.values(SHIP_CLASSES)) assert.ok(!/Tatsuta|Voroshilov|California/.test(c.name), `${c.id} is still called ${c.name}`);
+  // And the Project 1144 the owner's other Kirov model draws is the lead ship
+  // under the name she bears now, so the two Kirovs are not confused.
+  assert.equal(SHIP_CLASSES.ushakov.name, 'Admiral Ushakov');
+});
+
+check('the Maine carries sixteen 16-inch, twin 5-inch dual-purpose, 3-inch dual-purpose and 20 mm', () => {
+  const M = SHIP_CLASSES.maine;
+  assert.deepEqual(M.turrets.map((t) => t.guns), [4, 4, 4, 4]);
+  assert.equal(M.gun.caliber, 406);
+  assert.equal(M.secondary.caliber, 127);
+  assert.equal(M.secondary.role, 'dp');
+  const cal = M.aa.guns.map((g) => [g.caliber, g.role]);
+  assert.ok(cal.some(([c, r]) => c === 76 && r === 'dp'), 'no 3-inch dual-purpose');
+  assert.ok(cal.some(([c]) => c === 20), 'no 20 mm');
+});
+
 check('the Illustrious flies fifty-seven Corsairs and Avengers off her two lifts', () => {
   const cls = SHIP_CLASSES.illustrious;
   assert.equal(cls.planes.group.total, 57);

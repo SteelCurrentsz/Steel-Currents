@@ -10,7 +10,7 @@
 //   npm i --no-save meshoptimizer@0.22 sharp     (see build/sculpt-source.mjs)
 //   node build/prepare-tennessee-hull.mjs
 import { prepare } from './kriss-hull.mjs';
-import { light } from './_paint-light.mjs';
+import { USN_CRUISER_PAINTS, usnCruiserPaint, BOOT } from './kriss-paints.mjs';
 
 const box = (x0, x1, y0, y1, z0, z1) => ({ x: [x0, x1], y: [y0, y1], z: [z0, z1], hullToo: true });
 const at = (x, z, r, y0, y1) => box(x - r, x + r, y0, y1, z - r, z + r);
@@ -23,7 +23,7 @@ await prepare({
   credit: '"USS California" by HappySunpore (https://skfb.ly/oP7AS), CC BY 4.0',
   // 190.3 m over all (624 ft), 9.2 m deep.
   loa: 190.3, draught: 9.2, bow: '+x', groupDepth: 2,
-  ...light,
+  paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
   deckFallback: 8, hullTris: 90000,
   rigging: { y: 16 },
   kinds: {

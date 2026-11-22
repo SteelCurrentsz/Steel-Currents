@@ -9,8 +9,7 @@
 //   npm i --no-save meshoptimizer@0.22 sharp     (see build/sculpt-source.mjs)
 //   node build/prepare-wichita-hull.mjs
 import { prepare } from './kriss-hull.mjs';
-import { USN_PAINTS, BOOT } from './kriss-paints.mjs';
-import { light } from './_paint-light.mjs';
+import { USN_CRUISER_PAINTS, usnCruiserPaint, BOOT } from './kriss-paints.mjs';
 
 const five = (x, z, y = [5.4, 10.0]) => ({ x: x > 0 ? [x - 3.2, x + 3.0] : [x - 3.0, x + 3.2], y, z: [z - 3.6, z + 3.6], hullToo: true });
 
@@ -21,7 +20,7 @@ await prepare({
   credit: '"USS Wichita WoWS" by Jimphf (https://skfb.ly/pGVpu), CC BY 4.0',
   // 185.4 m over all (608 ft 4 in), 7.2 m deep.
   loa: 185.4, draught: 7.2, bow: '+z', groupDepth: 2,
-  ...light,
+  paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
   deckFallback: 6, hullTris: 80000,
   rigging: { y: 14 },
   kinds: {

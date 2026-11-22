@@ -9,7 +9,7 @@
 //   npm i --no-save meshoptimizer@0.22 sharp     (see build/sculpt-source.mjs)
 //   node build/prepare-neworleans-hull.mjs
 import { prepare } from './kriss-hull.mjs';
-import { light } from './_paint-light.mjs';
+import { USN_CRUISER_PAINTS, usnCruiserPaint, BOOT } from './kriss-paints.mjs';
 
 const box = (x0, x1, y0, y1, z0, z1) => ({ x: [x0, x1], y: [y0, y1], z: [z0, z1], hullToo: true });
 const five = (x, z) => box(x - 2.6, x + 2.6, 5.8, 10.6, z - 2.6, z + 2.6);
@@ -21,7 +21,7 @@ await prepare({
   credit: '"USS New Orleans (War Thunder)" by KojfDiscord (https://skfb.ly/pBB8p), CC BY 4.0',
   // 179.2 m over all (588 ft), 6.9 m deep.
   loa: 179.2, draught: 6.9, bow: '+z', groupDepth: 2,
-  ...light,
+  paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
   deckFallback: 6, hullTris: 80000,
   rigging: { y: 14 },
   kinds: {
