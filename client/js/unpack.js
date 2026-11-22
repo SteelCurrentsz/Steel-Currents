@@ -24,9 +24,24 @@ export async function unpack(packed) {
  * build/pack-data.mjs, packDataFile).
  */
 export async function unpackFile(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`could not fetch ${url}: ${res.status}`);
-  return opened(new Uint8Array(await res.arrayBuffer()));
+  // Asked again when it does not come. These are fetched from the top of a
+  // module, so one that fails takes the whole game down with it -- Safari on
+  // an iPad reports it as "TypeError: Load failed" and the captain sees the
+  // game fail to start -- and a fetch of a few megabytes on a phone's line, or
+  // through a service worker that has just been woken, does now and then drop
+  // and come good on the next try.
+  let last;
+  for (let i = 0; i < 4; i++) {
+    if (i) await new Promise((r) => setTimeout(r, 400 * 2 ** i));
+    try {
+      const res = await fetch(url, i ? { cache: 'reload' } : undefined);
+      if (!res.ok) throw new Error(`could not fetch ${url}: ${res.status}`);
+      return await opened(new Uint8Array(await res.arrayBuffer()));
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last;
 }
 
 async function opened(bytes) {
