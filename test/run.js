@@ -31262,6 +31262,35 @@ check('an atomic burst lights the sea without bringing a light into the battle',
   assert.equal(lights(), 1);
 });
 
+check('an atomic burst on the sea is Baker: no fireball disc, a column, the white dome and a shock to see', () => {
+  const scene = new THREE.Scene();
+  const nukes = new Nukes(scene, null);
+  nukes.add(0, 0, 0, false, null, 1);
+  const n = nukes.live[0];
+  // Nothing round and glowing laid over it: no ball of fire, no sprite.
+  let sprites = 0, balls = 0;
+  scene.traverse((o) => { if (o.isSprite) sprites++; if (o.geometry && o.geometry.type === 'SphereGeometry') balls++; });
+  assert.equal(sprites, 0, 'a glow sprite is drawn over the burst');
+  assert.equal(balls, 0, 'a ball of fire is drawn');
+  for (let t = 0; t < 3; t += 0.25) nukes.update(0.25);
+  assert.ok(n.cloud.mesh.visible, 'no column');
+  assert.ok(n.dome.mesh.visible, 'no condensation dome');
+  assert.ok(n.shock.visible, 'the shock is not drawn');
+  assert.ok(n.shock.scale.x > 3000, 'the shock is not out where the front is');
+  // The dome stands over the column with its crown showing over its top.
+  const D = n.dome.data, C = n.cloud.data;
+  assert.ok(D[1] > 900 && D[1] < C[1], `dome ${D[1]} against the crown ${C[1]}`);
+  // And it clears, and the shock has run out.
+  for (let t = 3; t < 50; t += 0.5) nukes.update(0.5);
+  assert.ok(!n.dome.mesh.visible, 'the dome never cleared');
+  assert.ok(!n.shock.visible, 'the shock never ran out');
+  // On land: the mushroom, and no dome.
+  nukes.add(0, 0, 0, true, null, 1);
+  const l = nukes.live[nukes.live.length - 1];
+  for (let t = 0; t < 4; t += 0.25) nukes.update(0.25);
+  assert.ok(l.cloud.mesh.visible && !l.dome.mesh.visible);
+});
+
 check('a Silverplate opens her doors, lets go of her one bomb and it goes off on the target', () => pinned(() => {
   const { st, ship, far, bm } = atomicRun();
   assert.equal(bm.loads, 1, 'a Silverplate formation went up with more than one weapon');

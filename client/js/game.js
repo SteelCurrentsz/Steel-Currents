@@ -3845,6 +3845,10 @@ export class Battle {
             (this.pendingShatter || (this.pendingShatter = new Map())).set(ev.ship, { ev, until: performance.now() + 30000 });
           }
           if (view && ev.sh && view.shatter) {
+            // Taken apart one ship a frame (see stepBlasts): a fleet inside
+            // the lethal ring all cut up in the one frame was the hitch of a
+            // second or more just as the shock came through.
+            (this.shatterQ || (this.shatterQ = [])).push(() => {
             const p = view.group.position;
             const from = at || { x: p.x + 300, z: p.z };
             // How far in she was: 1 inside the fireball, nothing at the edge
@@ -3870,6 +3874,7 @@ export class Battle {
                 this.scene.debris.burst(bx, p.y + 8, bz, 6 + force * 6, 1 + force * 0.5);
               }
             }
+            });
           } else if (view && at && view.blastSteps) {
             const q = this.blasts || (this.blasts = []);
             // Her own first: it is the ship the captain is looking at.
@@ -7803,37 +7808,24 @@ export class Battle {
     if (typeof document === 'undefined') return;
     let d = this.flashDiv;
     if (!d) {
+      // Plain white, and only opacity is ever changed on it, so it is a
+      // layer the compositor fades for nothing. (There used to be a warm
+      // afterglow under it, blended over the picture with mix-blend-mode for
+      // the best part of ten seconds: a yellow-orange disc over the middle of
+      // the screen, and a full-screen blend every frame while it was there.)
       d = document.createElement('div');
       d.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:50;'
-        + 'background:radial-gradient(circle at 50% 45%, #fffef6 0%, #fff6dc 55%, #ffe6b8 100%);opacity:0;';
+        + 'background:#fbfdff;opacity:0;will-change:opacity;';
       document.body.appendChild(d);
       this.flashDiv = d;
-      // And under the flash, the afterglow: the picture burnt warm and dark
-      // at its edges for a few seconds after, as film is by a light too
-      // bright for it.
-      const g = document.createElement('div');
-      g.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:49;mix-blend-mode:multiply;opacity:0;'
-        + 'background:radial-gradient(ellipse at 50% 42%, #ffd9a0 0%, #ff9a50 55%, #3a1408 100%);';
-      document.body.appendChild(g);
-      this.glowDiv = g;
     }
-    const g = this.glowDiv;
     const s = Math.max(0, Math.min(1, strength));
     d.style.transition = 'none';
-    d.style.opacity = String(0.96 * s);
-    g.style.transition = 'none';
-    g.style.opacity = '0';
+    d.style.opacity = String((land ? 0.95 : 0.9) * s);
     // The next frame, so the browser has drawn it lit before it fades.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      d.style.transition = 'opacity 2.6s cubic-bezier(0.2, 0.7, 0.3, 1)';
+      d.style.transition = 'opacity 1.8s cubic-bezier(0.2, 0.7, 0.3, 1)';
       d.style.opacity = '0';
-      g.style.transition = 'opacity 0.5s ease-out';
-      g.style.opacity = String((land ? 0.55 : 0.4) * s);
-      clearTimeout(this.glowFade);
-      this.glowFade = setTimeout(() => {
-        g.style.transition = `opacity ${land ? 9 : 6}s ease-in-out`;
-        g.style.opacity = '0';
-      }, 600);
     }));
   }
 
@@ -8644,6 +8636,11 @@ export class Battle {
    * struck in the same second, and done at once that was a frame of seconds.
    */
   stepBlasts() {
+    // A ship the shock takes apart, one a frame: each is a hull cut up.
+    if (this.shatterQ && this.shatterQ.length) {
+      const job = this.shatterQ.shift();
+      try { job(); } catch (e) { console.error('Steel Currents: shatter', e); }
+    }
     const q = this.blasts;
     if (!q || !q.length) return;
     // Every ship struck is worked on in the frame she is struck, a few steps

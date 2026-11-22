@@ -3,23 +3,29 @@
 // Two different things, depending on what it went off on:
 //
 //   On the sea, Baker: the flash, and then a column of water half a mile
-//   across thrown a mile into the air with a cauliflower head of spray on it,
-//   wrapped for a few seconds in the smooth white cap of the condensation
-//   cloud the shock leaves behind it -- and when the column falls back, the
-//   base surge rolling out across the sea from the foot of it.
+//   across thrown a mile into the air with a dark cauliflower crown of jets
+//   on it, wrapped in the great white dome of the condensation cloud the
+//   shock leaves behind it -- a solid heap of white standing on a flat skirt
+//   of fog on the water, the crown just showing over its top -- which clears
+//   from the top down; and when the column falls back, the base surge
+//   rolling out across the sea from the foot of it.
 //
-//   On the ground: the fireball climbing into the cap of the mushroom, the
-//   cap rolling over itself the way a vortex ring does and burning inside for
-//   well over a minute and hanging for minutes after, the stem drawn up into it with fire still in
-//   it, the white collar of condensation round the stem, and the dust of the
-//   base surge going out along the ground.
+//   On the ground: the fire climbing into the cap of the mushroom, the cap
+//   rolling over itself the way a vortex ring does and burning inside for
+//   well over a minute and hanging for minutes after, the stem drawn up into
+//   it with fire still in it, the white collar of condensation round the
+//   stem, and the dust of the base surge going out along the ground.
 //
-// And in both the shock itself: a shell of compressed air racing out at many
-// times the speed of sound, seen as what it is -- everything behind it bent
-// and shimmering through it (see renderShock) -- with a skin of condensation
-// flashing on it in the first instant. Its foot on the water is drawn by the
-// sea itself (burstMarks in ocean.js), and the wave that follows is the sea
-// itself too (burstSwell): neither is a mesh laid on the water.
+// And in both the shock itself: a dome of compressed air racing out at many
+// times the speed of sound, seen as what it is -- everything behind its rim
+// bent and shimmering through it (see renderShock) -- with a ragged skin of
+// condensation flashing on it in the first instants, and a wall of spray or
+// dust racing out along its foot. The slick it drives across the water is
+// drawn by the sea itself (burstMarks in ocean.js), and the wave that
+// follows is the sea itself too (burstSwell).
+//
+// No fireball is drawn as a ball, and no glow sprite laid over one: they
+// read as a flat yellow disc on the horizon. The fire is in the cloud.
 //
 // The mushroom is one solid surface (see Nukes.cloud and CLOUD_VERT): the
 // outline of a cap rolled over on itself, a stem and a skirt, turned about
@@ -96,47 +102,15 @@ function noiseTexture() {
   return NOISE;
 }
 
-/** A soft round glow, for the flash: made once, on a canvas. */
-let GLOW = null;
-function glowTexture() {
-  if (GLOW) return GLOW;
-  if (typeof document === 'undefined') return null;
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  gr.addColorStop(0, 'rgba(255,255,255,1)');
-  gr.addColorStop(0.25, 'rgba(255,255,255,0.55)');
-  gr.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = gr;
-  g.fillRect(0, 0, 128, 128);
-  GLOW = new THREE.CanvasTexture(c);
-  GLOW.colorSpace = THREE.SRGBColorSpace;
-  return GLOW;
-}
-
 // ------------------------------------------------------------------ shapes
-
-/**
- * The condensation cloud the shock leaves behind it: the great white dome of
- * Baker, standing on the sea over the whole burst, its foot a bright flat
- * skirt of spray and fog spread out on the water where the shock first struck
- * it. A lathe of this profile, from the skirt's inner edge out along the
- * water and up over the top.
- */
-const WILSON = [
-  [0.0, 0.0], [0.4, 0.0], [0.8, 0.0], [1.0, 0.0], [1.08, 0.004], [1.07, 0.03], [1.02, 0.08],
-  [0.99, 0.18], [0.95, 0.32], [0.88, 0.47], [0.77, 0.61], [0.61, 0.73],
-  [0.42, 0.82], [0.21, 0.87], [0.0, 0.89],
-];
 
 let SHAPES = null;
 function shapes() {
   if (SHAPES) return SHAPES;
   SHAPES = {
-    ball: new THREE.SphereGeometry(1, 48, 32),
-    shell: new THREE.SphereGeometry(1, 72, 36, 0, Math.PI * 2, 0, Math.PI * 0.62),
-    wilson: new THREE.LatheGeometry(WILSON.map(([x, y]) => new THREE.Vector2(x, y)), 72),
+    // The shock: a dome over the burst, a little past the horizontal so its
+    // foot is under the water and the ground.
+    shell: new THREE.SphereGeometry(1, 64, 28, 0, Math.PI * 2, 0, Math.PI * 0.56),
     card: new THREE.PlaneGeometry(1, 1),
   };
   for (const g of Object.values(SHAPES)) g.userData.shared = true;
@@ -256,107 +230,6 @@ void main() {
 }
 `;
 
-const FIRE_VERT = /* glsl */`
-varying vec3 vN;
-varying vec3 vV;
-varying vec3 vL;
-void main() {
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vN = normalize(normalMatrix * normal);
-  vV = -mv.xyz;
-  vL = position;
-  gl_Position = projectionMatrix * mv;
-}
-`;
-
-const FIRE_FRAG = /* glsl */`
-uniform sampler2D uNoise;
-uniform float uCool;      // 0 the instant it goes, 1 burnt down to a glow
-uniform float uTime;
-uniform float uOpacity;
-varying vec3 vN;
-varying vec3 vV;
-varying vec3 vL;
-vec3 ramp(float t) {
-  vec3 a = vec3(1.0, 1.0, 0.95);
-  vec3 b = vec3(1.0, 0.86, 0.45);
-  vec3 c = vec3(1.0, 0.5, 0.12);
-  vec3 d = vec3(0.7, 0.16, 0.04);
-  vec3 e = vec3(0.12, 0.05, 0.03);
-  if (t < 0.25) return mix(a, b, t / 0.25);
-  if (t < 0.5) return mix(b, c, (t - 0.25) / 0.25);
-  if (t < 0.75) return mix(c, d, (t - 0.5) / 0.25);
-  return mix(d, e, (t - 0.75) / 0.25);
-}
-void main() {
-  float face = abs(dot(normalize(vN), normalize(vV)));
-  vec2 uv = vec2(atan(vL.z, vL.x) * 0.159 + 0.5, vL.y * 0.5 + 0.5);
-  float n = texture2D(uNoise, uv * vec2(3.0, 1.6) + vec2(uTime * 0.02, -uTime * 0.05)).r * 0.6
-          + texture2D(uNoise, uv * vec2(7.0, 4.0) - vec2(uTime * 0.04, uTime * 0.09)).g * 0.4;
-  // Hottest in the middle of it as it is seen, cooler and darker at its limb,
-  // and the boil of it showing through as it cools.
-  float t = clamp(uCool * 0.85 + (1.0 - face) * 0.35 + (n - 0.5) * (0.25 + 0.6 * uCool), 0.0, 1.0);
-  vec3 col = ramp(t) * (1.0 + 7.0 * (1.0 - uCool) * (1.0 - uCool));
-  gl_FragColor = vec4(col, uOpacity * smoothstep(0.0, 0.35, face + 0.15));
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-}
-`;
-
-const WILSON_VERT = /* glsl */`
-varying vec3 vN;
-varying vec3 vV;
-varying vec3 vW;
-#include <fog_pars_vertex>
-void main() {
-  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-  vN = normalize(normalMatrix * normal);
-  vV = -mvPosition.xyz;
-  vW = (modelMatrix * vec4(position, 1.0)).xyz;
-  gl_Position = projectionMatrix * mvPosition;
-  #include <fog_vertex>
-}
-`;
-
-const WILSON_FRAG = /* glsl */`
-uniform sampler2D uNoise;
-uniform vec3 uLit;
-uniform float uOpacity;
-uniform float uTime;
-uniform vec3 uShape;     // x: the water's height, y: the dome's radius, z: how far its top has thinned
-
-varying vec3 vN;
-varying vec3 vV;
-varying vec3 vW;
-#include <common>
-#include <fog_pars_fragment>
-void main() {
-  // A skin of fog: thickest seen edge-on, which is where a line of sight
-  // passes through most of it.
-  float face = abs(dot(normalize(vN), normalize(vV)));
-  float n = texture2D(uNoise, vW.xz * 0.00045 + vW.y * 0.0003 + uTime * 0.004).r * 0.65
-          + texture2D(uNoise, vW.xz * 0.0019 - uTime * 0.007).g * 0.35;
-  float a = uOpacity * (0.4 + 0.35 * (1.0 - face)) * smoothstep(0.18, 0.62, n + uOpacity * 0.25);
-  // Torn at its outline: never the clean edge of a glass bowl, but fog
-  // thinning out in rags where the eye looks along it.
-  float rag = texture2D(uNoise, vW.xz * 0.0008 + vW.y * 0.0011 - uTime * 0.01).a;
-  a *= smoothstep(0.0, 0.45, face + (rag - 0.5) * 0.7);
-  // How high up it this is, 0 at the water and 0.89 at the top.
-  float h = (vW.y - uShape.x) / max(1.0, uShape.y);
-  // It clears from the top down, so the head of the column shows through it
-  // while its sides and its foot are still a wall of white.
-  a *= 1.0 - uShape.z * smoothstep(0.25, 0.85, h);
-  // The skirt: flat on the sea, dense and bright, and torn at its edge.
-  float skirt = (1.0 - smoothstep(0.0, 0.07, h));
-  float lip = texture2D(uNoise, vW.xz * 0.0011 + uTime * 0.003).b;
-  a = max(a, uOpacity * skirt * smoothstep(0.25, 0.6, lip + 0.2) * 0.95);
-  gl_FragColor = vec4(uLit * (0.85 + 0.3 * n + 0.25 * skirt), clamp(a, 0.0, 1.0));
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-  #include <fog_fragment>
-}
-`;
-
 // The mushroom itself: one closed surface, a lathe of the cloud's outline
 // (see Nukes.cloud) turned about its stem, every point of it pushed out or
 // in by a cauliflower noise that is fixed to the cloud -- so it grows and
@@ -433,6 +306,7 @@ varying vec3 vQ;
 varying float vLump;
 varying float vHeat;
 varying float vWhite;
+varying float vBias;
 #include <fog_pars_vertex>
 ${SIMPLEX3}
 vec4 prof(float fi, float row) {
@@ -471,6 +345,7 @@ void main() {
   vec4 h = prof(fi, 0.75);
   vHeat = h.x;
   vWhite = h.y;
+  vBias = h.z;
   vLump = clamp(l0 * 1.7, 0.0, 1.0);
   vQ = vec3(cos(a) * max(p.x, 1.0), sin(a) * max(p.x, 1.0), p.z + uDrift) / uL;
   vec4 w = modelMatrix * vec4(p0, 1.0);
@@ -493,12 +368,15 @@ uniform vec3 uFire;
 uniform vec4 uFireAt;     // the fireball, in the world, and how bright
 uniform float uGone;      // 0 whole, 1 dispersed
 uniform float uTime;
+uniform float uGain;      // how much light it gives back
+uniform float uFine;      // how hard its finer folds are cut
 varying vec3 vN;
 varying vec3 vW;
 varying vec3 vQ;
 varying float vLump;
 varying float vHeat;
 varying float vWhite;
+varying float vBias;
 #include <common>
 #include <fog_pars_fragment>
 void main() {
@@ -510,9 +388,11 @@ void main() {
   vec4 ny = texture2D(uNoise, f.xz);
   vec4 nz = texture2D(uNoise, f.xy + vec2(uTime * 0.002, 0.0));
   vec4 fine = nx * an.x + ny * an.y + nz * an.z;
-  // Thinning out at the end from its folds, its heads going last.
-  if (uGone > 0.0 && vLump * 0.55 + fine.r * 0.45 < uGone * 1.05) discard;
-  vec3 n = normalize(normalize(vN) + (fine.gba - 0.5) * 0.7);
+  // Thinning out at the end from its folds, its heads going last -- and
+  // where the outline says so (vBias), one part of it before another: the
+  // top of the condensation dome clears first, its foot on the sea last.
+  if (uGone > 0.0 && vLump * 0.55 + fine.r * 0.45 < uGone * (1.05 + vBias)) discard;
+  vec3 n = normalize(normalize(vN) + (fine.gba - 0.5) * uFine);
   float sd = dot(n, normalize(uSunDir));
   float sun = clamp(sd * 0.6 + 0.4, 0.0, 1.0);
   // Dark in its folds, bright on its heads.
@@ -521,7 +401,7 @@ void main() {
   // Lit through: a cloud scatters light in from all round, so its shaded
   // side is soft grey, never black.
   vec3 light = uSun * sun + mix(uGround * 1.6 + uSky * 0.25, uSky, n.y * 0.5 + 0.5) * 1.15;
-  vec3 col = alb * light * fold * 0.55;
+  vec3 col = alb * light * mix(1.0, fold, uFine / 0.7) * uGain;
   // The fireball under the cap lights the belly of it.
   vec3 tf = uFireAt.xyz - vW;
   float df = length(tf);
@@ -542,11 +422,17 @@ void main() {
 /** Points along the cloud's outline, and round it. */
 const CLOUD_NP = 160;
 const CLOUD_NA = 128;
+/**
+ * The condensation dome over a burst on the sea: a big smooth shape, its
+ * lumps all large ones, and fewer points do it.
+ */
+const DOME_NP = 72;
+const DOME_NA = 88;
 
-let CLOUD_GEO = null;
-function cloudGeometry() {
-  if (CLOUD_GEO) return CLOUD_GEO;
-  const NP = CLOUD_NP, NA = CLOUD_NA;
+const CLOUD_GEO = new Map();
+function cloudGeometry(NP, NA) {
+  const key = NP * 10000 + NA;
+  if (CLOUD_GEO.has(key)) return CLOUD_GEO.get(key);
   const ia = new Float32Array(NP * (NA + 1) * 2);
   const idx = [];
   for (let i = 0; i < NP; i++) {
@@ -569,18 +455,18 @@ function cloudGeometry() {
   g.setIndex(idx);
   g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
   g.userData.shared = true;
-  CLOUD_GEO = g;
+  CLOUD_GEO.set(key, g);
   return g;
 }
 
-function cloudMesh() {
-  const data = new Float32Array(CLOUD_NP * 2 * 4);
-  const tex = new THREE.DataTexture(data, CLOUD_NP, 2, THREE.RGBAFormat, THREE.FloatType);
+function cloudMesh(NP = CLOUD_NP, NA = CLOUD_NA) {
+  const data = new Float32Array(NP * 2 * 4);
+  const tex = new THREE.DataTexture(data, NP, 2, THREE.RGBAFormat, THREE.FloatType);
   tex.magFilter = tex.minFilter = THREE.NearestFilter;
   tex.needsUpdate = true;
   const mat = new THREE.ShaderMaterial({
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
-      uProf: { value: null }, uNP: { value: CLOUD_NP }, uL: { value: 300 }, uDrift: { value: 0 },
+      uProf: { value: null }, uNP: { value: NP }, uL: { value: 300 }, uDrift: { value: 0 },
       uNoise: { value: null },
       uSunDir: { value: new THREE.Vector3(0, 1, 0) },
       uSun: { value: new THREE.Color(1, 1, 1) },
@@ -591,6 +477,8 @@ function cloudMesh() {
       uFireAt: { value: new THREE.Vector4() },
       uGone: { value: 0 },
       uTime: { value: 0 },
+      uGain: { value: 0.55 },
+      uFine: { value: 0.7 },
     }]),
     vertexShader: CLOUD_VERT,
     fragmentShader: CLOUD_FRAG,
@@ -599,38 +487,86 @@ function cloudMesh() {
   });
   mat.uniforms.uProf.value = tex;
   mat.uniforms.uNoise.value = noiseTexture();
-  const mesh = new THREE.Mesh(cloudGeometry(), mat);
+  const mesh = new THREE.Mesh(cloudGeometry(NP, NA), mat);
   mesh.frustumCulled = false;
   mesh.visible = false;
-  // Dense working outline, resampled to CLOUD_NP evenly spaced points.
-  return { mesh, tex, data, work: [] };
+  // A working outline, resampled to NP evenly spaced points (see outline).
+  return { mesh, tex, data, np: NP, work: [], arc: new Float32Array(256) };
+}
+
+/**
+ * Lay a working outline -- six numbers a point: radius, height, how hard it
+ * is lumped, how hot, how white, and how early it goes (see vBias) -- out as
+ * evenly spaced points along it, into the cloud's outline texture.
+ */
+function outline(C) {
+  const W = C.work;
+  const NP = C.np;
+  const nW = W.length / 6;
+  if (C.arc.length < nW) C.arc = new Float32Array(nW * 2);
+  const S = C.arc;
+  S[0] = 0;
+  for (let i = 1; i < nW; i++) {
+    S[i] = S[i - 1] + Math.hypot(W[i * 6] - W[(i - 1) * 6], W[i * 6 + 1] - W[(i - 1) * 6 + 1]);
+  }
+  const total = S[nW - 1] || 1;
+  const D = C.data;
+  let j = 0;
+  for (let i = 0; i < NP; i++) {
+    const s = (i / (NP - 1)) * total;
+    while (j < nW - 2 && S[j + 1] < s) j++;
+    const f2 = Math.min(1, Math.max(0, (s - S[j]) / Math.max(1e-6, S[j + 1] - S[j])));
+    const a = j * 6, b = (j + 1) * 6;
+    const o = i * 4, o2 = (NP + i) * 4;
+    D[o] = W[a] + (W[b] - W[a]) * f2;
+    D[o + 1] = W[a + 1] + (W[b + 1] - W[a + 1]) * f2;
+    D[o + 2] = s;
+    D[o + 3] = W[a + 2] + (W[b + 2] - W[a + 2]) * f2;
+    D[o2] = W[a + 3] + (W[b + 3] - W[a + 3]) * f2;
+    D[o2 + 1] = W[a + 4] + (W[b + 4] - W[a + 4]) * f2;
+    D[o2 + 2] = W[a + 5] + (W[b + 5] - W[a + 5]) * f2;
+    D[o2 + 3] = 0;
+  }
+  C.tex.needsUpdate = true;
 }
 
 const SHOCK_VERT = /* glsl */`
 varying vec3 vN;
 varying vec3 vV;
+varying vec3 vP;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   vN = normalize(normalMatrix * normal);
   vV = -mv.xyz;
+  vP = position;
   gl_Position = projectionMatrix * mv;
 }
 `;
 
 const SHOCK_FRAG = /* glsl */`
 uniform sampler2D uScreen;
+uniform sampler2D uNoise;
 uniform vec2 uRes;
 uniform float uBend;     // how hard it bends the light, at its strongest
 uniform float uSkin;     // the condensation flashing on it
+uniform float uTime;
 varying vec3 vN;
 varying vec3 vV;
+varying vec3 vP;
 void main() {
   vec3 n = normalize(vN);
   float face = abs(dot(n, normalize(vV)));
   // A thin shell of dense air bends the light most where the eye looks
   // through the most of it, which is along its rim.
-  float band = pow(1.0 - face, 9.0);
-  if (band < 0.002) discard;
+  float rim = 1.0 - face;
+  float band = pow(rim, 6.0);
+  // The skin of condensation that flashes on it in the first instants:
+  // ragged, thickest low down and at its rim, never a clean bubble.
+  float h = clamp(vP.y, 0.0, 1.0);
+  float ns = texture2D(uNoise, vec2(atan(vP.z, vP.x) * 0.9, h * 1.3) + uTime * 0.01).r * 0.65
+           + texture2D(uNoise, vP.xz * 1.7 + 0.3).g * 0.35;
+  float skin = uSkin * smoothstep(0.42, 0.75, ns) * (0.25 + 0.75 * rim * rim) * (1.0 - 0.6 * h);
+  if (band < 0.003 && skin < 0.01) discard;
   vec2 uv = gl_FragCoord.xy / uRes;
   vec2 dir = length(n.xy) > 1e-4 ? normalize(n.xy) : vec2(0.0);
   vec2 off = dir * band * uBend;
@@ -638,8 +574,9 @@ void main() {
   float r = texture2D(uScreen, uv + off * 1.08).r;
   float g = texture2D(uScreen, uv + off).g;
   float b = texture2D(uScreen, uv + off * 0.92).b;
-  vec3 col = vec3(r, g, b) * (1.0 + band * 0.15) + uSkin * band * vec3(0.95, 0.97, 1.0);
-  gl_FragColor = vec4(col, clamp(band * 3.0, 0.0, 1.0));
+  vec3 col = vec3(r, g, b) * (1.0 + band * 0.25 * step(0.001, uBend));
+  col = mix(col, vec3(0.93, 0.95, 0.98), clamp(skin, 0.0, 0.85));
+  gl_FragColor = vec4(col, clamp(max(band * 3.0 * step(0.001, uBend), skin), 0.0, 1.0));
 }
 `;
 
@@ -752,10 +689,11 @@ const LAND_DIRT = new THREE.Color(0.5, 0.4, 0.31);
 // What the mushroom is where it is not white: dust and smoke over the land,
 // spray and steam grey over the sea.
 const SEA_CLOUD = new THREE.Color(0.58, 0.6, 0.63);
+// The condensation dome's shadowed side: a cool grey, never brown.
+const DOME_GREY = new THREE.Color(0.8, 0.83, 0.87);
 const LAND_CLOUD = new THREE.Color(0.42, 0.33, 0.26);
 const FIRE = new THREE.Color(1.0, 0.3, 0.06);
 const TMPV = new THREE.Vector3();
-const TMPC = new THREE.Color();
 const TMPM = new THREE.Matrix4();
 const TMPS = new THREE.Sphere();
 
@@ -797,9 +735,10 @@ export class Nukes {
     if (this.kept || !renderer) return;
     const parts = this.parts(false);
     const scene = new THREE.Scene();
-    for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson']) scene.add(parts[k]);
     parts.cloud.mesh.visible = true;
+    parts.dome.mesh.visible = true;
     scene.add(parts.cloud.mesh);
+    scene.add(parts.dome.mesh);
     scene.add(parts.mist.mesh);
     // The shock is drawn in a pass of its own, with no lights and no fog,
     // and a program is compiled for the scene it is drawn in.
@@ -813,6 +752,8 @@ export class Nukes {
         done?.catch?.(() => {});
       }
     } catch { /* compiled the first time one is drawn instead */ }
+    parts.cloud.mesh.visible = false;
+    parts.dome.mesh.visible = false;
     // And the first burst's parts are these: made, uploaded and compiled.
     this.pool.push(parts);
     // The copy of the frame the shock is drawn over, at the size it will be.
@@ -832,58 +773,23 @@ export class Nukes {
     return this.screen;
   }
 
-  /** What one burst is drawn with, unlit and unplaced. */
+  /**
+   * What one burst is drawn with, unlit and unplaced.
+   *
+   * There is no fireball drawn as a ball, and no glow or flare laid over it:
+   * a sphere of fire and a round sprite of light on top of it read, at any
+   * range, as a flat yellow disc stuck on the horizon. The flash is the
+   * light it throws on everything (the lamp) and the white-out over the
+   * screen; the fire is inside the cloud (see CLOUD_FRAG's heat).
+   */
   parts(land) {
     const S = shapes();
     const noise = noiseTexture();
-    const ball = new THREE.Mesh(S.ball, new THREE.ShaderMaterial({
-      uniforms: {
-        uNoise: { value: noise }, uCool: { value: 0 }, uTime: { value: 0 }, uOpacity: { value: 1 },
-      },
-      vertexShader: FIRE_VERT,
-      fragmentShader: FIRE_FRAG,
-      transparent: true,
-      depthWrite: false,
-    }));
-    // The glow round it, and the flash: additive, so it only ever brightens.
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: glowTexture(), color: 0xfff2d0, transparent: true, opacity: 1,
-      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false,
-    }));
-    glow.renderOrder = 9;
-    // The streak the flash throws across the eye -- long and thin, the way a
-    // camera's glass sees a light that bright -- and the sky lit over the
-    // burst, a dome of orange glow that hangs while the fire burns.
-    const flare = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: glowTexture(), color: 0xffe2b0, transparent: true, opacity: 0,
-      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false,
-    }));
-    flare.renderOrder = 10;
-    const sky = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: glowTexture(), color: 0xff7a30, transparent: true, opacity: 0,
-      blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
-    }));
-    sky.renderOrder = 1;
-    const wilson = new THREE.Mesh(S.wilson, new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
-        uNoise: { value: null }, uLit: { value: new THREE.Color(1, 1, 1) },
-        uOpacity: { value: 0 }, uTime: { value: 0 }, uShape: { value: new THREE.Vector3(0, 1, 0) },
-      }]),
-      vertexShader: WILSON_VERT,
-      fragmentShader: WILSON_FRAG,
-      transparent: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      fog: true,
-    }));
-    wilson.material.uniforms.uNoise.value = noise;
-    wilson.visible = false;
-    wilson.renderOrder = 2;
     // The shock: drawn in a pass of its own, over a copy of the picture.
     const shock = new THREE.Mesh(S.shell, new THREE.ShaderMaterial({
       uniforms: {
-        uScreen: { value: null }, uRes: { value: new THREE.Vector2(1, 1) },
-        uBend: { value: 0 }, uSkin: { value: 0 },
+        uScreen: { value: null }, uNoise: { value: noise }, uRes: { value: new THREE.Vector2(1, 1) },
+        uBend: { value: 0 }, uSkin: { value: 0 }, uTime: { value: 0 },
       },
       vertexShader: SHOCK_VERT,
       fragmentShader: SHOCK_FRAG,
@@ -893,11 +799,19 @@ export class Nukes {
       toneMapped: false,
     }));
     shock.frustumCulled = false;
+    shock.visible = false;
+    // The mushroom on land, or the column of water on the sea.
     const cloud = cloudMesh();
+    // The condensation dome over a burst on the sea.
+    const dome = cloudMesh(DOME_NP, DOME_NA);
+    dome.mesh.material.uniforms.uDirt.value.copy(DOME_GREY);
+    // Smooth and bright: a heap of fresh condensation, not a cauliflower.
+    dome.mesh.material.uniforms.uGain.value = 0.72;
+    dome.mesh.material.uniforms.uFine.value = 0.3;
     const mist = billowBatch(MISTS, true);
     mist.mesh.material.uniforms.uDirt.value.copy(land ? LAND_DIRT : SEA_DIRT);
     mist.mesh.renderOrder = 3;
-    return { ball, glow, flare, sky, wilson, shock, cloud, mist };
+    return { shock, cloud, dome, mist };
   }
 
   /**
@@ -919,13 +833,14 @@ export class Nukes {
     p.mist.mesh.visible = true;
     p.cloud.mesh.material.uniforms.uDirt.value.copy(land ? LAND_CLOUD : SEA_CLOUD);
     p.cloud.mesh.visible = false;
-    p.wilson.visible = false;
-    for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson']) g.add(p[k]);
+    p.dome.mesh.visible = false;
     g.add(p.cloud.mesh);
+    g.add(p.dome.mesh);
     g.add(p.mist.mesh);
     // The shock is not in the battle's scene but in its own pass.
     const ss = this.shockScene || (this.shockScene = new THREE.Scene());
-    p.shock.position.set(x, 0, z);
+    p.shock.position.set(x, Math.max(0, y), z);
+    p.shock.visible = false;
     ss.add(p.shock);
     // What the flash lights: everything on the sea, from the burst. One of
     // the scene's own lights, lent for as long as the flash is worth drawing.
@@ -936,7 +851,7 @@ export class Nukes {
       lamp.distance = 0;
       lamp.position.set(x, 300, z);
     }
-    this.live.push({ g, ...p, lamp, x, z, y: Math.max(0, y), t: 0, t0, land, front: 0, k: k > 0 ? k : 1 });
+    this.live.push({ g, ...p, lamp, x, z, y: Math.max(0, y), t: 0, t0, land, front: 0, k: k > 0 ? k : 1, fy: y });
     this.flash = Math.max(this.flash, Math.min(1, 0.45 + 0.55 * k));
   }
 
@@ -952,19 +867,20 @@ export class Nukes {
     this.scene.remove(n.g);
     this.shockScene?.remove(n.shock);
     this.dropLamp(n);
-    const p = { ball: n.ball, glow: n.glow, flare: n.flare, sky: n.sky, wilson: n.wilson, shock: n.shock,
-      cloud: n.cloud, mist: n.mist };
+    const p = { shock: n.shock, cloud: n.cloud, dome: n.dome, mist: n.mist };
     // Kept for the next burst, made up as it is (see POOL).
     if (this.pool.length < POOL) { this.pool.push(p); return; }
     this.disposeParts(p);
   }
 
   disposeParts(p) {
-    for (const k of ['ball', 'glow', 'flare', 'sky', 'wilson', 'shock']) p[k].material?.dispose?.();
+    p.shock.material.dispose();
     p.mist.mesh.material.dispose();
     p.mist.mesh.geometry.dispose();
-    p.cloud.mesh.material.dispose();
-    p.cloud.tex.dispose();
+    for (const c of [p.cloud, p.dome]) {
+      c.mesh.material.dispose();
+      c.tex.dispose();
+    }
   }
 
   /** The battle is over: give back the kept shaders and anything still burning. */
@@ -1012,6 +928,18 @@ export class Nukes {
     return L;
   }
 
+  /** A cloud's lighting for this frame: the sun and sky, and the fire in it. */
+  lightCloud(C, n, L, t, fire) {
+    const u = C.mesh.material.uniforms;
+    u.uTime.value = t;
+    u.uSunDir.value.copy(L.dir);
+    u.uSun.value.copy(L.sun);
+    u.uSky.value.copy(L.sky);
+    u.uGround.value.copy(L.ground);
+    u.uFire.value.copy(FIRE);
+    u.uFireAt.value.set(n.x, n.fy, n.z, fire * 30 * n.k);
+  }
+
   update(dt, camera = null, clock = null) {
     this.flash = Math.max(0, (this.flash || 0) - dt * 0.9);
     if (!this.live.length) return;
@@ -1022,6 +950,9 @@ export class Nukes {
       TMPM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       this.frustum.setFromProjectionMatrix(TMPM);
     }
+    // Where the eye is, so the wall of the shock thins out as it goes by
+    // it rather than filling the whole screen with mist (see surge).
+    this.eye = camera ? camera.position : null;
     // Several in the sky at once share what one would be drawn with.
     const crowd = 1 / Math.sqrt(Math.max(1, this.live.length));
     for (let i = this.live.length - 1; i >= 0; i--) {
@@ -1037,32 +968,12 @@ export class Nukes {
         continue;
       }
       const fire = this.fireball(n, t);
-      const FB = NUKE.fireball * K;
-      // The flash and the glow.
-      const f = Math.exp(-t / 0.35) + (n.land ? 0.45 * Math.exp(-t / 7) : 0.25 * Math.exp(-t / 4));
-      n.glow.scale.setScalar(FB * (n.land ? 1.35 : 1) * (4 + 10 * Math.exp(-t / 0.5)));
-      n.glow.position.y = n.ball.position.y;
-      n.glow.material.opacity = Math.min(1, f);
-      n.glow.visible = n.glow.material.opacity > 0.004;
-      // The streak across the glass: very wide, very thin, in the first
-      // seconds, and a long ember of it after.
-      const fl = 0.95 * Math.exp(-t / 0.6) + 0.25 * Math.exp(-t / 5);
-      n.flare.scale.set(FB * (60 + 40 * Math.exp(-t / 1.2)), FB * (1.6 + 2.5 * Math.exp(-t / 0.4)), 1);
-      n.flare.position.y = n.ball.position.y;
-      n.flare.material.opacity = Math.min(1, fl);
-      n.flare.visible = fl > 0.004;
-      // The sky over it, lit orange from below by the fire and the cloud.
-      const skyLit = n.land ? Math.min(1, t * 2) * Math.exp(-t / 45) * 0.55 : Math.min(1, t * 3) * Math.exp(-t / 10) * 0.35;
-      n.sky.scale.set(FB * 22, FB * 14, 1);
-      n.sky.position.y = n.y + FB * (n.land ? 4 : 2.5);
-      n.sky.material.opacity = skyLit;
-      n.sky.visible = skyLit > 0.004;
       if (n.lamp) {
-        n.lamp.intensity = K * K * ((n.land ? 4.5e7 : 3e7) * Math.exp(-t / 0.6) + (n.land ? 4e6 : 2e6) * Math.exp(-t / (n.land ? 9 : 5)));
-        n.lamp.position.set(n.x, n.ball.position.y, n.z);
+        n.lamp.intensity = K * K * ((n.land ? 4.5e7 : 3e7) * Math.exp(-t / 0.6) + (n.land ? 4e6 : 1.2e6) * Math.exp(-t / (n.land ? 9 : 3)));
+        n.lamp.position.set(n.x, n.fy, n.z);
         // Forty seconds on it is lighting nothing a ship would show, and the
         // scene's gun flashes want it back.
-        if (t > 40) { n.lamp.intensity = 0; this.dropLamp(n); }
+        if (t > (n.land ? 40 : 15)) { n.lamp.intensity = 0; this.dropLamp(n); }
       }
       // The shock, and the moment it reaches the eye.
       const front = nukeFront(t, n.land, K);
@@ -1076,21 +987,16 @@ export class Nukes {
         }
       }
       n.front = front;
-      // The shock is felt (the jolt, above) and seen in what it does to the
-      // sea and the ground, not drawn as a shell in the sky: a ring of
-      // bent light standing over the burst read as a soap bubble, and so did
-      // the condensation dome. Neither is drawn.
-      n.shock.visible = false;
-      n.wilson.visible = false;
+      this.shock(n, t, front, reach, far);
       // The cloud: not built at all when it is out of sight.
       const seen = !camera || this.frustum.intersectsSphere(
-        TMPS.set(TMPV.set(n.x, n.y + 2200 * K, n.z), 4600 * K));
+        TMPS.set(TMPV.set(n.x, n.y + 1800 * K, n.z), 4600 * K));
       n.cloud.mesh.visible = n.mist.mesh.visible = seen;
-      if (!seen) continue;
+      if (!seen) { n.dome.mesh.visible = false; continue; }
       // How many billows of mist are worth drawing: all of them close to,
       // fewer for a smaller burst, a far one, or one of several.
       const keep = Math.min(1, Math.max(0.3,
-        (0.55 + 0.3 * K) * crowd * (far > 0 ? Math.min(1, Math.max(0.55, 1.35 - far / (30000 * K))) : 1)));
+        (0.55 + 0.3 * K) * crowd * (far > 0 ? Math.min(1, Math.max(0.5, 1.3 - far / (30000 * K))) : 1)));
       const m = n.mist;
       {
         const u = m.mesh.material.uniforms;
@@ -1101,7 +1007,7 @@ export class Nukes {
         u.uGround.value.copy(L.ground);
         u.uFire.value.copy(FIRE);
         if (camera) {
-          TMPV.set(n.x, n.ball.position.y, n.z).applyMatrix4(camera.matrixWorldInverse);
+          TMPV.set(n.x, n.fy, n.z).applyMatrix4(camera.matrixWorldInverse);
           u.uFireAt.value.set(TMPV.x, TMPV.y, TMPV.z, fire * 30 * K);
         }
         m.n = 0;
@@ -1110,78 +1016,82 @@ export class Nukes {
         m.keep = keep;
         m.fat = Math.pow(keep, -0.35);
       }
-      {
-        const u = n.cloud.mesh.material.uniforms;
-        u.uTime.value = t;
-        u.uSunDir.value.copy(L.dir);
-        u.uSun.value.copy(L.sun);
-        u.uSky.value.copy(L.sky);
-        u.uGround.value.copy(L.ground);
-        u.uFire.value.copy(FIRE);
-        u.uFireAt.value.set(n.x, n.ball.position.y, n.z, fire * 30 * K);
+      this.lightCloud(n.cloud, n, L, t, fire);
+      if (n.land) {
+        this.cloud(n, t);
+        n.dome.mesh.visible = false;
+      } else {
+        this.column(n, t);
+        this.lightCloud(n.dome, n, L, t, fire);
+        this.dome(n, t);
       }
-      this.cloud(n, t);
       this.surge(n, t);
       m.mesh.geometry.instanceCount = m.n;
-      m.at.needsUpdate = true;
-      m.tint.needsUpdate = true;
+      if (m.n) {
+        m.at.addUpdateRange(0, m.n * 4);
+        m.tint.addUpdateRange(0, m.n * 4);
+        m.at.needsUpdate = true;
+        m.tint.needsUpdate = true;
+      }
     }
   }
 
-  /** The fireball for this moment; returns how much light it is still giving. */
+  /**
+   * The shock itself, as it is seen: a dome of air squeezed dense, racing
+   * out from the burst and bending everything seen through its rim, with a
+   * ragged skin of condensation flashed onto it in the first two seconds.
+   * Drawn until it has run out to the edge of what it does.
+   */
+  shock(n, t, front, reach, far) {
+    const S = n.shock;
+    const life = 9.5;
+    if (t >= life || front <= 1) { S.visible = false; return; }
+    S.visible = true;
+    S.scale.set(front, front * 0.92, front);
+    S.position.set(n.x, n.y, n.z);
+    const u = S.material.uniforms;
+    // Stronger the nearer it is to the eye, and dying as it runs out.
+    const near = far > 0 ? Math.min(1, Math.max(0.45, 1.4 - far / (14000 * n.k))) : 1;
+    u.uBend.value = 0.03 * near * (1 - smooth(0.5, life, t)) * (0.6 + 0.4 * (1 - front / (reach * 1.05)));
+    u.uSkin.value = (n.land ? 0.55 : 0.9) * Math.exp(-t / 0.9) * smooth(0, 0.08, t);
+    u.uTime.value = t;
+  }
+
+  /**
+   * Where the fire is for this moment, and how much light it is still
+   * giving: nothing is drawn for it, but the cloud is built round it and lit
+   * by it. Sets n.R, n.capY and n.fy.
+   */
   fireball(n, t) {
     const K = n.k;
     const grow = 1 - Math.exp(-t / 0.45);
     const rise = Math.max(0, t - 1.2);
-    // On the ground nothing of it goes into boiling the sea: it is bigger,
-    // brighter, and it burns for longer. Worked out at the B-29's size, as the
-    // cloud is (see cloud), and drawn at the burst's own.
     const R = NUKE.fireball * (n.land ? 1.4 : 1.15) * grow * (1 + Math.min(0.6, rise * 0.03));
-    // Up off the ground or the sea as it cools, until it is the heart of the
-    // cap: the mushroom is built round it (see cloud).
+    // Up off the ground as it cools, until it is the heart of the cap: the
+    // mushroom is built round it (see cloud).
     n.capY = n.y + NUKE.fireball * 0.8 + (n.land ? 3200 : 2900) * (1 - Math.exp(-rise / 26));
     const y = t < 1.2 ? n.y + R * 0.6 : Math.max(n.y + R * 0.6, n.capY);
-    let opacity, cool;
-    if (n.land) {
-      cool = Math.min(1, t / 22);
-      opacity = Math.max(0, 1 - Math.max(0, t - 10) / 20);
-    } else {
-      // Over the sea it is drowned in the steam and spray it throws up, and
-      // burns out sooner.
-      cool = Math.min(1, t / 12);
-      opacity = Math.max(0, 1 - Math.max(0, t - 4) / 10);
-    }
-    // Once the cap has formed round it, it is the fire in the heart of the
-    // cap and no bigger than the cap is thick: drawn any bigger it stood out
-    // of the top of the cloud as a ball.
-    const Rc = R * 0.42 + 860 * (1 - Math.exp(-Math.max(0, t - 0.25) / 26));
-    const inCap = smooth(2, 7, t);
-    const Rb = R + (Math.min(R, Rc * 0.6 * 0.8) - R) * inCap;
-    n.ball.scale.setScalar(Math.max(1, Rb * K));
-    n.ball.position.y = n.y + (y - n.y) * K;
-    const u = n.ball.material.uniforms;
-    u.uCool.value = cool;
-    u.uTime.value = t;
-    u.uOpacity.value = opacity;
-    n.ball.visible = opacity > 0.01;
+    n.fy = n.y + (y - n.y) * K;
     n.R = R;
-    return (1 - cool * 0.7) * (n.land ? Math.max(0, 1 - t / 80) : Math.max(0, 1 - t / 30));
+    if (n.land) return (1 - 0.7 * Math.min(1, t / 22)) * Math.max(0, 1 - t / 80);
+    // Over the sea it is drowned at once in the water it throws up.
+    n.fy = n.y + 200 * K;
+    return Math.exp(-t / 0.7) * 0.9;
   }
 
   /**
    * The outline of the mushroom at time `t`, as one line from the top of its
    * crown out over the cap, round the rolled rim of it and in underneath to
-   * the stem, down the stem to the ground and out along the skirt of dust or
-   * spray round its foot -- and how hot and how white it is along that line.
+   * the stem, down the stem to the ground and out along the skirt of dust
+   * round its foot -- and how hot and how white it is along that line.
    * Laid out at the B-29's size about the foot of the burst; the mesh is
    * scaled to the burst's own.
    */
   cloud(n, t) {
     const C = n.cloud;
     const age = t - 0.25;
-    const life = n.land ? MUSHROOM_LIFE : NUKE.life;
+    const life = MUSHROOM_LIFE;
     if (age <= 0) { C.mesh.visible = false; return; }
-    const land = n.land;
     const R = n.R || NUKE.fireball;
     const grow = 1 - Math.exp(-age / 26);
     // The cap: a ring of cloud rolling over on itself round the top of the
@@ -1193,20 +1103,19 @@ export class Nukes {
     const f = smooth(0.6, 9, age);
     const sTop = Rc * 0.3 + 50;
     const sW = Rc * 0.2 + 45;
-    const sB = Rc * (land ? 0.36 : 0.42) + 70;
+    const sB = Rc * 0.36 + 70;
     // Fire: everything glowing at first (the fireball turning into the
     // cloud), then only its belly and its folds, and then nothing.
-    const burn = Math.pow(Math.max(0, 1 - age / (land ? 85 : 28)), 2);
-    const flash = Math.exp(-age / (land ? 6 : 3.5));
+    const burn = Math.pow(Math.max(0, 1 - age / 85), 2);
+    const flash = Math.exp(-age / 6);
     const W = C.work;
     W.length = 0;
-    const put = (r, y, amp, heat, white) => W.push(r, y, amp, Math.min(1.4, heat), white);
+    const put = (r, y, amp, heat, white) => W.push(r, y, amp, Math.min(1.4, heat), white, 0);
     // Its crown.
     const topY = Yc + T * 0.82;
     for (let i = 0; i <= 14; i++) {
       const u = i / 14;
-      put(Rc * u, topY + T * 0.32 * Math.pow(1 - u * u, 1.5), T * 0.5,
-        burn * 0.15 + flash, land ? 0.42 : 0.9);
+      put(Rc * u, topY + T * 0.32 * Math.pow(1 - u * u, 1.5), T * 0.5, burn * 0.15 + flash, 0.42);
     }
     // The rolled rim, from the top of it out and down and in underneath.
     for (let i = 1; i <= 64; i++) {
@@ -1214,7 +1123,7 @@ export class Nukes {
       const sn = Math.sin(ph);
       const under = Math.max(0, -sn);
       put(Rc + T * Math.cos(ph), Yc + T * 0.82 * sn, T * 0.55,
-        burn * (0.25 + 0.85 * under) + flash, (land ? 0.26 : 0.8) + (land ? 0.16 : 0.1) * Math.max(0, sn));
+        burn * (0.25 + 0.85 * under) + flash, 0.26 + 0.16 * Math.max(0, sn));
     }
     // In under the cap to the top of the stem.
     const ph1 = -Math.PI * 0.68;
@@ -1225,7 +1134,7 @@ export class Nukes {
       const cx = sTop + (jx - sTop) * 0.25, cy = jy - T * 0.1;
       const r = (1 - u) * (1 - u) * jx + 2 * (1 - u) * u * cx + u * u * sTop;
       const y = (1 - u) * (1 - u) * jy + 2 * (1 - u) * u * cy + u * u * stemTop;
-      put(r, y, T * 0.45, burn * 1.05 + flash, land ? 0.28 : 0.74);
+      put(r, y, T * 0.45, burn * 1.05 + flash, 0.28);
     }
     // Down the stem, as far as it has got.
     const bot = stemTop - stemTop * f;
@@ -1241,46 +1150,20 @@ export class Nukes {
       if (!full) r *= Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, (u - 0.8) / 0.2), 2)));
       const low = Math.max(0, v - 0.5) * 2;
       put(Math.max(0, r), y, Math.max(20, r * 0.55),
-        burn * (0.3 + 0.6 * low) + flash * 0.6 * (1 - v), land ? 0.22 + 0.12 * (1 - v) : 0.93);
+        burn * (0.3 + 0.6 * low) + flash * 0.6 * (1 - v), 0.22 + 0.12 * (1 - v));
     }
-    // And out round its foot along the ground: the dust drawn in under it,
-    // or the spray thrown up round it.
+    // And out round its foot along the ground: the dust drawn in under it.
     if (full) {
       const skirt = sB * (1.5 + 1.6 * grow);
-      const hS = sB * (land ? 0.5 : 0.65);
+      const hS = sB * 0.5;
       for (let i = 1; i <= 16; i++) {
         const u = i / 16;
         const r = sB + (skirt - sB) * u;
         const y = hS * Math.pow(1 - u, 1.6) * (1 - 0.3 * u) + 2;
-        put(r, Math.max(1, y), hS * 0.8, burn * 0.5 * (1 - u), land ? 0.2 : 0.96);
+        put(r, Math.max(1, y), hS * 0.8, burn * 0.5 * (1 - u), 0.2);
       }
     }
-    // Resampled to evenly spaced points along it.
-    const NP = CLOUD_NP;
-    const nW = W.length / 5;
-    const S = new Float32Array(nW);
-    for (let i = 1; i < nW; i++) {
-      S[i] = S[i - 1] + Math.hypot(W[i * 5] - W[(i - 1) * 5], W[i * 5 + 1] - W[(i - 1) * 5 + 1]);
-    }
-    const total = S[nW - 1] || 1;
-    const D = C.data;
-    let j = 0;
-    for (let i = 0; i < NP; i++) {
-      const s = (i / (NP - 1)) * total;
-      while (j < nW - 2 && S[j + 1] < s) j++;
-      const f2 = Math.min(1, Math.max(0, (s - S[j]) / Math.max(1e-6, S[j + 1] - S[j])));
-      const a = j * 5, b = (j + 1) * 5;
-      const o = i * 4, o2 = (NP + i) * 4;
-      D[o] = W[a] + (W[b] - W[a]) * f2;
-      D[o + 1] = W[a + 1] + (W[b + 1] - W[a + 1]) * f2;
-      D[o + 2] = s;
-      D[o + 3] = W[a + 2] + (W[b + 2] - W[a + 2]) * f2;
-      D[o2] = W[a + 3] + (W[b + 3] - W[a + 3]) * f2;
-      D[o2 + 1] = W[a + 4] + (W[b + 4] - W[a + 4]) * f2;
-      D[o2 + 2] = 0;
-      D[o2 + 3] = 0;
-    }
-    C.tex.needsUpdate = true;
+    outline(C);
     const u = C.mesh.material.uniforms;
     // Its lumps grow with it, so it keeps the one shape as it grows rather
     // than sprouting new ones.
@@ -1288,6 +1171,112 @@ export class Nukes {
     // Its surface rolling slowly over the rim of the cap.
     u.uDrift.value = age * 2.5;
     u.uGone.value = smooth(life - 110, life - 4, t);
+    C.mesh.scale.setScalar(n.k);
+    C.mesh.position.y = n.y;
+    C.mesh.visible = true;
+  }
+
+  /**
+   * Baker's column: the water thrown a mile and more into the air, half a
+   * mile across, with the dark cauliflower crown of it -- jets of water
+   * flung up and out over its top -- and the spray skirt round its foot.
+   * It stands a minute, and then it falls back into the sea, crown first,
+   * into the base surge (see surge).
+   */
+  column(n, t) {
+    const C = n.cloud;
+    const age = t - 0.1;
+    const end = 100;
+    if (age <= 0 || t > end) { C.mesh.visible = false; return; }
+    // Up at hundreds of metres a second, and then slowing.
+    const Hc = 1750 * (1 - Math.exp(-age / 2.4)) + 60;
+    const Rcol = 280 + 60 * smooth(0, 10, age);
+    // Falling back: the crown spreads and sags and the column goes down.
+    const fall = smooth(28, 70, t);
+    const top = Hc * (1 - 0.18 * fall);
+    const crownH = Math.min(top * 0.5, 160 + Hc * 0.14);
+    const Rcr = Rcol * (1.25 + 0.3 * smooth(1, 15, age) + 0.5 * fall);
+    // A glare of white-hot steam in the first instant, and then water.
+    const hot = Math.exp(-age / 0.5);
+    const W = C.work;
+    W.length = 0;
+    const put = (r, y, amp, heat, white, bias) => W.push(r, y, amp, heat, white, bias);
+    // The top of the crown: flat, and jagged with the jets flung up out of
+    // it -- the outline's lumps are pushed out along its normal, which here
+    // is straight up, so the hard lumping stands them up as spires.
+    for (let i = 0; i <= 12; i++) {
+      const u = i / 12;
+      put(Rcr * 0.82 * u, top + crownH * 0.12 * (1 - u * u), Rcol * 1.25, hot, 0.5, 0.55);
+    }
+    // Over its edge and down, the crown bulging out over the column.
+    const cx = Rcr * 0.82, cy = top - crownH * 0.5;
+    for (let i = 1; i <= 16; i++) {
+      const a = Math.PI / 2 - (i / 16) * Math.PI * 1.05;
+      put(cx + (Rcr - cx) * 1.1 * Math.cos(a) + (Rcr - cx) * 0.2, cy + crownH * 0.5 * Math.sin(a),
+        Rcol * 0.75, hot, 0.48 + 0.12 * (i / 16), 0.5);
+    }
+    // In under it to the column.
+    const yC = top - crownH * 1.05;
+    put(Rcol * 1.08, yC, Rcol * 0.4, hot, 0.7, 0.4);
+    // Down the column, a little wider as it goes down.
+    const hs = Math.min(yC * 0.5, Rcol * 0.7);
+    for (let i = 1; i <= 40; i++) {
+      const u = i / 40;
+      const y = yC + (hs - yC) * u;
+      const v = 1 - y / Math.max(1, Hc);
+      put(Rcol * (1 + 0.22 * v * v), y, Rcol * 0.24, hot * (1 - u), 0.9, 0.35 * (1 - v));
+    }
+    // And the spray thrown out round its foot.
+    for (let i = 1; i <= 12; i++) {
+      const u = i / 12;
+      put(Rcol * (1.22 + 1.5 * u), hs * Math.pow(1 - u, 1.4) + 3, Rcol * 0.3 * (1 - 0.5 * u), 0, 0.97, -0.35);
+    }
+    outline(C);
+    const u = C.mesh.material.uniforms;
+    u.uL.value = Math.max(60, Rcol * 0.75);
+    // The water going up it.
+    u.uDrift.value = -age * 9;
+    u.uGone.value = smooth(30, end - 2, t);
+    C.mesh.scale.setScalar(n.k);
+    C.mesh.position.y = n.y;
+    C.mesh.visible = true;
+  }
+
+  /**
+   * The condensation cloud the shock leaves behind it over the sea: the
+   * great white dome of every photograph of Baker, standing over the whole
+   * burst with the crown of the column just showing over its top, and its
+   * foot a bright skirt of fog and spray spread out flat on the water. It
+   * comes in a second, and clears from the top down.
+   */
+  dome(n, t) {
+    const C = n.dome;
+    const age = t - 0.3;
+    const end = 46;
+    if (age <= 0 || t > end) { C.mesh.visible = false; return; }
+    const g = 1 - Math.exp(-age / 0.85);
+    const Rd = 120 + 1380 * g + 4 * age;
+    const Hd = Rd * 0.78;
+    const W = C.work;
+    W.length = 0;
+    const put = (r, y, amp, white, bias) => W.push(r, y, amp, 0, white, bias);
+    // Over the top and down its sides: a rounded mound, its shoulders full.
+    for (let i = 0; i <= 30; i++) {
+      const th = (i / 30) * Math.PI * 0.5;
+      const s = Math.sin(th), c = Math.cos(th);
+      const y = Hd * Math.pow(c, 0.8) + Hd * 0.07;
+      // How high up it this is: its top goes first.
+      put(Rd * Math.pow(s, 0.7), y, Rd * 0.14, 1, 0.75 * (y / Hd) - 0.15);
+    }
+    // Its foot, bulging a little and then laid out flat on the water.
+    const foot = [[1.04, 0.045, 0.06], [1.12, 0.03, 0.045], [1.22, 0.018, 0.03], [1.3, 0.006, 0.02], [1.33, 0.0, 0.01]];
+    for (const [fr, fy, fa] of foot) put(Rd * fr, Hd * fy + 2, Rd * fa, 1, -0.45);
+    outline(C);
+    const u = C.mesh.material.uniforms;
+    // Its lumps: a few great rounded lobes, as a heap of cumulus has.
+    u.uL.value = Math.max(80, Rd * 0.55);
+    u.uDrift.value = age * 4;
+    u.uGone.value = smooth(12, end - 1, t);
     C.mesh.scale.setScalar(n.k);
     C.mesh.position.y = n.y;
     C.mesh.visible = true;
@@ -1309,8 +1298,9 @@ export class Nukes {
     const thin = smooth(life - 120, life - 5, t);
     const capY = n.capY ?? n.y + NUKE.fireball;
     // The collar: a ring of white condensation that forms round the stem as
-    // the cap goes up through damp air, and is gone inside a minute.
-    if (age > 3 && age < 60) {
+    // the cap goes up through damp air, and is gone inside a minute. (Over
+    // the sea the dome is that, and bigger.)
+    if (land && age > 3 && age < 60) {
       const Rc = (n.R || NUKE.fireball) * 0.42 + 860 * (1 - Math.exp(-age / 26));
       const cy = n.y + (capY - n.y) * 0.45;
       const cr = Rc * 0.75 + age * 10;
@@ -1323,34 +1313,44 @@ export class Nukes {
           (110 + 60 * hash(i + 500, 2)) * form, 1, 0, 1 - fade * (0.6 + 0.4 * hash(i + 500, 3)), k);
       }
     }
-    // The wall of dust or spray racing out with the shock, in the first
-    // seconds: the thing that shows where it is.
+    // The wall of dust or spray racing out with the shock along the ground
+    // or the sea: the shock's foot, the thing that shows where it is.
     const front = nukeFront(t, land);
     if (t < 14) {
-      // Low and thin -- a skirt along the ground or the water, not a wall
-      // to hide the cloud behind -- and packed close all the way round, so
-      // it is one ring and not a string of puffs.
-      const r0 = (70 + 0.022 * front) * (1 + 0.4 * smooth(0, 6, t));
-      const N = Math.min(220, Math.max(60, Math.ceil((Math.PI * 2 * front) / (r0 * 0.9))));
+      // A ring, packed close all the way round so it is one wall and not a
+      // string of puffs, as tall as the shock is strong where it has got to.
+      const r0 = (85 + 0.028 * front) * (1 + 0.45 * smooth(0, 6, t));
+      const N = Math.min(240, Math.max(60, Math.ceil((Math.PI * 2 * front) / (r0 * 0.9))));
+      const eye = this.eye, K = n.k;
+      const fade = smooth(3, 14, t);
       for (let i = 0; i < N; i++, k++) {
         const a = ((i + hash(i, 2) * 0.6) / N) * Math.PI * 2;
-        const rr = front * (0.92 + 0.06 * hash(i + 600, 0));
+        const rr = front * (0.93 + 0.06 * hash(i + 600, 0));
         const r = r0 * (0.8 + 0.4 * hash(i + 600, 2));
-        putBillow(m, Math.cos(a) * rr, n.y + r * 0.15 + 10 * hash(i + 600, 1), Math.sin(a) * rr,
-          r, land ? 0.42 : 0.95, 0, smooth(2.5, 14, t), k);
+        const bx = Math.cos(a) * rr, bz = Math.sin(a) * rr;
+        let gone = fade;
+        if (eye) {
+          // Right on top of the eye it is a screenful of mist and nothing
+          // to see: it thins out there, and costs nothing.
+          const d = Math.hypot(n.x + bx * K - eye.x, n.z + bz * K - eye.z);
+          gone = Math.max(gone, 1 - smooth(r * K * 1.2, r * K * 4, d));
+        }
+        putBillow(m, bx, n.y + r * 0.3 + 14 * hash(i + 600, 1), bz,
+          r, land ? 0.42 : 0.97, 0, gone, k);
       }
     }
     // The base surge: low, rolling out from the foot of the stem and hanging
-    // there -- dust over the land, a ring of white mist over the sea.
-    const s = Math.max(0, age - (land ? 0 : 5));
+    // there -- dust over the land, a ring of white mist over the sea, where
+    // it comes as the column falls back.
+    const s = Math.max(0, age - (land ? 0 : 9));
     if (s > 0) {
       const Rb = Math.min(front * 0.8, (land ? 2600 : 3200) * (1 - Math.exp(-s / (land ? 22 : 35))));
       const hb = land ? 110 : 140 + 200 * smooth(0, 60, s);
-      for (let i = 0; i < 260; i++, k++) {
+      for (let i = 0; i < 220; i++, k++) {
         const a = hash(i, 3) * Math.PI * 2;
         const u = Math.sqrt(hash(i + 700, 0));
         const rr = Rb * (0.3 + 0.7 * u);
-        const r = (90 + 110 * hash(i + 700, 2)) * Math.min(1, 0.4 + s / 12) * (1.25 - 0.45 * u);
+        const r = (100 + 120 * hash(i + 700, 2)) * Math.min(1, 0.4 + s / 12) * (1.25 - 0.45 * u);
         const y = n.y + r * 0.45 + hb * hash(i + 700, 1) * (1 - 0.5 * u);
         putBillow(m, Math.cos(a) * rr, y, Math.sin(a) * rr, r * 1.2,
           land ? 0.6 + 0.3 * hash(i + 700, 3) : 0.92, 0, Math.max(thin, 1 - smooth(0, 6, s)), k);
@@ -1366,7 +1366,7 @@ export class Nukes {
    * the way the air over a hot road does, but hard and in a sharp ring. So it
    * is drawn after everything else with a copy of the frame under it, and each
    * pixel of its rim shows the frame from a little further out. Costs one copy
-   * of the frame a frame, and only for the fifteen seconds there is a shock.
+   * of the frame a frame, and only for the ten seconds there is a shock.
    */
   renderShock(renderer, camera) {
     if (!this.live.length || !this.shockScene) return;
