@@ -15,6 +15,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { cloneMaterial } from './sever.js';
+import { showWhenReady } from './warmgate.js';
 
 /** How many holes a ship carries in her shaders before the oldest are made the old way. */
 export const HOLE_SLOTS = 24;
@@ -57,7 +58,10 @@ const FRAG_CUT = `
         + 0.45 * sin(u.x * 11.0 + u.z * 9.0 + s * 3.1) * sin(u.y * 7.0 + s * 0.6);
       vec3 ax = normalize(cross(hn, vec3(sin(s), 0.37, cos(s))) + vec3(1e-4));
       float along = dot(u, ax);
-      float rr = r * (1.0 + 0.24 * lobe) * (1.0 + 0.5 * along * along);
+      // Out past the hole by its lip: the plate round it is drawn torn and
+      // bent in by Plating.ring, in place of the flat plate cut away here.
+      // (1.2 is LIP in plating.js.)
+      float rr = r * (1.0 + 0.24 * lobe) * (1.0 + 0.5 * along * along) * 1.2;
       if (d2 < rr * rr) discard;
     }
   }
@@ -173,6 +177,7 @@ export function lineInside(meshes, U = null) {
     inner.castShadow = false;
     inner.receiveShadow = false;
     mesh.add(inner);
+    showWhenReady(inner);
   }
 }
 
@@ -203,7 +208,7 @@ export function holePlating(parts) {
         .replace('#include <common>', `#include <common>\n${FRAG_HEAD}`)
         .replace(/void main\(\) \{/, `void main() {\n${FRAG_CUT}`);
     };
-    m.customProgramCacheKey = () => `holes4|${prevKey}`;
+    m.customProgramCacheKey = () => `holes5|${prevKey}`;
     // Hers alone already, so nothing that wants a ship's own copy of her
     // paint (see markable in pieces.js) copies it again and loses the holes.
     m.userData = { ...(m.userData || {}), holed: true, perShip: true, paint: src };

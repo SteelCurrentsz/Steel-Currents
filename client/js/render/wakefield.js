@@ -130,6 +130,7 @@ precision highp float;
 uniform float uLife;
 uniform float uBeam;
 uniform float uStern;      // her length: stem to transom
+uniform float uAhead;      // how far ahead of her stem the strip begins
 uniform float uReach;      // how far astern of her stem her waves have died
 uniform float uScale;      // metres of lift one channel stands for
 uniform float uOpacity;
@@ -189,7 +190,8 @@ void main() {
   if (age > 1.0) discard;
   float sgn = sign(vSide + 1e-6);
   float m = abs(vSide) * vHalf;          // metres off her track
-  float run = vRun;                      // metres astern of her stem
+  // Metres astern of her stem; negative is water still ahead of her.
+  float run = vRun - uAhead;
 
   // How hard she is pushing. Nothing at steerage way and full height by ten
   // knots or so -- and, once she is under way, not a matter of how big she
@@ -227,7 +229,9 @@ void main() {
                 + min(max(vAge - uStern / max(vSpeed, 2.0), 0.0), 140.0) * 0.10;
   // What the stem itself throws: a couple of feet of white at the bow,
   // standing well off her side by the time it is abreast of the bridge.
-  float bowOut = min(run * 0.30, uBeam * 0.62);
+  // It is white right at the cutwater, not a hairline that only opens up
+  // further aft: from the front her stem stands in a collar of broken water.
+  float bowOut = uBeam * 0.24 + min(max(run, 0.0) * 0.30, uBeam * 0.40);
   // The white lies outboard of her plating rather than against it, and stands
   // further off the further aft it is.
   float spread = max(hullHalf, bowOut) + uBeam * (0.04 + 0.16 * alongHull)
@@ -324,6 +328,7 @@ void main() {
   // than sitting there like a transfer.
   float stir = vAge * 0.035;
   float clump = fbm(vWorld * 0.032 + 3.7 + stir * 0.5);
+  float froth0 = fbm(vWorld * 0.21 + stir * 3.0 + 5.3);
 
   // ---- the trail ------------------------------------------------------------
   // The water her screws have been through. It leaves her transom at the
@@ -350,7 +355,16 @@ void main() {
   // The sheet at the stem, where she shoulders the sea aside and it breaks.
   float stem = (1.0 - smoothstep(uStern * 0.06, uStern * 0.36, run))
              * (1.0 - smoothstep(spread * 0.50, spread * 1.20, m))
+             * smoothstep(-uAhead * 0.35, 0.0, run)
              * drive;
+  // The cushion ahead of her stem: the sea heaped up and broken in front of
+  // the cutwater, a few metres out ahead of her and narrowing to nothing.
+  float aheadW = uBeam * 0.26 * smoothstep(-uAhead, 0.0, run);
+  float front = smoothstep(-uAhead * 0.85, -uAhead * 0.15, run)
+              * (1.0 - smoothstep(uStern * 0.02, uStern * 0.07, run))
+              * (1.0 - smoothstep(aheadW * 0.45, aheadW + 0.5, m))
+              * drive;
+  front *= smoothstep(0.22, 0.6, froth0 + 0.1);
 
   // The band down her side: the bow wave breaking and being dragged aft along
   // the hull, from her stem to her quarter. Its inner edge is her own plating
@@ -375,10 +389,14 @@ void main() {
   // minute astern of her, and the trail of broken water behind that is a
   // long ragged road of foam -- marbled, not solid -- before it goes to
   // threads and then to the pale band.
-  float boil = 1.0 - smoothstep(2.5, 13.0, tSt);
-  float lo = 0.26 + 0.30 * smoothstep(0.0, 0.50, ageF);
+  float boil = 1.0 - smoothstep(1.5, 9.0, tSt);
+  float lo = 0.30 + 0.30 * smoothstep(0.0, 0.50, ageF);
   float breakUp = smoothstep(lo, lo + 0.28, streak * 0.6 + clump * 0.4);
-  float core = inCore * behind * liveF * mix(breakUp * 0.64, 0.80, boil);
+  // Even the boil is not one sheet of white: it is heaps of churned water
+  // with darker sea between them, turning over as the screw race spreads.
+  float churn = fbm(vec2(wq.x * 0.09, wq.y * 0.07) + stir * 3.0 + 11.0);
+  float boilK = 0.48 + 0.42 * smoothstep(0.30, 0.68, churn);
+  float core = inCore * behind * liveF * mix(breakUp * 0.58, boilK, boil);
   // Under her counter itself the water is not broken, it is boiling: the
   // screw race heaped up and thrown white, widest just abaft her transom.
   float race = smoothstep(uStern * 0.88, uStern * 1.0, run)
@@ -400,15 +418,15 @@ void main() {
              * (1.0 - smoothstep(uStern * 0.35, uStern * 0.75, run))
              * smoothstep(0.30, 0.62, froth + 0.12) * drive;
 
-  float foam = clamp(stem * 0.85 + band * 0.50 + core + race * 0.90 + curl * 0.62,
-                     0.0, 0.94);
+  float foam = clamp(stem * 0.80 + front * 0.75 + band * 0.45 + core + race * 0.85 + curl * 0.55,
+                     0.0, 0.88);
 
   // ---- aeration -----------------------------------------------------------
   // The water her screws and her bow have been through, foam or no foam. It
   // is a little wider than the white on it, and it lasts the whole life of
   // the wake: the bubbles take minutes to come up.
   float aer = inBand * behind * liveA * mix(0.78, 1.0, clump) * drive;
-  aer = max(aer, max(stem, band) * 0.55);
+  aer = max(aer, max(max(stem, front), band) * 0.55);
   // Anything white has bubbles under it.
   aer = max(aer, foam * 0.8);
 
@@ -417,7 +435,7 @@ void main() {
   // without this every term in it starts at full strength along one straight
   // line drawn across the water -- which is the one edge in the whole thing
   // that gives it away.
-  float nose = smoothstep(0.0, uStern * 0.05, run);
+  float nose = smoothstep(-uAhead, -uAhead * 0.55, run);
   float edge = (1.0 - smoothstep(0.52, 0.90, abs(vSide))) * vTail * nose;
   edge *= smoothstep(0.0, 0.015, vAge);
   edge *= uOpacity;
@@ -444,7 +462,12 @@ export class Wake {
     // The head of the track rides her stem. Every wave she makes is made at
     // the bow, so a track that starts at her transom has no water in it where
     // the bow wave actually is.
-    this.bowOffset = length * 0.5;
+    //
+    // And a little ahead of it: a ship under way shoulders a cushion of white
+    // water in front of her cutwater, and a track that began exactly at her
+    // stem had no water there to put it on.
+    this.ahead = Math.min(12, Math.max(6, beam * 0.5));
+    this.bowOffset = length * 0.5 + this.ahead;
     this.reach = waveReach(length);
     this.pts = [];
     this.clock = 0;
@@ -499,6 +522,7 @@ export class Wake {
         uLife: { value: LIFE },
         uBeam: { value: this.beam },
         uStern: { value: this.length },
+        uAhead: { value: this.ahead },
         uReach: { value: this.reach },
         uScale: { value: WAKE_H },
         uOpacity: { value: 1 },
@@ -524,6 +548,13 @@ export class Wake {
   /** Where she is now, and how fast. Lays another piece of track if she has run far enough. */
   update(dt, x, z, heading, speed) {
     this.clock += dt;
+    // Under way again after lying stopped, diving or being written off: a
+    // fresh track from where she is, at full strength. Joined to the old one,
+    // it would rule a band of wake from wherever she stopped.
+    if (this.opacity < 1) {
+      if (this.opacity <= 0) this.pts = [];
+      this.setOpacity(1);
+    }
     const bx = x + Math.sin(heading) * this.bowOffset;
     const bz = z + Math.cos(heading) * this.bowOffset;
     // How far she is from the last piece of water she laid. Further than she
@@ -597,7 +628,7 @@ export class Wake {
       // Half again as wide as Kelvin's arm out to where her waves die, so the
       // diverging waves are not under the strip's own edge fade; and wide
       // enough past that for the trail, which goes on opening slowly.
-      const runS = Math.max(run - this.length, 0);
+      const runS = Math.max(run - this.ahead - this.length, 0);
       const trail = 2.6 * (this.beam * 0.82 + Math.pow(runS, 0.8) * 0.10);
       const half = Math.max(this.beam * 1.7,
         (this.beam * 0.85 + Math.min(run, this.reach) * KELVIN) * 1.35, trail);
@@ -632,10 +663,10 @@ export class Wake {
    * more is laid, and what is there is taken out quickly. A Kelvin pattern
    * running away from a hull standing on end is nonsense.
    */
-  stop(dt = 0) {
+  stop(dt = 0, rate = 0.8) {
     this.clock += dt;
     if (this.pts.length) {
-      this.setOpacity(Math.max(0, this.opacity - dt * 0.8));
+      this.setOpacity(Math.max(0, this.opacity - dt * rate));
       if (this.opacity <= 0) this.pts = [];
       else { this.lay(); return; }
     }

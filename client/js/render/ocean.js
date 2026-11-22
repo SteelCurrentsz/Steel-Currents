@@ -438,19 +438,20 @@ float nkShockR(float age, float k) { return ${F(NUKE.reach)} * k * (1.0 - exp(-a
 // How much more water a burst of scale k throws up than the B-29's bomb:
 // waveHeight in shared/nuke.js, the square up to it and less past it.
 float nkGrow(float k) { return k <= 1.0 ? k * k : pow(k, 1.5); }
-float nkHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float nkNoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(nkHash(i), nkHash(i + vec2(1.0, 0.0)), u.x),
-             mix(nkHash(i + vec2(0.0, 1.0)), nkHash(i + vec2(1.0, 1.0)), u.x), u.y);
-}
+// (Further down; wanted here.)
+float onoise(vec2 p);
 
 // What a burst has done to the look of the water here: x the white water --
 // the crest of the wave breaking, the sea boiling over the burst, the spray
 // thrown up where the shock first meets it -- and y the slick: the shock in
 // the water darkening the surface in a ring that races out ahead of
 // everything else, as every film of Baker shows it.
+//
+// The white water is laced as a wake's is (the folded noise below, warped so
+// it curls), not laid on in blobs: a value noise put through a threshold came
+// out as soft-edged squares on a square grid, and over the miles of sea a
+// burst whitens that read as the sea turned to a tiled floor. And it is
+// worked out only where a burst has reached: the rest of the sea pays nothing.
 vec2 burstMarks(vec2 p) {
   vec2 o = vec2(0.0);
   for (int i = 0; i < ${MAX_BURSTS}; i++) {
@@ -459,33 +460,49 @@ vec2 burstMarks(vec2 p) {
     if (b.w <= 0.0) continue;
     float age = uTime - b.z;
     if (age <= 0.0) continue;
-    float r = length(p - b.xy);
-    float lace = nkNoise(p * 0.045 + age * 0.08) * 0.6 + nkNoise(p * 0.17 - age * 0.11) * 0.4;
+    vec2 lp = p - b.xy;
+    float r = length(lp);
+    float Rs = nkShockR(age, b.w);
+    float R = nkWaveR(age, b.w);
+    float lam = 160.0 + 0.06 * R;
+    float big = max(1.0, b.w);
+    // The boiling patch over the burst: its column's own footprint, not half
+    // the sea inside the wave, and breaking up as it dies.
+    float poolR = min(R * 0.9, 1100.0 * sqrt(max(b.w, 0.05))) / big;
+    float reachW = max(age < 22.0 ? Rs + 80.0 + 0.05 * Rs : 0.0, max(R + lam * 0.4, poolR));
+    if (r > reachW) continue;
+    // The lace, in the burst's own frame: warped by a coarse noise so the
+    // foam marbles and curls, and folded about its middle so a threshold on
+    // it is a net of threads and streaks rather than a field of blots.
+    vec2 warp = vec2(onoise(lp * 0.011 + age * 0.006), onoise(lp * 0.011 + 5.3 - age * 0.007)) - 0.5;
+    vec2 qw = lp + warp * 46.0;
+    float n1 = onoise(qw * 0.052 + vec2(age * 0.02, -age * 0.013));
+    float n2 = onoise(qw * 0.19 - age * 0.03);
+    float vein = 1.0 - abs(n1 - 0.47) * 2.6;
+    float lace = clamp(mix(n1 * 0.6 + n2 * 0.4, vein * 0.72 + n2 * 0.28, 0.55), 0.0, 1.0);
     // The shock, in the first twenty seconds.
     if (age < 22.0) {
-      float Rs = nkShockR(age, b.w);
       float w = 60.0 + 0.05 * Rs;
       float s = r - Rs;
       float band = exp(-(s + w * 0.6) * (s + w * 0.6) / (w * w)) * step(s, w);
       o.y = max(o.y, 0.55 * band * (1.0 - age / 22.0));
       float edge = exp(-(s * s) / (14.0 * 14.0 + Rs * 0.4));
-      o.x = max(o.x, edge * smoothstep(0.3, 0.7, lace) * (1.0 - smoothstep(2.0, 9.0, age)));
+      o.x = max(o.x, edge * smoothstep(0.35, 0.7, lace) * (1.0 - smoothstep(2.0, 9.0, age)));
     }
     // The wave: white along its crest, torn into streaks down its back.
-    float R = nkWaveR(age, b.w);
-    float lam = 160.0 + 0.06 * R;
     float s = r - R;
     float fade = clamp((${F(NUKE.life)} - age) / 60.0, 0.0, 1.0) * min(1.0, age / 4.0);
     float crest = exp(-(s + lam * 0.05) * (s + lam * 0.05) / (lam * lam * 0.018));
     float back = exp(-(s + lam * 0.55) * (s + lam * 0.55) / (lam * lam * 0.25)) * 0.55;
     float h = clamp((${F(NUKE.waveHigh)} * nkGrow(b.w) * exp(-R / (${F(NUKE.waveFall)} * b.w)) + 1.5) / 14.0, 0.15, 1.0);
-    o.x = max(o.x, (crest + back * smoothstep(0.45, 0.8, lace)) * smoothstep(0.25, 0.65, lace + crest * 0.4) * fade * h);
-    // And over the burst itself, the sea boiling white for a minute and more.
-    // (A burst bigger than the B-29's -- Monster One's breath -- boils a
-    // patch the size of its own column, not half the sea inside its wave.)
-    float big = max(1.0, b.w);
-    float pool = smoothstep(R * 0.9 / big, R * 0.45 / big, r) * max(0.0, 1.0 - age / 110.0);
-    o.x = max(o.x, pool * smoothstep(0.3, 0.75, lace + 0.25 * (1.0 - age / 110.0)));
+    o.x = max(o.x, (crest + back * smoothstep(0.5, 0.82, lace)) * smoothstep(0.3, 0.7, lace + crest * 0.35) * fade * h);
+    // And over the burst itself, the sea boiling white -- solid at first,
+    // then torn into streaks and patches with dark water between them, and
+    // gone in a minute and a half.
+    float life = max(0.0, 1.0 - age / 95.0);
+    float pool = smoothstep(poolR, poolR * 0.5, r) * life;
+    float cut = mix(0.66, 0.34, life * life);
+    o.x = max(o.x, pool * smoothstep(cut, cut + 0.2, lace) * mix(0.6, 0.95, life));
   }
   return o;
 }
@@ -625,7 +642,9 @@ void main() {
     // sea with no ripples on it at all. Each octave is shorter than the last,
     // so once one is gone every one after it is too: the loop stops there
     // rather than working out noise that is multiplied by nothing.
-    float lod = clamp(wl * 340.0 / max(dcam, 1.0) - 1.2, 0.0, 1.0);
+    // (Kept to four pixels' worth or more: a ripple drawn across two pixels
+    // is not a ripple but sparkle, and a whole sea of it is static.)
+    float lod = clamp(wl * 150.0 / max(dcam, 1.0) - 1.0, 0.0, 1.0);
     if (lod <= 0.0) break;
     float k = 6.2831853 / wl;
     // Deep water again: the short ones run slowly, the long ones fast.
@@ -648,6 +667,11 @@ void main() {
   float gust = onoise(q * 0.0021 + vec2(uTime * 0.0042, uTime * 0.0025));
   float gustK = mix(0.70, 1.24, smoothstep(0.24, 0.72, gust));
   slope *= gustK;
+  // And eased off with range. Seen at a low angle the chop a few hundred
+  // metres off is foreshortened into lines, and at full strength every one
+  // of them catches the sky: the sea goes to horizontal static, and the
+  // swell -- which is what the eye reads a sea by -- is lost under it.
+  slope *= mix(1.0, 0.5, smoothstep(120.0, 1400.0, dcam));
   // Inside a wake the swell is knocked down -- a ship flattens the sea she has
   // been through. Where the water is still white it is rough, a metre of
   // confused water with no pattern in it, so a fine ripple of its own is put
@@ -725,7 +749,13 @@ void main() {
             * clamp(lift, 0.0, 1.0) * clamp(1.0 - ndv, 0.0, 1.0);
   // Green, not white: what comes back out of the back of a wave has been
   // through a few metres of sea water, and sea water takes the red out first.
-  body += uLightColor * vec3(0.52, 0.94, 0.82) * sss * 0.16;
+  body += uLightColor * vec3(0.52, 0.94, 0.82) * sss * 0.34;
+  // And from every side a little: the thin water at the top of any wave lets
+  // the daylight through it, so the crests are a lighter, greener blue than
+  // the troughs whichever way they face. That glow, crest against trough, is
+  // most of what makes a sea read as a body of water rather than a surface.
+  float thinTop = smoothstep(0.15, 1.0, lift) * (0.45 + 0.55 * clamp(1.0 - ndv, 0.0, 1.0));
+  body += uShallow * vec3(0.55, 1.05, 0.95) * thinTop * 0.38;
   // Foam is lit by whatever is lighting the sea, so at night it is grey and by
   // day it is white. Painting it white either way puts snow on a night ocean.
   vec3 white = mix(uSkyTint * 1.35 + uLightColor * 0.20, vec3(0.95, 0.98, 1.0),
@@ -736,7 +766,11 @@ void main() {
   // of the water, lifted, rather than white. The foam on top of it is the
   // white, and there is a good deal less of that than there is of this.
   vec3 aqua = mix(uShallow * 2.1, white * vec3(0.42, 0.70, 0.72), 0.32);
-  body = mix(body, aqua, aer * 0.66);
+  // Not an even milky sheet, though -- laid on smooth it was lotion, not
+  // water. The bubbles come up in patches and streaks, with the dark sea
+  // showing between them.
+  float aerPatch = aer > 0.003 ? 0.55 + 0.75 * onoise(q * 0.06 + vec2(uTime * 0.01, 0.0)) : 1.0;
+  body = mix(body, aqua, clamp(aer * 0.50 * aerPatch, 0.0, 0.7));
 
   // The sky it is reflecting: brighter overhead, and the horizon haze low down.
   vec3 r = reflect(-v, n);
@@ -753,7 +787,7 @@ void main() {
   float ndh = clamp(dot(n, h), 0.0, 1.0);
   // Rougher with range: the further off the water is, the more of it is inside
   // one pixel, and a mirror averaged over a hundred ripples is not a mirror.
-  float rough = 0.075 + 0.30 * clamp(dcam / 2500.0, 0.0, 1.0);
+  float rough = 0.085 + 0.34 * clamp(dcam / 1800.0, 0.0, 1.0);
   float a2 = rough * rough * rough * rough;
   float dgg = a2 / max(3.14159 * pow(ndh * ndh * (a2 - 1.0) + 1.0, 2.0), 1e-5);
   float glint = dgg * clamp(dot(n, l) * 0.5 + 0.5, 0.0, 1.0);
@@ -897,8 +931,21 @@ void main() {
     fineW = 0.5 + (fineW - 0.5) * mix(1.0, 1.35, 1.0 - abs(wA * 2.0 - 1.0));
   }
 #endif
-  float thr = mix(0.80, 0.30, wkB);
-  float threads = smoothstep(thr - 0.06, thr + 0.14, fineW) * smoothstep(0.015, 0.12, wkB);
+  // A crisp edge, not a soft one: foam is bubbles that are there or are
+  // not, and a wide soft threshold smeared it into cream.
+  float thr = mix(0.86, 0.50, wkB);
+  float threads = smoothstep(thr - 0.025, thr + 0.06, fineW) * smoothstep(0.015, 0.12, wkB);
+#ifndef OCEAN_LITE
+  // And full of holes, even where it is thickest: a froth of bubbles with the
+  // water showing through between them.
+  if (fineLod > 0.02) {
+    float cellN = onoise(qw * 3.4 - uTime * 0.11);
+    float cellM = onoise(qw * 1.3 + vec2(uTime * 0.05, -uTime * 0.04) + 31.0);
+    float holes = max(smoothstep(0.58, 0.66, cellN), smoothstep(0.60, 0.70, cellM) * 0.8)
+                * smoothstep(0.15, 0.6, wkB);
+    threads *= 1.0 - holes * 0.85 * fineLod;
+  }
+#endif
   // And a finer speckle of bubbles round the threads, so the edge of the
   // white water is a scatter rather than a line.
 #ifndef OCEAN_LITE
@@ -907,7 +954,7 @@ void main() {
     threads = max(threads, speck * 0.6);
   }
 #endif
-  float wkFoam = mix(wkB * 0.60, threads, fineLod)
+  float wkFoam = mix(wkB * 0.45, threads, fineLod)
                * clamp(1.0 - dcam / 9000.0, 0.0, 1.0);
   // Foam will not form on oil. A whitecap running into a slick stops at the
   // edge of it, and the wash off a ship steaming through one goes out the
@@ -915,7 +962,14 @@ void main() {
   // of a torpedoed tanker has seen and nobody ever draws.
   // Never quite opaque: even the boil under her counter is broken water with
   // the sea showing through it, and thin foam is half see-through.
-  col = mix(col, white, wkFoam * (0.48 + 0.42 * wkB) * clean);
+  // Thin foam is bubbles just under and on the surface, and reads as a pale
+  // turquoise; only where it is thick and heaped up is it white. And never
+  // flat: even the thickest of it is lumps lit on top and greyer in their
+  // hollows.
+  vec3 froth = mix(mix(aqua * 1.25, white, 0.55), white, smoothstep(0.2, 0.7, wkB));
+  // Heaped and lumpy: lit on the tops, grey in the hollows between them.
+  froth *= mix(1.0, 0.62 + 0.50 * fineW, fineLod);
+  col = mix(col, froth, wkFoam * (0.52 + 0.34 * wkB) * clean);
   // And the water a hull is holding off, which has just hit her side and come
   // apart against it: broken white along her plating where the wave struck,
   // in the same threads the wake breaks into, and thinning outward from her.

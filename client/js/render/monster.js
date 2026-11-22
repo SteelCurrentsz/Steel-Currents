@@ -21,6 +21,8 @@
 // Frame, as every hull in the game: +Z ahead, +Y up, y = 0 at the waterline.
 import * as THREE from '../../../vendor/three.module.js';
 import * as D from './monsterOne.data.js';
+import { CRACK_MAT } from './clawtear.js';
+import { pieceMaterial } from './toss.js';
 
 const B64 = (s) => {
   const bin = atob(s);
@@ -336,11 +338,14 @@ const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _lw = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _yq = new THREE.Quaternion();
 const _pq = new THREE.Quaternion();
 const _dir = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+const _e1 = new THREE.Vector3(), _e2 = new THREE.Vector3(), _e3 = new THREE.Vector3(),
+  _e4 = new THREE.Vector3(), _e5 = new THREE.Vector3(), _e6 = new THREE.Vector3();
 
 /**
  * What she is doing, as the rig reads it. Everything is optional; leave it
@@ -380,6 +385,15 @@ export class MonsterRig {
     this.target = new Map();
     this.eased = this.bones.map(() => new THREE.Quaternion());
     this.posed = false;
+    // Her reach into a hull (see reachInto): how much of her mouth's and
+    // each hand's way to it is being made, and where to.
+    this.reachW = { mouth: 0, L: 0, R: 0 };
+    this.reachAt = { mouth: new THREE.Vector3(), L: new THREE.Vector3(), R: new THREE.Vector3() };
+    // A lifted ship hangs from one hand (holdSide, +1 her left): how far the
+    // point it hangs from has gone over from between her hands to that palm.
+    this.oneHand = 0;
+    this.holdSide = 0;
+    this.ripSide = 0;
   }
 
   /** Every bone's target angle for this frame, as Euler [x, y, z]. */
@@ -714,6 +728,23 @@ export class MonsterRig {
       // wide as it goes.
       jaw = Math.min(jaw, 0.12) + 0.1 * gnaw * Math.max(0, Math.sin(t * 4.2)) + 0.45 * smooth(0.5, 0.42, left) * (left > 0.2 ? 1 : 0);
     }
+    // Her head turned where her captain has put her jaws (S.aim), while they
+    // are in a ship or one is in her hands: her neck carrying most of the
+    // swing across and the bend up and down, her head the rest. +y on a bone
+    // turns her toward +x, her left; +x nods her head down.
+    {
+      const on = act === 'bite' || S.holding ? 1 : 0;
+      const A = this.aimNow || (this.aimNow = { x: 0, y: 0, on: 0 });
+      const k = 1 - Math.exp(-dt / 0.18);
+      A.on += (on - A.on) * k;
+      A.x += ((S.aim?.x || 0) - A.x) * k;
+      A.y += ((S.aim?.y || 0) - A.y) * k;
+      const ax = A.x * A.on, ay = A.y * A.on;
+      add('neck1', 0.16 * -ay, -0.22 * ax);
+      add('neck2', 0.14 * -ay, -0.26 * ax);
+      add('head', 0.1 * -ay, -0.16 * ax, 0.06 * ax);
+      add('chest', 0, -0.08 * ax);
+    }
     // Her look, which is her head's and her neck's: added below in the
     // world's up, not here. Her jaw, eased.
     this.jawNow += (jaw - this.jawNow) * (1 - Math.exp(-dt / 0.12));
@@ -808,6 +839,8 @@ export class MonsterRig {
       }
     }
 
+    this.reachInto(S, act, dt, ease);
+
     // The glow.
     const charge = clamp(S.charge || 0, 0, 1);
     this.chargeNow += (charge - this.chargeNow) * ease(0.25);
@@ -822,14 +855,21 @@ export class MonsterRig {
     const throat = smooth(0.82, 1, U.uCharge.value) * this.glowNow;
     const firing = act === 'fire' ? window01(S.actT || 0, 0, 0.15, 2.8, 3.8) : 0;
     this.mouthPoint(_v);
+    _lw.copy(_v);
     this.group.worldToLocal(_v);
     this.mouthGlow.position.copy(_v);
     this.mouthGlow.material.opacity = Math.min(1, throat * 0.8 + firing);
     this.mouthGlow.scale.setScalar(10 + 14 * throat + 22 * firing + Math.sin(this.t * 37) * 2 * throat);
     this.mouthGlow.visible = this.mouthGlow.material.opacity > 0.01;
-    this.light.position.copy(_v);
+    // Hers, or one the battle keeps in the scene for her (see lendLight in
+    // scene.js) and puts where her mouth is in the world.
+    if (!this.light.parent) this.group.add(this.light);
+    this.light.position.copy(this.light.parent === this.group ? _v : _lw);
+    // Always in the scene, and only ever turned up and down: a light that
+    // comes and goes changes how many lights there are, and every lit
+    // material in the battle has its shader built again for it -- a stall
+    // each time she starts to gather her breath, and again when it dies.
     this.light.intensity = (throat * 1.5 + firing * 5) * 1e3;
-    this.light.visible = this.light.intensity > 1;
     // The beam, out of her mouth to where it strikes, running out to it fast.
     if (firing > 0 && S.beamTo) {
       const to = _v2.set(S.beamTo.x, S.beamTo.y, S.beamTo.z);
@@ -843,11 +883,97 @@ export class MonsterRig {
         m.material.uniforms.uOn.value = firing;
         m.material.uniforms.uTime.value = this.t;
       }
-    } else {
+    } else if (this.beamLen !== 0 || !this.beamsParked) {
+      // Put away, not hidden: kept drawn, too small and too dark to see, so
+      // its shader is built with her and not in the moment the beam leaves her.
       this.beamLen = 0;
-      for (const m of this.beams) m.visible = false;
+      this.beamsParked = true;
+      for (const m of this.beams) {
+        m.scale.set(1e-3, 1e-3, 1e-3);
+        m.material.uniforms.uOn.value = 0;
+      }
     }
+    if (firing > 0 && S.beamTo) this.beamsParked = false;
     this.stepSparks();
+  }
+
+  /**
+   * Her jaws and her free hand put into the hull, not short of it and not
+   * through it: the pose brings her head down and her arm out, and then each
+   * is bent the rest of the way onto the point on the ship it is going for
+   * (S.reach: { mouth, hand: { side, p } }, world points), a few joints at a
+   * time from the tip back (cyclic coordinate descent), as much of the way as
+   * the moment in the bite or the crush has her reaching.
+   */
+  reachInto(S, act, dt, ease) {
+    const R = S.reach || {};
+    const at = S.actT || 0;
+    // The bite: in on the lunge, held while her teeth are in, and out with
+    // the tear. The crush: in as her claws go in, held, and out with the rip.
+    const wm = act === 'bite' && R.mouth ? window01(at, 0.3, 0.52, 1.0, 1.3) : 0;
+    const side = R.hand ? (R.hand.side >= 0 ? 1 : -1) : 0;
+    const wh = act === 'crush' && R.hand ? window01(at, 0.1, 0.6, 2.05, 2.45) : 0;
+    if (R.mouth) this.reachAt.mouth.copy(R.mouth);
+    if (R.hand) this.reachAt[side > 0 ? 'L' : 'R'].copy(R.hand.p);
+    const k = ease(0.08);
+    this.reachW.mouth += (wm - this.reachW.mouth) * k;
+    for (const n of ['L', 'R']) {
+      const want = (side > 0 ? 'L' : 'R') === n ? wh : 0;
+      this.reachW[n] += (want - this.reachW[n]) * k;
+    }
+    if (wh > 0.05) this.ripSide = side;
+    if (this.reachW.mouth > 0.01) {
+      this.ccd(['head', 'neck2', 'neck1', 'chest'], (o) => this.mouthPoint(o), this.reachAt.mouth, this.reachW.mouth);
+    }
+    for (const n of ['L', 'R']) {
+      if (this.reachW[n] <= 0.01) continue;
+      const sg = n === 'L' ? 1 : -1;
+      this.ccd([`hand.${n}`, `foreArm.${n}`, `upperArm.${n}`], (o) => this.palmPoint(sg, o), this.reachAt[n], this.reachW[n]);
+    }
+    // The point a lifted ship hangs from: over to the holding palm.
+    const one = S.holding && !S.pinned && this.holdSide ? 1 : 0;
+    this.oneHand += (one - this.oneHand) * ease(0.5);
+  }
+
+  /** Bend `chain` (bone names, tip first) so `tip(out)` comes to `to`, `w` of the way. */
+  ccd(chain, tip, to, w) {
+    const bones = chain.map((n) => this.byName[n]).filter(Boolean);
+    for (let it = 0; it < 4; it++) {
+      for (const b of bones) {
+        tip(_e1);
+        b.getWorldPosition(_e2);
+        _e3.subVectors(_e1, _e2);
+        _e4.subVectors(to, _e2);
+        const l1 = _e3.length(), l2 = _e4.length();
+        if (l1 < 1e-3 || l2 < 1e-3) continue;
+        _e3.divideScalar(l1); _e4.divideScalar(l2);
+        const c = clamp(_e3.dot(_e4), -1, 1);
+        let ang = Math.acos(c);
+        if (ang < 1e-3) continue;
+        // A little at a time, and no more of the way than she is reaching.
+        ang = Math.min(ang, 0.3) * w;
+        _e5.crossVectors(_e3, _e4);
+        if (_e5.lengthSq() < 1e-10) continue;
+        _e5.normalize();
+        _q.setFromAxisAngle(_e5, ang);
+        b.getWorldQuaternion(_q2);
+        _q2.premultiply(_q);
+        b.parent.getWorldQuaternion(_pq).invert();
+        b.quaternion.copy(_pq.multiply(_q2));
+        b.updateMatrixWorld(true);
+      }
+    }
+  }
+
+  /**
+   * Where a ship she has lifted hangs from, in the world: between her two
+   * hands as she lifts it, and then her holding hand's palm -- her other hand
+   * is free, for what she tears out of it.
+   */
+  gripPoint(out) {
+    this.handsPoint(out);
+    if (this.holdSide && this.oneHand > 0.001) out.lerp(this.palmPoint(this.holdSide, _e6), this.oneHand);
+    return out;
   }
 
   /** Where her mouth is, in the world. */
@@ -857,6 +983,20 @@ export class MonsterRig {
     _v2.copy(this.snout).applyMatrix4(head.matrixWorld);
     out.copy(this.chin).applyMatrix4(jaw.matrixWorld).lerp(_v2, 0.5);
     return out;
+  }
+
+  /** Her two palms, in the world: [left, right]. */
+  palms() {
+    this.group.updateMatrixWorld(true);
+    return [
+      this.palmL.clone().applyMatrix4(this.byName['hand.L'].matrixWorld),
+      this.palmR.clone().applyMatrix4(this.byName['hand.R'].matrixWorld),
+    ];
+  }
+
+  /** One palm in the world, as of her last update: `side` +1 her left, -1 her right. */
+  palmPoint(side, out) {
+    return out.copy(side >= 0 ? this.palmL : this.palmR).applyMatrix4(this.byName[side >= 0 ? 'hand.L' : 'hand.R'].matrixWorld);
   }
 
   /** Between her hands, in the world: where a ship she has hold of is. */
@@ -871,20 +1011,35 @@ export class MonsterRig {
   stepSparks() {
     const p = this.sparks;
     const lvl = this.glowNow;
-    p.visible = lvl > 0.02;
-    if (!p.visible) return;
+    // (Always drawn, so its shader is built with her and not when the glow
+    // first climbs her; dark, and not worked out, when nothing is lit.)
+    p.visible = true;
     const pos = p.geometry.attributes.position;
     const al = p.geometry.attributes.alpha;
+    if (lvl <= 0.02) {
+      if (!this.sparksDark) {
+        al.array.fill(0);
+        al.needsUpdate = true;
+        this.sparksDark = true;
+      }
+      return;
+    }
+    this.sparksDark = false;
     const c = this.uniforms.uCharge.value;
+    // Each bone's skinning matrix once, into her own frame, rather than once
+    // for every weight of every spark.
+    const skin = this.skinM || (this.skinM = this.bones.map(() => new THREE.Matrix4()));
+    const used = this.sparkBones || (this.sparkBones = [...new Set(this.sparkSrc.flatMap((q) => q.b.filter((_, k) => q.w[k])))]);
+    _m.copy(this.group.matrixWorld).invert();
+    for (const b of used) skin[b].multiplyMatrices(this.bones[b].matrixWorld, this.skeleton.boneInverses[b]).premultiply(_m);
     for (let i = 0; i < this.sparkSrc.length; i++) {
       const s = this.sparkSrc[i];
       _v.set(0, 0, 0);
       for (let k = 0; k < 4; k++) {
         if (!s.w[k]) continue;
-        _v2.copy(s.p).applyMatrix4(_m.multiplyMatrices(this.bones[s.b[k]].matrixWorld, this.skeleton.boneInverses[s.b[k]]));
+        _v2.copy(s.p).applyMatrix4(skin[s.b[k]]);
         _v.addScaledVector(_v2, s.w[k]);
       }
-      this.group.worldToLocal(_v);
       pos.setXYZ(i, _v.x, _v.y, _v.z);
       const front = c * 1.25 - s.along - 0.1;
       al.setX(i, smooth(0, 0.14, front) * lvl * (0.6 + 0.4 * Math.sin(this.t * 11 + i)));
@@ -965,11 +1120,42 @@ export function buildMonsterOne() {
   }));
   mouthGlow.visible = false;
   group.add(mouthGlow);
+  // Not put on her: a battle hands her one of the lights it has had in the
+  // scene from the start (see monsterLight in scene.js), because a light
+  // coming into the scene with her -- or going when she is gone, or hidden
+  // with her while she is held back behind the loading screen -- changes how
+  // many lights there are, and every shader built before is built again.
+  // Anything else that draws her (the yard, the title) puts this one on her.
   const light = new THREE.PointLight(BREATH_BLUE, 0, 700, 2);
-  light.visible = false;
-  group.add(light);
   const beams = [beamMesh(1.8, 3.2), beamMesh(0.9, 8)];
-  for (const m of beams) { m.visible = false; group.add(m); }
+  for (const m of beams) { m.scale.set(1e-3, 1e-3, 1e-3); group.add(m); }
+  // The cracks her claws run through a hull and the pieces they and her
+  // jaws tear out of it are drawn with materials of their own: a triangle of
+  // each, with no area, drawn with her from the start so their shaders are
+  // built when she comes into the battle and not in the middle of a bite.
+  // Each with the attributes it is drawn with -- the cracks have nothing but
+  // their corners, the pieces their normals and colours too -- because what
+  // a geometry carries is part of its shader as well, and a stand-in that
+  // carried more built the wrong one.
+  // In a group of their own: what is set straight into hers is welded into
+  // her plating, attributes and all, and comes out a different shader.
+  const warm = new THREE.Group();
+  warm.name = 'warm';
+  group.add(warm);
+  for (const [mat, lit] of [[CRACK_MAT, false], [pieceMaterial(), true]]) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    if (lit) {
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(9), 3));
+    }
+    const m = new THREE.Mesh(g, mat);
+    m.frustumCulled = false;
+    // (Not left out as smaller than a pixel, which it is: see pixelcull.js.)
+    m.userData.alwaysDraw = true;
+    m.renderOrder = -1;
+    warm.add(m);
+  }
 
   // The sparks off her plates: the tips of each, a few dozen of them.
   const plate = D.MESHES[4];
@@ -999,7 +1185,6 @@ export function buildMonsterOne() {
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   }));
   sparks.frustumCulled = false;
-  sparks.visible = false;
   group.add(sparks);
 
   const rig = new MonsterRig({

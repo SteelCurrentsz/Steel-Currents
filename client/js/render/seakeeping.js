@@ -203,7 +203,9 @@ export function squatFor(speed, length) {
   const k = fn * fn;
   return {
     sink: Math.min(1.0, k * 4 * Math.sqrt(length / 100)),
-    trim: -Math.min(0.02, k * 0.11),
+    // No trim. A warship's running trim is a few hundredths of a degree and
+    // drawn at all it read as every ship under way sitting tilted back.
+    trim: 0,
   };
 }
 

@@ -27,7 +27,7 @@
 
 import * as THREE from '../../../vendor/three.module.js';
 import { cutUniforms, cutTree, copyOf, disposeCut, cloneMaterial } from './sever.js';
-import { inWater } from './toss.js';
+import { inWater, pieceMaterial } from './toss.js';
 
 const G = 9.81;
 const TMP = new THREE.Vector3();
@@ -306,6 +306,38 @@ function isMount(o) {
   return !!(o.userData && (o.userData.mounting || o.userData.dynamic));
 }
 
+/**
+ * A sheet of her side, torn off: a bent, dished, ragged plate, her paint on
+ * one face and scorched on the other, `w` by `h` metres. Drawn with the same
+ * material as every piece torn out of a hull (pieceMaterial in toss.js), so
+ * it builds no shader of its own.
+ */
+function sheetGeo(w, h, rnd) {
+  const g = new THREE.BoxGeometry(w, h, Math.max(0.12, Math.min(w, h) * 0.05), 4, 3, 1);
+  g.deleteAttribute('uv');
+  const A = g.attributes.position.array;
+  const bend = (rnd() - 0.5) * 0.9;
+  const dish = 0.2 + rnd() * 0.5;
+  const f0 = rnd() * 6, f1 = rnd() * 6;
+  const col = new Float32Array(A.length);
+  const paint = 0.30 + rnd() * 0.12;
+  for (let i = 0; i < A.length; i += 3) {
+    const x = A[i] / (w / 2), y = A[i + 1] / (h / 2);
+    A[i + 2] += bend * x * x * w * 0.45 - dish * (1 - x * x) * (1 - y * y) * Math.min(w, h) * 0.35;
+    if (Math.max(Math.abs(x), Math.abs(y)) > 0.6) {
+      A[i] *= 0.75 + 0.4 * Math.abs(Math.sin(y * 7 + f0));
+      A[i + 1] *= 0.75 + 0.4 * Math.abs(Math.sin(x * 9 + f1));
+    }
+    // Paint on the face that was outboard, charred and bare steel elsewhere.
+    const burnt = A[i + 2] < 0 || rnd() < 0.35;
+    const c = burnt ? 0.06 + rnd() * 0.06 : paint * (0.8 + rnd() * 0.3);
+    col[i] = c; col[i + 1] = c * (burnt ? 0.9 : 1.02); col[i + 2] = c * (burnt ? 0.8 : 1.06);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
 export class Rupture {
   /**
    * `zc` is the middle of the magazine, metres along her in her own frame;
@@ -519,7 +551,13 @@ export class Rupture {
     const beam = cls.hull.beam;
     const half = len / 2;
     this.len = len;
-    this.power = 1.4;
+    // How close in she was, 0 at the edge of what takes a ship apart and 1
+    // inside the fireball (see shatter in scene.js). Out at the edge she is
+    // broken and pushed bodily away; in close she is blown to pieces -- torn
+    // across in more places, her pieces thrown up and over, her guns hurled
+    // off her and her plating stripped off her in sheets.
+    const F = THREE.MathUtils.clamp(from.force ?? 0, 0, 1);
+    this.power = 1.4 + 1.1 * F;
     const P = this.power;
     this.jag = Math.min(9, 1.5 + beam * 0.16);
     this.fore = null;
@@ -532,7 +570,7 @@ export class Rupture {
     this.hidden = group.children.filter((c) => c !== view.marker && c.visible);
 
     // Where she is torn across: evenly along her, give or take.
-    const n = len > 200 ? 4 : len > 120 ? 3 : len > 60 ? 2 : 1;
+    const n = (len > 200 ? 4 : len > 120 ? 3 : len > 60 ? 2 : 1) + Math.round(F * (len > 60 ? 2 : 1));
     const cuts = [];
     for (let k = 1; k <= n; k++) {
       const z = -half + (len * k) / (n + 1) + (Math.random() - 0.5) * len / (n + 1) * 0.5;
@@ -585,19 +623,21 @@ export class Rupture {
       // over away from it, end over end a little.
       // Pushed bodily away by the wave of the burst, not thrown: a few metres
       // a second, and the water takes it off them.
-      const out = 2 + Math.random() * 4;
-      const slide = (Math.random() - 0.5) * 2;
+      // Close in, the fireball's own shock: the pieces of her are thrown up
+      // and out, end over end.
+      const out = (2 + Math.random() * 4) * (1 + F * 5);
+      const slide = (Math.random() - 0.5) * 2 * (1 + F * 4);
       const axis = new THREE.Vector3(along.x, 0, along.z)
-        .add(new THREE.Vector3((Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.8))
+        .add(new THREE.Vector3((Math.random() - 0.5) * (0.8 + F), (Math.random() - 0.5) * (0.4 + F), (Math.random() - 0.5) * (0.8 + F)))
         .normalize();
       this.flyers.push({
         obj: pivot, piece, U, hull: true,
         vx: vx * 0.3 + away.x * out + along.x * slide,
-        vy: 0.8 + Math.random() * 2.2,
+        vy: (0.8 + Math.random() * 2.2) * (1 + F * 5),
         vz: vz * 0.3 + away.z * out + along.z * slide,
         axis,
         // Rolled over away from it, slowly, and going on rolling as she fills.
-        spin: (Math.random() < 0.5 ? -1 : 1) * (0.05 + Math.random() * 0.12),
+        spin: (Math.random() < 0.5 ? -1 : 1) * (0.05 + Math.random() * 0.12) * (1 + F * 6),
         size: Math.max(8, (hi === null ? half : hi) - (lo === null ? -half : lo)),
         sink: 0.9 + Math.random() * 0.8,
         wet: false,
@@ -621,7 +661,7 @@ export class Rupture {
       m.updateMatrixWorld(true);
       if (main || (m.userData.gunNode && rnd() < 0.35)) {
         world.add(m);
-        this.throwWhole(m, world, vx, vz, away, 6 + rnd() * 8, (4 + rnd() * 8) * (rnd() < 0.8 ? 1 : -1));
+        this.throwWhole(m, world, vx, vz, away, (6 + rnd() * 8) * (1 + F * 1.5), (4 + rnd() * 8) * (rnd() < 0.8 ? 1 : -1) * (1 + F));
         continue;
       }
       m.traverse((o) => {
@@ -631,6 +671,34 @@ export class Rupture {
         const r = o.geometry.boundingSphere.radius * Math.max(wsc.x, wsc.y, wsc.z);
         if (r < 0.45) return;
         this.wreck.todo.push({ o, r, local: new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld) });
+      });
+    }
+    // And her plating, stripped off her in sheets and flung: the nearer the
+    // burst, the more of her.
+    const sheets = Math.min(70, Math.round((6 + len * 0.16) * F * F + (F > 0 ? 4 : 0)));
+    const deck = from.deck || beam * 0.35;
+    for (let i = 0; i < sheets; i++) {
+      const w = 1.2 + rnd() * (2 + beam * 0.12);
+      const h = 0.8 + rnd() * (1.5 + beam * 0.08);
+      const mesh = new THREE.Mesh(sheetGeo(w, h, rnd), pieceMaterial());
+      mesh.userData.ownGeo = true;
+      const side = rnd() < 0.5 ? -1 : 1;
+      group.localToWorld(mesh.position.set(side * beam * 0.5 * rnd(), deck * rnd(), (rnd() - 0.5) * len * 0.95));
+      mesh.quaternion.setFromEuler(new THREE.Euler(rnd() * 6.3, rnd() * 6.3, rnd() * 6.3));
+      world.add(mesh);
+      const up = 6 + rnd() * (10 + 26 * F);
+      const outv = (4 + rnd() * (8 + 26 * F));
+      const lat = (rnd() - 0.5) * (6 + 18 * F);
+      this.flyers.push({
+        obj: mesh, hull: false,
+        vx: vx * 0.5 + away.x * outv + along.x * lat,
+        vy: up,
+        vz: vz * 0.5 + away.z * outv + along.z * lat,
+        axis: new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(),
+        spin: 1.2 + rnd() * 4,
+        size: Math.min(8, 1 + Math.max(w, h)),
+        foot: 0.3,
+        wet: false,
       });
     }
   }

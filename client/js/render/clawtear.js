@@ -17,11 +17,12 @@
 // ones that ran out into the plating round it stay.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { showWhenReady } from './warmgate.js';
 
 /** When the cracks have gone round and the piece breaks off, seconds after her claws go in. */
 export const CLAW_BREAK = 1.35;
 
-const CRACK_MAT = new THREE.MeshBasicMaterial({
+export const CRACK_MAT = new THREE.MeshBasicMaterial({
   color: 0x0b0a09, side: THREE.DoubleSide,
   polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
 });
@@ -146,6 +147,7 @@ export class ClawTear {
     this.mesh = new THREE.Mesh(this.geo, CRACK_MAT);
     this.mesh.renderOrder = 2;
     view.group.add(this.mesh);
+    showWhenReady(this.mesh);
     this.onHer = onHer;
   }
 
@@ -160,10 +162,11 @@ export class ClawTear {
       if (cl.done || t < cl.at) continue;
       cl.done = true;
       const at = this.onHer(cl.u, cl.v).p;
-      if (P) {
-        P.dent(at.x, at.y, at.z, Math.max(2.4, this.r * 0.32), this.r * 0.09);
-        P.punch(at.x, at.y, at.z, Math.max(0.5, this.r * 0.08));
-      }
+      // Dished in, not holed: the only hole is the one the piece leaves when
+      // it breaks away (a puncture a finger -- five holes a grip, each cut
+      // and its edge rebuilt -- was the worst of the stall in her crushing,
+      // and read as holes appearing where nothing had torn).
+      if (P) P.dent(at.x, at.y, at.z, Math.max(2.4, this.r * 0.32), this.r * 0.12);
       if (this.onDig) this.onDig(at, this.n);
     }
     // The cracks, as far as they have got.

@@ -55,7 +55,7 @@ export function blastRecipe(caliber, sibling = false, intensity = 1) {
   // A good many heads to a heavy gun's cloud rather than a few big ones: it
   // is the number of them, each lit on its own sunny side and dark in its own
   // folds, that makes a cloud read as billowing smoke and not as a blur.
-  let smoke = caliber >= 300 ? 8 : caliber >= 180 ? 6 : caliber >= 120 ? 4 : 3;
+  let smoke = caliber >= 300 ? 11 : caliber >= 180 ? 8 : caliber >= 120 ? 5 : 3;
   smoke = Math.max(1, Math.round(smoke * Math.min(1.3, Math.max(0.5, intensity))));
   if (sibling) smoke = Math.max(1, Math.round(smoke * 0.34));
   return {
@@ -64,18 +64,20 @@ export function blastRecipe(caliber, sibling = false, intensity = 1) {
     // other barrels of a turret fire into the first one's fireball, so they
     // get only the white core on their own muzzles: three fireballs stacked
     // on one another burn out to a flat yellow.
-    flash: sibling ? 1 : caliber >= 200 ? 3 : 2,
-    flashLife: 0.10 + caliber * 0.0003,
+    flash: sibling ? 1 : caliber >= 200 ? 4 : 3,
+    // Long enough to see: the fireball off a heavy gun hangs a good fifth of
+    // a second before the smoke swallows it.
+    flashLife: 0.15 + caliber * 0.00045,
     // And every barrel its own jet of flame down the bore, a tenth of a
     // second on a sixteen-inch gun.
     jet: 1,
     jetLife: 0.07 + caliber * 0.0001,
     smoke,
-    smokeLife: 8 + caliber * 0.026,
+    smokeLife: 10 + caliber * 0.035,
     // How long the fire is still alight inside the cloud: about as long as
     // the flash itself, which it is the tail end of.
     heat: 0.04 + 0.05 * S,
-    opacity: 0.76 + 0.18 * Math.min(1, S),
+    opacity: 0.82 + 0.16 * Math.min(1, S),
     ring: !sibling && caliber >= 100,
     ringLife: 0.55 + 0.55 * S,
   };
@@ -272,9 +274,9 @@ vec4 flash(vec2 p, float r, float age, float u, float seed, float hot) {
   // the outside, and all of it cooling as it goes.
   // And for the first two or three frames, white: the instant the gas leaves
   // the muzzle it is far hotter than anything that follows.
-  float burst = exp(-age / 0.035);
-  float t = hot * (1.2 - 0.95 * r / max(edge, 0.05)) + 0.38 * N + 0.2 * fine - u * 0.75
-          + 0.45 * burst * hot;
+  float burst = exp(-age / 0.06);
+  float t = hot * (1.3 - 0.95 * r / max(edge, 0.05)) + 0.38 * N + 0.2 * fine - u * 0.6
+          + 0.7 * burst * hot;
   // Soot rolling through it as it cools: the dark veins across a fireball are
   // most of what separates one from a glowing balloon.
   float vein = smoothstep(0.50, 0.72, vn(q * 1.9 + 21.0))
@@ -388,7 +390,7 @@ vec4 smoke(vec2 p, float r, float age, float u, float tau, float seed, float op)
            * mix(0.58, 1.10, bump) * mix(0.74, 1.05, smoothstep(-0.7, 0.7, Hn));
   // Dirty and brown while it is thick and new -- cordite smoke comes out of a
   // gun a yellowish brown -- greying as it thins out.
-  vec3 albedo = vTint * mix(vec3(0.70, 0.61, 0.49), vec3(1.0), smoothstep(0.0, 0.2, u));
+  vec3 albedo = vTint * mix(vec3(0.86, 0.78, 0.66), vec3(0.97, 0.97, 0.98), smoothstep(0.04, 0.5, u));
   vec3 col = albedo * (uSunCol * sunK + amb);
   // Looking toward the sun through the thin edge of it, the edge lights up.
   col += uSunCol * pow(max(0.0, -vSunV.z), 3.0) * (1.0 - z) * (1.0 - dens) * 0.55;
@@ -480,7 +482,9 @@ export const SKIES = {
 };
 
 // Propellant smoke in daylight: a light, faintly warm grey.
-const SMOKE_TINT = [0.86, 0.83, 0.78];
+// Cordite smoke as it is in the photographs: a dun, brownish grey -- never
+// white, which is steam -- greying as it thins.
+const SMOKE_TINT = [0.70, 0.67, 0.62];
 export const SPRAY_TINT = [0.86, 0.89, 0.92];
 
 const MAX = 768;
@@ -634,10 +638,15 @@ export class MuzzleBlasts {
     // out in front of it, and on a heavy gun the jet beyond that -- each a
     // little further, bigger and cooler, so seen from the side it is a fire
     // with a shape and seen down the bore it is a bloom.
+    // Built off the photographs of a battleship's broadside: not a tongue of
+    // flame but a fireball -- an explosion out of the muzzle, white-yellow at
+    // its heart, wider than the turret, thrown out along the bore with a
+    // second, cooler ball of flame rolling out beyond it.
     const flashes = [
-      { at: 0.03, out: 0.08, r0: 0.10, r1: 0.24, life: 0.55, hot: 1.0 },
-      { at: 0.10, out: 0.48, r0: 0.20, r1: 0.68, life: 1.0, hot: 0.8 },
-      { at: 0.20, out: 1.00, r0: 0.14, r1: 0.44, life: 0.8, hot: 0.55 },
+      { at: 0.03, out: 0.10, r0: 0.16, r1: 0.34, life: 0.5, hot: 1.0 },
+      { at: 0.12, out: 0.60, r0: 0.30, r1: 0.95, life: 1.0, hot: 0.9 },
+      { at: 0.25, out: 1.15, r0: 0.22, r1: 0.70, life: 0.85, hot: 0.65 },
+      { at: 0.08, out: 0.35, r0: 0.25, r1: 0.75, life: 0.7, hot: 0.75 },
     ];
     for (let i = 0; i < R.flash; i++) {
       const f = flashes[i];
@@ -648,7 +657,7 @@ export class MuzzleBlasts {
         vx: d.x * (f.out - f.at) * L * k, vy: d.y * (f.out - f.at) * L * k,
         vz: d.z * (f.out - f.at) * L * k,
         k, lift: 0, windK: 0,
-        r0: f.r0 * L, r1: f.r1 * L * (0.9 + Math.random() * 0.2), rg: 16, grow: 0,
+        r0: f.r0 * L, r1: f.r1 * L * (0.9 + Math.random() * 0.2), rg: 22, grow: 0,
         life: R.flashLife * f.life * (0.9 + Math.random() * 0.2),
         tau: 0, seed: Math.random(), op: 1, hot: f.hot, tint: SMOKE_TINT,
       });
@@ -672,10 +681,10 @@ export class MuzzleBlasts {
     const n = R.smoke;
     for (let i = 0; i < n; i++) {
       const f = sibling ? 0.3 + Math.random() * 0.5 : (n > 1 ? i / (n - 1) : 0.4);
-      const reach = (0.15 + 0.95 * f) * L;
+      const reach = (0.15 + 1.8 * f) * L;
       const k = 4.5 + Math.random();
-      const s = (Math.random() - 0.5) * 0.34 * L;
-      const h = (Math.random() - 0.25) * 0.16 * L;
+      const s = (Math.random() - 0.5) * 0.5 * L;
+      const h = (Math.random() - 0.25) * 0.3 * L;
       const start = 0.05 * L;
       this.add({
         kind: SMOKE,
@@ -688,9 +697,9 @@ export class MuzzleBlasts {
         lift: 0.6 + 1.2 * Math.min(1, caliber / 406),
         windK: 1,
         r0: 0.12 * L,
-        r1: (0.30 + 0.22 * f) * L * (0.88 + Math.random() * 0.24) * (sibling ? 1.1 : 1),
+        r1: (0.40 + 0.30 * f) * L * (0.88 + Math.random() * 0.24) * (sibling ? 1.1 : 1),
         rg: 6 + Math.random() * 1.5,
-        grow: 0.014 * L * (1 + f),
+        grow: 0.022 * L * (1 + f),
         life: R.smokeLife * (0.85 + Math.random() * 0.3),
         tau: R.heat * (1 - 0.6 * f),
         seed: Math.random(), op: R.opacity, hot: 0, tint: SMOKE_TINT,

@@ -57,6 +57,7 @@ uniform float uKeep;      // how much of her is left to draw: 1 until she is let
 uniform float uTau;       // how long this size of ball burns, in seconds
 uniform float uSeed;
 uniform float uPower;     // 0 for a drum going up, 1 for a magazine
+uniform float uLife;      // grim: 0 a fuel fire, 1 a shell bursting in steel (see blast)
 uniform vec3 uLit;        // the fire underneath, which lights the cloud's belly
 uniform vec3 uFogColor;
 varying vec2 vUv;
@@ -90,6 +91,7 @@ void main() {
   // She does not stay a ball. The buoyant gas pulls up out of the middle, so
   // she is drawn in below and rolls over on top as she climbs.
   float roll = 1.0 - exp(-e * 1.3);
+  float grim = clamp(uLife, 0.0, 1.0);
   vec2 pn = p / R;
   pn.y = (pn.y - 0.15 * roll) / (1.0 + 0.24 * roll);
   pn.x *= 1.0 + 0.12 * roll;
@@ -124,12 +126,14 @@ void main() {
   float F = clamp((fine - 0.48) * 2.6, -1.0, 1.0);
   // ...and the lumps grow as she loses her skin: a burning ball is held
   // roughly round by the pressure in it, and a cooling one is not held at all.
-  float ragged = smoothstep(0.25, 1.70, e);
+  // Grim: a burst in a ship, as the newsreels have it -- a dull flash that is
+  // a ragged black cloud almost before it is fire at all.
+  float ragged = mix(smoothstep(0.25, 1.70, e), smoothstep(0.02, 0.55, e), grim);
   // Outward only, from a solid core: a head that sinks below the mean is no
   // longer a dent in her outline but a hole through the middle of her, and a
   // ball of holes reads as lace with the sky showing through.
-  float lump = 0.90 + (0.30 + 0.28 * ragged) * clamp(N + 0.35, 0.0, 0.8)
-             + (0.05 + 0.08 * ragged) * F;
+  float lump = 0.90 + (0.30 + 0.28 * ragged) * (1.0 + 0.3 * grim) * clamp(N + 0.35, 0.0, 0.8)
+             + (0.05 + 0.08 * ragged) * (1.0 + 0.8 * grim) * F;
 
   // The limb. While she is burning she has a skin and a hard edge; once the
   // fire is out of her there is nothing holding her together, and the edge
@@ -157,10 +161,12 @@ void main() {
   // Soot: made in the flame, rolled out to the surface, and thickening as she
   // cools. The veins of it across the face are most of what separates a
   // fireball from a glowing balloon.
-  float vein = smoothstep(0.34, 0.80, fbm3dLow(q * 2.05 + w * 0.8 + 3.1) * 1.34);
+  // Broad, not spotted: veins at a finer scale than the heads come out as a
+  // leopard's coat over the ball, which no fireball has ever worn.
+  float vein = smoothstep(0.30, 0.92, fbm3dLow(q * 1.15 + w * 0.9 + 3.1) * 1.34);
   // Gas this hot cools in a moment; what is left burns on much longer, dirty
   // and red. Holding the white too long is what makes a blast read as a lamp.
-  float cool = smoothstep(0.14, 1.45, e);
+  float cool = mix(smoothstep(0.14, 1.45, e), smoothstep(0.0, 0.3, e), grim);
 
   // Kept off the top of the ramp on purpose. A fireball is white only in the
   // few places where the gas is thickest and youngest; run the whole face up
@@ -170,26 +176,35 @@ void main() {
   // A magazine keeps a white heart long after the skin has gone dirty.
   heat = max(heat, uPower * (1.0 - smoothstep(0.0, 0.75, e))
                    * (1.0 - smoothstep(0.0, 0.42, rn)));
-  heat = clamp(heat, 0.0, 1.0);
+  heat = clamp(heat * (1.0 - 0.3 * grim), 0.0, 1.0);
 
-  float soot = clamp(smoothstep(0.20, 1.25, e) * (0.55 + 0.60 * vein)
-                     * (1.0 - thick * 0.30), 0.0, 1.0);
-  vec3 col = mix(ramp(heat), vec3(0.130, 0.108, 0.094), soot);
+  float soot = clamp(mix(smoothstep(0.16, 1.05, e), smoothstep(0.02, 0.38, e), grim)
+                     * mix(0.70 + 0.45 * vein, 0.95 + 0.1 * vein, grim) * (1.0 - thick * 0.25 * (1.0 - grim)), 0.0, 1.0);
+  // Soot is not one colour: thick it is near black, thin it is a dirty
+  // brown-grey with the daylight in it.
+  vec3 sootCol = mix(vec3(0.075, 0.068, 0.062), vec3(0.25, 0.23, 0.215), smoothstep(0.2, 0.9, n) * (1.0 - thick * 0.6));
+  // Grim soot has no warmth in it: cordite and burning paint, black to a cold
+  // ash grey.
+  sootCol = mix(sootCol, mix(vec3(0.045, 0.045, 0.047), vec3(0.20, 0.20, 0.205), smoothstep(0.25, 0.9, n) * (1.0 - thick * 0.7)), grim);
+  vec3 col = mix(ramp(heat), sootCol, soot);
   // The underside of the cloud stands over a burning port and is lit by it, and
   // there is fire inside it for a long while yet, showing in the gaps between
   // the heads. Soot that takes no light off what it is sitting above and none
   // off what it is made of is a hole in the picture, not smoke.
   col = mix(col, uLit, soot * (1.0 - smoothstep(-0.55, 0.95, pn.y)) * 0.45
-                      * (1.0 - smoothstep(1.0, 2.6, e)));
-  col += uLit * (1.0 - vein) * (1.0 - smoothstep(0.3, 1.7, e)) * 0.45;
+                      * (1.0 - smoothstep(1.0, 2.6, e)) * (1.0 - 0.85 * grim));
+  col += uLit * (1.0 - vein) * (1.0 - smoothstep(0.3, 1.4, e)) * 0.28 * (1.0 - grim);
   // Fire still breaking out through the soot: the lobes that stand proudest
   // are the ones still burning, and they show orange against the black long
   // after the face of her has gone dark.
-  float burst = smoothstep(0.42, 0.95, N) * smoothstep(0.3, 0.9, F * 0.5 + 0.5)
-              * smoothstep(0.15, 0.6, e) * (1.0 - smoothstep(1.2, 2.8, e));
-  col = mix(col, ramp(0.55 + 0.25 * F), burst * 0.85);
+  // Only the biggest heads, and only for a moment: speckled with fire all
+  // over the soot reads as embers on a cartoon bomb.
+  float burst = smoothstep(0.60, 1.0, N) * smoothstep(0.15, 0.5, e) * (1.0 - smoothstep(0.7, 1.7, e));
+  col = mix(col, ramp(0.50 + 0.18 * F), burst * 0.6 * (1.0 - grim));
   // Lit on the top by the sky and dark underneath, so the soot has a shape.
   col *= 0.86 + 0.28 * smoothstep(-0.6, 0.8, pn.y) * soot;
+  // And what fire there is, dull: the orange of film, not of a poster.
+  col = mix(col, vec3(dot(col, vec3(0.299, 0.587, 0.114))) * vec3(1.06, 0.98, 0.9), 0.35 * grim);
 
   // And she goes. Not quickly: what is left when the fire is out is soot, and
   // soot is opaque — it stands over the town as a black cloud, boiling and
@@ -204,7 +219,12 @@ void main() {
   // is cool and the soot is warm, and taken to the full the two average out to
   // a green nobody has ever seen over a burning town.
   col = mix(col, uFogColor, vFog * 0.62);
-  gl_FragColor = vec4(col, clamp(a * thin * gone * uKeep, 0.0, 1.0));
+  // Let go not by thinning evenly -- a ball going uniformly transparent is a
+  // ghost of itself, with every head's outline showing through the others --
+  // but by tearing: the thin places go first and the knots last, so she
+  // comes apart into rags of soot.
+  float tear = smoothstep(1.0 - uKeep - 0.05, 1.0 - uKeep + 0.30, n * 0.6 + fine * 0.25 + thick * 0.35);
+  gl_FragColor = vec4(col, clamp(a * thin * gone * tear * min(1.0, uKeep * 1.6), 0.0, 1.0));
 }
 `;
 
@@ -363,6 +383,12 @@ void main() {
   vUv = uv;
   ${CARD_VARY.map((n) => `v_${n} = ${PER_CARD[n]};`).join('\n  ')}
   vec4 centre = viewMatrix * vec4(iPos + vec3(0.0, iA.y, 0.0), 1.0);
+  // Brought forward toward the eye by half its own size. A blast goes off on
+  // or in a ship, and a flat card standing in her is cut through by her side
+  // and her deck: the ball and the flash came out with a ruled edge down them
+  // wherever her plating crossed them.
+  float cd = length(centre.xyz);
+  centre.xyz *= max(0.05, (cd - min(iA.x * 0.35, cd * 0.5)) / max(cd, 1e-3));
   centre.xy += position.xy * iA.x;
   // Drawn through the same haze as everything else at that range, or a blast
   // two kilometres off is the only sharp thing in the frame.
@@ -573,6 +599,9 @@ export class ExplosionSystem {
     // where every light in the scene is paid for on every surface whether it
     // is lit or not -- and switching them on and off recompiles them all.
     this.lights = lights;
+    // (x, y, z, scale): the cold wreckage and smoke a blast leaves, handed in
+    // by whoever owns the effects (see blast).
+    this.remains = null;
     this.time = 0;
     this.fogColor = scene.fog ? scene.fog.color.clone() : new THREE.Color(0, 0, 0);
     this.fogDensity = scene.fog ? (scene.fog.density || 0) : 0;
@@ -662,8 +691,24 @@ export class ExplosionSystem {
    */
   blast(x, y, z, {
     size = 40, duration = 2.2, debris = 40, light = true, plume = true, power = 0, ring = true,
-    linger = 3.4,
+    linger = 3.4, grim = 1,
   } = {}) {
+    // Every blast is drawn the one way now, the way the newsreels show a
+    // shell going off in a ship: a short, dull flash and a ragged mass of
+    // black and grey soot almost at once, with dark, cold wreckage flung up
+    // out of it and a column of smoke leaning off downwind. No glowing
+    // embers raining down, no fiery column, no light thrown about. `grim`
+    // is still taken (anything under 1 is held up to it) so callers written
+    // for the old fireball need no change.
+    grim = Math.max(1, grim);
+    light = false;
+    plume = false;
+    // What it throws is the effects' cold wreckage and smoke (see
+    // Effects.burstRemains), sized off the blast, in place of the glowing
+    // fragments and burning trails this used to scatter.
+    const remains = debris > 0 && this.remains
+      ? Math.min(4, Math.max(0.4, (size - 4) / 5.5)) : 0;
+    debris = 0;
     // A free slot if there is one, and the one furthest through its life if
     // there is not: cutting a young fireball off in the middle to start another
     // is the one thing that reads as a glitch rather than as a blast.
@@ -693,11 +738,13 @@ export class ExplosionSystem {
     s.ball.position.set(x, y, z);
     s.glare.visible = true;
     s.glare.position.set(x, y, z);
-    s.glare.material.uniforms.uPower.value = power;
+    s.glare.material.uniforms.uPower.value = power * (1 - 0.8 * grim);
+    s.grim = grim;
     s.flash.visible = true;
     s.flash.position.set(x, y + size * 0.3, z);
     s.ball.material.uniforms.uSeed.value = Math.random();
-    s.ball.material.uniforms.uPower.value = power;
+    s.ball.material.uniforms.uPower.value = power * (1 - grim);
+    s.ball.material.uniforms.uLife.value = grim;
     s.ball.material.uniforms.uTau.value = s.tau;
     s.origin = [x, y, z];
     for (let k = 0; k < LOBES; k++) {
@@ -713,7 +760,8 @@ export class ExplosionSystem {
       m.visible = true;
       const u = m.material.uniforms;
       u.uSeed.value = Math.random();
-      u.uPower.value = power * 0.6;
+      u.uPower.value = power * 0.6 * (1 - grim);
+      u.uLife.value = grim;
       u.uTau.value = s.tau * (0.75 + Math.random() * 0.4);
       u.uKeep.value = 1;
       u.uAge.value = 0;
@@ -744,6 +792,7 @@ export class ExplosionSystem {
       this.throwDebris(x, y, z, size, trailed < trailWant && Math.random() < 0.45);
       if (this.lastTrailed) trailed++;
     }
+    if (remains > 0) this.remains(x, y, z, remains);
   }
 
   throwDebris(x, y, z, size, trail = false) {
@@ -846,9 +895,9 @@ export class ExplosionSystem {
       }
 
       s.flash.material.uniforms.uAge.value = age;
-      s.flash.material.uniforms.uSize.value = s.size * 4.2;
+      s.flash.material.uniforms.uSize.value = s.size * (2.8 - 1.2 * (s.grim || 0));
       s.glare.material.uniforms.uAge.value = age;
-      s.glare.material.uniforms.uSize.value = s.size * 3.4;
+      s.glare.material.uniforms.uSize.value = s.size * 2.6;
       s.glare.material.uniforms.uRise.value = rise * 0.7;
 
       if (s.plumeOn) {

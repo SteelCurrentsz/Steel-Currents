@@ -8,6 +8,7 @@
 // Rodney's bow tubes and a U-boat's.
 
 import * as THREE from '../../../vendor/three.module.js';
+import { showWhenReady } from './warmgate.js';
 import { fishGeometry, torpedoMaterial } from './torpedo.js';
 
 // Gravity, as the simulation has it, for a fish dropping into the sea.
@@ -99,6 +100,9 @@ export function fitTubes(g, banks, T) {
         f.visible = false;
         f.userData.dynamic = true;
         g.add(f);
+        // Its shader started now, behind the frame, rather than built in
+        // the frame it leaves the tube.
+        showWhenReady(f);
         return f;
       });
     }

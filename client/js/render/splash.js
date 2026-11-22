@@ -275,9 +275,17 @@ function vnoise(x, y, z) {
 function makePlumeGeometry() {
   // The profile, foot to head: a waist low down, swelling to the head, and a
   // rounded top. Radius over height, both out of one.
+  // Not a stalk with a ball on it. In every photograph of a fall of shot the
+  // column is one broad mass of white water straight up out of the sea --
+  // as wide at its foot as anywhere, a little drawn in up its body, and
+  // feathered off into spray and mist at its top rather than swelling into
+  // a head.
+  // And open at the top: no cap. A closed, rounded top is what made every
+  // column a finger; the top of a real one is not a surface at all but the
+  // water thinning out into spray, which the material draws by fading.
   const prof = [
-    [0.5, 0], [0.56, 0.04], [0.46, 0.14], [0.44, 0.28], [0.5, 0.42], [0.6, 0.55],
-    [0.74, 0.66], [0.86, 0.76], [0.88, 0.84], [0.78, 0.9], [0.6, 0.95], [0.34, 0.985], [0.001, 1],
+    [0.66, 0], [0.72, 0.03], [0.64, 0.1], [0.57, 0.24], [0.53, 0.4], [0.52, 0.56],
+    [0.54, 0.7], [0.56, 0.82], [0.58, 0.92], [0.6, 1],
   ].map(([r, y]) => new THREE.Vector2(r, y));
   const g = new THREE.LatheGeometry(prof, 22);
   const p = g.attributes.position;
@@ -312,27 +320,27 @@ function makePlumeGeometry() {
  */
 /** Foam, streaked up the plume the way the water is going. */
 function foamStreakTexture() {
+  // Soft heaps and hollows of white water. It was streaks drawn up the
+  // column, and streaks up a column are what made it a pole.
   const c = document.createElement('canvas');
   c.width = 128; c.height = 256;
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, 128, 256);
-  for (let i = 0; i < 260; i++) {
+  for (let i = 0; i < 140; i++) {
     const x = Math.random() * 128;
     const y = Math.random() * 256;
-    const g = 190 + Math.random() * 50;
-    ctx.fillStyle = `rgba(${g - 12},${g - 4},${g},${0.18 + Math.random() * 0.3})`;
-    ctx.fillRect(x, y, 1 + Math.random() * 3, 10 + Math.random() * 60);
-  }
-  // And the brighter threads between them. Streaks, not dots: a texture
-  // stippled with round flecks put polka dots on every column of water.
-  for (let i = 0; i < 220; i++) {
-    ctx.fillStyle = `rgba(255,255,255,${0.3 + Math.random() * 0.5})`;
-    ctx.fillRect(Math.random() * 128, Math.random() * 256, 0.6 + Math.random() * 1.4, 6 + Math.random() * 30);
+    const r = 6 + Math.random() * 18;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const v = 200 + Math.random() * 30;
+    g.addColorStop(0, `rgba(${v - 14},${v - 5},${v},${0.18 + Math.random() * 0.22})`);
+    g.addColorStop(1, `rgba(${v - 14},${v - 5},${v},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(3, 2);
+  t.repeat.set(2, 1);
   return t;
 }
 
@@ -368,10 +376,12 @@ function plumeMaterial(map) {
     transparent: true,
     depthWrite: false,
   });
+  m.userData.time = { value: 0 };
   m.onBeforeCompile = (sh) => {
+    sh.uniforms.uFlowT = m.userData.time;
     sh.vertexShader = 'attribute float aFade;\nvarying float vFade;\nvarying vec3 vObj;\n'
       + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = aFade;\n  vObj = position;');
-    sh.fragmentShader = 'varying float vFade;\n' + PLUME_NOISE
+    sh.fragmentShader = 'varying float vFade;\nuniform float uFlowT;\n' + PLUME_NOISE
       + sh.fragmentShader.replace('#include <alphahash_fragment>', `
   {
     float nz = pn(vObj * vec3(7.0, 13.0, 7.0)) * 0.65 + pn(vObj * vec3(19.0, 31.0, 19.0)) * 0.35;
@@ -380,10 +390,37 @@ function plumeMaterial(map) {
     // And roped up its length: water driven up out of the sea goes up in
     // strands, and it is the gaps between them at its edges that stop a
     // column reading as a smooth glass tube.
-    float rope = pn(vObj * vec3(15.0, 1.6, 15.0) + vec3(0.0, 5.0, 0.0));
-    float keep = 1.0 - top * 0.9 * nz - rim * rim * 1.1 * (0.45 + nz)
-               - rim * 0.55 * smoothstep(0.4, 0.8, rope);
-    diffuseColor.a *= vFade * clamp(keep, 0.0, 1.0);
+    // And the water is going somewhere: up. The ropes and the knots in them
+    // stream up the column, so its middle is water pouring skyward and not a
+    // painted surface standing still.
+    float flow = uFlowT * 1.6;
+    // Billows, not strands: water thrown up in a mass rolls over itself in
+    // round heaps, and drawn as vertical ropes it read as a bundle of poles.
+    float rope = pn(vObj * vec3(6.0, 7.0, 6.0) + vec3(0.0, 5.0 - flow * 0.9, 0.0));
+    float rope2 = pn(vObj * vec3(11.0, 12.0, 11.0) + vec3(4.0, -flow * 1.4, 2.0));
+    float sheet = pn(vObj * vec3(5.0, 5.5, 5.0) + vec3(1.0, -flow * 1.1, 7.0));
+    // Spray, not a solid: dense through its middle low down, thinning into
+    // nothing over its upper half, its outline the ragged edge of a cloud of
+    // water rather than a skin, and gaps up it between the ropes of water.
+    float fadeUp = 1.0 - smoothstep(0.35, 1.0, vObj.y + (nz - 0.5) * 0.35);
+    float keep = fadeUp
+               - rim * rim * 1.5 * (0.5 + nz)
+               - (0.2 + 0.45 * rim) * smoothstep(0.45, 0.8, rope);
+    // Through its middle too, not only at its edge: water going up in ropes
+    // with the light and the sea showing between them. Solid white only
+    // where the ropes are; between them it is thin, and takes the sea's
+    // blue-grey from behind.
+    float dense = smoothstep(0.3, 0.75, rope2 * 0.55 + sheet * 0.45);
+    keep -= (1.0 - dense) * 0.3 * (1.0 - rim);
+    // Lumps lit on top and shadowed under, the way a heap of white water is.
+    diffuseColor.rgb *= mix(vec3(0.8, 0.87, 0.91), vec3(1.04), dense) * (0.88 + 0.2 * sheet);
+    diffuseColor.a *= vFade * clamp(keep, 0.0, 1.0) * 0.82;
+  }`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  {
+    // Glints: light caught on the wet surfaces of the water streaming up,
+    // flickering as they go -- what makes moving water read as water.
+    float gl = pn(vObj * vec3(30.0, 30.0, 30.0) + vec3(0.0, -uFlowT * 3.0, 3.0));
+    totalEmissiveRadiance += vec3(0.32, 0.36, 0.4) * smoothstep(0.78, 0.95, gl) * (1.0 - smoothstep(0.5, 0.9, vObj.y));
   }`);
   };
   return m;
@@ -570,7 +607,7 @@ function cardMesh(scene, count, uniforms, drop) {
     vertexShader: CARD_VERT,
     fragmentShader: CARD_FRAG,
     defines: drop ? { DROP: 1 } : {},
-    uniforms: { ...uniforms, uStretch: { value: drop ? 0.07 : 0 } },
+    uniforms: { ...uniforms, uStretch: { value: drop ? 0.07 : 0.14 } },
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -623,10 +660,10 @@ function flush(c, n) {
  * and `reach` how far out it runs.
  */
 const KINDS = {
-  shell: { tall: 1, wide: 1, stem: 0.4, side: [0, 2], head: 10, bloom: 1.5, surge: 18, reach: 1.7, drops: 1, delay: 0 },
-  bomb: { tall: 0.85, wide: 1.2, stem: 0.46, side: [1, 3], head: 12, bloom: 1.8, surge: 22, reach: 2.0, drops: 1.4, delay: 0, maxH: 70 },
+  shell: { tall: 1, wide: 1, stem: 0.78, side: [0, 2], head: 10, bloom: 1.5, surge: 18, reach: 1.7, drops: 1, delay: 0 },
+  bomb: { tall: 0.85, wide: 1.2, stem: 0.86, side: [1, 3], head: 12, bloom: 1.8, surge: 22, reach: 2.0, drops: 1.4, delay: 0, maxH: 70 },
   dc: { tall: 0.6, wide: 1.15, stem: 0.5, side: [2, 3], head: 13, bloom: 1.6, surge: 24, reach: 2.0, drops: 1.8, delay: 0.32, maxH: 45 },
-  torp: { tall: 1, wide: 1, stem: 0.5, side: [2, 3], head: 13, bloom: 1.25, surge: 18, reach: 1.8, drops: 1.2, delay: 0, maxH: 70 },
+  torp: { tall: 1, wide: 1, stem: 0.82, side: [2, 3], head: 13, bloom: 1.25, surge: 18, reach: 1.8, drops: 1.2, delay: 0, maxH: 70 },
   drop: { tall: 0.5, wide: 0.8, stem: 0.4, side: [0, 1], head: 4, bloom: 1.2, surge: 9, reach: 1.4, drops: 0.6, delay: 0, maxH: 25 },
   // A sea broken against her bow: low and wide, thrown out and back along her
   // side rather than up, with no column in the middle of it.
@@ -959,7 +996,12 @@ export class Splashes {
     const radius = base.radius * kind.wide;
     // Which way it came in, which is the way it throws: a shell arrives on a
     // slant and the water goes on the way it was going.
-    const lean = Number.isFinite(opts.heading) ? opts.heading : Math.random() * Math.PI * 2;
+    // Downwind, when there is a wind: every column of a salvo leans the same
+    // way and trails its mist the same way, as they do in every photograph.
+    const lean = Number.isFinite(opts.heading) ? opts.heading
+      : this.wind && Math.hypot(this.wind.x, this.wind.z) > 0.3
+        ? Math.atan2(this.wind.x, this.wind.z) + rnd(-0.35, 0.35)
+        : Math.random() * Math.PI * 2;
     // A little splash thrown up by the spray off a big one is spires, foam and
     // a ring: the columns are kept for the rounds that carry the information.
     // The plumes are the splash now (see spires). The old translucent column
@@ -1176,13 +1218,13 @@ export class Splashes {
       if (slot === undefined) return;
       const a = (i / n) * Math.PI * 2 + rnd(-0.3, 0.3);
       const off = radius * rnd(0.35, 0.6);
-      const h = height * rnd(0.1, 0.3) * (kind.tall < 0.7 ? 1.3 : 1);
+      const h = height * rnd(0.07, 0.17) * (kind.tall < 0.7 ? 1.3 : 1);
       const rise = 0.12 + h * 0.008;
       this.jets.push({
         y0: this.base || 0, slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
         // Leaning well out, the way it is thrown.
-        a, tilt: rnd(0.35, 0.95),
-        w: radius * rnd(0.06, 0.13), h,
+        a, tilt: rnd(0.3, 0.7),
+        w: radius * rnd(0.14, 0.24), h,
         delay: kind.delay + rnd(0, 0.05), rise, ttl: rise + 0.7 + h * 0.02, life: 0,
       });
     }
@@ -1201,16 +1243,22 @@ export class Splashes {
       if (slot === undefined) return;
       const stem = i === 0;
       const a = lean + (Math.random() - 0.5) * Math.PI * 2;
-      const off = stem ? radius * rnd(0, 0.08) : radius * rnd(0.12, 0.3);
-      const h = height * (stem ? rnd(0.96, 1.04) : rnd(0.55, 0.85));
-      const rise = (0.2 + h * 0.0065) * (stem ? 1 : rnd(0.9, 1.15));
+      const off = stem ? radius * rnd(0, 0.08) : radius * rnd(0.12, 0.26);
+      // Shoulders of water bulging off the column, not spires beside it.
+      const h = height * (stem ? rnd(0.96, 1.04) : rnd(0.42, 0.65));
+      // Up over a second or more on a heavy shell, not a flick: a column of
+      // water eighty metres high is a great many tons being driven up.
+      const rise = (0.25 + h * 0.011) * (stem ? 1 : rnd(0.9, 1.15));
       this.jets.push({
         y0: this.base || 0, slot, x: x + Math.sin(a) * off, z: z + Math.cos(a) * off,
         // Near vertical: what drives it up is under it.
         a, tilt: stem ? rnd(0, 0.04) : rnd(0.03, 0.1),
-        w: radius * kind.stem * (this.thick || 1) * (stem ? rnd(0.95, 1.1) : rnd(0.45, 0.65)), h,
+        w: radius * kind.stem * (this.thick || 1) * (stem ? rnd(0.95, 1.1) : rnd(0.7, 0.9)), h,
         delay: kind.delay + (stem ? 0 : rnd(0.02, 0.12)), rise,
-        ttl: rise + 1.2 + h * 0.022,
+        // And it comes down as its water does: as long as a body takes to
+        // fall from the top of it, so the column and the head it threw collapse
+        // together rather than the head being left hanging over empty sea.
+        ttl: rise + 0.5 + Math.sqrt((2 * h) / G) * 1.05,
         life: 0,
       });
     }
@@ -1260,27 +1308,32 @@ export class Splashes {
    * opening out as it hangs and drifting off downwind.
    */
   crest(x, z, height, radius, kind, lean, child) {
-    const n = Math.round(kind.head * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
+    // Spray standing all the way up the column, not a head on top of it: the
+    // water torn off its sides as it goes up, softening its outline into the
+    // misty edge every photograph shows, and at its top a cloud of the finest
+    // of it that the wind takes off downwind and leans the whole thing over.
+    const n = Math.round(kind.head * 2.0 * (child ? 0.35 : 1) * Math.max(0.6, this.intensity));
     const w = radius * kind.stem * (this.thick || 1);
-    const rise = 0.2 + height * 0.0065;
+    const rise = 0.25 + height * 0.011;
+    const fall = Math.sqrt((2 * height) / G);
+    const dx = Math.sin(lean), dz = Math.cos(lean);
     for (let i = 0; i < n; i++) {
-      // Up the top half of the stem, crowding toward the top.
-      const u = 0.5 + 0.5 * Math.pow(Math.random(), 0.6);
-      const a = lean + Math.random() * Math.PI * 2;
-      const off = w * (0.3 + kind.bloom * (u - 0.5) * 1.6) * rnd(0.4, 1);
-      const size = w * (0.7 + kind.bloom * (u - 0.4)) * rnd(0.75, 1.15);
-      const ttl = 1.6 + height * 0.035;
+      const u = 0.06 + 0.98 * Math.pow(Math.random(), 1.1);
+      const a = Math.random() * Math.PI * 2;
+      const top = Math.max(0, (u - 0.7) / 0.35);
+      const off = w * rnd(0.12, 0.34) * (1 + top * 0.4);
+      const size = w * rnd(0.62, 0.9) * (1 + top * 0.45);
+      // The higher it is, the further the wind carries it, and the longer it
+      // hangs: the mist off the top outlasts the column it came off.
+      const drift = w * (0.2 + 1.1 * top) * rnd(0.6, 1.2);
       this.puff({
-        x: x + Math.sin(a) * off, z: z + Math.cos(a) * off, y: height * u * 0.92,
-        // Opening outward and sinking as it goes, the way the head of a column
-        // spreads and comes back down over itself.
-        dx: Math.sin(a) * w * kind.bloom * rnd(0.4, 1.0), dz: Math.cos(a) * w * kind.bloom * rnd(0.4, 1.0),
-        dy: -height * rnd(0.08, 0.2),
-        s0: size * 0.45, s1: size * 1.45, squash: rnd(0.8, 1.05),
-        // Each one blooms as the top of the stem goes past it.
-        delay: kind.delay + rise * u * rnd(0.85, 1.05), ttl: ttl * rnd(0.85, 1.15),
-        // Softer and thinner than the stem it came off.
-        peak: rnd(0.5, 0.72), spread: 0.5,
+        x: x + Math.sin(a) * off, z: z + Math.cos(a) * off, y: height * Math.min(1, u) * 0.94,
+        dx: dx * drift + Math.sin(a) * w * 0.3, dz: dz * drift + Math.cos(a) * w * 0.3,
+        dy: -height * u * rnd(0.35, 0.55) * (1 - 0.3 * top),
+        s0: size * 0.6, s1: size * (1.2 + 0.5 * top), squash: rnd(1.2, 1.6) - top * 0.35,
+        delay: kind.delay + rise * Math.min(1, u) * rnd(0.8, 1.0),
+        ttl: (rise + fall) * rnd(0.8, 1.0) * (1 + top * 0.2),
+        peak: rnd(0.4, 0.58) * (1 - top * 0.35), spread: 0.25,
       });
     }
   }
@@ -1515,6 +1568,7 @@ export class Splashes {
       this.jetFade.setX(j.slot, Math.min(1, t * 10) * (1 - tear * tear * (3 - 2 * tear)));
     }
     this.jetMesh.instanceMatrix.needsUpdate = true;
+    if (this.jetMesh.material.userData.time) this.jetMesh.material.userData.time.value += dt;
     this.jetFade.needsUpdate = true;
   }
 
@@ -1568,7 +1622,8 @@ export class Splashes {
       // heap of geometry it replaces to cover the same water.
       P[o] = x; P[o + 1] = y; P[o + 2] = z; P[o + 3] = size * (1 + p.spread * k) * 1.25;
       S[o] = p.squash; S[o + 1] = fade; S[o + 2] = p.seed; S[o + 3] = k;
-      V[n * 3] = 0; V[n * 3 + 1] = 0; V[n * 3 + 2] = 0;
+      // A falling clot of water is drawn along its fall.
+      V[n * 3] = 0; V[n * 3 + 1] = p.vy !== undefined ? Math.min(0, vy) : 0; V[n * 3 + 2] = 0;
       n++;
     }
     flush(C, n);

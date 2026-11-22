@@ -7,7 +7,7 @@ import { BattleScene } from './render/scene.js';
 import { glide } from './render/mounts.js';
 import { loadShips, shipReady } from './render/ships.js';
 import { BATTERIES, batteryGun } from '../../shared/batteries.js';
-import { nukeScale } from '../../shared/nuke.js';
+import { nukeScale, NUKE } from '../../shared/nuke.js';
 import { Hud, readTarget, THROTTLE_MAX, MISSILE_KEYS } from './hud.js';
 import { DamageBoard } from './render/damageboard.js';
 import { TargetingView } from './render/targetview.js';
@@ -28,7 +28,7 @@ import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { installTroops } from './troops.js';
 import { footing } from '../../shared/infantry.js';
-import { getSettings, qualityName } from './settings.js';
+import { getSettings, setSettings, qualityName } from './settings.js';
 import { Director } from './director.js';
 import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
 import { readMonsterWire, MONSTER } from '../../shared/monster.js';
@@ -73,9 +73,16 @@ const INTERP_DELAY = 0.15;
  * The losses that are held until the picture reaches the moment they happened
  * at; see lateEvents.
  */
+const HIT_AT = new THREE.Vector3();
+// Under this, metres a second, a ship is lying stopped and lays no wake.
+const WAKE_MIN_SPEED = 0.6;
 const LATE_EVENTS = new Set([
   'planeDown', 'planesLost', 'bomberDown', 'bomberOut', 'wreckHit', 'wreckIn', 'midAir',
   'planeCrash', 'ram', 'trap', 'nuke',
+  // A round striking a ship. The rounds are drawn a moment behind the battle,
+  // like everything else; a burst played the moment the word came in went off
+  // in the air a hundred metres short of her, with the shell still on its way.
+  'hit',
 ]);
 // What the batsman saw, for a captain watching one of his own go round.
 const WAVE_OFF = {
@@ -751,6 +758,9 @@ export class Battle {
     // A bomb arrives where the scene flew it to, so the scene is what says
     // when. See bombThrough.
     this.scene.bombs.onHit = (x, y, z) => this.bombThrough(x, y, z);
+    // Whether the Monster Ones nobody is conning, his side's and the enemy's,
+    // may use their atomic breath (see the settings).
+    this.sendMonsterRules();
     // Water on the glass the battle is watched through: thrown on it by
     // splashes close aboard and by the weather. See lens.js.
     this.lens = new Lens(document.getElementById('screen-battle'));
@@ -1545,6 +1555,9 @@ export class Battle {
     view.marker.visible = !isSelf && this.camMode === 'tactical';
     if (!rig) { view.group.visible = !!s.a; return; }
     rig.driven = true;
+    // A Monster One in the battle: the switches for her breath, on either
+    // side, where he can reach them.
+    if (s.a) this.monsterRules();
     // How fast she is swinging, off how her heading moves.
     const yr = view.monsterH == null || dt <= 0 ? 0 : angleDelta(view.monsterH, h) / dt;
     view.monsterH = h;
@@ -1577,7 +1590,11 @@ export class Battle {
       view.moActT += dt;
       view.moActT += ((w.actT || 0) - view.moActT) * (1 - Math.exp(-dt / 0.5));
     }
+    // Where her jaws and her free hand go into the ship she is at: points on
+    // its hull, worked out here so they are put into it and not short of it.
+    const reach = s.a ? this.monsterReach(s, w, x, z, h, a.ships, rig) : null;
     rig.update(dt, {
+      reach,
       pose: s.a ? w.pose : 'swim',
       speed: Math.abs(speed || 0),
       yawRate: view.monsterYaw,
@@ -1590,6 +1607,9 @@ export class Battle {
       beamTo: w.act === 'fire' ? beamTo : null,
       holding: !!w.holdId,
       pinned: !!w.pin,
+      // Where her head is turned for her jaws: her own captain's as he moves
+      // it, everybody else's off the wire.
+      aim: s.i === this.conned() && this.moAim ? this.moAim : w.aim,
       ground,
     });
     // Gone under, she is not drawn.
@@ -1634,7 +1654,7 @@ export class Battle {
   /** Her own controls: made the first time she is conned. */
   monsterBar() {
     if (!this.moBar) {
-      this.moBar = new MonsterBar(document.body, (o) => this.monsterOrder(o));
+      this.moBar = new MonsterBar(document.body, (o) => this.monsterOrder(o), (x, y) => this.monsterAim(x, y));
     }
     return this.moBar;
   }
@@ -1647,10 +1667,13 @@ export class Battle {
       // captain is looking, if not.
       // Marked ships first (the Attack key), in the order marked.
       const snap = this.snapshots[this.snapshots.length - 1];
+      // Her enemies, not his: a Monster One of the other side, conned off the
+      // plot, breathes at his own ships.
+      const side = snap?.ships?.find((q) => q.i === ship)?.tm ?? this.team;
       const marked = (this.moMarks || []).find((id) => snap?.ships?.some((q) => q.i === id && q.a));
       const sel = this.selected && this.selected !== ship ? snap?.ships?.find((q) => q.i === this.selected && q.a) : null;
       if (marked) o = { ...o, target: marked };
-      else if (sel && sel.tm !== this.team) o = { ...o, target: sel.i };
+      else if (sel && sel.tm !== side) o = { ...o, target: sel.i };
       else {
         // Where the captain is looking -- and the enemy ship nearest that,
         // if there is one close to it, so a breath laid near a ship is laid
@@ -1658,7 +1681,7 @@ export class Battle {
         const at = this.aimPoint;
         let best = null, bd = 1500;
         for (const q of snap?.ships || []) {
-          if (!q.a || q.tm === this.team || getClass(q.c)?.monster) continue;
+          if (!q.a || q.tm === side || getClass(q.c)?.monster) continue;
           const d = Math.hypot(q.x - at.x, q.z - at.z);
           if (d < bd) { bd = d; best = q; }
         }
@@ -1666,8 +1689,164 @@ export class Battle {
       }
     }
     if (o.a === 'throw') o = { ...o, x: this.aimPoint.x, z: this.aimPoint.z };
+    // Her head where her captain has turned it, before her jaws go in.
+    if (o.a === 'bite') this.flushMonsterAim(true);
     this.net.send({ t: 'monster', ship, o });
     audio.click();
+  }
+
+  /**
+   * Turn Monster One's head for her jaws: x -1 her left to 1 her right, y -1
+   * low (at her waterline and under it) to 1 high (her upperworks). Sent no
+   * more than ten times a second, and the last of a movement always.
+   */
+  monsterAim(x, y) {
+    const a = this.moAim || (this.moAim = { x: 0, y: 0, sent: 0, sx: 0, sy: 0 });
+    a.x = clamp(x, -1, 1);
+    a.y = clamp(y, -1, 1);
+    if (this.moBar) this.moBar.aimNow = a;
+    this.flushMonsterAim();
+  }
+
+  flushMonsterAim(force = false) {
+    const a = this.moAim;
+    if (!a || (a.x === a.sx && a.y === a.sy)) return;
+    const now = performance.now();
+    if (!force && now - a.sent < 100) return;
+    a.sent = now;
+    a.sx = a.x; a.sy = a.y;
+    this.net.send({ t: 'monster', ship: this.conned(), o: { a: 'head', hx: Math.round(a.x * 100) / 100, hy: Math.round(a.y * 100) / 100 } });
+  }
+
+  /**
+   * Monster One's reach this frame: { mouth, hand: { side, p } }, world
+   * points on the hull of the ship in her hands (or the one in front of her
+   * jaws), where her captain's aim (or the wire's) puts them -- the same aim
+   * the battle uses to say what is torn out. One hand holds a ship she has
+   * lifted (rig.holdSide, +1 her left) and the other is the one that rips;
+   * which is which is settled when she takes hold, by which side she is
+   * aimed at then. Also leaves on the ship's view where her free hand is
+   * going (view.ripLocal), for the way the ship hangs from the other.
+   */
+  monsterReach(s, w, x, z, h, ships, rig) {
+    const aim = (s.i === this.conned() && this.moAim) ? this.moAim : (w.aim || { x: 0, y: 0 });
+    let tv = null;
+    if (w.holdId) tv = this.scene.shipViews.get(w.holdId);
+    else if (w.act === 'bite') {
+      const jx = x + Math.sin(h) * MONSTER.bite.head.stand, jz = z + Math.cos(h) * MONSTER.bite.head.stand;
+      let bd = 140;
+      for (const q of ships) {
+        if (!q.a || q.i === s.i || getClass(q.c)?.monster) continue;
+        const d = Math.hypot(q.x - jx, q.z - jz) - (getClass(q.c)?.hull.length || 0) / 2;
+        if (d < bd) { bd = d; tv = this.scene.shipViews.get(q.i); }
+      }
+    }
+    if (!w.holdId) { rig.holdSide = 0; rig.holdFor = 0; }
+    else if (rig.holdFor !== w.holdId) {
+      // Aimed off to her right: her right hand is the one that rips, and her
+      // left holds. (Aim +x is her right; the rig's +x, and side +1, her left.)
+      rig.holdSide = aim.x >= 0 ? 1 : -1;
+      rig.holdFor = w.holdId;
+    }
+    if (!tv || !tv.group.parent) return null;
+    const fx = Math.sin(h), fz = Math.cos(h), rx = -Math.cos(h), rz = Math.sin(h);
+    const base = w.holdId ? rig.gripPoint(new THREE.Vector3())
+      : new THREE.Vector3(x + fx * MONSTER.bite.head.stand, 0, z + fz * MONSTER.bite.head.stand);
+    const spot = (span, jaws) => {
+      tv.group.updateMatrixWorld(true);
+      const L = tv.group.worldToLocal(new THREE.Vector3(base.x + rx * aim.x * span, base.y, base.z + rz * aim.x * span));
+      const me = tv.group.worldToLocal(new THREE.Vector3(x, 10, z));
+      const cls = tv.cls;
+      const half = cls.hull.length / 2 * 0.88, beam = cls.hull.beam / 2;
+      const fb = freeboardOf(cls);
+      const side = me.x >= 0 ? 1 : -1;
+      L.z = clamp(L.z, -half, half);
+      L.y = aim.y >= 0 ? fb * 0.55 + aim.y * (fb * 0.45 + (jaws ? 5 : 0)) : fb * 0.55 + aim.y * (fb * 0.55 + cls.hull.draft * 0.35);
+      L.x = side * beam * (jaws && L.y > fb + 1 ? 0.4 : 0.9);
+      // Onto her plating there, if there is plating there.
+      const near = tv.plating ? tv.plating.nearest(L.x, L.y, L.z, 10) : null;
+      if (near) L.set(near[0], near[1], near[2]);
+      return { local: L, world: tv.group.localToWorld(L.clone()) };
+    };
+    const out = {};
+    if (w.act === 'bite') out.mouth = spot(MONSTER.bite.swing, true).world;
+    if (w.holdId) {
+      const r = spot(MONSTER.grab.rip, false);
+      tv.ripLocal = r.local;
+      // Held down: the hand on that side of her. Lifted: the one not holding.
+      const side = w.pin ? (rig.group.worldToLocal(r.world.clone()).x >= 0 ? 1 : -1) : -(rig.holdSide || 1);
+      out.hand = { side, p: r.world };
+    }
+    return out;
+  }
+
+  /**
+   * An event that happened to a ship Monster One has up in her hand, or has
+   * thrown: the battle has her where she floats, on the water, and it is
+   * there that its bursts, fires and splashes would go off -- under the hull,
+   * in the sea. Moved, in her own frame, to where she is drawn. A copy: the
+   * event itself is left as it came (a replay goes over it again).
+   */
+  liftEvent(ev) {
+    if (!ev || ev.lifted || !Number.isFinite(ev.x) || !Number.isFinite(ev.z)) return ev;
+    const id = ev.victim || (ev.e && ev.e.startsWith('mo') ? ev.at : 0) || ev.ship;
+    const view = id ? this.scene.shipViews.get(id) : null;
+    const P = view && view.lifted ? view.liftPose : null;
+    if (!P || !Number.isFinite(P.x) || !Number.isFinite(P.h)) return ev;
+    const dx = ev.x - P.x, dz = ev.z - P.z;
+    const lx = dx * Math.cos(P.h) - dz * Math.sin(P.h);
+    const lz = dx * Math.sin(P.h) + dz * Math.cos(P.h);
+    view.group.updateMatrixWorld(true);
+    const w = view.group.localToWorld(new THREE.Vector3(lx, Number.isFinite(ev.y) ? ev.y : 4, lz));
+    // (Marked, so an event held back and drawn later is not moved twice.)
+    return { ...ev, x: w.x, y: w.y, z: w.z, lifted: 1 };
+  }
+
+  /** The settings' word on Monster One's breath, left to her own mind, to the battle. */
+  sendMonsterRules() {
+    const st = getSettings();
+    this.net.send({ t: 'moAI', ally: st.moBreathAlly !== false, enemy: st.moBreathEnemy !== false });
+  }
+
+  /**
+   * Two small switches at the side of the screen, shown while there is a
+   * Monster One in the battle: whether his own side's and the enemy's, left
+   * to their own minds, use their atomic breath. The same as the settings.
+   */
+  monsterRules() {
+    if (this.moRules) return;
+    const el = document.createElement('div');
+    el.className = 'mo-rules';
+    el.style.cssText = 'position:fixed;left:12px;top:92px;z-index:39;display:flex;flex-direction:column;gap:4px;'
+      + 'font-size:0.72rem;user-select:none;-webkit-user-select:none;';
+    const make = (key, label) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.style.cssText = 'padding:5px 9px;border-radius:9px;cursor:pointer;color:#dff6ff;text-align:left;'
+        + 'background:rgba(6,14,24,0.72);border:1px solid rgba(88,214,255,0.35);font:inherit;touch-action:manipulation;';
+      const show = () => {
+        const on = getSettings()[key] !== false;
+        b.textContent = `${label} breath: ${on ? 'ON' : 'OFF'}`;
+        b.style.opacity = on ? '1' : '0.6';
+        b.title = `Whether ${label.toLowerCase()} Monster One, left to her own mind, uses her atomic breath`;
+      };
+      b.addEventListener('pointerdown', (e) => e.stopPropagation());
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSettings({ [key]: getSettings()[key] === false });
+        show();
+        this.sendMonsterRules();
+        audio.click();
+      });
+      show();
+      el.appendChild(b);
+    };
+    make('moBreathAlly', 'Allied M1');
+    make('moBreathEnemy', 'Enemy M1');
+    document.body.appendChild(el);
+    this.moRules = el;
+    // And the battle told again, now that he is surely in it.
+    this.sendMonsterRules();
   }
 
   /** Whether a ship off the snapshot is Monster One. */
@@ -1704,11 +1883,16 @@ export class Battle {
       if (!view) continue;
       const next = b ? b.ships.find((q) => q.i === s.i) : null;
       const g = view.group;
+      // Up out of the water, in her hand or in the air: where the battle
+      // puts anything that happens to her has to be moved up to where she
+      // is drawn (see liftEvent).
+      view.lifted = !!((s.hb && s.hl) || s.ly || s.fu != null);
+      view.liftPose = view.lifted ? { x: s.x, z: s.z, h: s.h } : null;
       if (s.hb && s.hl) {
         const mv = this.scene.shipViews.get(s.hb);
         const rig = mv?.group.userData.monster;
         if (rig) {
-          rig.handsPoint(at);
+          rig.gripPoint(at);
           const cls = getClass(s.c);
           // Where the hull sits in her hands once she has it up: her palms
           // under her keel, a little up from it.
@@ -1719,30 +1903,54 @@ export class Battle {
           // they go from then on -- what was between them and where it
           // rests in them taken up as she straightens with it, so it neither
           // floats up ahead of her hands nor sinks through them.
+          // Held by where her hand closed on her (`hg`: along her and across
+          // her, in her own frame), not by her middle: that point of her is
+          // in her hand, and the rest of her stands out from it as she lay --
+          // she is not turned about in it. She hangs from one hand (see
+          // MonsterRig.gripPoint), and the end of her that hand is not under
+          // sags: the end her free hand is working at goes down, and the
+          // other comes up.
+          const ga = s.hg ? s.hg[0] || 0 : 0, gc = s.hg ? s.hg[1] || 0 : 0;
+          view.heldSway = (view.heldSway || 0) + dt;
+          const k0 = view.carryK || 0;
+          const kk = k0 * k0 * (3 - 2 * k0);
+          // A gentle sway in her hand: rolled no further than keeps her
+          // masts out of her face.
+          view.carryRoll = 0.06 * Math.sin(view.heldSway * 1.7) * kk;
+          view.carryPitch = 0.05 * Math.sin(view.heldSway * 1.1) * kk;
+          // The sag: toward the end her free hand is at, the further from
+          // her grip the more; +x on her pitch puts her bow down.
+          let droopWant = 0;
+          if (view.ripLocal && rig.oneHand > 0.2) {
+            const dz = view.ripLocal.z - ga;
+            droopWant = Math.sign(dz) * 0.2 * clamp(Math.abs(dz) / 14, 0, 1) * rig.oneHand;
+          }
+          view.droop = (view.droop || 0) + (droopWant - (view.droop || 0)) * (1 - Math.exp(-dt / 0.6));
+          g.rotation.z += view.carryRoll;
+          g.rotation.x += view.carryPitch + view.droop;
+          // Her middle, put where that point of her is in her hand, whatever
+          // way she is turned and tipped.
+          const G0 = new THREE.Vector3(gc, -rest, ga).applyQuaternion(new THREE.Quaternion().setFromEuler(g.rotation));
+          const mx = at.x - G0.x, my = at.y - G0.y, mz = at.z - G0.z;
           if (!view.carryFrom) {
-            view.carryFrom = { x: g.position.x - at.x, y: g.position.y - at.y, z: g.position.z - at.z };
+            view.carryFrom = { x: g.position.x - mx, y: g.position.y - my, z: g.position.z - mz };
             view.carryK = 0;
           }
           view.carryK = Math.min(1, view.carryK + dt / 0.9);
           const k = view.carryK * view.carryK * (3 - 2 * view.carryK);
           const f = view.carryFrom;
-          g.position.set(at.x + f.x * (1 - k), at.y + f.y + (rest - f.y) * k, at.z + f.z * (1 - k));
-          view.heldSway = (view.heldSway || 0) + dt;
-          // A gentle sway in her hands: rolled no further than keeps her
-          // masts out of her face.
-          view.carryRoll = 0.06 * Math.sin(view.heldSway * 1.7) * k;
-          view.carryPitch = 0.05 * Math.sin(view.heldSway * 1.1) * k;
-          g.rotation.z += view.carryRoll;
-          g.rotation.x += view.carryPitch;
-          // Kept, so that when her hands let go the hull goes on from where
-          // they had it and not from where the battle reckons it.
-          view.carryAt = { x: g.position.x, y: g.position.y, z: g.position.z, r: view.carryRoll, p: view.carryPitch };
+          g.position.set(mx + f.x * (1 - k), my + f.y * (1 - k), mz + f.z * (1 - k));
+          // Kept, so that when her hand lets go the hull goes on from where
+          // it had it and not from where the battle reckons it.
+          view.carryAt = { x: g.position.x, y: g.position.y, z: g.position.z, r: view.carryRoll, p: view.carryPitch + view.droop };
           view.carryOff = null;
         }
         view.wake.stop(dt);
       } else {
         view.carryK = 0;
         view.carryFrom = null;
+        view.droop = 0;
+        view.ripLocal = null;
         if (s.hb) view.wake.stop(dt);
       }
       const lerpOf = (key, other) => (next ? (s[key] || 0) + ((next[key] ?? other) - (s[key] || 0)) * t : (s[key] || 0));
@@ -1757,7 +1965,7 @@ export class Battle {
         // climbs and down as she falls, and level again as she comes down.
         const u = next && next.fu != null ? lerpOf('fu', 1) : next ? s.fu + (1 - s.fu) * t : s.fu;
         const arc = Math.sin(Math.PI * u);
-        g.rotation.z += (s.fo ?? 1) * 0.55 * arc;
+        g.rotation.z += (Number.isFinite(s.flr) ? s.flr : 1) * 0.55 * arc;
         g.rotation.x += 0.22 * arc * (1 - 2 * u);
       } else if (s.su != null) {
         // Back up out of the water she went into: a roll that dies away.
@@ -3122,15 +3330,21 @@ export class Battle {
   onCollide(ev, d) {
     const fx = this.scene.effects;
     const big = clamp((ev.v || 0) / 10, 0.2, 1.6);
+    // Steel into steel. Nothing in a collision burns unless something
+    // explodes, and a collision only sets off what it breaks into -- which
+    // the battle settles and sends as its own detonation (see ram in sim.js).
+    // What is seen here is the sea thrown up between them, plating torn off
+    // and falling cold into the water, and the sparks of it grinding.
     if (ev.kind === 'rise' || ev.kind === 'keel') {
       // Under her keel: what comes up is sea, thrown up round her by a boat's
       // buoyancy or by her bottom going over one, and the wreckage of a boat
       // that broke on her.
-      fx.splash(ev.x, ev.z, 300 + big * 420, { kind: 'bow' });
-      if ((ev.out || []).some((o) => o.what === 'split')) this.scene.debris.burst(ev.x, 1, ev.z, 3 + big * 4, 0.5);
+      fx.splash(ev.x, ev.z, 200 + big * 260, { kind: 'bow' });
+      if ((ev.out || []).some((o) => o.what === 'split')) this.scene.debris.burst(ev.x, 1, ev.z, 2 + big * 3, 0.4, 0);
     } else {
-      fx.splash(ev.x, ev.z, 160 + big * 360, { kind: 'bow' });
-      this.scene.debris.burst(ev.x, 5, ev.z, 3 + big * 7, 0.6);
+      fx.splash(ev.x, ev.z, 90 + big * 160, { kind: 'bow' });
+      if (big > 0.35) this.scene.debris.burst(ev.x, 4, ev.z, 1 + big * 3, 0.35, 0);
+      fx.sparks?.shower(ev.x, 5, ev.z, Math.round(12 + big * 30), { speed: 18 + big * 16, life: 0.9, ny: 0.5, spread: 1 });
     }
     if (ev.kind === 'rise' || ev.kind === 'keel') audio.slam({ x: ev.x, y: -2, z: ev.z }, 0.4 + big * 0.5);
     audio.crash({ x: ev.x, y: 3, z: ev.z }, ev.v || 0);
@@ -3210,9 +3424,12 @@ export class Battle {
       view.group.localToWorld(p);
       const size = 0.5 + view.cls.hull.length / 320;
       const near = this.distanceFade(p.x, p.z);
-      this.scene.debris.burst(p.x, 6, p.z, 6 + size * 6, 0.9);
-      fx.splash(p.x, p.z, 420 + size * 300, { kind: 'bomb' });
-      fx.splash(p.x + (Math.random() - 0.5) * 12, p.z + (Math.random() - 0.5) * 12, 300, { kind: 'shell' });
+      // Cut by a stem, she is torn, not blown: plating and the sea, and no
+      // fire. Anything else that parts her went off to do it.
+      const rammed = ev.why === 'ram';
+      this.scene.debris.burst(p.x, 6, p.z, (rammed ? 3 : 6) + size * (rammed ? 3 : 6), rammed ? 0.5 : 0.9, rammed ? 0 : 1);
+      fx.splash(p.x, p.z, (rammed ? 260 : 420) + size * (rammed ? 200 : 300), { kind: rammed ? 'bow' : 'bomb' });
+      if (!rammed) fx.splash(p.x + (Math.random() - 0.5) * 12, p.z + (Math.random() - 0.5) * 12, 300, { kind: 'shell' });
       // And everything in her bunkers on that length of her, onto the sea.
       this.scene.oil.spill(p.x, p.z, 40 + view.cls.hull.length * 0.6, false);
       audio.tear({ x: p.x, y: 3, z: p.z }, size);
@@ -3318,7 +3535,14 @@ export class Battle {
     const fx = this.scene.effects;
     // The bridge you are standing on.
     const bridge = this.conned();
-    for (const ev of events) {
+    for (let ev of events) {
+      ev = this.liftEvent(ev);
+      // Where a round struck and when, for the round itself: it is flown on
+      // to that point and put out there (see the shells in syncEntities).
+      if (!late && ev.e === 'hit' && ev.si != null && Number.isFinite(ev.tk)) {
+        (this.shellImpacts || (this.shellImpacts = new Map()))
+          .set(ev.si, { x: ev.x, y: ev.y ?? 8, z: ev.z, st: ev.tk * DT });
+      }
       if (!late && this.holdBack(ev)) continue;
       const d = this.distanceFade(ev.x, ev.z);
       // The people in the towns hear it, and run -- or are caught by it.
@@ -3597,7 +3821,7 @@ export class Battle {
           this.scene.nukes.add(ev.x, ev.y, ev.z, !!ev.land, t0, kv);
           // Its wave is the sea from here on (see burstSwell).
           if (!ev.land && t0 != null) this.scene.ocean.addBurst(ev.x, ev.z, t0, k);
-          (this.nukeAt || (this.nukeAt = new Map())).set(ev.i, { x: ev.x, z: ev.z });
+          (this.nukeAt || (this.nukeAt = new Map())).set(ev.i, { x: ev.x, z: ev.z, k, land: !!ev.land });
           const eye = this.scene.camera.position;
           const far = Math.hypot(eye.x - ev.x, eye.z - ev.z);
           // The flash, as bright as the burst is big and near.
@@ -3615,13 +3839,36 @@ export class Battle {
           const view = this.scene.shipViews.get(ev.ship);
           const at = this.nukeAt && this.nukeAt.get(ev.i);
           // Close in, taken apart: her hull in pieces and her guns scattered.
+          if (!view && ev.sh) {
+            // Not drawn yet -- the shock got to her before the first sight of
+            // her did: she is taken apart the moment she is (see syncEntities).
+            (this.pendingShatter || (this.pendingShatter = new Map())).set(ev.ship, { ev, until: performance.now() + 30000 });
+          }
           if (view && ev.sh && view.shatter) {
             const p = view.group.position;
             const from = at || { x: p.x + 300, z: p.z };
-            if (view.shatter(from.x, from.z)) {
-              fx.explosion(p.x, p.y + 10, p.z, 4);
-              this.scene.debris.burst(p.x, p.y + 12, p.z, 26, 1.6);
-              fx.splash(p.x, p.z, 900);
+            // How far in she was: 1 inside the fireball, nothing at the edge
+            // of what takes a ship apart at all.
+            const k = at ? at.k || 1 : 1;
+            const reach = at && at.land ? NUKE.landReach : 1;
+            const d = Math.hypot(p.x - from.x, p.z - from.z);
+            const f0 = NUKE.fireball * k * reach, f1 = NUKE.lethal * k * reach;
+            const force = at ? Math.max(0, Math.min(1, 1 - (d - f0) / Math.max(1, f1 - f0))) : 0.5;
+            if (view.shatter(from.x, from.z, force)) {
+              fx.explosion(p.x, p.y + 10, p.z, 4 + force * 1.5);
+              this.scene.debris.burst(p.x, p.y + 12, p.z, 26 + force * 14, 1.6 + force * 0.8);
+              fx.splash(p.x, p.z, 900 + force * 1400);
+              // And all along her, the nearer in the more of it: what was in
+              // her going up as the shock goes through her.
+              const len = view.cls.hull.length;
+              const h = view.group.rotation.y;
+              const bursts = Math.round(force * Math.min(3, 1 + len / 80));
+              for (let i = 0; i < bursts; i++) {
+                const z = (i / Math.max(1, bursts - 1) - 0.5) * len * 0.8;
+                const bx = p.x + Math.sin(h) * z, bz = p.z + Math.cos(h) * z;
+                fx.explosion(bx, p.y + 6, bz, 1.5 + force);
+                this.scene.debris.burst(bx, p.y + 8, bz, 6 + force * 6, 1 + force * 0.5);
+              }
             }
           } else if (view && at && view.blastSteps) {
             const q = this.blasts || (this.blasts = []);
@@ -3687,6 +3934,25 @@ export class Battle {
         }
         case 'moGrab': {
           audio.crash({ x: ev.x, y: 4, z: ev.z }, 9);
+          // Where her claws close on the hull it is dented in.
+          {
+            const tv = ev.at ? this.scene.shipViews.get(ev.at) : null;
+            const mv = this.scene.shipViews.get(ev.ship);
+            if (tv && mv) {
+              const rig = mv.group.userData.monster;
+              let palms = rig && rig.palms ? rig.palms() : null;
+              if (!palms) {
+                const g = mv.group, h = g.rotation.y;
+                const fx = Math.sin(h), fz = Math.cos(h), rx = -Math.cos(h), rz = Math.sin(h);
+                const y = tv.group.position.y + 6;
+                palms = [-9, 9].map((s) => new THREE.Vector3(g.position.x + fx * 38 + rx * s, y, g.position.z + fz * 38 + rz * s));
+              }
+              palms.forEach((w, k) => tv.clawDents(w.x, w.y, w.z, (ev.ship * 31 + ev.at * 7 + k) >>> 0));
+              // Her plating's corners numbered now, on a frame of their own,
+              // so the first piece she tears out of her does not wait on it.
+              if (tv.plating) (tv.jobs || (tv.jobs = [])).push(() => tv.plating && tv.plating.cornerIds());
+            }
+          }
           fx.splash(ev.x, ev.z, 500, { kind: 'bomb' });
           if (ev.at === this.shipId) this.hud.alert('Monster One has you in her hands');
           break;
@@ -3709,6 +3975,19 @@ export class Battle {
             const mo = this.scene.shipViews.get(ev.ship);
             const from = mo ? mo.group.position : { x: ev.x, z: ev.z };
             const r = ev.tr.r;
+            // Where her teeth, or the fingers of her free hand, actually are
+            // on the hull as drawn: the hole is torn there and nowhere else.
+            // (The battle's own point, off the same aim, if they are not on
+            // her plating.)
+            const mrig = mo?.group.userData.monster;
+            if (mrig) {
+              const p0 = bite ? mrig.mouthPoint(new THREE.Vector3())
+                : mrig.palmPoint(mrig.ripSide || -(mrig.holdSide || 1), new THREE.Vector3());
+              v.group.updateMatrixWorld(true);
+              const L = v.group.worldToLocal(p0);
+              const near = v.plating ? v.plating.nearest(L.x, L.y, L.z, 9) : null;
+              if (near) ev = { ...ev, tr: { ...ev.tr, lx: near[0], ly: near[1], lz: near[2] } };
+            }
             v.tearOut(ev.tr.lx, ev.tr.ly, ev.tr.lz, r, ev.tr.sd || 0,
               p.x - from.x, p.z - from.z, !bite, bite ? mo?.group.userData.monster : null, {
                 // Each claw going in: a burst of paint and splinters, and the
@@ -3725,9 +4004,19 @@ export class Battle {
               });
           }
           if (ev.at) {
-            fx.hit(p.x, p.y + 8, p.z, 'he', bite ? 300 : 406);
-            fx.debris(p.x, p.y + 6, p.z, bite ? 18 : 30);
-            audio.crash({ x: p.x, y: p.y + 4, z: p.z }, bite ? 11 : 16);
+            // Where her jaws or her fingers went in, and only there -- not a
+            // burst in the middle of the ship as though the whole of her had
+            // been hit.
+            let w = { x: p.x, y: (p.y || 0) + 8, z: p.z };
+            if (v && ev.tr) {
+              v.group.updateMatrixWorld(true);
+              w = v.group.localToWorld(new THREE.Vector3(ev.tr.lx, ev.tr.ly, ev.tr.lz));
+            }
+            // Steel tearing, not a shell bursting: sparks and splinters off
+            // the plate, no fireball.
+            fx.hit(w.x, w.y, w.z, 'shatter', bite ? 220 : 406);
+            fx.debris(w.x, w.y, w.z, bite ? 14 : 30);
+            audio.crash({ x: w.x, y: w.y, z: w.z }, bite ? 11 : 16);
           } else {
             fx.splash(ev.x, ev.z, 450, { kind: 'bomb' });
           }
@@ -3848,6 +4137,21 @@ export class Battle {
             break;
           }
           this.eventLog?.impact(ev, this.batteryName(ev.owner));
+          // On her, where she is drawn: the point it struck in her own frame,
+          // put back out into the world off her model. Our own ship is drawn
+          // where she is now rather than a moment ago, and a burst placed off
+          // the battle's world point went off a few metres off her side.
+          {
+            const hv = this.scene.shipViews.get(ev.victim);
+            if (hv && ev.kind !== 'splash' && Number.isFinite(ev.lx) && Number.isFinite(ev.lz)) {
+              const p = HIT_AT.set(ev.x, ev.y ?? 8, ev.z);
+              hv.group.updateMatrixWorld(true);
+              hv.group.worldToLocal(p);
+              p.x = ev.lx; p.z = ev.lz;
+              hv.group.localToWorld(p);
+              if (Number.isFinite(p.x) && Number.isFinite(p.z)) { ev.x = p.x; ev.y = p.y; ev.z = p.z; }
+            }
+          }
           // A round that got into her goes off inside her: an explosion, as
           // big as the damage it did. One that did not get in is a flash and
           // a puff against her armour. Neither leaves a mark on the ship.
@@ -4259,8 +4563,9 @@ export class Battle {
           const view = this.scene.shipViews.get(ev.ship);
           // In Monster One's jaws: carried in them, gnawed, and thrown away
           // with a toss of her head (see Tossed.addMouth).
-          const mrig = ev.how === 'bite' && ev.by ? this.scene.shipViews.get(ev.by)?.group.userData.monster : null;
-          if (mrig) mrig.mouthFull = 2.6;
+          // In her claws: ripped out and crushed in her fist (Tossed.addHand).
+          const mrig = (ev.how === 'bite' || ev.how === 'claw') && ev.by ? this.scene.shipViews.get(ev.by)?.group.userData.monster : null;
+          if (mrig && ev.how === 'bite') mrig.mouthFull = 2.6;
           if (view && (view.tossMount(ev.k, ev.i, ev.how, ev.dx || 0, ev.dz || 0, ev.sd || 0, ev.pw ?? 0.6, mrig)
             || view.tossWelded(ev.x, ev.y, ev.z, ev.how, ev.dx || 0, ev.dz || 0))) {
             if (ev.how === 'mag' && (ev.pw ?? 0.6) < 0.35) {
@@ -4456,7 +4761,12 @@ export class Battle {
           const from = (this.planesNow || []).find((q) => q.i === ev.i);
           const y = Number.isFinite(ev.y) ? ev.y : (from ? this.planeHeight(from) : 200);
           const ty = Number.isFinite(ev.ty) ? ev.ty : (ev.air ? y - 8 : 22);
-          this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
+          // Out of the barrels of the machines as they are drawn, every gun
+          // of every one of them -- not a spray from somewhere round the
+          // middle of the formation where the simulation has her leader.
+          if (!this.airGunsDrawn(ev.i, ev.tx, ty, ev.tz, fx)) {
+            this.scene.flak.fire(ev.x, y - 1, ev.z, ev.tx, ty, ev.tz, 12.7, 10, fx);
+          }
           // The flicker at her muzzles, off her own model: a strike coming in
           // has guns going on the wings of the machines flying it.
           // Drawn on her, at each gun, for as long as the burst lasts -- see
@@ -4481,7 +4791,7 @@ export class Battle {
           for (let i = 0; i < d.n; i++) {
             const mz = this.rearMuzzle(d, g, i, RG_V);
             if (!mz) continue;
-            this.scene.flak.fire(mz.x, mz.y, mz.z, tx, ty, tz, 7.7, 6, fx, 7, 0);
+            this.scene.flak.stream(mz.x, mz.y, mz.z, tx, ty, tz, 7.7, 2, fx, d.v, 7);
           }
           break;
         }
@@ -4500,7 +4810,8 @@ export class Battle {
           const ty = mine ? mine.y : tgt ? this.planeHeight(tgt) : ev.y;
           const tz = mine ? mine.z : tgt ? tgt.z : ev.z;
           const cal = /12\.7|0\.5|\.50/.test((BOMBERS[bm.b] || {}).calibre || '') ? 12.7 : 7.7;
-          this.scene.flak.fire(mz.x, mz.y, mz.z, tx, ty, tz, cal, 6, fx, 7, 0);
+          const hv = { x: Math.sin(bm.h) * (bm.s || 0), y: 0, z: Math.cos(bm.h) * (bm.s || 0) };
+          this.scene.flak.stream(mz.x, mz.y, mz.z, tx, ty, tz, cal, 2, fx, hv, 7);
           break;
         }
         case 'turretOut': {
@@ -7801,10 +8112,9 @@ export class Battle {
   wingGuns(f, p) {
     // Down the bore, which lies along her nose -- not along her flight path.
     // At low speed those are ten degrees apart, and a fighter hanging on her
-    // propeller shoots where she is pointed.
-    const aim = p.attitude;
-    const bank = p.bank || 0;
-    const cp = Math.cos(aim);
+    // propeller shoots where she is pointed. Her nose is taken off the same
+    // attitude she is drawn at (see attitudeOf), so the tracer leaves the
+    // barrels on the screen and not a few metres off them.
     const R = GUN_REACH;
     // Where the guns are laid to meet. A long way out, and every tracer is
     // run on to the same point on the bore line at the end of its reach, so
@@ -7812,17 +8122,19 @@ export class Battle {
     // than crossing a couple of hundred metres out and fanning apart after.
     const CONVERGE = GUN_REACH;
     const q = this.gunQuat || (this.gunQuat = new THREE.Quaternion());
-    const e = this.gunEuler || (this.gunEuler = new THREE.Euler(0, 0, 0, 'YXZ'));
     const v = this.gunVec || (this.gunVec = new THREE.Vector3());
-    e.set(-aim, p.heading, -bank);
-    q.setFromEuler(e);
+    const fwd = this.gunFwd || (this.gunFwd = new THREE.Vector3());
+    if (typeof p.body === 'function') q.copy(attitudeOf(p));
+    else {
+      const e = this.gunEuler || (this.gunEuler = new THREE.Euler(0, 0, 0, 'YXZ'));
+      q.setFromEuler(e.set(-p.attitude, p.heading, -(p.bank || 0)));
+    }
+    fwd.set(0, 0, 1).applyQuaternion(q);
     // The point every barrel is pointed at, and the point they are all fired
     // through at the far end.
-    const nose = {
-      x: p.x + Math.sin(p.heading) * cp * CONVERGE,
-      y: p.y + Math.sin(aim) * CONVERGE,
-      z: p.z + Math.cos(p.heading) * cp * CONVERGE,
-    };
+    const nose = { x: p.x + fwd.x * CONVERGE, y: p.y + fwd.y * CONVERGE, z: p.z + fwd.z * CONVERGE };
+    const n = pathOf(p);
+    const vel = { x: n.x * p.v, y: n.y * p.v, z: n.z * p.v };
     // Through the harmonisation point and on: the line from the muzzle to
     // where the guns cross, run out to where the tracer dies.
     const k = R / CONVERGE;
@@ -7834,10 +8146,53 @@ export class Battle {
       const ex = mx + (nose.x - mx) * k;
       const ey = my + (nose.y - my) * k;
       const ez = mz + (nose.z - mz) * k;
-      this.scene.flak.fire(mx, my, mz, ex, ey, ez, f.calibre, 8, this.scene.effects);
+      this.scene.flak.stream(mx, my, mz, ex, ey, ez, f.calibre, 2, this.scene.effects, vel, 6);
       // The flash at the muzzle and the smoke off it are drawn on her every
       // frame the trigger is held -- see airFx -- not left in the air here.
     }
+  }
+
+  /**
+   * A burst off the wire from a flight nobody here is flying, out of the
+   * barrels of every machine of hers as she was last drawn, at `tx, ty, tz`.
+   *
+   * Each gun's rounds go at the target when it is somewhere in front of her
+   * and straight down her bore when it is not: guns fixed in the wings do not
+   * swing round to meet something off to one side. Returns false when she has
+   * not been drawn lately, and the caller falls back on the old line.
+   */
+  airGunsDrawn(id, tx, ty, tz, fx) {
+    const d = this.planeDrawn.get(id);
+    if (!d || !d.n || this.time - d.at > 1) return false;
+    const kind = d.kind;
+    const guns = gunsOf(kind);
+    const cal = kind === 'zero' ? guns.map((m) => (Math.abs(m[0]) < 0.6 ? 7.7 : 20))
+      : (GUN_CALIBRE[kind] ?? 12.7);
+    const P = this.agP || (this.agP = new THREE.Vector3());
+    const B = this.agB || (this.agB = new THREE.Vector3());
+    // A big formation would put a great many rounds in the air at once:
+    // fewer per gun the more of them there are.
+    const per = d.n * guns.length > 12 ? 1 : 2;
+    for (let i = 0; i < d.n; i++) {
+      const m = d.mats[i];
+      if (!m) continue;
+      B.set(m.elements[8], m.elements[9], m.elements[10]).normalize();
+      guns.forEach((g, j) => {
+        P.set(g[0], g[1], g[2]).applyMatrix4(m);
+        let ex = tx - P.x, ey = ty - P.y, ez = tz - P.z;
+        const span = Math.hypot(ex, ey, ez) || 1;
+        const reach = Math.min(span, 900);
+        // Within a cone ahead of her, it goes where it was aimed.
+        if ((ex * B.x + ey * B.y + ez * B.z) / span > 0.9) {
+          ex = P.x + (ex / span) * reach; ey = P.y + (ey / span) * reach; ez = P.z + (ez / span) * reach;
+        } else {
+          ex = P.x + B.x * reach; ey = P.y + B.y * reach; ez = P.z + B.z * reach;
+        }
+        this.scene.flak.stream(P.x, P.y, P.z, ex, ey, ez, Array.isArray(cal) ? cal[j] : cal, per, fx,
+          d.v, 5);
+      });
+    }
+    return true;
   }
 
   /**
@@ -7871,8 +8226,13 @@ export class Battle {
     const ex = eye.x + dx * R;
     const ey = eye.y + dy * R;
     const ez = eye.z + dz * R;
-    this.scene.flak.fire(eye.x, eye.y, eye.z, ex, ey, ez, cal, 8,
-      this.scene.effects);
+    // Out of the guns he is behind, not scattered round the turret.
+    const fp = this.flight && this.flight.pilot;
+    const fv = fp && typeof fp.v === 'number' ? (() => {
+      const n = pathOf(fp);
+      return { x: n.x * fp.v, y: n.y * fp.v, z: n.z * fp.v };
+    })() : null;
+    this.scene.flak.stream(eye.x, eye.y, eye.z, ex, ey, ez, cal, 3, this.scene.effects, fv, 6);
     this.scene.effects.wingGun(eye.x, eye.y, eye.z, dx, dy, dz, cal);
   }
 
@@ -8392,7 +8752,17 @@ export class Battle {
     const ARROW = 340 * dt;
     const kx = (this.input.down('ArrowRight') ? 1 : 0) - (this.input.down('ArrowLeft') ? 1 : 0);
     const ky = (this.input.down('ArrowDown') ? 1 : 0) - (this.input.down('ArrowUp') ? 1 : 0);
-    if ((kx || ky) && !this.man) this.panCamera(-kx * ARROW, -ky * ARROW, dt);
+    // Conning Monster One, they turn her head instead: where her jaws go
+    // into the ship ahead of her or in her hands -- left and right along
+    // it, up to her upperworks and down to her waterline.
+    const jaws = this.conningMonster() ? readMonsterWire(this.shownShip()?.mo) : null;
+    if (jaws && (jaws.act === 'bite' || jaws.holdId)) {
+      if (kx || ky) {
+        const a = this.moAim || { x: 0, y: 0 };
+        this.monsterAim(a.x + kx * 1.4 * dt, a.y - ky * 1.4 * dt);
+      } else this.flushMonsterAim();
+    } else if ((kx || ky) && !this.man) this.panCamera(-kx * ARROW, -ky * ARROW, dt);
+    else if (jaws) this.flushMonsterAim();
 
     // Predict our own hull, then take up whatever is left of the difference
     // between her and the server's version of her. See correctOwn.
@@ -8671,6 +9041,17 @@ export class Battle {
 
   /** Interpolate every remote entity and drive its view model. */
   syncEntities(dt) {
+    // A ship the atomic shock took apart before she was ever drawn, now that
+    // she is.
+    if (this.pendingShatter && this.pendingShatter.size) {
+      const now = performance.now();
+      for (const [id, q] of this.pendingShatter) {
+        if (now > q.until) { this.pendingShatter.delete(id); continue; }
+        if (!this.scene.shipViews.get(id)) continue;
+        this.pendingShatter.delete(id);
+        try { this.onEvents([q.ev], true); } catch (e) { console.warn('Steel Currents: shatter', e); }
+      }
+    }
     if (!this.snapshots.length) return;
     // On the server's clock, not on the arrival times. See onSnapshot.
     const pair = this.snapshotPair(this.stepRenderClock());
@@ -8893,8 +9274,15 @@ export class Battle {
       // a hull pushing the surface aside, and a submarine at thirty metres is
       // not touching the surface at all -- the wake she left on the way down
       // washes out behind her and there is nothing to see.
-      const foundering = !s.a || view.going || (view.depth || 0) > 1.2;
+      // Nor one that is sinking but still in the fight, or one gone under.
+      const foundering = !s.a || s.sg || s.go || s.un || Number.isFinite(s.sn)
+        || view.going || (view.depth || 0) > 1.2;
+      // And a ship lying stopped makes no wake: what she laid while she was
+      // under way washes out behind her in a few seconds, and nothing more
+      // comes off her until she gathers way again.
+      const stopped = Math.abs(speed) < WAKE_MIN_SPEED;
       if (foundering) view.wake.stop(dt);
+      else if (stopped) view.wake.stop(dt, 0.35);
       else view.wake.update(dt, x, z, h, speed);
       const load = clamp(Math.abs(speed) / cls.maxSpeed, 0, 1);
       // How hard she is burning, for the founder to read. A ship that goes
@@ -9096,14 +9484,33 @@ export class Battle {
     const rockets = this.scene.rockets;
     rockets.begin(dt);
     let nr = 0;
+    const impacts = this.shellImpacts;
+    const nowST = this.renderST;
+    if (impacts && impacts.size && Number.isFinite(nowST)) {
+      for (const [id, q] of impacts) if (q.st < nowST - 3) impacts.delete(id);
+    }
     for (const sh of a.shells) {
       const prev = b ? b.shells.find((x) => x.i === sh.i) : null;
-      const x = prev ? lerp(sh.x, prev.x, t) : sh.x;
-      const y = prev ? lerp(sh.y, prev.y, t) : sh.y;
-      const z = prev ? lerp(sh.z, prev.z, t) : sh.z;
-      const dx = prev ? prev.x - sh.x : Math.sin(sh.b || 0);
-      const dy = prev ? prev.y - sh.y : 0.2;
-      const dz = prev ? prev.z - sh.z : Math.cos(sh.b || 0);
+      let x = prev ? lerp(sh.x, prev.x, t) : sh.x;
+      let y = prev ? lerp(sh.y, prev.y, t) : sh.y;
+      let z = prev ? lerp(sh.z, prev.z, t) : sh.z;
+      let dx = prev ? prev.x - sh.x : Math.sin(sh.b || 0);
+      let dy = prev ? prev.y - sh.y : 0.2;
+      let dz = prev ? prev.z - sh.z : Math.cos(sh.b || 0);
+      // Gone by the next snapshot: it struck something in between. It used to
+      // be held where the last snapshot had it -- short of her, by as far as a
+      // shell goes in a tenth of a second -- while the burst went off on her
+      // plating. Flown on to the point it struck instead, and put out the
+      // moment it gets there, which is the moment the burst is played.
+      if (!prev && impacts && Number.isFinite(nowST)) {
+        const q = impacts.get(sh.i);
+        if (q) {
+          if (nowST >= q.st) continue;
+          const f = clamp((nowST - a.st) / Math.max(1e-3, q.st - a.st), 0, 1);
+          dx = q.x - sh.x; dy = q.y - sh.y; dz = q.z - sh.z;
+          x = sh.x + dx * f; y = sh.y + dy * f; z = sh.z + dz * f;
+        }
+      }
       // A heavy's bomb is a bomb, drawn as one and at her own size beside
       // the formation that let her go -- not as a gun's round of the same
       // weight, glowing like tracer and five times as long.
@@ -9244,9 +9651,16 @@ export class Battle {
               h: pl.h + angleDelta(pl.h, h2) * t,
               bk: pl.bk + angleDelta(pl.bk, bk2) * t,
               pt: lerp(pl.pt || 0, pt2, t),
+              ptr: (pt2 - (pl.pt || 0)) / T,
             };
           }
-          return { bk: pl.bk + angleDelta(pl.bk, nx.bk) * t, pt: lerp(pl.pt, nx.pt, t) };
+          // And how fast her path is turning up or down, which is how hard
+          // she is pulling: the angle her nose sits above her path goes with it.
+          return {
+            bk: pl.bk + angleDelta(pl.bk, nx.bk) * t,
+            pt: lerp(pl.pt, nx.pt, t),
+            ptr: ((nx.pt || 0) - (pl.pt || 0)) / T,
+          };
         })() : {}),
         // Her height and how she is going through the air, blended like the
         // rest of her. They used not to be, so a squadron slid smoothly across
@@ -9325,12 +9739,27 @@ export class Battle {
       // Somebody flying her sends the pitch of her flight path, which goes
       // past the vertical and over on her back as nothing worked out from a
       // rate of climb can; her nose sits above it by what her wing is doing.
+      //
+      // How hard her wing is working is not always one g. Seventy degrees
+      // down a dive it is holding up a third of her weight and her nose is on
+      // her path; hauling out at the bottom it is five, and her nose is well
+      // above it. Taken as one g whatever she was doing, a dive bomber went
+      // down her dive cocked nose-up off the line she was flying, which is
+      // what made the dive look wrong. The g is off the turn of her path and
+      // her bank: the lift, tilted by her bank, is what bends the path.
+      let load = 1;
+      if (flown) {
+        const V = Math.hypot(gs, pl.vy || 0);
+        const cb = Math.cos(bank);
+        const bend = Math.cos(pl.pt || 0) + (V * (pl.ptr || 0)) / 9.81;
+        load = Math.abs(cb) > 0.3 ? clamp(bend / cb, 0, 6) : 1 / Math.max(0.3, Math.abs(cb));
+      }
       // A helicopter's nose is not on her path: she hangs level in the hover,
       // going straight up or down, and dips it a few degrees going ahead.
       const pitchWant = a.rotor && !flown
         ? -0.07 * clamp((gs - 12) / 50, 0, 1)
         : flown
-          ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), 1) * Math.cos(bank)
+          ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), load) * Math.cos(bank)
           : flightAttitude(a, gs, pl.vy || 0, 1 / Math.max(0.35, Math.cos(bank)));
       // Eased like her bank, on the autopilot: her rate of climb comes off the
       // wire a tenth of a metre a second at a time, and her nose nodded with
@@ -10716,6 +11145,8 @@ export class Battle {
 
   dispose() {
     this.disposed = true;
+    this.moRules?.remove();
+    this.moRules = null;
     this.building = false;
     this.director?.dispose();
     this.director = null;

@@ -463,8 +463,11 @@ export class Room {
         // What has been done to the town is the town's state, not a flash
         // somebody may or may not have seen: every client keeps its copy.
         || ev.e === 'ruin'
-        // And an atomic bomb, which is seen from everywhere on the map.
-        || ev.e === 'nuke') global.push(ev);
+        // And an atomic bomb, which is seen from everywhere on the map --
+        // and so is what it does to the ships it reaches: a ship blown to
+        // pieces by it is usually dead before the event goes out, and a dead
+        // ship is in nobody's sight, so the pieces of her were never drawn.
+        || ev.e === 'nuke' || ev.e === 'nukeHit') global.push(ev);
       else {
         for (let team = 0; team < 2; team++) {
           if (this.eventVisible(ev, team)) perTeam[team].push(ev);
@@ -492,7 +495,10 @@ export class Room {
     const shipId = ev.ship || ev.victim;
     if (shipId) {
       const s = this.state.ships.find((x) => x.id === shipId);
-      if (s) return s.team === team || s.spottedBy[team];
+      // A ship that has just gone is out of everybody's sight (see
+      // stepDetection), and what finished her is still to be seen by whoever
+      // had her in sight when she went.
+      if (s) return s.team === team || s.spottedBy[team] || (!s.alive && !!s.wreckSeen?.[team]);
     }
     return true;
   }
@@ -607,6 +613,17 @@ export class Room {
       const bids = Array.isArray(msg.bids) ? msg.bids.slice(0, 16) : [];
       const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split, bids);
       player.send({ t: 'grouped', k: msg.k, g: gid, split: msg.split ? 1 : 0 });
+      return;
+    }
+    // Whether Monster One, left to her own mind, may use her atomic breath:
+    // on his own side's and on the enemy's, as he has it in his settings. A
+    // Monster One someone is conning breathes when her captain says so,
+    // whatever this is.
+    if (msg.t === 'moAI') {
+      const no = this.state.moNoBreath || (this.state.moNoBreath = [false, false]);
+      const mine = ship.team === 1 ? 1 : 0;
+      no[mine] = msg.ally === false;
+      no[1 - mine] = msg.enemy === false;
       return;
     }
     if (msg.t === 'vector') {
@@ -843,6 +860,7 @@ export class Room {
           target: Number(msg.o.target) || 0,
           side: msg.o.side === 1 || msg.o.side === -1 ? msg.o.side : 0,
           pose: String(msg.o.pose || ''),
+          hx: Number(msg.o.hx) || 0, hy: Number(msg.o.hy) || 0,
         };
         const why = monsterOrder(this.state, to, o, MONSTER_HOOKS);
         if (why) player.send({ t: 'nomo', a: o.a, why });

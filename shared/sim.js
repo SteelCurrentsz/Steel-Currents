@@ -26,7 +26,7 @@ import {
 } from './airframe.js';
 import { stepInfantry, blastInfantry } from './infantry.js';
 import {
-  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody,
+  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody, MONSTER,
 } from './monster.js';
 import { planRoute } from './tankroute.js';
 import {
@@ -794,6 +794,12 @@ export function rollPeriod(cls) {
   return cls.rollPeriod ?? 2.0 * Math.sqrt(cls.hull.beam);
 }
 const ROLL_DAMPING = 0.12;
+/**
+ * How far her middle is abaft the point she pivots on in a turn, in lengths:
+ * the pivot is about a third of her length back from her stem, so her middle
+ * is a sixth of a length behind it.
+ */
+export const SWAY_ARM = 0.17;
 
 function stepMovement(state, ship, dt) {
   const cls = shipClass(ship);
@@ -827,10 +833,23 @@ function stepMovement(state, ship, dt) {
   // A hull barely answers the helm below steerage way, and bites hardest near
   // half speed, which is why full-ahead turns are wider than half-ahead turns.
   // (A creature turns on the spot, which no hull does: she has legs.)
-  const helm = cls.pivots ? 0.7 + 0.3 * speedFrac : Math.min(1, speedFrac * 2.4) * (1 - 0.25 * speedFrac);
+  //
+  // A ship turns on a circle whose size her hull and her rudder set, not her
+  // speed: a battleship's turning circle at twelve knots is very nearly the
+  // one she makes at twenty-eight. So the rate she swings at goes with how
+  // fast she is going through the water -- slowly at slow speed, briskly at
+  // full -- and a ship barely making way barely turns at all. All she has
+  // then is the screw race over her rudder, with the engines going ahead: a
+  // kick ahead to bring her head round, the way a ship is turned in harbour.
+  const kick = !cls.pivots && ship.notch > 1 ? 0.07 * (1 - speedFrac) : 0;
+  const helm = cls.pivots ? 0.7 + 0.3 * speedFrac
+    : 0.75 * Math.pow(speedFrac, 0.93) + kick;
   // No rudder at all once her stern has gone.
   const rudderGone = ship.cut && ship.sections.stern.lost ? 0 : 1;
-  const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1) * rudderGone;
+  // (Monster One with her weight on a ship too big to lift does not swing
+  // round on it: her hands stay where they came down until she lets go.)
+  const pinning = cls.monster && ship.mo && ship.mo.holdId && ship.mo.pin ? 0 : 1;
+  const rate = cls.turnRate * ship.rudder * helm * Math.sign(ship.speed || 1) * rudderGone * pinning;
   // She does not turn the moment the rudder bites. Thirty thousand tonnes has
   // to be got swinging, and once it is swinging it goes on swinging: the rate
   // the rudder is asking for is worked up to over a few seconds -- longer the
@@ -850,7 +869,13 @@ function stepMovement(state, ship, dt) {
   // gravity that is holding her up -- and she rolls into it, and out of it, at
   // her own pace. It is a lean, not a list: no water moves in her, and when
   // the swing comes off her she comes back upright.
-  const want = leanFor(cls, ship.speed, ship.yawRate);
+  // But first she heels the other way. The rudder pushes on her low down,
+  // under where her weight is, so the moment it bites she leans into the
+  // turn; then the swing builds and lays her over outward. How much is how
+  // hard the water is pushing on the rudder: its angle, and her speed
+  // squared.
+  const inward = cls.pivots ? 0 : clamp(0.035 * ship.rudder * speedFrac * speedFrac, -0.04, 0.04);
+  const want = leanFor(cls, ship.speed, ship.yawRate) + inward;
   const was = ship.lean || 0;
   ship.lean = was + (want - was) * (1 - Math.exp(-dt / LEAN_LAG));
   // How fast she is rolling into it or out of it, which is what her layers
@@ -859,7 +884,12 @@ function stepMovement(state, ship, dt) {
 
   // A hull heels and scrubs off speed in a hard turn, so the telegraph setting
   // is only the speed you get when the rudder is amidships.
-  const bleed = 1 - cls.speedLossInTurn * Math.abs(ship.rudder) * helm;
+  // Hard over at speed she is dragging her whole side through the water at
+  // her drift angle, and a destroyer put through a full circle at thirty
+  // knots comes out of it at twenty: a third of her way gone. At slow speed
+  // there is less of it, because there is less drift.
+  const bleed = cls.pivots ? 1 - cls.speedLossInTurn * Math.abs(ship.rudder) * helm
+    : 1 - cls.speedLossInTurn * 1.6 * Math.abs(ship.rudder) * (0.3 + 0.7 * speedFrac);
   // And water inside her costs more than any turn does. Every tonne of it is
   // a tonne she has to drag, she is sitting deeper so there is more of her in
   // the water, and once she is lying over her screws and her rudder are not
@@ -900,8 +930,17 @@ function stepMovement(state, ship, dt) {
     ship.driftX = Math.abs(sx * keep) < 1e-3 ? 0 : sx * keep;
     ship.driftZ = Math.abs(sz * keep) < 1e-3 ? 0 : sz * keep;
   }
-  const nx = ship.x + (Math.sin(ship.heading) * v + sx) * dt;
-  const nz = ship.z + (Math.cos(ship.heading) * v + sz) * dt;
+  // And in a turn she does not go where she is pointing. She swings about a
+  // point well forward of her middle -- a third of her length back from the
+  // stem -- so her stern skids out across the water and her middle slides
+  // outward of the way her bow is going: the drift angle every ship-handler
+  // allows for, ten degrees and more in a hard turn. Sideways, in her own
+  // frame, as fast as her swing carries her middle round that point.
+  const sway = cls.pivots ? 0 : -(ship.yawRate || 0) * cls.hull.length * SWAY_ARM
+    * Math.min(1, Math.abs(v) / 3);
+  const ch = Math.cos(ship.heading), sh = Math.sin(ship.heading);
+  const nx = ship.x + (sh * v + ch * sway + sx) * dt;
+  const nz = ship.z + (ch * v - sh * sway + sz) * dt;
 
   // The shock of taking the ground, dying away.
   if (ship.groundJolt) {
@@ -1929,6 +1968,8 @@ function ram(state, R, T, cr, ct, pr, pt, v, out) {
       damageShip(state, T, R, ct.hp * 0.06, 'ram', whereT);
       cutHer(state, T, pt.station, R.id, 'ram');
       struck(out, T, pt, 'cut', ct.hull.beam);
+      // Driven right through her magazine, it may well set it off.
+      ramMagazine(state, T, R, ct, whereT, 0.55);
     } else {
       // A gash in her side, as deep as the stem got.
       // As wide as her stem drove it and no wider than her stem is: a much
@@ -1938,6 +1979,9 @@ function ram(state, R, T, cr, ct, pr, pt, v, out) {
       damageShip(state, T, R, ct.hp * (0.02 + 0.1 * k * k) * Math.min(1.2, edge), 'ram', whereT);
       openHull(state, T, whereT, 2 + 20 * k * k * edge, pt.side, ct.hull.draft * 0.55);
       struck(out, T, pt, 'gash', Math.min(stemWidth(cr) * 1.2, 0.5 + Math.min(ct.hull.beam, 40) * 0.12 * k * edge + 1.2 * k));
+      // Only a stem driven deep into her gets as far as her magazine; a dent
+      // in her side never does.
+      if (k > 0.45) ramMagazine(state, T, R, ct, whereT, 0.35 * k * k * Math.min(1.5, edge));
     }
     // And her own bow pays for it: crumpled plating and a sprung forefoot.
     const bowR = sectionAt(pr.station);
@@ -1956,7 +2000,30 @@ function ram(state, R, T, cr, ct, pr, pt, v, out) {
     damageShip(state, T, R, ct.hp * (0.002 + 0.05 * k) * (0.3 + 0.7 * mass), 'ram', whereT);
     if (k > 0.2) openHull(state, T, whereT, 1 + 10 * k * k, pt.side, ct.hull.draft * 0.5);
     struck(out, T, pt, 'gash', 0.3 + stemWidth(cr) * 0.55 * k);
+    // A heavy ship driven hard into her can still crush her side in as far as
+    // her magazine, even if her stem goes too.
+    if (k > 0.45) ramMagazine(state, T, R, ct, whereT, 0.4 * k * k * Math.min(1, margin + 0.1));
   }
+}
+
+/**
+ * A stem driven into a compartment with a magazine in it.
+ *
+ * A collision does not explode. Steel is torn and the sea comes in, and that
+ * is all -- unless what the stem tore into was a magazine: the charges in it
+ * crushed, the handling rooms opened and something struck alight. Then it
+ * goes, as any magazine goes (see detonate): a big-gun magazine takes the ship
+ * with it, a small one burns. `odds` is the chance it does, for how deep the
+ * stem went in.
+ */
+function ramMagazine(state, ship, by, cls, where, odds) {
+  if (!ship.alive || cls.monster) return;
+  if (where !== 'fwd' && where !== 'aft') return;
+  // Only a compartment that has one: a destroyer whose guns are all forward
+  // has nothing aft to set off.
+  if (!(cls.turrets || []).some((t) => magazineOf(cls, t) === where)) return;
+  if (!(odds > 0) || state.rng() >= Math.min(0.75, odds)) return;
+  detonate(state, ship, where, by);
 }
 
 /**
@@ -5591,6 +5658,7 @@ function resolveTankHit(state, sh, bat, hit) {
   state.events.push({
     e: 'hit', x: r(w.x), y: r(w.y), z: r(w.z), cal, kind, victim: bat.id, owner: sh.owner,
     battery: true, tank: 1, dmg: Math.round(dmg), pt: first.k, br: broke,
+    si: sh.id, tk: state.tick,
   });
   if (bat.alive && bat.hp <= 0) knockOutTank(state, bat, false);
 }
@@ -7285,6 +7353,7 @@ function resolveBatteryHit(state, sh, bat) {
   state.events.push({
     e: 'hit', x: bat.x, y: bat.y + 5, z: bat.z, cal: sh.caliber,
     kind: through ? 'pen' : 'shatter', victim: bat.id, battery: true,
+    si: sh.id, tk: state.tick,
   });
   if (bat.hp <= 0 && bat.alive) {
     bat.alive = false;
@@ -7955,40 +8024,90 @@ function monsterTear(state, t, mo, how) {
   const beam = cls.hull.beam / 2;
   const fb = freeboardOf(cls);
   const held = t.gripBy === mo.id;
-  let lx, lz;
-  if (how === 'bite' && !held) {
-    // The part of her nearest the jaws: her head is well forward of her middle.
-    const hx = mo.x + Math.sin(mo.heading) * 60;
-    const hz = mo.z + Math.cos(mo.heading) * 60;
-    const l = worldToLocal(hx - t.x, hz - t.z, t.heading);
-    lx = clamp(l.x, -beam, beam);
-    lz = clamp(l.z, -half * 0.85, half * 0.85);
-    if (Math.abs(lx) < beam * 0.3) lx = (lx >= 0 ? 1 : -1) * beam * 0.3;
+  let lx, lz, ly = null;
+  if (how === 'bite') {
+    // Where her head is turned (see MONSTER.bite and m.head): across her by
+    // as far as her neck swings, and up or down her side from below the
+    // waterline to her upperworks. Her jaws close on the part of the ship
+    // nearest to that, and on nothing else.
+    const aim = (mo.mo && mo.mo.head) || { x: 0, y: 0 };
+    const B = MONSTER.bite;
+    // Her right, across her heading (+x is her left).
+    const rx = -Math.cos(mo.heading), rz = Math.sin(mo.heading);
+    let px, pz;
+    if (held) {
+      // In her hands: across from where she has hold of her, as far as her
+      // neck swings her head either side -- what her jaws can actually be
+      // put into, and nothing further along her than that.
+      const G = MONSTER.grab;
+      const ahead = t.held && t.held.lifted ? G.carry : G.hands;
+      px = mo.x + Math.sin(mo.heading) * ahead + rx * aim.x * B.swing;
+      pz = mo.z + Math.cos(mo.heading) * ahead + rz * aim.x * B.swing;
+    } else {
+      // In the water ahead of her: the part of her nearest the jaws, as far
+      // across as her neck swings.
+      const k = mo.mo && mo.mo.pose === 'stand' ? B.head.stand : B.head.swim;
+      px = mo.x + Math.sin(mo.heading) * k + rx * aim.x * B.swing;
+      pz = mo.z + Math.cos(mo.heading) * k + rz * aim.x * B.swing;
+    }
+    const l = worldToLocal(px - t.x, pz - t.z, t.heading);
+    lz = clamp(l.z, -half * 0.88, half * 0.88);
+    // On the side of her facing Monster One.
+    const me = worldToLocal(mo.x - t.x, mo.z - t.z, t.heading);
+    const side = me.x >= 0 ? 1 : -1;
+    // Up and down: from a third of her draught under the water, to her
+    // deck edge, to her upperworks over it.
+    const top = fb + Math.max(5, beam * 0.45);
+    const y = aim.y;
+    ly = y < 0 ? fb * 0.55 + (fb * 0.55 + cls.hull.draft * 0.35) * y : fb * 0.55 + (top - fb * 0.55) * y;
+    // High up, her upperworks stand in from her sides.
+    lx = side * beam * (ly > fb + 1 ? 0.4 : 0.85);
   } else {
-    // In her hands: wherever the teeth or the fingers closed.
-    lz = (state.rng() * 2 - 1) * half * (how === 'bite' ? 0.5 : 0.7);
-    lx = (state.rng() < 0.5 ? -1 : 1) * beam * (0.5 + state.rng() * 0.5);
+    // One of her hands holds the ship; the other goes in where her captain
+    // has it aimed (the same aim as her jaws, m.head): across her from where
+    // she has hold, as far as her free arm reaches, and up or down the hull
+    // from below the waterline to the deck.
+    const G = MONSTER.grab;
+    const ahead = t.held && t.held.lifted ? G.carry : G.hands;
+    const aim = (mo.mo && mo.mo.head) || { x: 0, y: 0 };
+    const rx = -Math.cos(mo.heading), rz = Math.sin(mo.heading);
+    const px = mo.x + Math.sin(mo.heading) * ahead + rx * aim.x * G.rip;
+    const pz = mo.z + Math.cos(mo.heading) * ahead + rz * aim.x * G.rip;
+    const l = worldToLocal(px - t.x, pz - t.z, t.heading);
+    lz = clamp(l.z, -half * 0.85, half * 0.85);
+    const me = worldToLocal(mo.x - t.x, mo.z - t.z, t.heading);
+    lx = (Math.abs(l.x) > beam * 0.3 ? Math.sign(l.x) : me.x >= 0 ? 1 : -1) * beam * 0.9;
+    ly = aim.y < 0 ? fb * 0.5 + (fb * 0.5 + cls.hull.draft * 0.4) * aim.y : fb * 0.5 + fb * 0.5 * aim.y;
   }
   const claw = how === 'claw';
-  const rad = clamp(beam * (claw ? 0.6 : 0.5), claw ? 3.5 : 3, claw ? 11 : 9);
+  // Her jaws take no more than goes into her mouth -- a few metres across --
+  // whatever the size of the ship; her hands take a slab as broad as her palm.
+  const rad = claw ? clamp(beam * 0.35, 3, MONSTER.grab.palm) : clamp(beam * 0.3, 2.5, MONSTER.bite.mouth);
   // Her claws close round the hull low down, below the waterline as often as
-  // not; her teeth go in over the gunwale.
-  const ly = claw ? -cls.hull.draft * 0.4 + state.rng() * (fb * 0.5 + cls.hull.draft * 0.4)
-    : fb * (0.5 + state.rng() * 0.6);
-  const where = sectionAt(clamp(lz / half, -1, 1), 'deck');
-  if (t.sections && t.sections[where]) {
+  // not; her teeth go in where her head put them.
+  if (ly === null) ly = -cls.hull.draft * 0.4 + state.rng() * (fb * 0.5 + cls.hull.draft * 0.4);
+  // Over her deck edge it is her upperworks that comes away: no sea comes in
+  // through that.
+  const upper = !claw && ly > fb + 1;
+  const where = upper ? 'works' : sectionAt(clamp(lz / half, -1, 1), 'deck');
+  if (!upper && t.sections && t.sections[where]) {
     openHull(state, t, where, rad * rad * (claw ? 0.5 : 0.3), lx >= 0 ? 1 : -1,
       Math.max(0, -ly), { x: lx, y: ly, z: lz });
   }
-  // A gun where she closed on her, torn out and flung.
-  const odds = claw ? 0.55 : 0.65;
-  const reach = rad * 1.3 + 3;
-  const near = standing(t, cls)
+  // A gun where she closed on her, torn out of her by the roots and crushed:
+  // in her fist, or in her jaws. Whichever it is, she has it -- a turret, a
+  // secondary mount or a light gun -- if there is one in her reach: her hand
+  // spans the deck from the rail she has hold of, and her jaws close on the
+  // nearest gun to them.
+  const odds = 1;
+  const reach = claw ? Math.max(rad * 1.3 + 3, beam * 1.1 + 4) : rad * 1.5 + 7;
+  // (Only off her deck: jaws in her side under the water take no gun.)
+  const near = ly < fb * 0.4 && !claw ? [] : standing(t, cls)
     .filter((g) => !mountFell(t, g.k, g.i))
     .map((g) => ({ g, d: Math.hypot((g.s.x || 0) - lx, g.s.z - lz) }))
     .filter((q) => q.d <= reach + footOf(q.g.bore))
     .sort((a, b) => a.d - b.d);
-  const takes = claw ? 2 : 1;
+  const takes = 1;
   for (let k = 0; k < Math.min(takes, near.length); k++) {
     if (state.rng() >= odds) continue;
     // Away from her, flung to one side or the other of where she is facing.
@@ -7997,7 +8116,7 @@ function monsterTear(state, t, mo, how) {
     tossMount(state, t, cls, near[k].g, how, { x: Math.sin(away), z: Math.cos(away) }, how === 'claw' ? 0.3 : 0.7, mo.id);
   }
   const r1 = (v) => Math.round(v * 10) / 10;
-  return { lx: r1(lx), ly: r1(ly), lz: r1(lz), r: r1(rad), sd: Math.floor(state.rng() * 1e6) };
+  return { lx: r1(lx), ly: r1(ly), lz: r1(lz), r: r1(rad), sd: Math.floor(state.rng() * 1e6), where };
 }
 
 /**
@@ -9181,6 +9300,10 @@ export function resolveShellHit(state, sh, target, cx, cz, cy) {
   state.events.push({
     e: 'hit', kind, part: sec.part,
     x: cx, y: cy, z: cz, cal: sh.caliber,
+    // The round and the tick it struck on, so a client drawing the battle a
+    // moment behind can carry that round on to the point it struck and burst
+    // it there, rather than bursting it in the air short of her.
+    si: sh.id, tk: state.tick,
     victim: target.id, owner: sh.owner, dmg: Math.round(dmg),
     pl: layers.map((L, i) => [L.k, Math.round(L.t), walk.met[i] ?? Math.round(L.t)]),
     ps: walk.stop,
@@ -13345,22 +13468,27 @@ const DIVE_AT = 170;           // and the range -- just inside the release
 /**
  * How she gets from the perch into the dive: not by pushing the stick
  * forward, which puts her crew on the canopy and her engine out of fuel, but
- * by rolling. Brakes out first, on the level, so she is slowed and steady
- * before anything else happens; then one smooth barrel roll, all the way
- * round, toward the side her target is on -- easing into it, quickest as she
- * goes over on her back, and easing out of it again. The nose comes down
- * through the horizon while she is over on her back, with the g on her the
- * right way, so she comes out of the roll upright, wings level, already well
- * down and with the ship in her sight.
+ * over on her back. Brakes out first, on the level, so she is slowed and
+ * steady before anything else happens; then she rolls most of the way over
+ * toward the side her target is on, pulls the nose down through the horizon
+ * while she is on her back -- with the g on her the right way, pressing the
+ * crew into their seats -- and once she is pointing well down at the ship
+ * rolls upright again round her own nose, seventy degrees down with her
+ * brakes out and the ship in her sight.
  *
- * It used to be a half roll: over onto her back at a fixed rate, a hang there
- * while she pulled, and back the way she came -- three moves with a stop
- * between each.
+ * Each part runs into the next: the pull starts as the wings go past the
+ * vertical, and the roll back starts as the nose comes onto the dive.
+ *
+ * It was for a while one barrel roll all the way round, with the nose coming
+ * down through the whole of it -- which put her on her side with the nose
+ * being dragged down past the horizon, a sideways slither no aeroplane can
+ * fly, and that was what made the dive look wrong.
  */
 const DIVE_ANGLE = 1.22;       // seventy degrees: the dive she rolls out into
-const DIVE_ROLL_TIME = 4.2;    // seconds, all the way round
-/** Where in the roll -- 0 at its start, 1 upright again -- her nose starts down, and where it is down. */
-const DIVE_NOSE = [0.12, 0.72];
+const DIVE_OVER = 2.6;         // how far over she goes: a hundred and fifty degrees
+const DIVE_OVER_TIME = 1.5;    // seconds to roll over onto her back
+const DIVE_OUT_TIME = 1.4;     // and to roll upright again in the dive
+const DIVE_OUT_AT = 0.2;       // she starts back upright this far short of her dive angle
 /**
  * And how hard she pulls in each part of it, in gravities: the roll-in is a
  * hard pull with her on her back, and the pull-out at the bottom is the
@@ -13369,6 +13497,9 @@ const DIVE_NOSE = [0.12, 0.72];
  */
 const DIVE_PULL_IN = 3.4;
 const DIVE_PULL_OUT = 5.2;
+/** The climb she zooms up at out of the bottom of the dive, and for how long. */
+const DIVE_ZOOM = 0.45;
+const DIVE_ZOOM_FOR = 5;
 /**
  * And the speed she settles at coming down, which is what the brakes are for.
  *
@@ -13429,14 +13560,32 @@ const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800, level: 1
  */
 function diveStage(state, p, dt) {
   const V = Math.max(30, p.as ?? Math.hypot(p.speed || 0, p.vy || 0));
-  if (p.dv === 'pull') {
+  if (p.dv === 'pull' || p.dv === 'zoom') {
     // Out of it: brakes in, as hard as she will stand until the nose is
-    // above the horizon, and then the climb home. She comes out wings level,
-    // which is what is drawn.
+    // above the horizon -- and then on up, a real zoom climb on the speed
+    // the dive gave her, away from the flak, before she settles into the
+    // climb home. She used to level off at the bottom and potter away at a
+    // cruise climb a few degrees nose up, which is not how anybody left a
+    // ship they had just bombed.
+    //
+    // Drawn banked as far as she is actually turning and no further: she
+    // used to be held wings level the whole way out while the autopilot
+    // swung her round for home, which was a flat skid across the sky.
     p.brkWant = 0;
-    p.show = 0;
-    if ((p.vy || 0) > 2) { p.dv = undefined; p.show = undefined; return null; }
-    return { vy: 30, g: DIVE_PULL_OUT };
+    const was = p.show || 0;
+    p.show = was + clamp((p.bank || 0) - was, -2.2 * dt, 2.2 * dt);
+    if (p.dv === 'pull') {
+      if ((p.vy || 0) > 2) { p.dv = 'zoom'; p.dvT = 0; }
+      return { vy: V * Math.sin(DIVE_ZOOM), g: DIVE_PULL_OUT };
+    }
+    p.dvT = (p.dvT || 0) + dt;
+    // Up through her zoom angle and held there while the speed lasts, then
+    // eased over onto her ordinary climb.
+    if (p.dvT > DIVE_ZOOM_FOR || (p.dvT > 1.5 && V < 72)) {
+      p.dv = undefined; p.dvS = undefined; p.show = undefined;
+      return null;
+    }
+    return { vy: V * Math.sin(DIVE_ZOOM), g: p.dvT < 1.5 ? DIVE_PULL_OUT * 0.7 : 1.6 };
   }
   if (p.phase !== 'outbound' || !(p.bomb > 0) || p.dropped) {
     p.dv = undefined; p.show = undefined; p.brkWant = 0;
@@ -13445,6 +13594,16 @@ function diveStage(state, p, dt) {
   const mark = p.targetBat
     ? state.batteries.find((q) => q.id === p.targetBat && q.alive)
     : state.ships.find((q) => q.id === p.targetId && q.alive);
+  // The ship she was diving on has gone, or she has been given another a
+  // long way off. She does not fly on frozen half way round her roll-in, or
+  // carry on down a dive at a ship miles away: she pulls out of it, rolling
+  // level as she does, and goes after whatever is next from the top again.
+  if (p.dv && (!mark || mark.id !== p.dvMark)) {
+    p.dv = 'pull';
+    p.dvS = undefined;
+    p.brkWant = 0;
+    return { vy: V * Math.sin(DIVE_ZOOM), g: DIVE_PULL_OUT };
+  }
   if (!mark) { p.brkWant = 0; return null; }
   const d = dist(p.x, p.z, mark.x, mark.z);
   if (!p.dv) {
@@ -13471,8 +13630,12 @@ function diveStage(state, p, dt) {
     // Over the top. Which way she rolls is the way her target is turning out
     // from under her, so she comes out of it already pointing at it.
     p.dv = 'roll';
+    p.dvS = 'over';
     p.dvT = 0;
     p.show = 0;
+    // What she is diving on. Should that change under her -- it sinks, or
+    // she is given another -- this dive is over: see below.
+    p.dvMark = mark.id;
     // Where the bomb leaves her, fixed for this dive at the height she has
     // to start it from.
     p.dropY = releaseFor((p.y ?? 0) - (mark.y || 0));
@@ -13489,28 +13652,43 @@ function diveStage(state, p, dt) {
   const down = -V * Math.sin(steep);
   if (p.dv === 'roll') {
     p.dvT += dt;
-    // How far round she is. Eased at both ends -- the rate of roll is nought
-    // as she starts and as she finishes, and twice its average with her on
-    // her back -- so it starts and stops like an aeroplane and not a switch.
-    const u = clamp(p.dvT / DIVE_ROLL_TIME, 0, 1);
-    const turned = u - Math.sin(2 * Math.PI * u) / (2 * Math.PI);
-    p.show = wrapAngle(p.dvSide * 2 * Math.PI * turned);
+    const path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0));
+    // Eased at both ends of each roll: the rate is nought as it starts and
+    // as it stops, so she rolls like an aeroplane and not like a switch.
+    const ease = (u) => { const c = clamp(u, 0, 1); return c * c * c * (c * (c * 6 - 15) + 10); };
+    if (p.dvS !== 'out') {
+      // Over onto her back.
+      const bank = DIVE_OVER * ease(p.dvT / DIVE_OVER_TIME);
+      p.show = p.dvSide * bank;
+      // And down through the horizon, as hard as the wing is pointed at the
+      // sea: nothing while it is still on the level side of the vertical,
+      // all of it on her back.
+      const into = clamp((-Math.cos(bank) - 0.05) / 0.8, 0, 1);
+      // A dive that has gone wrong somewhere -- she was knocked about on the
+      // way over -- is still a dive: after six seconds she is in it.
+      if ((into > 0.9 && path <= -(DIVE_ANGLE - DIVE_OUT_AT)) || p.dvT > 6) {
+        p.dvS = 'out';
+        p.dvT0 = p.dvT;
+        p.dvB = bank;
+      }
+      return { vy: into > 0 ? down : 3 - 3 * clamp(p.dvT / DIVE_OVER_TIME, 0, 1),
+        g: into > 0 ? lerp(1.2, DIVE_PULL_IN, into) : 1.2 };
+    }
+    // Upright again round her own nose, the way she went over, with the last
+    // of the pull coming off as the wings come level.
+    const u = (p.dvT - p.dvT0) / DIVE_OUT_TIME;
+    const bank = (p.dvB ?? DIVE_OVER) * (1 - ease(u));
+    p.show = p.dvSide * bank;
     if (u >= 1) {
       p.dv = 'dive';
+      p.dvS = undefined;
       p.show = 0;
       // The line she dives down starts where she is now, at the height she
       // has now: the roll and the pull through have used some of both.
       p.diveFrom = Math.max(DIVE_AT + 120, d);
       p.perch = Math.max((mark.y || 0) + dropHeight(p, mark) + 60, p.y);
-      return { vy: down, g: DIVE_PULL_IN };
     }
-    // The nose. Held up while the wings go round toward the vertical, pulled
-    // down through the horizon while she is over on her back, and down the
-    // sight by the time she is upright.
-    const [n0, n1] = DIVE_NOSE;
-    const k = clamp((u - n0) / (n1 - n0), 0, 1);
-    const nose = k * k * (3 - 2 * k);
-    return { vy: lerp(3, down, nose), g: lerp(1.2, DIVE_PULL_IN, Math.min(1, nose * 3)) };
+    return { vy: down, g: lerp(1.6, DIVE_PULL_IN, clamp(-Math.cos(bank), 0, 1)) };
   }
   // In the dive: down her sight onto the ship, wings level, brakes out. She
   // is drawn off her own path from here -- see protocol.js -- so the nose is
@@ -13545,7 +13723,7 @@ function diveAirspeed(p, cruise, dt) {
   // The throttle. Open for the pull-out and the climb away; closed in the
   // dive; on the level, as much as holds her at an approach speed a little
   // under her cruise, whatever the brakes are doing.
-  const pull = p.dv === 'pull' || p.dropped;
+  const pull = p.dv === 'pull' || p.dv === 'zoom' || p.dropped;
   const A = pull ? kIn * cruise * cruise + 2.2
     : p.dv ? DIVE_IDLE
       : k * (cruise * 0.88) ** 2;
@@ -16213,7 +16391,10 @@ function stepPlanes(state, dt) {
       // be hauled about in a dive and can be at cruise.
       const tas = Math.max(18, Math.hypot(p.speed || frm.vMax * 0.7, p.vy || 0));
       // A shot-about wing will not be hauled round as far.
-      const most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1);
+      // And one hauling herself out of the bottom of a dive pulls straight
+      // ahead, more or less, and only rolls into her turn for home once she
+      // is climbing.
+      const most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1) * (p.dv === 'pull' ? 0.3 : 1);
       // What she asks for is a rate, and the bank is what it takes to get it.
       //
       // This is the right way round and the other way round does not work. A
@@ -16623,7 +16804,7 @@ function stepPlanes(state, dt) {
         } else state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
         p.dropped = true;
         // And out of it. See diveStage.
-        if (p.role === 'dive') { p.dv = 'pull'; p.show = undefined; }
+        if (p.role === 'dive') { p.dv = 'pull'; p.show = 0; }
         p.runOn = 0;
         // A fighter that has dropped her bombs still has her guns and her
         // missiles, and stays to use them: see the fighter's attack above.
@@ -17264,7 +17445,11 @@ function aimError(state, bm) {
   // matters and the one a ship's captain earns by keeping his speed on. Down at
   // a thousand metres the aimer can see what he is aiming at, so both are
   // small: a stick laid on a ship lying still mostly falls on her.
-  const sd = 22 + bm.y * 0.012 + moving * 7;
+  // And a ship swinging under helm is harder again than one steaming
+  // straight: the aimer is leading her along a line she has already left.
+  // It is the turning, more than the speed, that the bombs of Midway missed.
+  const swing = t ? Math.abs(t.yawRate || 0) : 0;
+  const sd = 22 + bm.y * 0.012 + moving * 7 + swing * 3000;
   return { x: gauss(state.rng) * sd, z: gauss(state.rng) * sd };
 }
 
@@ -19732,7 +19917,7 @@ export function hullIntegrity(ship) {
   return hp;
 }
 
-export function damageShip(state, ship, source, amount, kind, where = null) {
+export function damageShip(state, ship, source, amount, kind, where = null, contain = false) {
   if (!ship.alive || amount <= 0) return;
   if (shipClass(ship).monster) { monsterHurt(state, ship, source, amount, kind, MONSTER_HOOKS); return; }
   // A submarine is a pressure hull: breached, she goes. The toughness and
@@ -19753,9 +19938,11 @@ export function damageShip(state, ship, source, amount, kind, where = null) {
     const took = Math.min(sec.hp, amount);
     sec.hp -= took;
     // Anything the compartment could not absorb goes into the rest of her:
-    // a shell through a wrecked bow still opens frames behind it.
+    // a shell through a wrecked bow still opens frames behind it. Not so a
+    // blow that is all in the one place (`contain`): Monster One's jaws take
+    // what they close on, and nothing else of her.
     let rest = amount - took;
-    if (rest > 0) spread(ship, rest);
+    if (rest > 0 && !contain) spread(ship, rest);
   } else {
     spread(ship, amount);
   }

@@ -140,17 +140,10 @@ export class Shells {
     this.stripe.instanceColor.setUsage(THREE.DynamicDrawUsage);
     this.stripe.frustumCulled = false;
     scene.add(this.stripe);
-    // The hot base: a small additive disc that only the big rounds carry, so a
-    // heavy salvo can be followed across the sky the way a spotter follows it.
-    const glowGeo = new THREE.SphereGeometry(0.5, 10, 7);
-    this.glowMat = new THREE.MeshBasicMaterial({
-      color: 0xffbe72, transparent: true, opacity: 0.5,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-    });
-    this.glow = new THREE.InstancedMesh(glowGeo, this.glowMat, max);
-    this.glow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.glow.frustumCulled = false;
-    scene.add(this.glow);
+    // There used to be a hot base drawn on every round as well -- an additive
+    // sphere set back down her line -- and from anywhere but square on it
+    // read as a yellow ball hanging under the shell rather than as tracer.
+    // The round is drawn on its own now.
     this.dummy = new THREE.Object3D();
     this.dir = new THREE.Vector3();
     this.quat = new THREE.Quaternion();
@@ -185,18 +178,6 @@ export class Shells {
     this.mesh.setMatrixAt(n, d.matrix);
     this.stripe.setMatrixAt(n, d.matrix);
     this.stripe.setColorAt(n, stripeColour(kind));
-    // The tracer, burning in the base -- behind the round, not inside it,
-    // where the body would hide it. A salvo you cannot follow across the sky
-    // is a salvo you cannot spot for, and at eight thousand yards this is the
-    // only part of a shell there is any chance of seeing.
-    d.position.set(
-      x - this.dir.x * len * 0.52,
-      y - this.dir.y * len * 0.52,
-      z - this.dir.z * len * 0.52,
-    );
-    d.scale.setScalar(len * (caliber >= 100 ? 0.30 : 0.22));
-    d.updateMatrix();
-    this.glow.setMatrixAt(n, d.matrix);
     return n + 1;
   }
 
@@ -212,16 +193,13 @@ export class Shells {
    */
   hideFrom(from) {
     this.mesh.count = from;
-    this.glow.count = from;
     this.stripe.count = from;
     this.mesh.visible = from > 0;
-    this.glow.visible = from > 0;
     this.stripe.visible = from > 0;
   }
 
   flush() {
     this.mesh.instanceMatrix.needsUpdate = true;
-    this.glow.instanceMatrix.needsUpdate = true;
     this.stripe.instanceMatrix.needsUpdate = true;
     this.stripe.instanceColor.needsUpdate = true;
   }
@@ -355,6 +333,40 @@ export class Flak {
         // The heavy guns burst; the automatic ones just stop.
         burst: caliber >= 75,
         effects,
+      });
+    }
+  }
+
+  /**
+   * Rounds out of one gun on an aeroplane: from the muzzle itself, at the
+   * moment of firing, and out at the speed a round actually leaves a barrel
+   * -- its muzzle velocity on top of hers.
+   *
+   * `fire` is a ship's battery: it scatters where the rounds come from across
+   * a dozen metres of deck and staggers them over a quarter of a second, which
+   * off an aeroplane doing a hundred metres a second put the tracer anywhere
+   * round her and some of it behind her. Here every round starts at the
+   * barrel. One that is staggered is started where the barrel will be when it
+   * goes, so the stream stays on the gun however fast she is flying.
+   *
+   * `vel` is her velocity, in metres a second.
+   */
+  stream(x, y, z, tx, ty, tz, caliber, rounds, effects, vel = null, spread = 4, muzzle = 860) {
+    const span = Math.hypot(tx - x, ty - y, tz - z);
+    if (span < 1) return;
+    const vx = vel ? vel.x : 0, vy = vel ? vel.y : 0, vz = vel ? vel.z : 0;
+    const along = ((tx - x) * vx + (ty - y) * vy + (tz - z) * vz) / span;
+    const flight = span / Math.max(200, muzzle + along);
+    for (let i = 0; i < rounds; i++) {
+      if (this.rounds.length >= this.max) break;
+      const wait = i * 0.045;
+      const k = (span > 0 ? spread * Math.min(1, span / 600) : 0);
+      this.rounds.push({
+        x0: x + vx * wait, y0: y + vy * wait, z0: z + vz * wait,
+        x1: tx + vx * wait + (Math.random() - 0.5) * k,
+        y1: ty + vy * wait + (Math.random() - 0.5) * k,
+        z1: tz + vz * wait + (Math.random() - 0.5) * k,
+        t: -wait, flight, caliber, burst: false, effects,
       });
     }
   }

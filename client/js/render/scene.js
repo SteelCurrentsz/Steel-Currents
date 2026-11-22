@@ -25,13 +25,14 @@ import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim, glide } from './mounts.js';
 import { Seakeeping } from './seakeeping.js';
 import { meshSection, interiorMaterial } from './interior.js';
-import { Plating, holeRadius } from './plating.js';
+import { Plating, holeRadius, wallStandIn } from './plating.js';
 import { holePlating, lineInside } from './shellholes.js';
 import { GPU } from './gpusafe.js';
 import { Fittings } from './pieces.js';
 import { Wreckage } from './wreckage.js';
 import { Debris } from './debris.js';
 import { Breakers } from './breakers.js';
+import { BowWaves } from './bowwave.js';
 import { lampPlanAsync, ShipLamps, LampLights } from './searchlights.js';
 import { ExplosionSystem } from './explosion.js';
 import { prepareSoup, clearSoups } from './section.js';
@@ -39,12 +40,13 @@ import { cutMaterial, cutUniforms } from './sever.js';
 import { Severance } from './sever.js';
 import { Rupture } from './rupture.js';
 import { applyGunLook, LOOK } from './gunlooks.js';
-import { Tossed, plateSlab } from './toss.js';
+import { Tossed, hullPiece, setTossHulls, pieceMaterial } from './toss.js';
 import { ClawTear, CLAW_BREAK } from './clawtear.js';
 import { SECTIONS, sectionAt, layFloor, freeboardOf } from '../../../shared/sim.js';
 import { QUALITY } from '../settings.js';
 import { renderCulled } from './pixelcull.js';
 import { buildLodsNow, resetLods } from './lod.js';
+import { bindWarm, unbindWarm, showWhenReady, cancelWarm } from './warmgate.js';
 import { Scars, scarUniforms, cutLand } from './scars.js';
 import {
   MAP_HALF, landMask, groundHeight, keelGround, getWeather, islandRadius, islandHeight,
@@ -903,6 +905,9 @@ export class ShipView {
     // her. See plating.js -- this is what makes a hole a hole rather than a
     // compartment disappearing.
     this.plating = new Plating(this.group, quality);
+    // How deep she is wherever she is cut: her armour, and the frames and
+    // beams it is built on behind it (see Walls in plating.js).
+    this.plating.thickAt = (y, z, ny) => this.cutDepth(y, z, ny);
     // And her as the pieces she is made of: her funnels, her masts, her boats,
     // her lockers, every fitting bolted to her. The plating above is what a
     // hole is cut in; this is what is bent, blackened and knocked off her.
@@ -916,6 +921,8 @@ export class ShipView {
     // when she is first holed; see opened.
     this.ocean = ocean;
     this.wreck = wreck;
+    // What a loose piece of her lands on and slides along (see wreckage.js).
+    this.group.userData.surfaceUnder = (x, y, z, above) => this.surfaceUnder(x, y, z, above);
     // How she is floating, off the wire: deeper, over, and down by the head.
     this.sinkY = 0;
     this.heelBy = 0;
@@ -1149,7 +1156,7 @@ export class ShipView {
     if (how === 'claw') {
       if (m.userData.clawing) return true;
       m.userData.clawing = true;
-      (this.clawQueue || (this.clawQueue = [])).push({ t: CLAW_BREAK + 0.05, args: [kind, i, 'clawNow', dx, dz, seed, pw, null] });
+      (this.clawQueue || (this.clawQueue = [])).push({ t: CLAW_BREAK + 0.05, args: [kind, i, 'clawNow', dx, dz, seed, pw, mouth] });
       return true;
     }
     if (how === 'clawNow') how = 'claw';
@@ -1173,9 +1180,17 @@ export class ShipView {
     const dl = Math.hypot(dx, dz);
     const local = this.group.worldToLocal(at.clone());
     const tossed = this.tossed || (this.tossed = new Tossed());
-    // In Monster One's jaws: carried off in them (see Tossed.addMouth).
+    // In Monster One's jaws: carried off in them, and crushed in them (see
+    // Tossed.addMouth).
     if (how === 'bite' && mouth && mouth.mouthPoint) {
       tossed.addMouth(m, world, mouth, { sink: big ? 3.5 : 2.5, seed });
+      return true;
+    }
+    // Ripped out by her claws: in the fist nearer it, crushed, and let fall.
+    if (how === 'claw' && mouth && mouth.palmPoint) {
+      const pl = mouth.palmPoint(1, new THREE.Vector3()), pr = mouth.palmPoint(-1, new THREE.Vector3());
+      const side = mouth.ripSide || (at.distanceToSquared(pl) <= at.distanceToSquared(pr) ? 1 : -1);
+      tossed.addHand(m, world, mouth, { side, sink: big ? 3.5 : 2.5 });
       return true;
     }
     // Low and slow: not thrown, but shifted off its ring and sliding across
@@ -1184,7 +1199,8 @@ export class ShipView {
     // to go on its own once it is loose. Only a magazine with real force
     // behind it lifts one clear of her.
     const heel = Math.abs(this.group.rotation.z);
-    const slideOdds = how === 'claw' ? 0.6 : how === 'mag' ? Math.max(0, 1 - pw * 1.6) + heel * 1.5 : 0;
+    // (Her claws do not leave it on the deck: she throws it aside, below.)
+    const slideOdds = how === 'mag' ? Math.max(0, 1 - pw * 1.6) + heel * 1.5 : 0;
     if (rnd() < slideOdds) {
       // Toward the side it stood nearest, or the low side, or where it was pushed.
       let side = local.x >= 0 ? 1 : -1;
@@ -1211,9 +1227,12 @@ export class ShipView {
       const clear = Math.max(0, this.cls.hull.beam / 2 - Math.abs(local.x)) + r + 4;
       out = clear / flight * (1.1 + rnd() * 0.4);
     } else {
-      // Torn out and flung: low and hard, away from her.
-      vy = 4 + rnd() * 5;
-      out = 10 + rnd() * 8;
+      // Torn out by her claws and thrown aside: up out of its ring and
+      // away, far enough to clear her side and come down in the sea.
+      vy = 6 + rnd() * 4;
+      const flight = (2 * vy) / 9.81;
+      const clear = this.cls.hull.beam / 2 + Math.abs(local.x) + r + 10;
+      out = clear / flight * (1.05 + rnd() * 0.35);
     }
     if (dl < 1e-3) {
       const side = new THREE.Vector3(local.x >= 0 ? 1 : -1, 0, 0).applyQuaternion(this.group.quaternion);
@@ -1292,6 +1311,7 @@ export class ShipView {
    */
   tearOut(lx, ly, lz, r, seed = 0, dx = 0, dz = 0, claw = false, rig = null, fx = null) {
     if (this.rupture || !this.group.parent) return;
+    this.readyToTear();
     if (claw && this.plating) {
       const world = (p) => this.group.localToWorld(p.clone());
       const tear = new ClawTear(this, {
@@ -1308,80 +1328,129 @@ export class ShipView {
     this.tearNow(lx, ly, lz, r, seed, dx, dz, claw, rig);
   }
 
+  /**
+   * Monster One's hand closing on her at a point in the world: where each of
+   * her claws comes down the plating is driven in -- four fingers in a row
+   * and her thumb across from them, round a broad dish where her palm bears
+   * on her. Dented, not holed: nothing comes off her for a grip.
+   */
+  clawDents(wx, wy, wz, seed = 0) {
+    if (!this.plating || this.rupture) return false;
+    // She has hold of her now, and is about to tear her: what tearing her
+    // needs worked out once is worked out on the next frame, not in the frame
+    // the piece comes away.
+    this.readyToTear();
+    this.group.updateMatrixWorld(true);
+    const p = this.group.worldToLocal(new THREE.Vector3(wx, wy, wz));
+    const near = this.plating.nearest(p.x, p.y, p.z, 22);
+    if (!near) return false;
+    const c = new THREE.Vector3(near[0], near[1], near[2]);
+    const n = new THREE.Vector3(near[3], near[4], near[5]);
+    if (n.lengthSq() < 1e-6) n.set(p.x >= 0 ? 1 : -1, 0, 0);
+    n.normalize();
+    const a = new THREE.Vector3(0, 0, 1);
+    if (Math.abs(n.z) > 0.8) a.set(0, 1, 0);
+    a.addScaledVector(n, -a.dot(n)).normalize();
+    const b = new THREE.Vector3().crossVectors(n, a).normalize();
+    let q = (seed % 2147483646) + 1;
+    const rnd = () => ((q = (q * 16807) % 2147483647) / 2147483647);
+    // The palm.
+    this.plating.dent(c.x, c.y, c.z, 5.5, 0.35);
+    // The claws: fingers along her, a hand's span apart, and the thumb.
+    const pts = [];
+    for (let k = 0; k < 4; k++) pts.push([(k - 1.5) * 2.6 + (rnd() - 0.5) * 0.6, 3 + (rnd() - 0.5) * 0.8]);
+    pts.push([(rnd() - 0.5) * 2, -3.2]);
+    for (const [u, v] of pts) {
+      const at = c.clone().addScaledVector(a, u).addScaledVector(b, v);
+      const f = this.plating.nearest(at.x, at.y, at.z, 3);
+      if (!f) continue;
+      this.plating.dent(f[0], f[1], f[2], 2.4, 0.42 + rnd() * 0.18);
+    }
+    return true;
+  }
+
+  /**
+   * Which corners of her plating are the same corner, across every buffer
+   * she is drawn in (see Plating.cornerIds): wanted for the edge of the first
+   * rent torn in her, and the best part of a tenth of a second to work out
+   * for a big hull. Put on a frame of its own ahead of that edge, once.
+   */
+  readyToTear() {
+    const P = this.plating;
+    if (!P || this.cornersQueued) return;
+    if (P.cornerOf && P.cornerOf.size >= P.parts.length) return;
+    this.cornersQueued = true;
+    (this.jobs || (this.jobs = [])).push(() => { if (this.plating) this.plating.cornerIds(); });
+  }
+
   /** The rent itself, and what came out of it: see tearOut. */
   tearNow(lx, ly, lz, r, seed = 0, dx = 0, dz = 0, claw = false, rig = null, face = null) {
     if (this.rupture || !this.group.parent) return;
-    let went = 0;
-    if (this.plating) {
-      went = this.plating.tear(lx, ly, lz, r, seed);
-      // Torn twice, a little apart: teeth and claws are more than one point.
-      went += this.plating.tear(lx, ly + r * 0.3, lz + r * (seed % 2 ? 0.6 : -0.6), r * 0.7, seed + 7);
-      if (went > 0) {
-        this.dropUnsupported(lx, ly, lz, r * 1.4);
-        this.opened(lx, ly, lz, r);
-      }
-    }
-    // Whatever was standing near it, torn off with it: it drops away from
-    // her, not flung across the sea.
-    const h = this.group.rotation.y;
-    const v = this.speedNow || 0;
-    const dl = Math.hypot(dx, dz);
-    if (this.fittings && this.wreck) {
-      const cuts = this.fittings.blast(lx, ly + 1, lz, r * 1.6, claw ? 5 : 4);
-      if (cuts) {
-        for (const cut of cuts) {
-          cut.force = Math.min(cut.force || 0, 1.2);
-          this.wreck.add(cut, this.group, Math.sin(h) * v + (dl ? (dx / dl) * 3 : 0), Math.cos(h) * v + (dl ? (dz / dl) * 3 : 0));
-        }
-      }
-    }
-    // And the plating itself, in slabs: the piece that broke off, bent, and
-    // smaller pieces that came with it.
     const world = this.group.parent;
+    this.group.updateMatrixWorld(true);
+    // What is standing on the piece she has hold of comes away with it --
+    // and nothing else of her: no burst flinging her fittings about, only
+    // what her teeth or her claws are actually in.
+    const carried = this.fittings ? this.fittings.takeNear(lx, ly, lz, r * 0.85) : [];
+    // The piece itself, out of her plating: torn, as any hole is torn, with
+    // its edge bent in and its cut face showing her frames (see Plating.sweep
+    // and edgeWalls), and every triangle of it kept to be carried off.
+    let went = 0;
+    let tris = [];
+    // A frame's worth of work at a time (see `jobs`): the piece comes out
+    // now, its torn edge is made on the next frame, and whatever it left
+    // hanging loose drops on the one after that, with its own edge after.
+    const later = (fn) => (this.jobs || (this.jobs = [])).push(fn);
+    if (this.plating) this.plating.batch(() => {
+      // (Both tears' edges made once: see Plating.batch.)
+      [went, tris] = this.plating.take(() => {
+        let n = this.plating.tear(lx, ly, lz, r, seed);
+        // Torn twice, a little apart: teeth and claws are more than one point.
+        // (A mouthful is kept to what her jaws close round.)
+        const k = rig ? 0.4 : 1;
+        n += this.plating.tear(lx, ly + r * 0.3 * k, lz + r * (seed % 2 ? 0.6 : -0.6) * k, r * 0.7 * k, seed + 7);
+        return n;
+      });
+      if (went > 0) {
+        this.opened(lx, ly, lz, r);
+        later(() => { if (!this.rupture && this.plating) this.plating.batch(() => this.dropUnsupported(lx, ly, lz, r * 1.4), later); });
+      }
+    }, later);
+    if (!tris.length && !carried.length) return;
+    const piece = hullPiece(tris, carried);
+    if (!piece) return;
+    this.group.add(piece);
+    showWhenReady(piece);
+    const tossed = this.tossed || (this.tossed = new Tossed());
+    // In her jaws: hers to gnaw on and throw away.
+    if (rig && rig.mouthPoint) {
+      rig.mouthFull = Math.max(rig.mouthFull || 0, 2.6);
+      tossed.addMouth(piece, world, rig, { sink: 2.2, own: true, seed });
+      return;
+    }
+    // In her claws: wrenched out and thrown aside, out over the water and
+    // clear of her, the way her hand went or out the way her side faces.
     let q = (seed % 2147483646) + 1;
     const rnd = () => ((q = (q * 16807) % 2147483647) / 2147483647);
-    let color = new THREE.Color(0x6f7478);
-    for (const p of (this.plating && this.plating.parts) || []) {
-      const mat = Array.isArray(p.material) ? p.material[0] : p.material;
-      if (mat && mat.color) { color = mat.color.clone(); break; }
-    }
-    this.group.updateMatrixWorld(true);
-    const tossed = this.tossed || (this.tossed = new Tossed());
-    const side = lx >= 0 ? 1 : -1;
-    const nrm = face && face.n ? face.n.clone() : new THREE.Vector3(side, 0, 0);
-    const at = face && face.c ? face.c.clone() : new THREE.Vector3(lx + side * 0.3, ly, lz);
-    const wn = nrm.clone().transformDirection(this.group.matrixWorld);
+    const h = this.group.rotation.y;
+    const v = this.speedNow || 0;
+    const nrm = face && face.n ? face.n.clone() : new THREE.Vector3(lx >= 0 ? 1 : -1, 0, 0);
+    const wn = nrm.transformDirection(this.group.matrixWorld);
     let ox = dx, oz = dz;
+    const dl = Math.hypot(dx, dz);
     if (dl < 1e-3) { ox = wn.x; oz = wn.z; } else { ox /= dl; oz /= dl; }
-    const n = (claw ? 2 : 1) + Math.floor(rnd() * 2);
-    for (let i = 0; i < n; i++) {
-      const main = i === 0;
-      const w = r * (main ? 1.1 + rnd() * 0.3 : 0.35 + rnd() * 0.3);
-      const slab = plateSlab(w, w * (0.5 + rnd() * 0.4), color, rnd);
-      // Lying in her side where it came from, facing out the way she does.
-      slab.position.copy(at).addScaledVector(nrm, 0.2);
-      if (!main) slab.position.add(new THREE.Vector3(0, (rnd() - 0.5) * r * 0.6, (rnd() - 0.5) * r));
-      slab.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm);
-      slab.rotateZ((rnd() - 0.5) * 0.6);
-      this.group.add(slab);
-      // The piece in her jaws: hers to gnaw and throw away.
-      if (main && rig && rig.mouthPoint) {
-        rig.mouthFull = Math.max(rig.mouthFull || 0, 2.6);
-        tossed.addMouth(slab, world, rig, { sink: 2, own: true, seed });
-        continue;
-      }
-      // Pulled out of her and dropping: out the way her side faces and the
-      // way the hand went, a little up, and down into the sea beside her.
-      const out = main ? 3 + rnd() * 2.5 : 2 + rnd() * 3;
-      tossed.add(slab, world, {
-        vx: Math.sin(h) * v + ox * out + wn.x * 1.5,
-        vy: (main ? 1.5 : 1) + rnd() * 2.5,
-        vz: Math.cos(h) * v + oz * out + wn.z * 1.5,
-        spin: (rnd() < 0.5 ? -1 : 1) * (main ? 0.35 + rnd() * 0.5 : 0.8 + rnd() * 1.2),
-        sink: 2.2,
-        own: true,
-      });
-    }
+    const ol = Math.hypot(ox, oz) || 1;
+    ox /= ol; oz /= ol;
+    const vy = 7 + rnd() * 4;
+    const flight = (2 * vy) / 9.81;
+    const clear = this.cls.hull.beam / 2 + Math.abs(lx) + piece.userData.size + 12;
+    const out = (clear / flight) * (1 + rnd() * 0.4);
+    tossed.add(piece, world, {
+      vx: Math.sin(h) * v + ox * out, vy, vz: Math.cos(h) * v + oz * out,
+      spin: (rnd() < 0.5 ? -1 : 1) * (0.5 + rnd() * 0.7),
+      axis: new THREE.Vector3(-oz, (rnd() - 0.5) * 0.4, ox),
+      sink: 2.4, own: true,
+    });
   }
 
   /**
@@ -1390,11 +1459,11 @@ export class ShipView {
    * thrown away from the burst, rolled over and going down on its own, and
    * every gun on her torn off and scattered. See Rupture's shatter.
    */
-  shatter(bx, bz) {
+  shatter(bx, bz, force = 0) {
     if (this.rupture || this.halves || this.severed || !this.group.parent) return false;
     this.rupture = new Rupture(this, 0, 0, {
       v: this.speedNow || 0, h: this.group.rotation.y,
-    }, { shatter: { x: bx, z: bz } });
+    }, { shatter: { x: bx, z: bz, force, deck: freeboardOf(this.cls) } });
     return true;
   }
 
@@ -1478,6 +1547,11 @@ export class ShipView {
 
   /** Once a frame, after she is posed. The splashes what was thrown made. */
   stepRupture(dt) {
+    // Work on her held over from a frame that had enough to do: one a frame.
+    if (this.jobs && this.jobs.length) {
+      const job = this.jobs.shift();
+      if (!this.rupture) job();
+    }
     // Her claws in her, and the cracks running.
     if (this.clawTears && this.clawTears.length) {
       this.clawTears = this.clawTears.filter((c) => {
@@ -1493,9 +1567,14 @@ export class ShipView {
       this.clawQueue = this.clawQueue.filter((c) => c.t > 0);
       for (const c of due) this.tossMount(...c.args);
     }
+    // Whatever was standing on something that has come off her drops.
+    if (this.fittings && this.fittings.lost && this.fittings.lost.length && !this.rupture) {
+      this.shed(this.fittings.unsupported());
+    }
     const a = this.rupture ? this.rupture.step(dt) : null;
     const ocean = this.ocean;
-    const b = this.tossed ? this.tossed.step(dt, ocean && ocean.heightAt ? (x, z) => ocean.heightAt(x, z) : null) : null;
+    const b = this.tossed ? this.tossed.step(dt, ocean && ocean.heightAt ? (x, z) => ocean.heightAt(x, z) : null,
+      this.wreck && this.wreck.groundAt) : null;
     return a && b ? a.concat(b) : a || b;
   }
 
@@ -1629,7 +1708,7 @@ export class ShipView {
       // A batch that spans the whole of her belongs to neither half -- see
       // Rims in plating.js -- so it stops being drawn rather than jumping to
       // one end of her.
-      if (child.userData.noSplit) { child.visible = false; continue; }
+      if (child.userData.noSplit) { cancelWarm(child); child.visible = false; continue; }
       // Which side of the break it is on, by where it actually sits.
       let z = child.position.z;
       if (child.isMesh && child.geometry) {
@@ -1859,6 +1938,25 @@ export class ShipView {
   }
 
   /**
+   * The deck or roof of her under a point in her own frame, for something
+   * loose to land on and slide along: [y, nx, ny, nz], or null over the side
+   * or over a hole. See Plating.floorUnder.
+   */
+  surfaceUnder(x, y, z, above = 0.5) {
+    if (!this.plating || this.rupture) return null;
+    const f = this.plating.floorUnder(x, y, z, above);
+    if (!f || !this.holes) return f;
+    // A hole cut in her shaders is not in her triangles: nothing lies on it.
+    for (const h of this.holes.list) {
+      if (Math.abs(h[5]) < 0.5) continue;
+      const r = h[3];
+      if (Math.abs(h[1] - f[0]) > r + 0.5) continue;
+      if ((h[0] - x) * (h[0] - x) + (h[2] - z) * (h[2] - z) < r * r) return null;
+    }
+    return f;
+  }
+
+  /**
    * Everything that was standing on a piece of her that has just gone: a
    * locker, a boat, a light, a rail, whose foot was on the plating the hole
    * took. It is not thrown -- nothing hit it -- it simply drops, over the side
@@ -1978,13 +2076,40 @@ export class ShipView {
     if (thick == null) thick = this.plateAt(cy, cz, ny);
     const old = this.holes
       ? this.holes.add(cx, cy, cz, r, nx, ny, nz, Math.max(0.012, thick)) : null;
+    // The plate round it dished in by the blow, and then its edge: torn and
+    // bent in, and as thick as she is there (see Walls in plating.js).
+    if (this.holes) {
+      this.plating.dent(cx, cy, cz, r * 2.6, Math.min(0.45, 0.05 + r * 0.1), [cx, cy, cz, nx, ny, nz]);
+      this.plating.ring(this.holes.list[this.holes.list.length - 1]);
+    }
     // One that has dropped out of what her shaders hold is cut out of her
     // the old way, so it stays a hole.
-    if (old) this.plating.punch(old[0], old[1], old[2], old[3], 0.45);
+    if (old) {
+      this.plating.unring(old);
+      this.plating.punch(old[0], old[1], old[2], old[3], 0.45);
+    }
     if (!this.holes) this.plating.punch(x, y, z, r, 0.45);
     this.dropUnsupported(cx, cy, cz, r);
     this.opened(cx, cy, cz, r, [nx, ny, nz]);
     return 1;
+  }
+
+  /**
+   * How deep she is where she has been cut, metres, and how much of that is
+   * the plate itself: her armour (plateAt), and behind it what it is built
+   * on -- the frames of her side, the beams under her deck, the backing and
+   * the inner skin behind a belt -- which is most of what makes a hole in
+   * her side look like a hole in a ship and not in a sheet of paper.
+   */
+  cutDepth(y, z, ny) {
+    const plate = Math.max(0.025, this.plateAt(y, z, ny));
+    const deckY = freeboardOf(this.cls);
+    const big = Math.min(1, this.cls.hull.length / 250);
+    let frame;
+    if (Math.abs(ny) > 0.6) frame = 0.2 + 0.15 * big;
+    else if (y > deckY + 1.5) frame = 0.1 + 0.06 * big;
+    else frame = 0.3 + 0.25 * big + (plate > 0.12 ? 0.18 : 0);
+    return { depth: plate + frame, plate };
   }
 
   /** How thick her plating is at a height and a station, metres: her armour. */
@@ -2475,6 +2600,14 @@ export class ShipView {
 
   dispose(scene) {
     this.disposed = true;
+    // The light the battle lent her is given back, dark, and stays in the
+    // scene for the next (see monsterLight).
+    const rig = this.group.userData.monster;
+    if (rig && rig.light && rig.light.userData.lent) {
+      rig.light.intensity = 0;
+      rig.light.userData.lent = false;
+      rig.light = new THREE.PointLight(rig.light.color, 0, rig.light.distance, rig.light.decay);
+    }
     if (this.severed) this.severed.dispose();
     if (this.rupture) this.rupture.dispose();
     if (this.tossed) this.tossed.dispose();
@@ -2683,6 +2816,9 @@ export class BattleScene {
     // And lent to the effects, so an aeroplane going up is the same boiling
     // fireball as a shell going off inside a ship, not a glowing disc.
     this.effects.bursts = this.bursts;
+    // Every blast leaves the same cold wreckage and black smoke a shell
+    // bursting in a ship does.
+    this.bursts.remains = (x, y, z, k) => this.effects.burstRemains(x, y, z, k);
     // The waves a splash throws go into the sea itself, through the wake map.
     this.effects.splashes.setWaves(this.wakes.rings);
     // And the ships, so a splash stays at a ship's side and what it throws
@@ -2698,6 +2834,9 @@ export class BattleScene {
       this.effects.blasts.setAtmosphere({
         preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
       });
+      // And the smoke off fires, funnels and bursts leans on the same wind.
+      this.effects.wind = { x: dx * speed, z: dz * speed };
+      this.effects.splashes.wind = this.effects.wind;
       // The sea against the ships: kept off their decks, and thrown up their
       // sides as spray under the same sky and down the same wind.
       // And the white water out of every splash, under the same sky.
@@ -2706,6 +2845,17 @@ export class BattleScene {
       this.breakers.setAtmosphere({
         preset, overcast, sunDir: p.lightDir, wind: { x: dx * speed, z: dz * speed },
       });
+      // The roll of water she heaps up along her sides under way, and the
+      // spray she throws over her bow when she drives it into a sea. Lit by
+      // the same sky and sea as the water it is made of.
+      this.bowWaves = new BowWaves(this.scene, this.effects, { intensity: q.particles });
+      {
+        const ou = this.ocean.material.uniforms;
+        this.bowWaves.setAtmosphere({
+          sky: ou.uSkyTint.value, sun: ou.uLightColor.value, deep: ou.uDeep.value,
+          shallow: ou.uShallow.value, sunDir: p.lightDir,
+        });
+      }
     }
     // Flame is geometry, not a billboard: see flames.js.
     this.flames = new Flames(this.scene, q.particles);
@@ -2774,6 +2924,35 @@ export class BattleScene {
     // Its shaders compiled now, in the background, rather than in the frame
     // the bomb goes off.
     this.nukes.warm(this.renderer, this.camera);
+    // And whatever is made in the middle of the battle -- a hull's torn faces
+    // and insides, the pieces torn out of her -- compiled as it is made and
+    // shown once it is ready, not built in the frame it is first drawn.
+    bindWarm(this.renderer, this.camera, this.scene);
+    // A light each for as many Monster Ones as a battle has (one a side),
+    // in the scene and dark from the start, whether she is in it or not. A
+    // light that comes with her changes how many lights there are, and with
+    // it every shader drawn so far -- and every one compiled ahead of time --
+    // is built again: at the moment she comes in, and again, piecemeal, as
+    // each thing first drawn after that is drawn.
+    this.monsterLights = [0, 1].map(() => {
+      const l = new THREE.PointLight(0x8fd0ff, 0, 700, 2);
+      l.userData.lent = false;
+      this.scene.add(l);
+      return l;
+    });
+    // And the torn faces of a hull's cut edges, drawn with nothing in them
+    // from the start, so their shader is built now and not at the first rent.
+    this.scene.add(wallStandIn());
+    // And what a hull is torn into -- the piece out of her side in Monster
+    // One's jaws, the sheets an atomic burst strips off her -- the same way.
+    {
+      const g = new THREE.BufferGeometry();
+      for (const k of ['position', 'normal', 'color']) g.setAttribute(k, new THREE.BufferAttribute(new Float32Array(9), 3));
+      const m = new THREE.Mesh(g, pieceMaterial());
+      m.frustumCulled = false;
+      m.userData.alwaysDraw = true;
+      this.scene.add(m);
+    }
     // And the wakes', into the map they are drawn into.
     this.wakes?.warm?.(this.renderer);
     // And the oil a wreck leaves, which a burst makes a great deal of at once.
@@ -2787,6 +2966,8 @@ export class BattleScene {
     // anonymous plating below is the rest of what comes off her.
     this.wreck = new Wreckage(this.scene, this.ocean,
       (x, y, z, speed) => this.effects.splashes.splash(x, z, 30 + speed * 4));
+    // Ashore, what falls lands on the ground, and slides down it where it is steep.
+    this.wreck.groundAt = this.effects.groundAt;
     this.debris = new Debris(this.scene, this.ocean,
       Math.max(120, Math.round(420 * q.particles)));
     this.debris.onSplash = (x, z, size) => this.effects.splashes.splash(x, z, 60 * size);
@@ -2838,7 +3019,7 @@ export class BattleScene {
     let v = this.shipViews.get(id);
     // Drawn as her stand-in, and her own model is in now: she is built again
     // as herself, if nothing has happened to the stand-in worth keeping.
-    if (v && v.standIn && !v.marked && !v.sinking && !(v.sinkY > 0.3) && shipReady(classId)) {
+    if (v && v.standIn && !v.marked && !v.sinking && !(v.sinkY > 0.3) && !v.rupture && !v.halves && !v.severed && shipReady(classId)) {
       this.removeShipView(id);
       v = null;
     }
@@ -2881,6 +3062,10 @@ export class BattleScene {
   makeShipView(classId, team, isSelf) {
     const v = new ShipView(this.scene, classId, team, isSelf, this.ocean, this.q.plating,
       this.wakes, this.wreck);
+    // Monster One's breath lights the sea and the ships round her with a
+    // light the battle has had from the start.
+    const rig = v.group.userData.monster;
+    if (rig && rig.light) rig.light = this.monsterLight(rig.light);
     // Her searchlights, found off her own model and dark until somebody
     // switches one on. See searchlights.js. Her plan is read back from the
     // card in the background (lampPlanAsync) and her lamps are fitted when it
@@ -2916,6 +3101,21 @@ export class BattleScene {
     // the battle is up.
     try { buildLodsNow(v.group); } catch (e) { console.warn('Steel Currents: ship detail levels', e); }
     return v;
+  }
+
+  /** One of the battle's own lights, made like `own`, for Monster One; `own` itself, put on her, if all are out. */
+  monsterLight(own) {
+    const l = (this.monsterLights || []).find((x) => !x.userData.lent && x.parent === this.scene);
+    if (!l) return own;
+    // (Put on her by her first pose, if that came first: taken off again
+    // before it is ever drawn.)
+    if (own.parent) own.parent.remove(own);
+    l.color.copy(own.color);
+    l.distance = own.distance;
+    l.decay = own.decay;
+    l.intensity = 0;
+    l.userData.lent = true;
+    return l;
   }
 
   removeShipView(id) {
@@ -3007,17 +3207,25 @@ export class BattleScene {
    * her whole superstructure.
    */
   shipBurst(x, y, z, scale = 1) {
+    // A shell bursting inside a ship, the way the gun-camera film and the
+    // newsreels show it: a short, dull flash, and then a ragged mass of black
+    // and grey smoke with dark wreckage flung up out of it. No embers, no
+    // glowing sparks raining down -- the fire of it is over in a moment and
+    // what is left is smoke and steel. The smoke that stands afterwards is the
+    // effects' (see Effects.burstRemains), not the ball left to fade.
     this.bursts.blast(x, y, z, {
-      size: 5 + 7 * scale,
-      duration: 0.7 + 0.45 * scale,
-      debris: Math.round(6 + 14 * scale),
+      size: 4 + 5.5 * scale,
+      duration: 0.5 + 0.3 * scale,
+      debris: 0,
       light: false,
       plume: false,
       ring: false,
-      linger: 1.5,
+      linger: 1.15,
       power: Math.min(1, scale / 2),
+      grim: 1,
     });
-    this.effects.flash?.(x, y + 4, z, 1.2 * scale);
+    this.effects.flash?.(x, y + 4, z, 0.8 * scale);
+    this.effects.burstRemains?.(x, y, z, scale);
   }
 
   /**
@@ -3050,6 +3258,16 @@ export class BattleScene {
 
   update(dt) {
     const eye = this.camera.position;
+    // The hulls what is thrown about can hit (see toss.js): only worth
+    // listing while there is anything in the air.
+    {
+      let any = false;
+      for (const v of this.shipViews.values()) if (v.tossed && v.tossed.live.length) { any = true; break; }
+      if (any) {
+        for (const v of this.shipViews.values()) if (v.cls && v.deckTop == null) v.deckTop = freeboardOf(v.cls) + 1;
+        setTossHulls(this.shipViews.values(), (x, y, z, size) => this.debris?.burst(x, y, z, 1 + size * 0.4, 0.4));
+      } else setTossHulls([]);
+    }
     // Height is left alone: a dome that rose and fell with the bridge would
     // slide the horizon up and down the sky as the camera climbed.
     if (this.sky) this.sky.position.set(eye.x, 0, eye.z);
@@ -3058,6 +3276,7 @@ export class BattleScene {
     // After the sea has moved and before anything is drawn on it: where every
     // ship is now is where the sea has to keep out of her this frame.
     this.breakers.update(dt, this.camera, this.shipViews.values());
+    this.bowWaves?.update(dt, this.camera, this.shipViews.values());
     this.effects.update(dt, this.camera);
     this.bursts.update(dt, this.camera);
     // The air the smoke goes off on.
@@ -3289,6 +3508,7 @@ export class BattleScene {
   dispose() {
     // Nothing of this battle is waiting to have its detail levels made.
     resetLods();
+    unbindWarm(this.scene);
     const keep = new Set([this.renderer, this.camera, this.scene, this.world]);
     const free = (v) => {
       if (!v || typeof v !== 'object' || keep.has(v) || v.isObject3D) return;

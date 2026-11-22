@@ -148,6 +148,7 @@ export class TitleScene {
     this.effects = new Effects(this.scene, q.particles);
     this.bursts = new ExplosionSystem(this.scene, { slots: 22, lights: false });
     this.effects.bursts = this.bursts;
+    this.bursts.remains = (x, y, z, k) => this.effects.burstRemains(x, y, z, k);
     this.effects.splashes.setWaves(this.wakes.rings);
     this.effects.splashes.setSea(this.ocean);
     this.effects.splashes.setAtmosphere({ preset: 'day', overcast: 0.25, sunDir: SUN });
