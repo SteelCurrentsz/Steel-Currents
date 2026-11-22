@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import {
-  generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
+  generateWorld, isOpenSea, landCeiling, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt, WEATHERS, WEATHER,
   drawnGround, isleSpokes, isleVertex, keelGround, applyGouge, gougeShift,
 } from '../shared/world.js';
@@ -6503,6 +6503,35 @@ function beachRun(classId, seed = 4242, map = 'coral_shelf') {
   s.notch = 5;
   return { world, st, s };
 }
+
+check('every island and coast is low and gentle enough for a tank to drive anywhere on it, and slopes into the sea', () => {
+  const worlds = [
+    generateWorld(12345, 'solomon_narrows'), generateWorld(777, 'coral_shelf'), generateWorld(4242, 'north_atlantic'),
+    generateWorld(42, 'north_atlantic', null, undefined, { lon: -5.5, lat: 50.1 }),
+  ];
+  const run = 7.6;
+  let rnd = 1;
+  const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
+  for (const w of worlds) {
+    let land = 0, worst = 0, shore = 0;
+    for (let k = 0; k < 120000; k++) {
+      const x = (rand() * 2 - 1) * w.half, z = (rand() * 2 - 1) * w.half;
+      const g0 = groundHeight(w, x, z);
+      if (g0 < -1.5) continue;
+      const a = rand() * Math.PI * 2;
+      const g1 = groundHeight(w, x + Math.sin(a) * run, z + Math.cos(a) * run);
+      const gr = Math.abs(g1 - g0) / run;
+      land++;
+      worst = Math.max(worst, gr);
+      if (Math.min(g0, g1) < 2 && Math.max(g0, g1) > -1.5) shore = Math.max(shore, gr);
+    }
+    assert.ok(land > 1000, 'no land to drive on');
+    assert.ok(worst < 1, `a slope of ${worst.toFixed(2)} in one somewhere: too steep to be sure of`);
+    assert.ok(worst < TANK_MAX_GRADE / 2.5);
+    assert.ok(shore < 0.4, `the shore stands up at ${shore.toFixed(2)} in one`);
+    assert.ok(landCeiling(w) < 200, `land ${landCeiling(w)}m high`);
+  }
+});
 
 check('a Higgins boat run up on a beach drops her ramp the moment she takes it, takes no harm, and stays', () => {
   const { st, s } = beachRun('higgins');
@@ -25743,12 +25772,16 @@ check('a ship\'s guns laid on a battery up a hill hit it, not the hill in front 
   // hundred and forty sixteen-inch shells did nothing whatever to it.
   for (const seed of [9911, 4242]) {
     const { st, bat, at } = hillBattery(seed, 9000);
-    assert.ok(bat.y > 100, `the battery is only ${bat.y.toFixed(0)}m up`);
+    // Up the island: the islands are low now (a tank drives up them), so
+    // forty-odd metres is as high as a gun stands.
+    assert.ok(bat.y > 40, `the battery is only ${bat.y.toFixed(0)}m up`);
     bat.cooldown = 1e9;
     const ship = addShip(st, { name: 'BB', classId: 'iowa', team: 0, at });
     ship.heading = Math.atan2(bat.x - ship.x, bat.z - ship.z) + Math.PI / 2;
     const falls = [];
-    for (let i = 0; i < 300 / DT && bat.alive; i++) {
+    // Seven minutes: what kills it is the one or two of her rounds that
+    // fall within forty metres of it, and that is a roll of the dice.
+    for (let i = 0; i < 420 / DT && bat.alive; i++) {
       ship.aimX = bat.x; ship.aimZ = bat.z; ship.shellType = 'he'; ship.notch = 2; ship.speed = 0;
       for (const e of step(st, DT)) {
         if (e.e === 'landhit' || e.e === 'splash') falls.push(Math.hypot(e.x - bat.x, e.z - bat.z));
@@ -25758,7 +25791,7 @@ check('a ship\'s guns laid on a battery up a hill hit it, not the hill in front 
     falls.sort((a, b) => a - b);
     const median = falls[Math.floor(falls.length / 2)];
     assert.ok(median < 250, `half her shells fell more than ${Math.round(median)}m from the battery`);
-    assert.ok(!bat.alive, `five minutes of a battleship left the battery at ${Math.round(bat.hp)} of ${bat.maxHp}`);
+    assert.ok(!bat.alive, `seven minutes of a battleship left the battery at ${Math.round(bat.hp)} of ${bat.maxHp}`);
   }
 });
 

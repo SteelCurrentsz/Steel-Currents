@@ -228,26 +228,24 @@ export function islandHeight(isle, x, z) {
   const R = islandRadius(isle, Math.atan2(dx, dz));
   if (d >= R) return 0;
   const u = 1 - d / R;
-  // A strand, then the climb, then a summit that flattens off. The strand is a
-  // strand and not a desert: it used to be an ninth of the island's radius, so
-  // a kilometre-wide island came with a hundred-metre beach all the way round
-  // and read as a sandbank with a lawn in the middle.
-  const BEACH = 0.045;
+  // A beach sloping up out of the water, then a long even climb to a
+  // summit that flattens off. Gentle all the way, on purpose: a tank has to
+  // be able to drive off the beach and over the top of any island anywhere,
+  // and an island that stood up out of the sea in a wall behind its strand
+  // was a hill no tank could get onto. The steepest of it is a few degrees
+  // on the beach and well under twenty on the flanks (see TANK_MAX_GRADE).
+  const BEACH = 0.1;
+  const SAND = 0.05;
   let h;
-  if (u < BEACH) h = isle.height * 0.03 * (u / BEACH);
+  if (u < BEACH) h = isle.height * SAND * (u / BEACH);
   else {
-    // Steeply off the back of the beach and easing into the top: land that
-    // came out of the sea stands up out of it, and the gentle dome the
-    // smoothstep gave was the shape of a slag heap rather than an island.
-    const v = (u - BEACH) / (1 - BEACH);
-    const t = Math.min(1, v / 0.82);
-    // Steep, but a slope and not a step: a bare power of a third or so goes
-    // straight up at the foot, which drew every island as a strand with a
-    // wall at the back of it. Offset a little, it climbs hard and evenly.
-    const E = 0.03;
-    const steep = (Math.pow(t + E, 0.6) - Math.pow(E, 0.6)) / (Math.pow(1 + E, 0.6) - Math.pow(E, 0.6));
-    const eased = t * t * (3 - 2 * t);
-    h = isle.height * (0.03 + 0.97 * (steep * 0.66 + eased * 0.34));
+    const v = Math.min(1, (u - BEACH) / ((1 - BEACH) * 0.85));
+    // Smoothstep: no steeper at its steepest than half as steep again as
+    // the even climb, easing in off the back of the beach and into the top.
+    const eased = v * v * (3 - 2 * v);
+    // And a little of the even climb in it, so the foot of the hill does not
+    // lie flat for a stretch behind the beach.
+    h = isle.height * (SAND + (1 - SAND) * (eased * 0.8 + v * 0.2));
   }
   const rel = isle.relief;
   if (!rel) return h;
@@ -385,7 +383,9 @@ export function generateWorld(seed, presetId, time = null, half = MAP_HALF, plac
       // Height in proportion to size, so an island is the same shape of thing
       // whether it is a rock or a headland: a flat-topped mesa a kilometre
       // across and a hundred metres high is a mine spoil heap, not an island.
-      height: r * (0.20 + rng() * 0.22),
+      // Low: a tank has to be able to drive up it from the beach (see
+      // islandHeight), so a big island is a long rise and not a mountain.
+      height: r * (0.06 + rng() * 0.06),
       relief: makeRelief(rng),
       shape: Math.floor(rng() * 100000),
     });
@@ -676,6 +676,10 @@ function refileAll(world) {
  * island is made of and a shell chips it. Which is also why the guns are
  * always on the high ground and why digging them in there is worth doing.
  */
+/** How high up, in metres, the ground is all rock; and how steep a slope is rock. */
+const SOIL_HIGH = 50;
+const SOIL_STEEP = 0.28;
+
 export function soilAt(world, x, z) {
   const h = baseGround(world, x, z);
   if (h <= 0) return 0.9;                 // the beach and the shoal off it
@@ -688,8 +692,11 @@ export function soilAt(world, x, z) {
   // and steep is rock wherever it is -- a slope that stands up is standing up
   // because it is rock. The two multiply rather than adding: a flat summit is
   // not soft just because it is flat, which is what adding them made it.
-  const byHeight = Math.max(0, 1 - h / 200);
-  const bySlope = 1 - Math.min(1, slope / 0.7);
+  // Scaled to the land as it is: low and gently sloping everywhere a tank
+  // can drive (see islandHeight), so forty-odd metres up is high ground and
+  // a slope of one in four is as steep as any of it stands.
+  const byHeight = Math.max(0, 1 - h / SOIL_HIGH);
+  const bySlope = 1 - Math.min(1, slope / SOIL_STEEP);
   return Math.max(0.06, Math.min(1, byHeight * (0.35 + 0.65 * bySlope)));
 }
 
@@ -1183,12 +1190,16 @@ export function rawGround(world, x, z) {
   const d = shoreDistance(world, x, z);
   // Offshore: the beach runs on under the water for a little way rather than
   // stopping at the waterline, so the shore is a shore and not a kerb.
-  if (d <= 0) return Math.max(-SHELF_DEEP, d * 0.40);
+  if (d <= 0) return Math.max(-SHELF_DEEP, d * COAST_SEA);
   return coastProfile(d);
 }
 
 /** How deep the open sea is off every coast, in metres. */
 export const SHELF_DEEP = 40;
+/** How high a real coast's land climbs inland, in metres. */
+const COAST_TOP = 160;
+/** How steeply a real coast's seabed falls away off the beach, as fall over run. */
+const COAST_SEA = 0.2;
 /** How many of its own lengths an island's shelf runs out before it is open sea. */
 const SHELF_OUT = 6.5;
 
@@ -1212,17 +1223,22 @@ function shelfRun(isle) {
  * battleship sixty -- and the ground she meets climbs on up out of the water.
  */
 function shelfAt(s, L) {
-  return -SHELF_DEEP * (1 - Math.exp(-s / L));
+  // The beach goes on down under the water at a gentle slope before the
+  // shelf drops away, so the shore is sloped -- a landing craft's tank
+  // drives up it -- rather than a step down into deep water.
+  return Math.max(-SHELF_DEEP * (1 - Math.exp(-s / L)), -s * COAST_SEA);
 }
 
 /** Ashore on a real coast, `d` metres inland. */
 function coastProfile(d) {
-  // Offshore: down to the deep within a hundred metres.
-  if (d <= 0) return Math.max(-SHELF_DEEP, d * 0.40);
-  // Ashore: up quickly off the beach and then easing, which is what a coast
-  // does. Four hundred and fifty metres of relief a couple of miles inland is
-  // about right for the sort of water a fleet action is fought in.
-  return 450 * (1 - Math.exp(-d / 2600));
+  // Offshore: the beach runs on down under the water as a slope, so the
+  // shore is a sloping beach a tank can drive out of the sea onto, and not a
+  // bank; down to the deep within a couple of hundred metres.
+  if (d <= 0) return Math.max(-SHELF_DEEP, d * COAST_SEA);
+  // Ashore: a gentle rise off the beach, easing inland -- low, rolling
+  // ground a tank can drive anywhere on, not a range of hills behind the
+  // shore. A hundred and sixty metres a couple of miles in.
+  return COAST_TOP * (1 - Math.exp(-d / 2400));
 }
 
 /**
@@ -1344,8 +1360,8 @@ export function landCeiling(world) {
   let top = 0;
   for (const i of world.islands || []) top = Math.max(top, i.height * 1.05);
   // A real coastline has no island list to read: it climbs off the shore
-  // distance field, and groundHeight tops out at four hundred and fifty.
-  if (world.land && world.land.length) top = Math.max(top, 460);
+  // distance field, and groundHeight tops out at COAST_TOP.
+  if (world.land && world.land.length) top = Math.max(top, COAST_TOP + 10);
   // And what is built on it: a church spire on a low island stands higher
   // than the island.
   if (world.works) top = Math.max(top, worksCeiling(world));

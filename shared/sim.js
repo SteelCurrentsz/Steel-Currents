@@ -1165,7 +1165,14 @@ export function rampStep(state, ship, cls) {
     ship.notch = 1;
     return;
   }
-  const beached = ship.aground > 0 && bedAt(state.world, sx, sz) > -cls.hull.draft * 0.7;
+  // Beached is her stem in water shallow enough, or the sand her ramp falls
+  // onto -- a ramp's length on, ahead of her stem -- up out of it: on a
+  // gently sloping beach she takes the ground a little way out, her bow in
+  // knee-deep water and the ramp reaching the beach.
+  const ax = sx + Math.sin(ship.heading) * 3;
+  const az = sz + Math.cos(ship.heading) * 3;
+  const beached = ship.aground > 0 && (bedAt(state.world, sx, sz) > -cls.hull.draft * 0.7
+    || bedAt(state.world, ax, az) > -cls.hull.draft * 0.35);
   if (!ship.rampDown && beached) {
     ship.rampDown = true;
     ship.rampAt = state.t;
