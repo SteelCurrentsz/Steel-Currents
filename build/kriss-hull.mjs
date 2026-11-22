@@ -705,6 +705,16 @@ export async function prepare(cfg) {
   // stand within BYNODE_GAP of each other -- but only with runs of the same
   // piece -- and counted by size: the model draws a kind of gun to a piece, so
   // its mountings show up as a row of clusters alike.
+  // PROBE='{"x":[..],"y":[..],"z":[..]}': every run of faces standing in the
+  // box, its piece and its extent, to find what a mounting is drawn as.
+  if (process.env.PROBE) {
+    const B = JSON.parse(process.env.PROBE);
+    for (const p of parts) {
+      if (!inBox(B, ...p.mid) || p.tris.length < +(process.env.PROBE_MIN || 20)) continue;
+      console.log(`  run node ${p.node}${HULL_PIECES.has(p.node) ? '(hull)' : ''} ${p.tris.length}t x ${p.lo[0].toFixed(2)}..${p.hi[0].toFixed(2)} y ${p.lo[1].toFixed(2)}..${p.hi[1].toFixed(2)} z ${p.lo[2].toFixed(2)}..${p.hi[2].toFixed(2)}`);
+    }
+    process.exit(0);
+  }
   if (process.env.BYNODE) {
     const gap = +(process.env.BYNODE_GAP || 0.12);
     const by = new Map();
@@ -1592,13 +1602,16 @@ export async function prepare(cfg) {
     };
     return { house: part(0), barrels: part(1), face };
   }
-  function boresOf(bar, guns, face) {
+  function boresOf(bar, guns, face, given = null) {
     const xs = [];
     for (let i = 0; i < bar.P.length; i += 3) if (bar.P[i + 2] > face + 0.5) xs.push(bar.P[i]);
     xs.sort((a, b) => a - b);
     const gaps = [];
     for (let i = 1; i < xs.length; i++) gaps.push([xs[i] - xs[i - 1], (xs[i] + xs[i - 1]) / 2]);
-    const cuts = gaps.sort((a, b) => b[0] - a[0]).slice(0, guns - 1).map((g) => g[1]).sort((a, b) => a - b);
+    // `cuts`: where across the mounting one barrel's lane ends and the next
+    // begins, given, for barrels drawn so coarsely that the widest gap
+    // between their points is inside one of them.
+    const cuts = given || gaps.sort((a, b) => b[0] - a[0]).slice(0, guns - 1).map((g) => g[1]).sort((a, b) => a - b);
     const laneOf = (x) => cuts.filter((c) => x > c).length;
     const lanes = [...Array(guns)].map(() => ({ sz: 0, sy: 0, szz: 0, szy: 0, n: 0, sx: 0, tip: -Infinity }));
     for (let i = 0; i < bar.P.length; i += 3) {
@@ -1607,7 +1620,7 @@ export async function prepare(cfg) {
       const l = lanes[laneOf(x)];
       l.sz += z; l.sy += y; l.szz += z * z; l.szy += z * y; l.n++; l.sx += x; l.tip = Math.max(l.tip, z);
     }
-    if (lanes.some((l) => l.n < 3)) throw new Error(`a gun of ${guns} has a barrel with no points to it`);
+    if (lanes.some((l) => l.n < 3)) { if (process.env.PARTS) console.log("bores", face, cuts, lanes.map((l) => l.n), bar.P.length / 3); throw new Error(`a gun of ${guns} has a barrel with no points to it`); }
     const fits = lanes.map((l) => {
       const den = l.n * l.szz - l.sz * l.sz;
       const slope = Math.abs(den) > 1e-9 ? (l.n * l.szy - l.sz * l.sy) / den : 0;
@@ -1721,7 +1734,7 @@ export async function prepare(cfg) {
     const sp = splitBarrels({ ...local, LF: raw.LF }, guns, minLen, test);
     const { house, barrels } = sp;
     const face = (spec.faces && spec.faces[template] != null) ? spec.faces[template] : (spec.face ?? sp.face);
-    const { fits, pitch } = boresOf(barrels, guns, face);
+    const { fits, pitch } = boresOf(barrels, guns, face, spec.cuts || null);
     const tz = face - inside;
     const ty = fits.reduce((a, f) => a + f.yAt(tz), 0) / guns;
     const trunnion = [0, ty, tz];
