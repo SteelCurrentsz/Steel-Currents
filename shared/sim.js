@@ -18580,13 +18580,25 @@ function burningCount(ship) {
   return n;
 }
 
-/** How many of her compartments have water in them. */
+/** Water standing in a compartment that counts as it being flooded, cubic metres. */
+const FLOOD_SEEN = 0.25;
+/** The sea coming in through her holes this fast is flooding, cubic metres a second. */
+const FLOOD_MAKING = 0.001;
+
+/**
+ * How many of her compartments are flooding: water standing in them, or the
+ * sea coming in through a hole in them this moment. Read off the water itself
+ * every time, never remembered -- a compartment pumped dry, or one whose water
+ * has run back out of her, is not flooding, and one with a hole above the
+ * waterline the sea has not reached is not flooding either.
+ */
 function floodedCount(ship) {
   let n = 0;
   for (const s of SECTIONS) {
     if (s.from === null) continue;
     const c = ship.sections[s.k];
-    if (c.wP + c.wS > 1) n++;
+    if (c.lost) continue;
+    if ((c.water || 0) > FLOOD_SEEN || (c.making || 0) > FLOOD_MAKING) n++;
   }
   return n;
 }
@@ -18659,7 +18671,8 @@ export function openHull(state, ship, where, area, side, depth, at = null) {
     }
     c.posArea = (c.posArea || 0) + area;
     if (!c.side) c.side = side < 0 ? -1 : 1;
-    if (first) state.events.push({ e: 'flood', ship: ship.id, at: where, dry: 1 });
+    // No alarm yet: a hole is not flooding until the sea is coming in
+    // through it. stepFlooding raises it the moment it is.
     ship.flooding = floodedCount(ship);
     return;
   }
@@ -18685,7 +18698,6 @@ export function openHull(state, ship, where, area, side, depth, at = null) {
   // ship torpedoed under water and then hit high up amidships stopped flooding
   // altogether, which is the wrong way round in every particular.
   c.holeY = Math.max(c.holeY ?? -99, depth);
-  if (first) state.events.push({ e: 'flood', ship: ship.id, at: where });
   ship.flooding = floodedCount(ship);
 }
 
@@ -18919,6 +18931,7 @@ function stepFlooding(state, ship, dt) {
     if (s.from === null) continue;
     const c = ship.sections[s.k];
     c.inflow = 0;
+    c.making = 0;
     if (c.lost) continue;
     const vol = sectionVolume(cls, s.k);
     if (!(vol > 0)) continue;
@@ -18946,7 +18959,15 @@ function stepFlooding(state, ship, dt) {
     }
     if (rate > 0) {
       const q = Math.min(Math.max(0, cap - c.water), rate * dt);
-      if (q > 0) { c.water += q; took += q; c.inflow = q / dt; }
+      if (q > 0) {
+        c.water += q; took += q; c.inflow = q / dt; c.making = q / dt;
+        // The first of the sea into a dry compartment: that is when her
+        // bridge hears she is flooding, not when the hole was made.
+        if (!c.wet && c.making > FLOOD_MAKING) {
+          c.wet = true;
+          state.events.push({ e: 'flood', ship: ship.id, at: s.k });
+        }
+      }
     } else if (rate < 0) {
       // Running back out of her, where the water inside stands higher than
       // the sea over the hole it is running out of.
@@ -19063,7 +19084,15 @@ function stepFlooding(state, ship, dt) {
     c.wP = wp + (c.water / 2 - wp) * cf;
     c.wS = ws + (c.water / 2 - ws) * cf;
   }
-  if (took > 0) ship.flooding = floodedCount(ship);
+  // Counted afresh every step, whichever way the water went: in through her
+  // holes, out through them, onward through a bulkhead, or out by her pumps.
+  for (const s of SECTIONS) {
+    if (s.from === null) continue;
+    const c = ship.sections[s.k];
+    // Dry again, so the next sea into her raises the alarm again.
+    if (c.wet && !(c.water > FLOOD_SEEN) && !(c.making > FLOOD_MAKING)) c.wet = false;
+  }
+  ship.flooding = floodedCount(ship);
 
   // What the water does to her structure: a compartment full of sea is a
   // compartment that is not holding anything up.
@@ -19647,6 +19676,11 @@ export function integrityParts(ship) {
   const structure = clamp(1 - ship.hp / Math.max(1, ship.maxHp), 0, 1);
   const b = buoyancy(ship);
   const flooding = clamp(Math.max(1 - b.reserve, 0) * Math.min(1, b.water / Math.max(1, b.free) * 4), 0, 1);
+  // How full of the sea she is, plainly: the water in her out of what she has
+  // above her waterline to take it. The figure above is what the sea costs
+  // her, and it squares away to nothing for the first few hundred tonnes; this
+  // is what her bar shows, so water in her is never a bar reading empty.
+  const fill = clamp(b.water / Math.max(1, b.free), 0, 1);
   let burning = 0;
   let n = 0;
   for (const s of SECTIONS) { burning += ship.sections[s.k].fire || 0; n++; }
@@ -19663,7 +19697,7 @@ export function integrityParts(ship) {
   if (cls.secondary) count(ship.secMounts, cls.secondary.mounts);
   for (const m of ship.torpMounts || []) { mounts++; if (m.lost) worst += 1; }
   const weapons = mounts ? clamp(worst / mounts, 0, 1) : 0;
-  return { structure, flooding, fire, weapons };
+  return { structure, flooding, fire, weapons, fill, wet: ship.flooding > 0 };
 }
 
 /**
@@ -19680,9 +19714,17 @@ export function integrityParts(ship) {
  */
 export function integrityCategories(ship, p = integrityParts(ship)) {
   const structural = clamp(1 - (p.structure + p.fire * 0.25), 0, 1);
-  const flooding = p.flooding;
+  // The bar reads at least how full she is -- held short of the point the
+  // bar counts as destroyed, which is still decided by what the sea costs her
+  // -- and is never empty while a compartment of hers is flooding.
+  const flooding = Math.max(p.flooding, Math.min(BAR_DOWN.flooding * 0.95, p.fill ?? 0),
+    p.wet ? 0.0001 : 0);
   const rate = ship.reserveRate || 0;
-  const rising = rate < -0.0004 ? 1 : rate > 0.0004 ? -1 : 0;
+  // Rising while the sea is coming in through her holes, whatever her
+  // reserve is doing; falling while it is going down.
+  let making = 0;
+  for (const s of SECTIONS) making += ship.sections[s.k]?.making || 0;
+  const rising = rate < -0.0004 || (making > FLOOD_MAKING && rate <= 0.0004) ? 1 : rate > 0.0004 ? -1 : 0;
   const engine = ship.engineDamage > 0 ? 0.6 + 0.4 * Math.min(1, ship.engineDamage / 30) : 0;
   const steering = ship.steeringDamage > 0 ? 0.6 + 0.4 * Math.min(1, ship.steeringDamage / 30) : 0;
   const magFire = Math.max(ship.sections.fwd?.fire || 0, ship.sections.aft?.fire || 0);
