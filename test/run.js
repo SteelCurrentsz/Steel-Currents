@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import {
-  generateWorld, isOpenSea, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
+  generateWorld, isOpenSea, landCeiling, CHART_X, landAt, landMask, blockedByLand, islandAt, groundHeight,
   spawnPoint, islandRadius, islandHeight, shoreDistance, soilAt, WEATHERS, WEATHER,
   drawnGround, isleSpokes, isleVertex, keelGround, applyGouge, gougeShift,
 } from '../shared/world.js';
@@ -27,7 +27,7 @@ import {
   useRepair, DT, damageShip, shipClearance, BATTERY_FOOTPRINT, batteryRise, RIPPLE_WINDUP,
   siteBattery, batteryPad, afloatAt, seabedRoom,
   commandBattery, pinBattery, layBattery, triggerBattery, readTrack, predictTrack, PLOT_WATCH,
-  trainBattery, orderAttack, embarkTank, driveTank, tankGround, TANK_MAX_GRADE,
+  trainBattery, orderAttack, embarkTank, driveTank, tankGround, TANK_MAX_GRADE, landHides,
   waterBlow, SURGE_SPEED, deckTilt, startSinking, mountDrowned, canFight, SINK_MAX, stepDrowning,
 } from '../shared/sim.js';
 import {
@@ -6517,6 +6517,81 @@ function beachRun(classId, seed = 4242, map = 'coral_shelf') {
   s.notch = 5;
   return { world, st, s };
 }
+
+check('every island and coast is low and gentle enough for a tank to drive anywhere on it, and slopes into the sea', () => {
+  const worlds = [
+    generateWorld(12345, 'solomon_narrows'), generateWorld(777, 'coral_shelf'), generateWorld(4242, 'north_atlantic'),
+    generateWorld(42, 'north_atlantic', null, undefined, { lon: -5.5, lat: 50.1 }),
+  ];
+  const run = 7.6;
+  let rnd = 1;
+  const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
+  for (const w of worlds) {
+    let land = 0, worst = 0, shore = 0;
+    for (let k = 0; k < 120000; k++) {
+      const x = (rand() * 2 - 1) * w.half, z = (rand() * 2 - 1) * w.half;
+      const g0 = groundHeight(w, x, z);
+      if (g0 < -1.5) continue;
+      const a = rand() * Math.PI * 2;
+      const g1 = groundHeight(w, x + Math.sin(a) * run, z + Math.cos(a) * run);
+      const gr = Math.abs(g1 - g0) / run;
+      land++;
+      worst = Math.max(worst, gr);
+      if (Math.min(g0, g1) < 2 && Math.max(g0, g1) > -1.5) shore = Math.max(shore, gr);
+    }
+    assert.ok(land > 1000, 'no land to drive on');
+    assert.ok(worst < 1, `a slope of ${worst.toFixed(2)} in one somewhere: too steep to be sure of`);
+    assert.ok(worst < TANK_MAX_GRADE / 2.5);
+    assert.ok(shore < 0.4, `the shore stands up at ${shore.toFixed(2)} in one`);
+    assert.ok(landCeiling(w) < 200, `land ${landCeiling(w)}m high`);
+  }
+});
+
+check('an island is drawn where it is: the beach the eye sees is the beach a hull and a shell are tested on', () => {
+  for (const [seed, map] of [[777, 'coral_shelf'], [12345, 'solomon_narrows'], [9911, 'solomon_narrows']]) {
+    const w = generateWorld(seed, map);
+    let rnd = seed;
+    const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
+    for (const isle of w.islands) {
+      // A spoke on every corner of the outline.
+      assert.equal(isleSpokes(isle) % 24, 0, 'the mesh cuts across the corners of the outline');
+      for (let k = 0; k < 4000; k++) {
+        const a = rand() * Math.PI * 2;
+        const R = islandRadius(isle, a);
+        const f = 0.9 + rand() * 0.2;
+        const x = isle.x + Math.sin(a) * R * f, z = isle.z + Math.cos(a) * R * f;
+        const g = groundHeight(w, x, z), d = drawnGround(w, x, z);
+        if (g > -15 || d > -15) {
+          assert.ok(Math.abs(g - d) < 1.5, `at ${f.toFixed(3)} of her radius the beach is ${g.toFixed(1)} and drawn at ${d.toFixed(1)}`);
+        }
+        // Land to one test is land to the other.
+        if (Math.abs(g) > 0.5) assert.equal(!!islandAt(w, x, z, 0), g > 0, 'the outline and the ground disagree');
+      }
+    }
+  }
+  // And on a real coast: ashore is where the ground is above the water.
+  const c = generateWorld(42, 'north_atlantic', null, undefined, { lon: -5.5, lat: 50.1 });
+  let rnd = 7;
+  const rand = () => ((rnd = (rnd * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 40000; k++) {
+    const x = (rand() * 2 - 1) * c.half, z = (rand() * 2 - 1) * c.half;
+    const g = groundHeight(c, x, z);
+    if (Math.abs(g) > 0.5) assert.equal(!!islandAt(c, x, z, 0), g > 0, `the coast says ${g.toFixed(1)}m but the shore test disagrees`);
+  }
+});
+
+check('a low island hides a ship no more than it stands in front of her: a masthead sees over an islet, not through a hill', () => {
+  const w = generateWorld(4242, 'open_ocean');
+  const isle = (height) => ({ x: 0, z: 0, r: 300, rmax: 300, height });
+  w.islands = [isle(12)];
+  // Line of sight passes straight over it, two masts thirty metres up.
+  assert.ok(blockedByLand(w, -4000, 0, 4000, 0), 'the islet is not on the line at all');
+  assert.ok(!landHides(w, -4000, 30, 0, 4000, 30, 0), 'a twelve-metre islet hides a masthead thirty metres up');
+  // A hill does.
+  const w2 = generateWorld(4242, 'open_ocean');
+  w2.islands = [isle(90)];
+  assert.ok(landHides(w2, -4000, 30, 0, 4000, 30, 0), 'a ninety-metre hill hides nothing');
+});
 
 check('a Higgins boat run up on a beach drops her ramp the moment she takes it, takes no harm, and stays', () => {
   const { st, s } = beachRun('higgins');
@@ -25757,12 +25832,16 @@ check('a ship\'s guns laid on a battery up a hill hit it, not the hill in front 
   // hundred and forty sixteen-inch shells did nothing whatever to it.
   for (const seed of [9911, 4242]) {
     const { st, bat, at } = hillBattery(seed, 9000);
-    assert.ok(bat.y > 100, `the battery is only ${bat.y.toFixed(0)}m up`);
+    // Up the island: the islands are low now (a tank drives up them), so
+    // forty-odd metres is as high as a gun stands.
+    assert.ok(bat.y > 40, `the battery is only ${bat.y.toFixed(0)}m up`);
     bat.cooldown = 1e9;
     const ship = addShip(st, { name: 'BB', classId: 'iowa', team: 0, at });
     ship.heading = Math.atan2(bat.x - ship.x, bat.z - ship.z) + Math.PI / 2;
     const falls = [];
-    for (let i = 0; i < 300 / DT && bat.alive; i++) {
+    // Seven minutes: what kills it is the one or two of her rounds that
+    // fall within forty metres of it, and that is a roll of the dice.
+    for (let i = 0; i < 420 / DT && bat.alive; i++) {
       ship.aimX = bat.x; ship.aimZ = bat.z; ship.shellType = 'he'; ship.notch = 2; ship.speed = 0;
       for (const e of step(st, DT)) {
         if (e.e === 'landhit' || e.e === 'splash') falls.push(Math.hypot(e.x - bat.x, e.z - bat.z));
@@ -25772,7 +25851,7 @@ check('a ship\'s guns laid on a battery up a hill hit it, not the hill in front 
     falls.sort((a, b) => a - b);
     const median = falls[Math.floor(falls.length / 2)];
     assert.ok(median < 250, `half her shells fell more than ${Math.round(median)}m from the battery`);
-    assert.ok(!bat.alive, `five minutes of a battleship left the battery at ${Math.round(bat.hp)} of ${bat.maxHp}`);
+    assert.ok(!bat.alive, `seven minutes of a battleship left the battery at ${Math.round(bat.hp)} of ${bat.maxHp}`);
   }
 });
 
@@ -31274,6 +31353,35 @@ check('an atomic burst lights the sea without bringing a light into the battle',
   assert.equal(nukes.live.length, 0, 'the burst never went');
   assert.equal(held, 0, 'the light was never given back');
   assert.equal(lights(), 1);
+});
+
+check('an atomic burst on the sea is Baker: no fireball disc, a column, the white dome and a shock to see', () => {
+  const scene = new THREE.Scene();
+  const nukes = new Nukes(scene, null);
+  nukes.add(0, 0, 0, false, null, 1);
+  const n = nukes.live[0];
+  // Nothing round and glowing laid over it: no ball of fire, no sprite.
+  let sprites = 0, balls = 0;
+  scene.traverse((o) => { if (o.isSprite) sprites++; if (o.geometry && o.geometry.type === 'SphereGeometry') balls++; });
+  assert.equal(sprites, 0, 'a glow sprite is drawn over the burst');
+  assert.equal(balls, 0, 'a ball of fire is drawn');
+  for (let t = 0; t < 3; t += 0.25) nukes.update(0.25);
+  assert.ok(n.cloud.mesh.visible, 'no column');
+  assert.ok(n.dome.mesh.visible, 'no condensation dome');
+  assert.ok(n.shock.visible, 'the shock is not drawn');
+  assert.ok(n.shock.scale.x > 3000, 'the shock is not out where the front is');
+  // The dome stands over the column with its crown showing over its top.
+  const D = n.dome.data, C = n.cloud.data;
+  assert.ok(D[1] > 900 && D[1] < C[1], `dome ${D[1]} against the crown ${C[1]}`);
+  // And it clears, and the shock has run out.
+  for (let t = 3; t < 50; t += 0.5) nukes.update(0.5);
+  assert.ok(!n.dome.mesh.visible, 'the dome never cleared');
+  assert.ok(!n.shock.visible, 'the shock never ran out');
+  // On land: the mushroom, and no dome.
+  nukes.add(0, 0, 0, true, null, 1);
+  const l = nukes.live[nukes.live.length - 1];
+  for (let t = 0; t < 4; t += 0.25) nukes.update(0.25);
+  assert.ok(l.cloud.mesh.visible && !l.dome.mesh.visible);
 });
 
 check('a Silverplate opens her doors, lets go of her one bomb and it goes off on the target', () => pinned(() => {
