@@ -289,6 +289,9 @@ export function shipSnapshot(ship, full, state = null) {
       const ic = integrityCategories(ship);
       s.ic = [Math.round(ic.structural * 1000), Math.round(ic.flooding * 1000), Math.round(ic.internal * 1000)];
       s.icr = ic.rising;
+      // Flooding finer, in ten-thousandths: the first of the sea into her is
+      // well under a tenth of a per cent of her and must not read as dry.
+      s.icf = Math.round(ic.flooding * 10000);
     }
     // The depth charge gear, for the bridge that works it: how many charges
     // are left in the stowage, what the pistols are wound to, how long each

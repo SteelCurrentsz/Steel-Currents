@@ -1149,9 +1149,15 @@ class HudBase {
     const el = this.el;
     if (!el.integrity || !el.igRows) return;
     const pc = (v) => `${v < 10 ? v.toFixed(1) : Math.round(v)}%`;
+    // Flooding is read finer at the bottom end: the first tonnes of sea in a
+    // cruiser are a few hundredths of her, and a bar reading 0.0% beside a
+    // FLOODING chip says she is dry when she is not.
+    const pcFlood = (v) => (v > 0 && v < 0.01 ? '<0.01%' : v < 1 ? `${v.toFixed(2)}%` : pc(v));
     // Off an older server, the one figure stands in for her structure.
     const ic = own.ic || [own.ig ?? 1000, 0, 1000];
-    const [st, fl, inn] = ic.map((v) => Math.max(0, Math.min(1000, v)) / 10);
+    const [st, , inn] = ic.map((v) => Math.max(0, Math.min(1000, v)) / 10);
+    // Flooding comes finer than tenths of a per cent off a newer server (icf).
+    const fl = own.icf != null ? Math.max(0, Math.min(100, own.icf / 100)) : Math.max(0, Math.min(1000, ic[1])) / 10;
     const cap = Math.max(0, Math.min(1000, own.igc ?? 1000)) / 10;
     const [rs, rf, ri] = el.igRows;
     const paint = (r, v, shown, warn, bad) => {
@@ -1169,7 +1175,7 @@ class HudBase {
     if (el.integrityLost) el.integrityLost.style.width = `${100 - cap}%`;
     // Flooding fills as she fills: an arrow says whether it is still coming in.
     const trend = own.icr > 0 ? ' \u25B2' : own.icr < 0 ? ' \u25BC' : '';
-    paint(rf, fl, pc(fl) + trend + (fl >= 90 ? gone : ''), fl > 35, fl > 70);
+    paint(rf, fl, pcFlood(fl) + trend + (fl >= 90 ? gone : ''), fl > 35, fl > 70);
     if (rf) rf.row.classList.toggle('rising', own.icr > 0);
     paint(ri, inn, pc(inn) + (inn <= 6 ? gone : ''), inn < 55, inn < 25);
     el.integrity.classList.toggle('sinking', own.sn != null);
