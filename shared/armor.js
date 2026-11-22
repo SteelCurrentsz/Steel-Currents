@@ -142,7 +142,7 @@ const TURRET_ROOF = {
   // cruisers' thin gunhouses, the Atlanta's and the light cruisers' splinter
   // proof mounts, and the Project 1144's AK-100.
   revenge: 127, roma: 200, doria: 100, tennessee: 127, maine: 184, wichita: 51, pensacola: 38, neworleans: 64, fargo: 76, atlanta: 3,
-  furutaka: 25, kitakami: 3, tenryu: 3, yubari: 3, oyodo: 25, kirov: 50, algerie: 70, trento: 40, ushakov: 13,
+  furutaka: 25, kitakami: 3, tenryu: 3, yubari: 3, oyodo: 25, kirov: 50, algerie: 70, trento: 40, nakhimov: 13,
   // A Liberty ship's 4-inch: an open gun behind a splinter shield.
   liberty: 6,
   // A Higgins boat's Brownings: a thin shield on the pintle, and the sky.

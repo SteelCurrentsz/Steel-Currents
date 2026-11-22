@@ -20524,19 +20524,20 @@ Object.assign(SHIP_CLASSES, {
     datasheet: { displacement: 13548, aircraft: 3, mainRounds: 1300, torpedoesCarried: 8, secondary: { caliber: 100, label: '100mm', barrels: 8, rounds: 2400 }, tertiary: [{ caliber: 37, label: '37mm', barrels: 8, rounds: 8000 }] },
   },
 
-  ushakov: {
-    // The lead ship of Project 1144 as she was commissioned in 1980 as Kirov,
-    // and renamed Admiral Ushakov in 1992: the largest surface combatant built
+  nakhimov: {
+    // Admiral Nakhimov, the third of Project 1144, commissioned in 1988 as
+    // Kalinin and renamed in 1992: the largest surface combatant built
     // since the Second World War but for the carriers, nuclear powered, with
     // twenty P-700 Granit anti-ship missiles under hatches on her forecastle
     // and ninety-six S-300F in twelve revolving launchers ahead of them, two
-    // 100 mm AK-100 aft and eight AK-630s.
+    // 100 mm AK-100 aft and eight AK-630s, as the model draws her class's
+    // lead ship.
     //
-    // She is drawn from the owner's model (see ushakov.js and build/prepare-ushakov-hull.mjs)
+    // She is drawn from the owner's model (see nakhimov.js and build/prepare-nakhimov-hull.mjs)
     // -- "Kirov-class cruiser" by SB-129, https://skfb.ly/pBNos, CC BY 4.0 -- credited on the Credits screen.
-    id: 'ushakov',
-    name: "Admiral Ushakov",
-    fullName: "Admiral Ushakov (ex-Kirov)",
+    id: 'nakhimov',
+    name: "Admiral Nakhimov",
+    fullName: "Admiral Nakhimov (ex-Kalinin)",
     className: "Kirov (1144)",
     type: 'CA',
     typeName: 'Missile Cruiser',
@@ -20834,7 +20835,7 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'ushakov', 'cleveland', 'brooklyn', 'ajax', 'fargo', 'atlanta', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'trento', 'algerie', 'kirov', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
+export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'nakhimov', 'cleveland', 'brooklyn', 'ajax', 'fargo', 'atlanta', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'trento', 'algerie', 'kirov', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
   'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
@@ -20846,7 +20847,7 @@ export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57'
  * Des Moines, the Ticonderoga, the Guangzhou, the Sovremenny, the Slava and the Arleigh
  * Burke); everything else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'ushakov', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford']);
+export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'nakhimov', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford']);
 // And the Great War's: the dreadnoughts that sailed as they were before 1919.
 export const WWI_SHIPS = new Set(['agincourt', 'revenge']);
 // And the ships that are not warships at all, whatever war they sailed in:

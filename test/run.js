@@ -4648,7 +4648,7 @@ const NOV26 = [
   { id: 'kirov', type: 'CL', nation: 'sov', era: 'wwii', link: 'https://skfb.ly/ptMsq', title: 'Soviet Cruiser Voroshilov', by: 'kriss50' },
   { id: 'algerie', type: 'CA', nation: 'fra', era: 'wwii', link: 'https://skfb.ly/pOtYK', title: 'Algerie (War Thunder) Sky Odyssey', by: 'KojfDiscord' },
   { id: 'trento', type: 'CA', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/pyzQZ', title: 'RN Trento (War Thunder)', by: 'KojfDiscord' },
-  { id: 'ushakov', type: 'CA', nation: 'sov', era: 'modern', link: 'https://skfb.ly/pBNos', title: 'Kirov-class cruiser', by: 'SB-129' },
+  { id: 'nakhimov', type: 'CA', nation: 'sov', era: 'modern', link: 'https://skfb.ly/pBNos', title: 'Kirov-class cruiser', by: 'SB-129' },
   { id: 'maine', type: 'BB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pzRIK', title: 'Maine', by: 'vvmilleriii' },
   { id: 'tennessee', type: 'BB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/oP7AS', title: 'USS California', by: 'HappySunpore' },
 ];
@@ -4681,9 +4681,10 @@ check('the Tatsuta is sailed as the Tenryū, the Voroshilov as the Kirov and the
   assert.equal(SHIP_CLASSES.kirov.name, 'Kirov');
   assert.equal(SHIP_CLASSES.tennessee.name, 'Tennessee');
   for (const c of Object.values(SHIP_CLASSES)) assert.ok(!/Tatsuta|Voroshilov|California/.test(c.name), `${c.id} is still called ${c.name}`);
-  // And the Project 1144 the owner's other Kirov model draws is the lead ship
-  // under the name she bears now, so the two Kirovs are not confused.
-  assert.equal(SHIP_CLASSES.ushakov.name, 'Admiral Ushakov');
+  // And the Project 1144 the owner's other Kirov model draws is the Admiral
+  // Nakhimov, so the two Kirovs are not confused.
+  assert.equal(SHIP_CLASSES.nakhimov.name, 'Admiral Nakhimov');
+  assert.equal(SHIP_CLASSES.ushakov, undefined);
 });
 
 check('the Maine carries sixteen 16-inch, twin 5-inch dual-purpose, 3-inch dual-purpose and 20 mm', () => {

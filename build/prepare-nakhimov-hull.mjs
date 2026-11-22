@@ -1,4 +1,4 @@
-// Admiral Ushakov, the Kirov of 1980, off the owner's model of her --
+// Admiral Nakhimov off the owner's model of her class, Project 1144 --
 // "Kirov-class cruiser" by SB-129 (https://skfb.ly/pBNos), under Creative
 // Commons Attribution 4.0, credited on the game's Credits screen -- through
 // build/kriss-hull.mjs: her hull, her two great masts, her superstructure,
@@ -8,7 +8,7 @@
 // bridge and four aft.
 //
 //   npm i --no-save meshoptimizer@0.22 sharp     (see build/sculpt-source.mjs)
-//   node build/prepare-ushakov-hull.mjs
+//   node build/prepare-nakhimov-hull.mjs
 import { prepare } from './kriss-hull.mjs';
 import { RN_PAINTS, rnPaint, BOOT } from './kriss-paints.mjs';
 
@@ -17,9 +17,9 @@ const box = (x0, x1, y0, y1, z0, z1) => ({ x: [x0, x1], y: [y0, y1], z: [z0, z1]
 const ak = (x, z, y) => box(x - 1.6, x + 1.6, y - 0.3, y + 1.6, z - 1.4, z + 1.4);
 
 await prepare({
-  name: 'Admiral Ushakov', script: 'build/prepare-ushakov-hull.mjs',
+  name: 'Admiral Nakhimov', script: 'build/prepare-nakhimov-hull.mjs',
   src: 'assets/models/kirov-class_cruiser-maximum-compressed.glb',
-  out: 'client/js/render/ushakovHull.data.js',
+  out: 'client/js/render/nakhimovHull.data.js',
   credit: '"Kirov-class cruiser" by SB-129 (https://skfb.ly/pBNos), CC BY 4.0',
   // 252 m over all, 9.1 m draught.
   loa: 252, draught: 9.1, bow: '+z',

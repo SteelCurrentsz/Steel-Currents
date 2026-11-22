@@ -119,7 +119,7 @@ const SCULPTED = {
   kirov: () => import('./kirov.js').then((m) => { KRISS.kirov = m.buildKirov; }),
   algerie: () => import('./algerie.js').then((m) => { KRISS.algerie = m.buildAlgerie; }),
   trento: () => import('./trento.js').then((m) => { KRISS.trento = m.buildTrento; }),
-  ushakov: () => import('./ushakov.js').then((m) => { KRISS.ushakov = m.buildUshakov; }),
+  nakhimov: () => import('./nakhimov.js').then((m) => { KRISS.nakhimov = m.buildNakhimov; }),
   maine: () => import('./maine.js').then((m) => { KRISS.maine = m.buildMaine; }),
   tennessee: () => import('./tennessee.js').then((m) => { KRISS.tennessee = m.buildTennessee; }),
   shimakaze: () => import('./shimakaze.js').then((m) => { KRISS.shimakaze = m.buildShimakaze; }),
