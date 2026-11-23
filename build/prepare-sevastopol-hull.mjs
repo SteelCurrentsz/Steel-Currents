@@ -27,7 +27,7 @@ await prepare({
   // 250.5 m over all, 9.45 m draught: the Project 69's.
   loa: 250.5, draught: 9.45, bow: '+z', groupDepth: 2,
   paints: RN_PAINTS, paint: rnPaint, paintLines: [0, BOOT],
-  deckFallback: 5, hullTris: 90000,
+  deckFallback: 5, decimate: true, hullTris: 40000, hullError: 0.006, amax: 2.0,
   rigging: { y: 12 },
   kinds: {
     // Her three triple 305 mm/54 MK-15: No.1 on her forecastle and No.2

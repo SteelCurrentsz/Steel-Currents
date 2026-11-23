@@ -28,7 +28,7 @@ await prepare({
   // 277.8 m over all, 10.5 m draught: the H-39 design's.
   loa: 277.8, draught: 10.5, bow: '+z', groupDepth: 2,
   paints: PAINTS, paint, paintLines: [0, BOOT],
-  deckFallback: 5, hullTris: 90000,
+  deckFallback: 5, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her four twin 406 mm: Anton on her forecastle and Bruno superfiring

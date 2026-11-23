@@ -27,7 +27,7 @@ await prepare({
   // 240 m over all, 8.8 m draught: the design's.
   loa: 240, draught: 8.8, bow: '+z', groupDepth: 2,
   paints: IJN_BB_PAINTS, paint: ijnBBPaint, paintLines: [0, BOOT],
-  deckFallback: 5, hullTris: 90000,
+  deckFallback: 5, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her three triple 31 cm/50: No.1 on her forecastle and No.2 superfiring

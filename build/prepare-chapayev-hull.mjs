@@ -23,7 +23,7 @@ await prepare({
   // 199 m over all, 6.9 m draught.
   loa: 199, draught: 6.9, bow: '+z', groupDepth: 2,
   paints: RN_PAINTS, paint: rnPaint, paintLines: [0, BOOT],
-  deckFallback: 6, hullTris: 80000,
+  deckFallback: 6, decimate: true, hullTris: 40000, hullError: 0.006, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her four triple 152 mm/57 MK-5-bis: No.1 on her forecastle and No.2

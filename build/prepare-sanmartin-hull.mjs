@@ -23,7 +23,7 @@ await prepare({
   // 200 m over all, 7 m draught.
   loa: 200, draught: 7, bow: '+z', groupDepth: 2,
   paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
-  deckFallback: 6, hullTris: 80000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her four 152 mm turrets, the triples low and the twins over them: No.1 on her forecastle and No.2 superfiring over it,

@@ -24,7 +24,7 @@ await prepare({
   // 270 m over all, 10.5 m draught.
   loa: 270, draught: 10.5, bow: '+z', groupDepth: 2,
   paints: RN_PAINTS, paint: rnPaint, paintLines: [0, BOOT],
-  deckFallback: 7, hullTris: 90000,
+  deckFallback: 7, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 16 },
   kinds: {
     // Her three triple 406 mm: No.2 superfiring over No.1 forward, trained

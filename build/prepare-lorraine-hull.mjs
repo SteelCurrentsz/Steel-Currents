@@ -25,7 +25,7 @@ await prepare({
   // floated 7 m deep, not her 9.8 m, to keep her freeboard.
   loa: 166, draught: 7, bow: '+z', groupDepth: 2,
   paints: MN_PAINTS, paint: mnPaint, paintLines: [0, BOOT],
-  deckFallback: 3, hullTris: 80000,
+  deckFallback: 3, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 10 },
   kinds: {
     // Her three triple 340 mm: No.1 on her forecastle and No.2 superfiring

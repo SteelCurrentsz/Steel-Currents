@@ -24,7 +24,7 @@ await prepare({
   // 213 m over all, 7.5 m draught.
   loa: 213, draught: 7.5, bow: '+z', groupDepth: 2,
   paints: RM_PAINTS, paint: (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 9 && Math.abs(f.ny) > 0.97 ? 'deck' : rmPaint(f)), paintLines: [0, BOOT],
-  deckFallback: 5, hullTris: 80000,
+  deckFallback: 5, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her three triple 254 mm: No.1 on her forecastle and No.2 superfiring
