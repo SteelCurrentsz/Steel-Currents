@@ -21042,8 +21042,8 @@ Object.assign(SHIP_CLASSES, {
     name: "Sevastopol",
     fullName: "Sevastopol",
     className: "Kronshtadt",
-    type: 'CB',
-    typeName: 'Battlecruiser',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
     nation: 'sov',
     blurb: "Nine 305 mm guns on a thirty-three knot hull: the Kronshtadt class, the Soviet battlecruiser that was never finished.",
     hull: {
@@ -21302,8 +21302,8 @@ Object.assign(SHIP_CLASSES, {
     name: "B-65",
     fullName: "IJN B-65",
     className: "B-65",
-    type: 'CB',
-    typeName: 'Super Cruiser',
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
     nation: 'jpn',
     blurb: "Nine 31 cm guns on a thirty-three knot hull: the super cruiser Japan designed to break the American line at night.",
     hull: {
@@ -21788,7 +21788,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'nakhimov', 'cleveland', 'brooklyn', 'ajax', 'fargo', 'atlanta', 'sanmartin', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'trento', 'napoli', 'algerie', 'conde', 'kirov', 'chapayev', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'sevastopol', 'b65', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'doria', 'roma', 'morosini', 'lorraine', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'vanguard', 'rodney', 'warspite', 'revenge', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'lorraine', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'vanguard', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**

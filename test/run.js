@@ -4695,10 +4695,10 @@ check('the Tatsuta is sailed as the Tenryū, the Voroshilov as the Kirov and the
 const LATE_NOV26 = [
   { id: 'hannover', type: 'BB', nation: 'ger', era: 'premium', link: 'https://skfb.ly/pz8OU', title: 'Hannover (World of Warships)', by: 'KojfDiscord' },
   { id: 'ushakov', type: 'BB', nation: 'sov', era: 'premium', link: 'https://skfb.ly/oDLMP', title: 'Admiral Ushakov', by: 'SB-129' },
-  { id: 'sevastopol', type: 'CB', nation: 'sov', era: 'wwii', link: 'https://skfb.ly/pyzRu', title: 'Sevastopol (War Thunder) Leviathans', by: 'KojfDiscord' },
+  { id: 'sevastopol', type: 'CA', nation: 'sov', era: 'wwii', link: 'https://skfb.ly/pyzRu', title: 'Sevastopol (War Thunder) Leviathans', by: 'KojfDiscord' },
   { id: 'chapayev', type: 'CL', nation: 'sov', era: 'modern', link: 'https://skfb.ly/pz8ME', title: 'Chapayev (War Thunder)', by: 'KojfDiscord' },
   { id: 'vanguard', type: 'BB', nation: 'gbr', era: 'modern', link: 'https://skfb.ly/pxJ9Q', title: 'Vanguard (World of Warships)', by: 'KojfDiscord' },
-  { id: 'b65', type: 'CB', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/o8RZD', title: 'IJN Super heavy Cruiser KUMOTORI（くもとり/雲取）', by: '全斗焕' },
+  { id: 'b65', type: 'CA', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/o8RZD', title: 'IJN Super heavy Cruiser KUMOTORI（くもとり/雲取）', by: '全斗焕' },
   { id: 'napoli', type: 'CA', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/oEKqB', title: 'Napoli', by: 'SB-129' },
   { id: 'sanmartin', type: 'CL', nation: 'arg', era: 'wwii', link: 'https://skfb.ly/puRQt', title: 'San Martín (World of Warships)', by: 'KojfDiscord' },
   { id: 'conde', type: 'CA', nation: 'fra', era: 'wwii', link: 'https://skfb.ly/oETGR', title: 'Conde', by: 'SB-129' },
