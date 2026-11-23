@@ -4684,7 +4684,68 @@ check('the Tatsuta is sailed as the Tenryū, the Voroshilov as the Kirov and the
   // And the Project 1144 the owner's other Kirov model draws is the Admiral
   // Nakhimov, so the two Kirovs are not confused.
   assert.equal(SHIP_CLASSES.nakhimov.name, 'Admiral Nakhimov');
-  assert.equal(SHIP_CLASSES.ushakov, undefined);
+  // The Admiral Ushakov of the store is a battleship, not the Project 1144.
+  assert.equal(SHIP_CLASSES.ushakov.type, 'BB');
+});
+
+// ---- the ten ships of late November 2026 -----------------------------------
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs, put
+// together by krissShip.js. The Hannover and the Admiral Ushakov are premium
+// hulls, in the store and not the yard.
+const LATE_NOV26 = [
+  { id: 'hannover', type: 'BB', nation: 'ger', era: 'premium', link: 'https://skfb.ly/pz8OU', title: 'Hannover (World of Warships)', by: 'KojfDiscord' },
+  { id: 'ushakov', type: 'BB', nation: 'sov', era: 'premium', link: 'https://skfb.ly/oDLMP', title: 'Admiral Ushakov', by: 'SB-129' },
+  { id: 'sevastopol', type: 'CB', nation: 'sov', era: 'wwii', link: 'https://skfb.ly/pyzRu', title: 'Sevastopol (War Thunder) Leviathans', by: 'KojfDiscord' },
+  { id: 'chapayev', type: 'CL', nation: 'sov', era: 'modern', link: 'https://skfb.ly/pz8ME', title: 'Chapayev (War Thunder)', by: 'KojfDiscord' },
+  { id: 'vanguard', type: 'BB', nation: 'gbr', era: 'modern', link: 'https://skfb.ly/pxJ9Q', title: 'Vanguard (World of Warships)', by: 'KojfDiscord' },
+  { id: 'b65', type: 'CB', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/o8RZD', title: 'IJN Super heavy Cruiser KUMOTORI（くもとり/雲取）', by: '全斗焕' },
+  { id: 'napoli', type: 'CA', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/oEKqB', title: 'Napoli', by: 'SB-129' },
+  { id: 'sanmartin', type: 'CL', nation: 'arg', era: 'wwii', link: 'https://skfb.ly/puRQt', title: 'San Martín (World of Warships)', by: 'KojfDiscord' },
+  { id: 'conde', type: 'CA', nation: 'fra', era: 'wwii', link: 'https://skfb.ly/oETGR', title: 'Conde', by: 'SB-129' },
+  { id: 'lorraine', type: 'BB', nation: 'fra', era: 'wwii', link: 'https://skfb.ly/o6xMN', title: 'French battleship Lorraine', by: '全斗焕' },
+];
+check('the ten ships of late November 2026 come in their yards or the store, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of LATE_NOV26) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    if (m.era === 'premium') {
+      assert.ok(PREMIUM_ORDER.includes(m.id) && !SHIP_ORDER.includes(m.id), `${m.id} is not in the store alone`);
+      assert.ok(cls.premium, `${m.id} is not marked premium`);
+      assert.ok(premiumUnlocked(m.id), `${m.id} is locked`);
+    } else {
+      assert.ok(SHIP_ORDER.includes(m.id), `${m.id} is not in the yard`);
+      const era = WWI_ORDER.includes(m.id) ? 'wwi' : MODERN_ORDER.includes(m.id) ? 'modern' : WWII_ORDER.includes(m.id) ? 'wwii' : null;
+      assert.equal(era, m.era, `${m.id}: her era`);
+    }
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+});
+
+check('the Kumotori model sails as the B-65', () => {
+  assert.equal(SHIP_CLASSES.b65.fullName, 'IJN B-65');
+  for (const c of Object.values(SHIP_CLASSES)) assert.ok(!/kumotori/i.test(`${c.id} ${c.name} ${c.fullName || ''}`), `${c.id} is still called Kumotori`);
+  assert.deepEqual(SHIP_CLASSES.b65.turrets.map((t) => t.guns), [3, 3, 3]);
+  assert.equal(SHIP_CLASSES.b65.gun.caliber, 310);
+});
+
+check('the Hannover and the Admiral Ushakov are sold in the store under their full names', () => {
+  assert.equal(SHIP_CLASSES.hannover.fullName, 'KMS Hannover');
+  assert.equal(SHIP_CLASSES.ushakov.fullName, 'RF Admiral Ushakov');
+  assert.deepEqual(SHIP_CLASSES.hannover.turrets.map((t) => t.guns), [2, 2, 2, 2]);
+  assert.deepEqual(SHIP_CLASSES.ushakov.turrets.map((t) => t.guns), [3, 3, 3]);
 });
 
 check('the Maine carries sixteen 16-inch, twin 5-inch dual-purpose, 3-inch dual-purpose and 20 mm', () => {

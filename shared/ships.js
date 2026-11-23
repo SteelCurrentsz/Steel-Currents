@@ -20816,6 +20816,958 @@ Object.assign(SHIP_CLASSES, {
     planes: null,
     datasheet: { displacement: 40500, aircraft: 2, mainRounds: 1200, secondary: { caliber: 127, label: '5in', barrels: 16, rounds: 8000 }, tertiary: [{ caliber: 40, label: '40mm', barrels: 16, rounds: 32000 }, { caliber: 20, label: '20mm', barrels: 8, rounds: 20000 }] },
   },
+
+  // ---- the ships of late November 2026 ------------------------------------
+  hannover: {
+    // KMS Hannover: the battleship the Kriegsmarine's H-39 design would have
+    // grown into -- eight 40.6 cm in four twin turrets, sixteen twin 12.8 cm
+    // dual-purpose turrets, eight a side, and twin 3.7 cm about her decks, on
+    // a thirty-knot hull of 277.8 m. The H-class were ordered in 1939 and
+    // broken up on the slip; she was never built.
+    //
+    // A premium hull: she is not in the yard's list but in the Premium
+    // Equipment store's (PREMIUM_ORDER, below), free to sail for now.
+    //
+    // She is drawn from the owner's model (see hannover.js and build/prepare-hannover-hull.mjs)
+    // -- "Hannover (World of Warships)" by KojfDiscord, https://skfb.ly/pz8OU, CC BY 4.0 -- credited on the Credits screen.
+    id: 'hannover',
+    name: "Hannover",
+    fullName: "KMS Hannover",
+    className: "Hannover",
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'ger',
+    premium: true,
+    blurb: "Eight 40.6 cm guns and sixteen twin 12.8 cm dual-purpose turrets: the H-class battleship Germany never finished.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,4,21],[0,-26,21]], length: 277.8, beam: 35.9, draft: 10.5, superstructure: 1.4 },
+    hp: 82000,
+    maxSpeed: 30 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.4,
+    turnRate: 0.048,
+    rudderShift: 15,
+    speedLossInTurn: 0.17,
+    concealment: 16600,
+    fireDetectPenalty: 7000,
+    radarRange: 13000,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    armor: { belt: 320, deck: 120, citadel: 320, bow: 60, superstructure: 30 },
+    turrets: [
+      { id: 0, name: 'Anton', x: 0, z: 78.772, angle: 0, arc: 2.5, rest: 0, guns: 2, my: 5.24 },
+      { id: 1, name: 'Bruno', x: 0, z: 52.225, angle: 0, arc: 2.5, rest: 0, guns: 2, my: 9.9 },
+      { id: 2, name: 'Caesar', x: 0, z: -57.831, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 2, my: 9.91 },
+      { id: 3, name: 'Dora', x: 0, z: -80.967, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 2, my: 6.75 },
+    ],
+    gun: {
+      name: "40.6 cm SK C/34", role: 'surface',
+      elev: { min: -0.14, max: 0.52 },
+      caliber: 406, reload: 28, traverse: 0.07, range: 22800, sigma: 1.35,
+      shells: shells(406, 13300, 6000, 640, 810, 0.25),
+      reach: 16.34,
+    },
+    torpedoes: null,
+    // Her sixteen twin 12.8 cm dual-purpose turrets, eight a side.
+    secondary: {
+      name: "12.8 cm SK C/41", role: 'dp', elev: { min: -0.17, max: 1.31 }, caliber: 128, reload: 4.5, traverse: 0.35, range: 10500, sigma: 1.2, shells: shells(128, 2000, 1750, 85, 875, 0.08), piece: 'sec',
+      reach: 4.14,
+      mounts: [
+        { x: 8.531, z: 30.249, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 7.36 },
+        { x: -8.531, z: 30.249, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 7.36 },
+        { x: 9.107, z: 20.15, angle: 1.57, arc: 1.8, rest: 0.0317, guns: 2, my: 9.68 },
+        { x: -9.107, z: 20.15, angle: -1.57, arc: 1.8, rest: -0.036, guns: 2, my: 9.68 },
+        { x: 15.166, z: 8.207, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 4.84 },
+        { x: -15.205, z: 6.341, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 4.84 },
+        { x: 11.733, z: 1.377, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 9.04 },
+        { x: -11.733, z: 1.377, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 8.14 },
+        { x: 10.607, z: -19.954, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 9.32 },
+        { x: -10.607, z: -19.954, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 9.32 },
+        { x: 15.406, z: -24.52, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 6.29 },
+        { x: -15.406, z: -24.52, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 6.29 },
+        { x: 8.25, z: -29.558, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 9.3 },
+        { x: -8.251, z: -29.558, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 9.3 },
+        { x: 10.571, z: -38.231, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 7.33 },
+        { x: -10.571, z: -38.231, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 7.33 },
+      ],
+    },
+    aa: {
+      range: 4000, dps: 70,
+      guns: [
+        // Her twin 3.7 cm on her decks.
+        { name: "3.7 cm SK C/30 twin", caliber: 37, role: 'aa', reload: 0.75, range: 3000, elev: { min: -0.17, max: 1.48 }, piece: 'aa2',
+          mounts: [
+          { x: 0, z: 98.133, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 2, my: 6.95 },
+          { x: 10.319, z: 68.845, angle: 1.57, arc: 1.8, rest: 1.5696, guns: 2, my: 5.73 },
+          { x: -10.32, z: 68.845, angle: -1.57, arc: 1.8, rest: -1.5565, guns: 2, my: 5.73 },
+          { x: 12.404, z: 52.265, angle: 1.57, arc: 1.8, rest: 1.5519, guns: 2, my: 7.18 },
+          { x: -12.404, z: 52.265, angle: -1.57, arc: 1.8, rest: -1.5531, guns: 2, my: 7.18 },
+          { x: 6.356, z: 41.685, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 8.18 },
+          { x: -6.356, z: 41.685, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 8.18 },
+          { x: 6.563, z: -46.137, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 8.12 },
+          { x: -6.562, z: -46.125, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 8.12 },
+          { x: 7.677, z: -99.02, angle: 1.57, arc: 1.8, rest: 1.5708, guns: 2, my: 5.63 },
+          { x: -7.677, z: -99.02, angle: -1.57, arc: 1.8, rest: -1.5708, guns: 2, my: 5.63 },
+          { x: 0, z: -109.21, angle: 0, arc: 2.4, rest: -0.0032, guns: 2, my: 6.23 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 62600, aircraft: 0, mainRounds: 960, secondary: { caliber: 128, label: '12.8cm', barrels: 32, rounds: 9600 }, tertiary: [{ caliber: 37, label: '3.7cm', barrels: 24, rounds: 24000 }] },
+  },
+
+  ushakov: {
+    // RF Admiral Ushakov: a Soviet battleship of the line of the Project 24
+    // studies of the late 1940s, finished at last under the Russian Federation's
+    // flag -- nine 406 mm in three triple turrets, eight twin 130 mm, four on
+    // her centreline and four in her waist, twelve twin 100 mm and fourteen
+    // quadruple 37 mm, on 270 m and twenty-nine knots.
+    //
+    // A premium hull: she is not in the yard's list but in the Premium
+    // Equipment store's (PREMIUM_ORDER, below), free to sail for now.
+    //
+    // She is drawn from the owner's model (see ushakov.js and build/prepare-ushakov-hull.mjs)
+    // -- "Admiral Ushakov" by SB-129, https://skfb.ly/oDLMP, CC BY 4.0 -- credited on the Credits screen.
+    id: 'ushakov',
+    name: "Admiral Ushakov",
+    fullName: "RF Admiral Ushakov",
+    className: "Admiral Ushakov",
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'sov',
+    premium: true,
+    blurb: "Nine 406 mm guns, sixteen 130s and twenty-four 100s: the battleship the Soviet yards drew and never laid down.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,-9,22],[0,-25,23]], length: 270, beam: 34.6, draft: 10.5, superstructure: 1.45 },
+    hp: 86000,
+    maxSpeed: 29 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.36,
+    turnRate: 0.045,
+    rudderShift: 16,
+    speedLossInTurn: 0.16,
+    concealment: 17000,
+    fireDetectPenalty: 7100,
+    radarRange: 14000,
+    repairCooldown: 105,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    armor: { belt: 420, deck: 165, citadel: 420, bow: 30, superstructure: 30 },
+    turrets: [
+      { id: 0, name: 'No.1', x: -0.18, z: 61.148, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 8.53 },
+      { id: 1, name: 'No.2', x: 0, z: 36.109, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 11.71 },
+      { id: 2, name: 'No.3', x: -0.067, z: -79.195, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 7.83 },
+    ],
+    gun: {
+      name: "406 mm/50 B-37", role: 'surface',
+      elev: { min: -0.087, max: 0.785 },
+      caliber: 406, reload: 30, traverse: 0.07, range: 23500, sigma: 1.35,
+      shells: shells(406, 13400, 6200, 640, 830, 0.27),
+      reach: 18.34,
+    },
+    torpedoes: null,
+    // Her eight twin 130 mm: two superfiring over No.2, two over No.3, and two a side in her waist.
+    secondary: {
+      name: "130 mm/58 BL-109A", role: 'dp', elev: { min: -0.14, max: 1.4 }, caliber: 130, reload: 5, traverse: 0.3, range: 13000, sigma: 1.25, shells: shells(130, 2200, 1900, 100, 900, 0.08), piece: 'sec',
+      reach: 5.15,
+      mounts: [
+        { x: 0, z: 22.337, angle: 0, arc: 2.4, rest: 0, guns: 2, my: 14.91 },
+        { x: 0, z: 13.387, angle: 0, arc: 2.4, rest: 0, guns: 2, my: 16.97 },
+        { x: 12.675, z: 1.312, angle: 1.57, arc: 1.8, rest: -0.0051, guns: 2, my: 7.18 },
+        { x: -12.676, z: 1.312, angle: -1.57, arc: 1.8, rest: 0.0106, guns: 2, my: 7.2 },
+        { x: 12.387, z: -39.715, angle: 1.57, arc: 1.8, rest: 0.1605, guns: 2, my: 7.63 },
+        { x: -12.387, z: -39.711, angle: -1.57, arc: 1.8, rest: -0.1609, guns: 2, my: 7.63 },
+        { x: 0, z: -52.549, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 2, my: 13.03 },
+        { x: 0, z: -60.064, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 2, my: 10.99 },
+      ],
+    },
+    aa: {
+      range: 5500, dps: 130,
+      guns: [
+        // Her twelve twin 100 mm, six a side about her superstructure.
+        { name: "100 mm/70 SM-5-1", caliber: 100, role: 'dp', reload: 3, range: 8500, elev: { min: -0.14, max: 1.48 }, piece: 'dp',
+          mounts: [
+          { x: 8.327, z: 7.824, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 8.85 },
+          { x: -8.327, z: 7.824, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 8.85 },
+          { x: 9.124, z: -4.22, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 11.34 },
+          { x: -9.124, z: -4.22, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 11.34 },
+          { x: 10.71, z: -13.244, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 10.71 },
+          { x: -10.71, z: -13.244, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 10.71 },
+          { x: 10.714, z: -23.766, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 10.7 },
+          { x: -10.714, z: -23.766, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 10.7 },
+          { x: 9.122, z: -32.793, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 11.34 },
+          { x: -9.122, z: -32.793, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 11.34 },
+          { x: 7.527, z: -43.317, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 9.27 },
+          { x: -7.527, z: -43.317, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 9.27 },
+          ] },
+        // And her fourteen quadruple 37 mm.
+        { name: "37 mm/67 V-11 quad", caliber: 37, role: 'aa', reload: 0.4, range: 3500, elev: { min: -0.17, max: 1.48 }, piece: 'aa2',
+          mounts: [
+          { x: 8.705, z: 24.887, angle: 1.57, arc: 1.8, rest: 0.9107, guns: 4, my: 6.77 },
+          { x: -8.705, z: 24.886, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 5.98 },
+          { x: 10.338, z: 17.932, angle: 1.57, arc: 1.8, rest: 1.598, guns: 4, my: 6.7 },
+          { x: -10.338, z: 17.932, angle: -1.57, arc: 1.8, rest: -1.5385, guns: 4, my: 6.7 },
+          { x: 7.195, z: -8.722, angle: 1.57, arc: 1.8, rest: 1.57, guns: 4, my: 11.62 },
+          { x: -7.195, z: -8.721, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 11.62 },
+          { x: 7.365, z: -15.488, angle: 1.57, arc: 1.8, rest: 1.57, guns: 4, my: 12.83 },
+          { x: -7.365, z: -15.488, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 12.82 },
+          { x: 7.365, z: -21.522, angle: 1.57, arc: 1.8, rest: 1.57, guns: 4, my: 12.82 },
+          { x: -7.365, z: -21.522, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 12.82 },
+          { x: 7.199, z: -28.279, angle: 1.57, arc: 1.8, rest: 1.57, guns: 4, my: 11.63 },
+          { x: -7.198, z: -28.279, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 11.62 },
+          { x: 5.539, z: -121.599, angle: 1.57, arc: 1.8, rest: 3.1394, guns: 4, my: 8.97 },
+          { x: -5.542, z: -121.599, angle: -1.57, arc: 1.8, rest: -3.1127, guns: 4, my: 8.97 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 75000, aircraft: 0, mainRounds: 900, secondary: { caliber: 130, label: '130mm', barrels: 16, rounds: 4800 }, tertiary: [{ caliber: 100, label: '100mm', barrels: 24, rounds: 9600 }, { caliber: 37, label: '37mm', barrels: 56, rounds: 56000 }] },
+  },
+
+  sevastopol: {
+    // Sevastopol, the second of the Project 69 heavy cruisers: nine 305 mm/54
+    // in three triple turrets, eight 152 mm in four twins and twelve 100 mm on
+    // a 33-knot hull of 250.5 m, laid down at Nikolayev in 1939 and taken on
+    // the slip by the Germans in 1941. The Soviet answer to the Scharnhorst,
+    // never finished.
+    //
+    // She is drawn from the owner's model (see sevastopol.js and build/prepare-sevastopol-hull.mjs)
+    // -- "Sevastopol (War Thunder) Leviathans" by KojfDiscord, https://skfb.ly/pyzRu, CC BY 4.0 -- credited on the Credits screen.
+    id: 'sevastopol',
+    name: "Sevastopol",
+    fullName: "Sevastopol",
+    className: "Kronshtadt",
+    type: 'CB',
+    typeName: 'Battlecruiser',
+    nation: 'sov',
+    blurb: "Nine 305 mm guns on a thirty-three knot hull: the Kronshtadt class, the Soviet battlecruiser that was never finished.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,10,18],[0,-23,20]], length: 250.5, beam: 31.1, draft: 9.45, superstructure: 1.35 },
+    hp: 56000,
+    maxSpeed: 33 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.5,
+    turnRate: 0.052,
+    rudderShift: 12,
+    speedLossInTurn: 0.18,
+    concealment: 15000,
+    fireDetectPenalty: 6200,
+    radarRange: 0,
+    repairCooldown: 90,
+    repairHeal: 0.12,
+    smokeCharges: 0,
+    armor: { belt: 230, deck: 90, citadel: 230, bow: 20, superstructure: 25 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 70.749, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 7.86 },
+      { id: 1, name: 'No.2', x: 0, z: 48.852, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 11.23 },
+      { id: 2, name: 'No.3', x: -0.011, z: -65.211, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 8.14 },
+    ],
+    gun: {
+      name: "305 mm/54 B-50", role: 'surface',
+      elev: { min: -0.07, max: 0.785 },
+      caliber: 305, reload: 23, traverse: 0.08, range: 21500, sigma: 1.4,
+      shells: shells(305, 11000, 5400, 530, 900, 0.2),
+      reach: 17.3,
+    },
+    torpedoes: null,
+    // Her four twin 152 mm/57, two a side abreast her tower.
+    secondary: {
+      name: "152 mm/57 B-38", role: 'surface', elev: { min: -0.087, max: 0.785 }, caliber: 152, reload: 7.5, traverse: 0.2, range: 15000, sigma: 1.4, shells: shells(152, 2900, 2300, 165, 950, 0.11), piece: 'sec',
+      reach: 8.79,
+      mounts: [
+        { x: 7.399, z: 17.038, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 11.06 },
+        { x: -7.399, z: 17.038, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 11.06 },
+        { x: 11.483, z: 0.364, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 7.17 },
+        { x: -11.481, z: 0.364, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 7.17 },
+      ],
+    },
+    aa: {
+      range: 4500, dps: 60,
+      guns: [
+        // Her six twin 100 mm/56, a pair abreast her tower and four aft.
+        { name: "100 mm/56 B-54", caliber: 100, role: 'dp', reload: 3.5, range: 8000, elev: { min: -0.14, max: 1.48 }, piece: 'dp',
+          mounts: [
+          { x: 5.496, z: 10.955, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 13.25 },
+          { x: -5.497, z: 10.955, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 13.25 },
+          { x: 4.771, z: -31.517, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 10.76 },
+          { x: -4.771, z: -31.473, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 10.76 },
+          { x: -0.011, z: -50.272, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 2, my: 12.95 },
+          { x: 0, z: -55.217, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 2, my: 11.52 },
+          ] },
+        // And her four quadruple 37 mm.
+        { name: "37 mm/67 46-K quad", caliber: 37, role: 'aa', reload: 0.4, range: 3500, elev: { min: -0.17, max: 1.48 }, piece: 'aa2',
+          mounts: [
+          { x: 8.918, z: -22.935, angle: 1.57, arc: 1.8, rest: 2.8534, guns: 4, my: 10.22 },
+          { x: -8.918, z: -22.935, angle: -1.57, arc: 1.8, rest: -2.8517, guns: 4, my: 10.22 },
+          { x: 6.476, z: -38.749, angle: 1.57, arc: 1.8, rest: 2.8553, guns: 4, my: 9.78 },
+          { x: -6.475, z: -38.749, angle: -1.57, arc: 1.8, rest: -2.8506, guns: 4, my: 9.78 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 41540, aircraft: 2, mainRounds: 900, secondary: { caliber: 152, label: '152mm', barrels: 8, rounds: 1600 }, tertiary: [{ caliber: 100, label: '100mm', barrels: 12, rounds: 4800 }, { caliber: 37, label: '37mm', barrels: 16, rounds: 16000 }] },
+  },
+
+  chapayev: {
+    // Chapayev, the lead ship of Project 68: twelve 152 mm/57 in four triple
+    // turrets, eight 100 mm in four stabilised twins and twin 37 mm, on a
+    // 33.5-knot hull of 199 m. Laid down in 1939, launched in 1941 and left
+    // on the slip through the war, she was finished to a revised design and
+    // commissioned in 1950: she sails as she was then.
+    //
+    // She is drawn from the owner's model (see chapayev.js and build/prepare-chapayev-hull.mjs)
+    // -- "Chapayev (War Thunder)" by KojfDiscord, https://skfb.ly/pz8ME, CC BY 4.0 -- credited on the Credits screen.
+    id: 'chapayev',
+    name: "Chapayev",
+    fullName: "Chapayev",
+    className: "Chapayev",
+    type: 'CL',
+    typeName: 'Light Cruiser',
+    nation: 'sov',
+    blurb: "Twelve 152 mm guns in four triple turrets: the Soviet light cruiser of 1950, built to a design of 1939.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,29,19],[0,-9,19]], length: 199, beam: 20.7, draft: 6.9, superstructure: 1.2 },
+    hp: 30000,
+    maxSpeed: 33.5 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.8,
+    turnRate: 0.085,
+    rudderShift: 7,
+    speedLossInTurn: 0.19,
+    concealment: 11000,
+    fireDetectPenalty: 4400,
+    radarRange: 11000,
+    repairCooldown: 80,
+    repairHeal: 0.1,
+    smokeCharges: 0,
+    armor: { belt: 100, deck: 50, citadel: 100, bow: 20, superstructure: 16 },
+    turrets: [
+      { id: 0, name: 'No.1', x: -0.018, z: 65.944, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 9.15 },
+      { id: 1, name: 'No.2', x: 0.01, z: 51.786, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 11.62 },
+      { id: 2, name: 'No.3', x: 0.008, z: -46.418, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 9.76 },
+      { id: 3, name: 'No.4', x: 0.033, z: -61.337, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 7.34 },
+    ],
+    gun: {
+      name: "152 mm/57 B-38", role: 'surface',
+      elev: { min: -0.087, max: 0.785 },
+      caliber: 152, reload: 7.5, traverse: 0.3, range: 15500, sigma: 1.6,
+      shells: shells(152, 2900, 2300, 165, 950, 0.11),
+      reach: 9.12,
+    },
+    torpedoes: null,
+    // Her four twin 100 mm/70 SM-5-1, two a side amidships.
+    secondary: {
+      name: "100 mm/70 SM-5-1", role: 'dp', elev: { min: -0.14, max: 1.48 }, caliber: 100, reload: 3, traverse: 0.4, range: 8500, sigma: 1.15, shells: shells(100, 1400, 1150, 50, 900, 0.06), piece: 'sec',
+      reach: 4.43,
+      mounts: [
+        { x: 7.491, z: -5.616, angle: 1.57, arc: 1.8, rest: -0.0241, guns: 2, my: 11.05 },
+        { x: -7.475, z: -5.619, angle: -1.57, arc: 1.8, rest: -0.0924, guns: 2, my: 11.04 },
+        { x: 6.897, z: -22.971, angle: 1.57, arc: 1.8, rest: 0.423, guns: 2, my: 8.33 },
+        { x: -6.889, z: -22.97, angle: -1.57, arc: 1.8, rest: -0.4334, guns: 2, my: 8.33 },
+      ],
+    },
+    aa: {
+      range: 3500, dps: 40,
+      guns: [
+        // Her fourteen twin 37 mm V-11, eight round her tower and six aft.
+        { name: "37 mm/67 V-11 twin", caliber: 37, role: 'aa', reload: 0.4, range: 3500, elev: { min: -0.17, max: 1.48 }, piece: 'aa2',
+          mounts: [
+          { x: 7.072, z: 35.023, angle: 1.57, arc: 1.8, rest: -0.0244, guns: 2, my: 8.57 },
+          { x: -7.059, z: 35.019, angle: -1.57, arc: 1.8, rest: 0.0264, guns: 2, my: 9.15 },
+          { x: 7.23, z: 30.776, angle: 1.57, arc: 1.8, rest: 1.114, guns: 2, my: 8.18 },
+          { x: -7.214, z: 30.779, angle: -1.57, arc: 1.8, rest: -1.1157, guns: 2, my: 8.18 },
+          { x: 7.081, z: 26.688, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 8.95 },
+          { x: -7.07, z: 26.687, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 8.95 },
+          { x: 7.194, z: 22.36, angle: 1.57, arc: 1.8, rest: 2.3007, guns: 2, my: 8.79 },
+          { x: -7.18, z: 22.361, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 8.79 },
+          { x: 5.432, z: -27.681, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 8.76 },
+          { x: -5.416, z: -27.68, angle: -1.57, arc: 1.8, rest: -2.7653, guns: 2, my: 8.76 },
+          { x: 5.433, z: -31.875, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 9.04 },
+          { x: -5.415, z: -31.875, angle: -1.57, arc: 1.8, rest: -0.8084, guns: 2, my: 9.04 },
+          { x: 1.845, z: -36.575, angle: 1.57, arc: 1.8, rest: 2.4322, guns: 2, my: 10.02 },
+          { x: -1.828, z: -36.574, angle: -1.57, arc: 1.8, rest: -2.4329, guns: 2, my: 10.02 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 15000, aircraft: 0, mainRounds: 2400, secondary: { caliber: 100, label: '100mm', barrels: 8, rounds: 3200 }, tertiary: [{ caliber: 37, label: '37mm', barrels: 28, rounds: 28000 }] },
+  },
+
+  vanguard: {
+    // HMS Vanguard, the last battleship ever launched: the four twin 15-inch
+    // turrets taken out of the Courageous and the Glorious when they became
+    // carriers, on a new 30-knot hull of 248 m with a flared bow that kept
+    // her the driest battleship afloat, sixteen 5.25-inch in eight twins and
+    // ten sextuple Bofors. Commissioned in 1946, she sails as she was then.
+    //
+    // She is drawn from the owner's model (see vanguard.js and build/prepare-vanguard-hull.mjs)
+    // -- "Vanguard (World of Warships)" by KojfDiscord, https://skfb.ly/pxJ9Q, CC BY 4.0 -- credited on the Credits screen.
+    id: 'vanguard',
+    name: "Vanguard",
+    fullName: "HMS Vanguard",
+    className: "Vanguard",
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'gbr',
+    blurb: "The last battleship ever launched: eight 15-inch guns, sixteen 5.25s and sixty Bofors on the Royal Navy's finest hull.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,8,25],[0,-21,25]], length: 248.2, beam: 33.1, draft: 10.9, superstructure: 1.45 },
+    hp: 74000,
+    maxSpeed: 30 * KNOTS,
+    reverseSpeed: 7 * KNOTS,
+    accel: 0.4,
+    turnRate: 0.048,
+    rudderShift: 14,
+    speedLossInTurn: 0.16,
+    concealment: 16000,
+    fireDetectPenalty: 6900,
+    radarRange: 16000,
+    repairCooldown: 100,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    armor: { belt: 356, deck: 152, citadel: 356, bow: 25, superstructure: 25 },
+    turrets: [
+      { id: 0, name: 'A', x: -0.011, z: 59.831, angle: 0, arc: 2.5, rest: 0, guns: 2, my: 5.95 },
+      { id: 1, name: 'B', x: 0, z: 41.711, angle: 0, arc: 2.5, rest: 0, guns: 2, my: 11.07 },
+      { id: 2, name: 'X', x: 0, z: -55.792, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 2, my: 11.21 },
+      { id: 3, name: 'Y', x: 0, z: -71.775, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 2, my: 7.68 },
+    ],
+    gun: {
+      name: "15\"/42 Mk I*", role: 'surface',
+      elev: { min: -0.087, max: 0.524 },
+      caliber: 381, reload: 26, traverse: 0.07, range: 22000, sigma: 1.35,
+      shells: shells(381, 12400, 5600, 580, 785, 0.24),
+      reach: 13.15,
+    },
+    torpedoes: null,
+    // Her eight twin 5.25-inch Mk I, four a side.
+    secondary: {
+      name: "5.25\" QF Mk I", role: 'dp', elev: { min: -0.087, max: 1.22 }, caliber: 133, reload: 6, traverse: 0.18, range: 11000, sigma: 1.25, shells: shells(133, 2100, 1800, 110, 792, 0.08), piece: 'sec',
+      reach: 2.9,
+      mounts: [
+        { x: 11.934, z: 18.05, angle: 1.57, arc: 1.8, rest: 2.9259, guns: 2, my: 8.06 },
+        { x: -11.934, z: 18.05, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 8.06 },
+        { x: 12.964, z: 7.385, angle: 1.57, arc: 1.8, rest: 2.8233, guns: 2, my: 10.6 },
+        { x: -12.964, z: 7.385, angle: -1.57, arc: 1.8, rest: -2.8233, guns: 2, my: 10.6 },
+        { x: 12.803, z: -22.226, angle: 1.57, arc: 1.8, rest: 0.1502, guns: 2, my: 10.93 },
+        { x: -12.803, z: -22.226, angle: -1.57, arc: 1.8, rest: -0.2244, guns: 2, my: 10.93 },
+        { x: 12.285, z: -32.559, angle: 1.57, arc: 1.8, rest: 0.658, guns: 2, my: 5.55 },
+        { x: -11.879, z: -32.905, angle: -1.57, arc: 1.8, rest: -0.2118, guns: 2, my: 8.16 },
+      ],
+    },
+    aa: {
+      range: 4500, dps: 120,
+      guns: [
+        // Her ten sextuple 40 mm Bofors Mk VI.
+        { name: "40 mm Bofors Mk VI sextuple", caliber: 40, role: 'aa', reload: 0.26, range: 3400, elev: { min: -0.17, max: 1.57 }, piece: 'aa2',
+          mounts: [
+          { x: 6.509, z: 15.713, angle: 1.57, arc: 1.8, rest: 1.6664, guns: 6, my: 16.19 },
+          { x: -6.509, z: 15.531, angle: -1.57, arc: 1.8, rest: -1.4294, guns: 6, my: 16.19 },
+          { x: 6.602, z: 5.715, angle: 1.57, arc: 1.8, rest: 0.6864, guns: 6, my: 19.52 },
+          { x: -6.601, z: 5.625, angle: -1.57, arc: 1.8, rest: -0.4498, guns: 6, my: 19.52 },
+          { x: 6.938, z: -16.572, angle: 1.57, arc: 1.8, rest: 1.7553, guns: 6, my: 16.21 },
+          { x: -6.792, z: -16.726, angle: -1.57, arc: 1.8, rest: -1.7453, guns: 6, my: 16.21 },
+          { x: 4.001, z: -29.054, angle: 1.57, arc: 1.8, rest: 3.0757, guns: 6, my: 16.45 },
+          { x: -4.002, z: -29.175, angle: -1.57, arc: 1.8, rest: -2.9489, guns: 6, my: 16.45 },
+          { x: 0.09, z: -39.782, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 6, my: 18.97 },
+          { x: 0.091, z: -118.458, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 6, my: 10.11 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 51420, aircraft: 0, mainRounds: 800, secondary: { caliber: 133, label: '5.25in', barrels: 16, rounds: 6400 }, tertiary: [{ caliber: 40, label: '40mm', barrels: 60, rounds: 60000 }] },
+  },
+
+  b65: {
+    // IJN B-65, the super cruiser the Navy designed in 1941 to lead its
+    // destroyer flotillas through the Americans' cruisers in the night battle:
+    // nine 31 cm/50 in three triple turrets, twelve 10 cm/65 in six twins and
+    // triple 25 mm, on a 33-knot hull of 240 m. Two were planned under the 1942
+    // programme and dropped after Midway for carriers; neither was laid down.
+    //
+    // She is drawn from the owner's model (see b65.js and build/prepare-b65-hull.mjs)
+    // -- "IJN Super heavy Cruiser KUMOTORI（くもとり/雲取）" by 全斗焕, https://skfb.ly/o8RZD, CC BY 4.0 -- credited on the Credits screen.
+    id: 'b65',
+    name: "B-65",
+    fullName: "IJN B-65",
+    className: "B-65",
+    type: 'CB',
+    typeName: 'Super Cruiser',
+    nation: 'jpn',
+    blurb: "Nine 31 cm guns on a thirty-three knot hull: the super cruiser Japan designed to break the American line at night.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,8,17]], length: 240, beam: 27.7, draft: 8.8, superstructure: 1.3 },
+    hp: 52000,
+    maxSpeed: 33 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.52,
+    turnRate: 0.054,
+    rudderShift: 12,
+    speedLossInTurn: 0.18,
+    concealment: 14500,
+    fireDetectPenalty: 6000,
+    radarRange: 9000,
+    repairCooldown: 90,
+    repairHeal: 0.12,
+    smokeCharges: 0,
+    armor: { belt: 190, deck: 125, citadel: 190, bow: 25, superstructure: 25 },
+    turrets: [
+      { id: 0, name: 'No.1', x: -0.237, z: 64.772, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 7.56 },
+      { id: 1, name: 'No.2', x: 0.02, z: 43.861, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 9.93 },
+      { id: 2, name: 'No.3', x: -0.396, z: -54.158, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 7.57 },
+    ],
+    gun: {
+      name: "31 cm/50", role: 'surface',
+      elev: { min: -0.087, max: 0.785 },
+      caliber: 310, reload: 22, traverse: 0.09, range: 21500, sigma: 1.4,
+      shells: shells(310, 11200, 5500, 540, 840, 0.2),
+      reach: 13.29,
+    },
+    torpedoes: null,
+    // Her six twin 10 cm/65 Type 98, three a side amidships.
+    secondary: {
+      name: "10 cm/65 Type 98", role: 'dp', elev: { min: -0.175, max: 1.57 }, caliber: 100, reload: 3.5, traverse: 0.3, range: 9000, sigma: 1.15, shells: shells(100, 1400, 1150, 50, 1010, 0.06), piece: 'sec',
+      reach: 5.15,
+      mounts: [
+        { x: 8.686, z: 21.706, angle: 1.57, arc: 1.8, rest: 2.9119, guns: 2, my: 7.86 },
+        { x: -8.66, z: 21.706, angle: -1.57, arc: 1.8, rest: -2.8688, guns: 2, my: 7.64 },
+        { x: 9.47, z: 9.96, angle: 1.57, arc: 1.8, rest: 2.9777, guns: 2, my: 7.86 },
+        { x: -9.441, z: 9.96, angle: -1.57, arc: 1.8, rest: -2.4721, guns: 2, my: 7.64 },
+        { x: 9.188, z: -5.535, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 7.86 },
+        { x: -9.232, z: -5.535, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 8.48 },
+      ],
+    },
+    aa: {
+      range: 3000, dps: 45,
+      guns: [
+        // Her eighteen triple 25 mm Type 96.
+        { name: "25 mm Type 96 triple", caliber: 25, role: 'aa', reload: 0.25, range: 2500, elev: { min: -0.17, max: 1.40 }, piece: 'aa2',
+          mounts: [
+          { x: -0.006, z: 91.02, angle: 0, arc: 2.4, rest: 0.0069, guns: 3, my: 7.55 },
+          { x: 6.349, z: 77.617, angle: 1.57, arc: 1.8, rest: 1.57, guns: 3, my: 7.37 },
+          { x: -6.338, z: 77.628, angle: -1.57, arc: 1.8, rest: -3.0104, guns: 3, my: 6.87 },
+          { x: 7.612, z: 51.024, angle: 1.57, arc: 1.8, rest: 0.7923, guns: 3, my: 5.82 },
+          { x: -7.618, z: 51.018, angle: -1.57, arc: 1.8, rest: -0.7765, guns: 3, my: 5.82 },
+          { x: 6.419, z: 37.571, angle: 1.57, arc: 1.8, rest: 1.57, guns: 3, my: 8.96 },
+          { x: -6.425, z: 37.564, angle: -1.57, arc: 1.8, rest: -1.57, guns: 3, my: 8.96 },
+          { x: 5.052, z: 19.047, angle: 1.57, arc: 1.8, rest: 1.57, guns: 3, my: 9.69 },
+          { x: -5.052, z: 19.035, angle: -1.57, arc: 1.8, rest: -1.57, guns: 3, my: 9.69 },
+          { x: 5.052, z: 9.438, angle: 1.57, arc: 1.8, rest: 0.7943, guns: 3, my: 10.58 },
+          { x: -5.052, z: 9.432, angle: -1.57, arc: 1.8, rest: -1.5686, guns: 3, my: 10.58 },
+          { x: -0.006, z: -43.979, angle: 0, arc: 2.4, rest: 0.0952, guns: 3, my: 18.91 },
+          { x: 9.297, z: -44.025, angle: 1.57, arc: 1.8, rest: 1.57, guns: 3, my: 6.07 },
+          { x: -9.297, z: -44.025, angle: -1.57, arc: 1.8, rest: -1.57, guns: 3, my: 6.07 },
+          { x: 6.395, z: -69.809, angle: 1.57, arc: 1.8, rest: 2.5235, guns: 3, my: 8.38 },
+          { x: -6.378, z: -69.793, angle: -1.57, arc: 1.8, rest: -2.5248, guns: 3, my: 8.38 },
+          { x: 5.696, z: -105.953, angle: 1.57, arc: 1.8, rest: 2.3521, guns: 3, my: 8.36 },
+          { x: -5.77, z: -105.953, angle: -1.57, arc: 1.8, rest: -2.3629, guns: 3, my: 8.36 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 34800, aircraft: 3, mainRounds: 900, secondary: { caliber: 100, label: '10cm', barrels: 12, rounds: 4800 }, tertiary: [{ caliber: 25, label: '25mm', barrels: 54, rounds: 54000 }] },
+  },
+
+  napoli: {
+    // RN Napoli: the cruiser the Regia Marina's late studies for a fast heavy
+    // cruiser of 1940 would have built -- nine 254 mm in three triple turrets,
+    // eight 135 mm in four twins, six stabilised 90 mm and Breda 37 mm and
+    // 20 mm, on a 34-knot hull of 213 m. Never built.
+    //
+    // She is drawn from the owner's model (see napoli.js and build/prepare-napoli-hull.mjs)
+    // -- "Napoli" by SB-129, https://skfb.ly/oEKqB, CC BY 4.0 -- credited on the Credits screen.
+    id: 'napoli',
+    name: "Napoli",
+    fullName: "RN Napoli",
+    className: "Napoli",
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'ita',
+    blurb: "Nine 254 mm guns on a thirty-four knot hull: the super cruiser the Regia Marina drew and never laid down.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,6,18],[0,-20,18]], length: 213, beam: 28.4, draft: 7.5, superstructure: 1.25 },
+    hp: 40000,
+    maxSpeed: 34 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.7,
+    turnRate: 0.07,
+    rudderShift: 9,
+    speedLossInTurn: 0.19,
+    concealment: 13000,
+    fireDetectPenalty: 5000,
+    radarRange: 0,
+    repairCooldown: 85,
+    repairHeal: 0.11,
+    smokeCharges: 0,
+    armor: { belt: 150, deck: 75, citadel: 150, bow: 25, superstructure: 20 },
+    turrets: [
+      { id: 0, name: 'No.1', x: -0.177, z: 52.053, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 6.82 },
+      { id: 1, name: 'No.2', x: 0, z: 37.983, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 9.96 },
+      { id: 2, name: 'No.3', x: 0, z: -63.896, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 5.63 },
+    ],
+    gun: {
+      name: "254 mm/53", role: 'surface',
+      elev: { min: -0.087, max: 0.785 },
+      caliber: 254, reload: 17, traverse: 0.13, range: 19500, sigma: 1.5,
+      shells: shells(254, 7500, 4000, 400, 850, 0.16),
+      reach: 9.19,
+    },
+    torpedoes: null,
+    // Her four twin 135 mm, a pair forward of her tower and a pair aft.
+    secondary: {
+      name: "135 mm/45 OTO 1937", role: 'surface', elev: { min: -0.087, max: 0.785 }, caliber: 135, reload: 6, traverse: 0.3, range: 14000, sigma: 1.6, shells: shells(135, 2600, 2000, 120, 825, 0.09), piece: 'sec',
+      reach: 6.5,
+      mounts: [
+        { x: 8.316, z: 27.689, angle: 1.57, arc: 1.8, rest: 0, guns: 2, my: 5.5 },
+        { x: -8.316, z: 27.689, angle: -1.57, arc: 1.8, rest: 0, guns: 2, my: 5.5 },
+        { x: 7.306, z: -51.587, angle: 1.57, arc: 1.8, rest: -3.1416, guns: 2, my: 5.3 },
+        { x: -7.327, z: -51.579, angle: -1.57, arc: 1.8, rest: -3.1416, guns: 2, my: 5.3 },
+      ],
+    },
+    aa: {
+      range: 4200, dps: 50,
+      guns: [
+        // Her six 90 mm/50 in their stabilised turrets, three a side.
+        { name: "90 mm/50 Ansaldo 1939", caliber: 90, role: 'dp', reload: 2.6, range: 7000, elev: { min: -0.05, max: 1.31 }, piece: 'dp',
+          mounts: [
+          { x: 9.41, z: 9.69, angle: 1.57, arc: 1.8, rest: 0.4459, guns: 1, my: 6.59 },
+          { x: -9.41, z: 9.69, angle: -1.57, arc: 1.8, rest: -0.4324, guns: 1, my: 6.59 },
+          { x: 9.729, z: -15.791, angle: 1.57, arc: 1.8, rest: 1.4859, guns: 1, my: 5.67 },
+          { x: -9.729, z: -15.791, angle: -1.57, arc: 1.8, rest: -1.4859, guns: 1, my: 5.67 },
+          { x: 9.432, z: -33.996, angle: 1.57, arc: 1.8, rest: 2.857, guns: 1, my: 6.59 },
+          { x: -9.432, z: -33.996, angle: -1.57, arc: 1.8, rest: -2.857, guns: 1, my: 6.62 },
+          ] },
+        // Her nine twin 37 mm/54 Breda.
+        { name: "37 mm/54 Breda twin", caliber: 37, role: 'aa', reload: 0.4, range: 3500, elev: { min: -0.17, max: 1.40 }, piece: 'aa2',
+          mounts: [
+          { x: 4.358, z: 64.72, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 7.38 },
+          { x: -4.357, z: 64.721, angle: -1.57, arc: 1.8, rest: -2.79, guns: 2, my: 7.39 },
+          { x: 5.646, z: 15.313, angle: 1.57, arc: 1.8, rest: 1.569, guns: 2, my: 8.85 },
+          { x: -5.646, z: 15.315, angle: -1.57, arc: 1.8, rest: -1.5715, guns: 2, my: 8.84 },
+          { x: 2.423, z: -38.104, angle: 1.57, arc: 1.8, rest: 1.62, guns: 2, my: 8.84 },
+          { x: -2.419, z: -38.105, angle: -1.57, arc: 1.8, rest: -1.6231, guns: 2, my: 8.84 },
+          { x: 3.634, z: -81.421, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 4.89 },
+          { x: -3.634, z: -81.421, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 4.96 },
+          { x: 0.002, z: -95.034, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 2, my: 5.22 },
+          ] },
+        // And her ten twin 20 mm/65 Breda about her superstructure.
+        { name: "20 mm/65 Breda twin", caliber: 20, role: 'aa', reload: 0.12, range: 1800, elev: { min: -0.17, max: 1.48 }, piece: 'aa3',
+          mounts: [
+          { x: 5.141, z: 10.904, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 13.61 },
+          { x: -5.141, z: 10.904, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 13.61 },
+          { x: 4.706, z: -18.012, angle: 1.57, arc: 1.8, rest: 0.5837, guns: 2, my: 15.26 },
+          { x: -4.706, z: -18.012, angle: -1.57, arc: 1.8, rest: -0.5837, guns: 2, my: 15.26 },
+          { x: 4.566, z: -22.651, angle: 1.57, arc: 1.8, rest: 1.7639, guns: 2, my: 15.23 },
+          { x: -4.566, z: -22.651, angle: -1.57, arc: 1.8, rest: -1.7301, guns: 2, my: 15.23 },
+          { x: 3.183, z: -44.675, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 17.94 },
+          { x: -3.313, z: -44.675, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 17.14 },
+          { x: 3.524, z: -46.36, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 11.69 },
+          { x: -3.524, z: -46.36, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 11.69 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 19500, aircraft: 0, mainRounds: 1350, secondary: { caliber: 135, label: '135mm', barrels: 8, rounds: 2400 }, tertiary: [{ caliber: 90, label: '90mm', barrels: 6, rounds: 3600 }, { caliber: 37, label: '37mm', barrels: 18, rounds: 18000 }, { caliber: 20, label: '20mm', barrels: 20, rounds: 30000 }] },
+  },
+
+  sanmartin: {
+    // ARA San Martín: a light cruiser for the Armada Argentina on the lines of
+    // the American cruisers of the war's end -- ten 152 mm in two triple and
+    // two twin turrets, the triples low and the twins superfiring over them,
+    // nine quadruple Bofors and twin Oerlikons, on a 33-knot hull of 200 m.
+    // Never built.
+    //
+    // She is drawn from the owner's model (see sanmartin.js and build/prepare-sanmartin-hull.mjs)
+    // -- "San Martín (World of Warships)" by KojfDiscord, https://skfb.ly/puRQt, CC BY 4.0 -- credited on the Credits screen.
+    id: 'sanmartin',
+    name: "San Martín",
+    fullName: "ARA San Martín",
+    className: "San Martín",
+    type: 'CL',
+    typeName: 'Light Cruiser',
+    nation: 'arg',
+    blurb: "Ten 152 mm guns and thirty-six Bofors: the cruiser the Armada Argentina might have bought.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,7,19],[0,-12,20]], length: 200, beam: 20.3, draft: 7, superstructure: 1.2 },
+    hp: 28000,
+    maxSpeed: 33 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.85,
+    turnRate: 0.087,
+    rudderShift: 6.5,
+    speedLossInTurn: 0.19,
+    concealment: 10600,
+    fireDetectPenalty: 4200,
+    radarRange: 12000,
+    repairCooldown: 80,
+    repairHeal: 0.09,
+    smokeCharges: 0,
+    armor: { belt: 127, deck: 51, citadel: 127, bow: 25, superstructure: 16 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 54.51, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 7 },
+      { id: 1, name: 'No.2', x: 0, z: 41.698, angle: 0, arc: 2.5, rest: 0, guns: 2, my: 8.69 },
+      { id: 2, name: 'No.3', x: 0, z: -41.595, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 2, my: 8.69 },
+      { id: 3, name: 'No.4', x: 0, z: -54.629, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 7 },
+    ],
+    gun: {
+      name: "152 mm/47", role: 'surface',
+      elev: { min: -0.087, max: 0.785 },
+      caliber: 152, reload: 6.4, traverse: 0.31, range: 15400, sigma: 1.7,
+      shells: shells(152, 3300, 2500, 165, 812, 0.12),
+      reach: 8.73,
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 4000, dps: 70,
+      guns: [
+        // Her nine quadruple 40 mm Bofors: one on her forecastle, four a side about her superstructure.
+        { name: "40 mm Bofors quad", caliber: 40, role: 'aa', reload: 0.26, range: 3400, elev: { min: -0.26, max: 1.57 }, piece: 'aa2',
+          mounts: [
+          { x: 0, z: 93.929, angle: 0, arc: 2.4, rest: -0.2463, guns: 4, my: 10.14 },
+          { x: 6.833, z: 21.402, angle: 1.57, arc: 1.8, rest: 1.57, guns: 4, my: 9.18 },
+          { x: -6.833, z: 21.402, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 9.18 },
+          { x: 6.626, z: 13.833, angle: 1.57, arc: 1.8, rest: 1.57, guns: 4, my: 8.75 },
+          { x: -6.625, z: 13.833, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 8.75 },
+          { x: 7.364, z: -12.915, angle: 1.57, arc: 1.8, rest: 1.57, guns: 4, my: 8.59 },
+          { x: -7.364, z: -12.915, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 8.59 },
+          { x: 7.351, z: -20.724, angle: 1.57, arc: 1.8, rest: 1.57, guns: 4, my: 8.62 },
+          { x: -7.351, z: -20.724, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 8.62 },
+          ] },
+        // And her eight twin 20 mm Oerlikons.
+        { name: "20 mm Oerlikon twin", caliber: 20, role: 'aa', reload: 0.1, range: 1800, elev: { min: -0.17, max: 1.48 }, piece: 'aa3',
+          mounts: [
+          { x: 4.254, z: 25.005, angle: 1.57, arc: 1.8, rest: 2.7669, guns: 2, my: 12.19 },
+          { x: -4.254, z: 25.119, angle: -1.57, arc: 1.8, rest: -0.3746, guns: 2, my: 12.19 },
+          { x: 4.841, z: 17.756, angle: 1.57, arc: 1.8, rest: 2.7672, guns: 2, my: 12.22 },
+          { x: -4.841, z: 17.87, angle: -1.57, arc: 1.8, rest: -0.3582, guns: 2, my: 12.22 },
+          { x: 3.568, z: -6.262, angle: 1.57, arc: 1.8, rest: 2.7834, guns: 2, my: 12.22 },
+          { x: -3.568, z: -6.148, angle: -1.57, arc: 1.8, rest: -0.3744, guns: 2, my: 12.22 },
+          { x: 4.466, z: -24.116, angle: 1.57, arc: 1.8, rest: 2.7979, guns: 2, my: 11.36 },
+          { x: -4.466, z: -24.002, angle: -1.57, arc: 1.8, rest: -2.9043, guns: 2, my: 11.01 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 14000, aircraft: 0, mainRounds: 2000, tertiary: [{ caliber: 40, label: '40mm', barrels: 36, rounds: 36000 }, { caliber: 20, label: '20mm', barrels: 16, rounds: 24000 }] },
+  },
+
+  conde: {
+    // Condé: a heavy cruiser of the Marine nationale's studies for a large
+    // cruiser to follow the Algérie -- nine 240 mm in three triple turrets,
+    // sixteen 130 mm in eight twins, sixteen 100 mm in eight twins and twin
+    // 37 mm, on a 34-knot hull of 228 m. Never built.
+    //
+    // She is drawn from the owner's model (see conde.js and build/prepare-conde-hull.mjs)
+    // -- "Conde" by SB-129, https://skfb.ly/oETGR, CC BY 4.0 -- credited on the Credits screen.
+    id: 'conde',
+    name: "Condé",
+    fullName: "Condé",
+    className: "Condé",
+    type: 'CA',
+    typeName: 'Heavy Cruiser',
+    nation: 'fra',
+    blurb: "Nine 240 mm guns, sixteen 130s and sixteen 100s: the great cruiser France drew to follow the Algérie.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,-12,25]], length: 228, beam: 24.9, draft: 7.5, superstructure: 1.3 },
+    hp: 42000,
+    maxSpeed: 34 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.7,
+    turnRate: 0.068,
+    rudderShift: 9,
+    speedLossInTurn: 0.19,
+    concealment: 13200,
+    fireDetectPenalty: 5200,
+    radarRange: 0,
+    repairCooldown: 85,
+    repairHeal: 0.11,
+    smokeCharges: 0,
+    armor: { belt: 150, deck: 80, citadel: 150, bow: 25, superstructure: 20 },
+    turrets: [
+      { id: 0, name: 'No.1', x: 0, z: 62.475, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 7.65 },
+      { id: 1, name: 'No.2', x: 0, z: 42.332, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 10.23 },
+      { id: 2, name: 'No.3', x: 0, z: -62.177, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 7.32 },
+    ],
+    gun: {
+      name: "240 mm/55", role: 'surface',
+      elev: { min: -0.087, max: 0.785 },
+      caliber: 240, reload: 16, traverse: 0.13, range: 19000, sigma: 1.5,
+      shells: shells(240, 6800, 3700, 360, 870, 0.15),
+      reach: 12.17,
+    },
+    torpedoes: null,
+    // Her eight twin 130 mm: two pairs abreast No.2 and two pairs aft.
+    secondary: {
+      name: "130 mm/45 Model 1932", role: 'dp', elev: { min: -0.175, max: 1.31 }, caliber: 130, reload: 5, traverse: 0.3, range: 12000, sigma: 1.25, shells: shells(130, 2200, 1900, 100, 840, 0.08), piece: 'sec',
+      reach: 3.75,
+      mounts: [
+        { x: 8.037, z: 29.206, angle: 1.57, arc: 1.8, rest: 0, guns: 2, my: 7.41 },
+        { x: -8.037, z: 29.206, angle: -1.57, arc: 1.8, rest: 0, guns: 2, my: 7.41 },
+        { x: 8.074, z: 21.062, angle: 1.57, arc: 1.8, rest: 0, guns: 2, my: 9.59 },
+        { x: -8.053, z: 21.081, angle: -1.57, arc: 1.8, rest: 0, guns: 2, my: 9.59 },
+        { x: 7.615, z: -35.506, angle: 1.57, arc: 1.8, rest: -3.1416, guns: 2, my: 8.74 },
+        { x: -7.615, z: -35.506, angle: -1.57, arc: 1.8, rest: -3.1416, guns: 2, my: 8.75 },
+        { x: 7.065, z: -44.211, angle: 1.57, arc: 1.8, rest: -3.1416, guns: 2, my: 7.36 },
+        { x: -7.065, z: -44.211, angle: -1.57, arc: 1.8, rest: -3.1416, guns: 2, my: 7.36 },
+      ],
+    },
+    aa: {
+      range: 4500, dps: 60,
+      guns: [
+        // Her eight twin 100 mm, four a side on her shelter deck.
+        { name: "100 mm/45 Model 1930", caliber: 100, role: 'dp', reload: 4, range: 9000, elev: { min: -0.175, max: 1.40 }, piece: 'dp',
+          mounts: [
+          { x: 6.916, z: 14.527, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 11.62 },
+          { x: -6.916, z: 14.527, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 11.62 },
+          { x: 8.871, z: 8.007, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 11.62 },
+          { x: -8.871, z: 8.007, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 11.62 },
+          { x: 8.429, z: -22.446, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 11.62 },
+          { x: -8.429, z: -22.446, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 11.62 },
+          { x: 5.415, z: -28.974, angle: 1.57, arc: 1.8, rest: 1.5712, guns: 2, my: 12.77 },
+          { x: -5.415, z: -28.974, angle: -1.57, arc: 1.8, rest: -1.5705, guns: 2, my: 12.77 },
+          ] },
+        // And her six twin 37 mm about her superstructure.
+        { name: "37 mm/50 Model 1933 twin", caliber: 37, role: 'aa', reload: 0.8, range: 3000, elev: { min: -0.17, max: 1.48 }, piece: 'aa2',
+          mounts: [
+          { x: 0, z: 20.506, angle: 0, arc: 2.4, rest: -0.0087, guns: 2, my: 20.38 },
+          { x: 5.422, z: 8.997, angle: 1.57, arc: 1.8, rest: 0.9802, guns: 2, my: 15.92 },
+          { x: -5.422, z: 8.997, angle: -1.57, arc: 1.8, rest: -0.9802, guns: 2, my: 15.92 },
+          { x: 3.234, z: -29.952, angle: 1.57, arc: 1.8, rest: 0.2478, guns: 2, my: 15.92 },
+          { x: -3.234, z: -29.952, angle: -1.57, arc: 1.8, rest: -0.2478, guns: 2, my: 15.92 },
+          { x: 0, z: -46.38, angle: 0, arc: 2.4, rest: -0.2833, guns: 2, my: 13.85 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 21000, aircraft: 0, mainRounds: 1350, secondary: { caliber: 130, label: '130mm', barrels: 16, rounds: 4800 }, tertiary: [{ caliber: 100, label: '100mm', barrels: 16, rounds: 6400 }, { caliber: 37, label: '37mm', barrels: 12, rounds: 12000 }] },
+  },
+
+  lorraine: {
+    // Lorraine, the third of the Bretagne class of 1916, as the owner's model
+    // draws her rebuilt: nine 340 mm in three triple turrets, her twelve 138.6
+    // mm in their casemates, three twin 100 mm on her centreline, twin 37 mm
+    // and quadruple 13.2 mm. Interned at Alexandria in 1940, she joined the
+    // Free French in 1943 and bombarded the Riviera and the Gironde in 1944-45.
+    //
+    // She is drawn from the owner's model (see lorraine.js and build/prepare-lorraine-hull.mjs)
+    // -- "French battleship Lorraine" by 全斗焕, https://skfb.ly/o6xMN, CC BY 4.0 -- credited on the Credits screen.
+    id: 'lorraine',
+    name: "Lorraine",
+    fullName: "Lorraine",
+    className: "Bretagne",
+    type: 'BB',
+    typeName: 'Battleship',
+    nation: 'fra',
+    blurb: "A dreadnought of 1916 with nine 340 mm guns: the Free French battleship that shelled the Riviera in 1944.",
+    hull: {
+      // Where her funnels come out, [across, along, up] in metres off her
+      // model: what she makes smoke from. See funnelsOf in game.js.
+      funnels: [[0,-15,13]], length: 166, beam: 22.6, draft: 7, superstructure: 1.15 },
+    hp: 52000,
+    maxSpeed: 21.5 * KNOTS,
+    reverseSpeed: 6 * KNOTS,
+    accel: 0.32,
+    turnRate: 0.05,
+    rudderShift: 14,
+    speedLossInTurn: 0.16,
+    concealment: 14000,
+    fireDetectPenalty: 6200,
+    radarRange: 0,
+    repairCooldown: 100,
+    repairHeal: 0.13,
+    smokeCharges: 0,
+    armor: { belt: 270, deck: 100, citadel: 270, bow: 40, superstructure: 25 },
+    turrets: [
+      { id: 0, name: 'No.1', x: -0.004, z: 38.386, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 4.84 },
+      { id: 1, name: 'No.2', x: -0.004, z: 21.199, angle: 0, arc: 2.5, rest: 0, guns: 3, my: 7.16 },
+      { id: 2, name: 'No.3', x: -0.004, z: -44.19, angle: 3.14, arc: 2.5, rest: -3.1416, guns: 3, my: 4.91 },
+    ],
+    gun: {
+      name: "340 mm/45 Model 1912", role: 'surface',
+      elev: { min: -0.087, max: 0.42 },
+      caliber: 340, reload: 32, traverse: 0.06, range: 20000, sigma: 1.5,
+      shells: shells(340, 10200, 4800, 470, 800, 0.22),
+      reach: 12.29,
+    },
+    torpedoes: null,
+    // Her twelve 138.6 mm Model 1910, six a side.
+    secondary: {
+      name: "138.6 mm/55 Model 1910", role: 'surface', elev: { min: -0.087, max: 0.26 }, caliber: 138, reload: 7, traverse: 0.25, range: 14000, sigma: 1.6, shells: shells(138, 2400, 1900, 120, 830, 0.09), piece: 'sec',
+      reach: 2.54,
+      mounts: [
+        { x: 8.846, z: 8.501, angle: 1.57, arc: 1.8, rest: 1.57, guns: 1, my: 4.53 },
+        { x: -8.697, z: 8.501, angle: -1.57, arc: 1.8, rest: -1.57, guns: 1, my: 4.64 },
+        { x: 8.846, z: 2.82, angle: 1.57, arc: 1.8, rest: 0.0013, guns: 1, my: 4.83 },
+        { x: -8.844, z: 2.82, angle: -1.57, arc: 1.8, rest: 0.007, guns: 1, my: 4.83 },
+        { x: 8.853, z: -1.727, angle: 1.57, arc: 1.8, rest: 0.0305, guns: 1, my: 5.57 },
+        { x: -8.862, z: -1.727, angle: -1.57, arc: 1.8, rest: 0.0229, guns: 1, my: 5.57 },
+        { x: 8.734, z: -16.173, angle: 1.57, arc: 1.8, rest: 3.1267, guns: 1, my: 5.59 },
+        { x: -8.737, z: -16.173, angle: -1.57, arc: 1.8, rest: -3.1398, guns: 1, my: 5.59 },
+        { x: 8.846, z: -20.71, angle: 1.57, arc: 1.8, rest: 3.1396, guns: 1, my: 4.83 },
+        { x: -8.844, z: -20.71, angle: -1.57, arc: 1.8, rest: -3.1386, guns: 1, my: 4.83 },
+        { x: 9.057, z: -26.209, angle: 1.57, arc: 1.8, rest: 0.9686, guns: 1, my: 2.76 },
+        { x: -9.06, z: -26.209, angle: -1.57, arc: 1.8, rest: -1.2106, guns: 1, my: 2.76 },
+      ],
+    },
+    aa: {
+      range: 3500, dps: 36,
+      guns: [
+        // Her three twin 100 mm on her centreline, one before her tower and two aft.
+        { name: "100 mm/45 Model 1930", caliber: 100, role: 'dp', reload: 4, range: 9000, elev: { min: -0.175, max: 1.40 }, piece: 'dp',
+          mounts: [
+          { x: -0.004, z: 11.549, angle: 0, arc: 2.4, rest: 0, guns: 2, my: 9.06 },
+          { x: -0.004, z: -29.994, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 2, my: 7.27 },
+          { x: -0.26, z: -34.545, angle: 3.14, arc: 2.4, rest: -3.1416, guns: 2, my: 6.65 },
+          ] },
+        // Her twelve twin 37 mm along her decks.
+        { name: "37 mm/50 Model 1933 twin", caliber: 37, role: 'aa', reload: 0.8, range: 3000, elev: { min: -0.17, max: 1.48 }, piece: 'aa2',
+          mounts: [
+          { x: 8.489, z: 19.145, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 4.43 },
+          { x: -8.067, z: 19.145, angle: -1.57, arc: 1.8, rest: -1.5873, guns: 2, my: 5.01 },
+          { x: 5.735, z: 13.621, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 5.98 },
+          { x: -5.746, z: 13.621, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 5.98 },
+          { x: 9.306, z: -6.164, angle: 1.57, arc: 1.8, rest: 1.5667, guns: 2, my: 7.24 },
+          { x: -9.306, z: -6.164, angle: -1.57, arc: 1.8, rest: -1.5734, guns: 2, my: 7.24 },
+          { x: 9.306, z: -11.773, angle: 1.57, arc: 1.8, rest: 1.5645, guns: 2, my: 7.24 },
+          { x: -9.306, z: -11.773, angle: -1.57, arc: 1.8, rest: -1.5659, guns: 2, my: 7.24 },
+          { x: 4.02, z: -31.61, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 5.84 },
+          { x: -3.957, z: -31.61, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 5.84 },
+          { x: 8.893, z: -34.615, angle: 1.57, arc: 1.8, rest: 1.57, guns: 2, my: 4.43 },
+          { x: -8.395, z: -34.615, angle: -1.57, arc: 1.8, rest: -1.57, guns: 2, my: 4.18 },
+          ] },
+        // And her four quadruple 13.2 mm Hotchkiss about her tower.
+        { name: "13.2 mm Hotchkiss quad", caliber: 13, role: 'aa', reload: 0.1, range: 1500, elev: { min: -0.17, max: 1.48 }, piece: 'aa3',
+          mounts: [
+          { x: 5.479, z: 1.402, angle: 1.57, arc: 1.8, rest: 2.7995, guns: 4, my: 10.13 },
+          { x: -5.486, z: 1.402, angle: -1.57, arc: 1.8, rest: -1.57, guns: 4, my: 10.13 },
+          { x: 4.61, z: -12.677, angle: 1.57, arc: 1.8, rest: 1.3592, guns: 4, my: 12.49 },
+          { x: -4.618, z: -12.677, angle: -1.57, arc: 1.8, rest: -1.7602, guns: 4, my: 12.49 },
+          ] },
+      ],
+    },
+    planes: null,
+    datasheet: { displacement: 26600, aircraft: 0, mainRounds: 900, secondary: { caliber: 138, label: '138.6mm', barrels: 12, rounds: 3000 }, tertiary: [{ caliber: 100, label: '100mm', barrels: 6, rounds: 2400 }, { caliber: 37, label: '37mm', barrels: 24, rounds: 24000 }, { caliber: 13, label: '13.2mm', barrels: 16, rounds: 32000 }] },
+  },
 });
 
 /**
@@ -20835,8 +21787,8 @@ export const HULL_TOUGHNESS = 2.3;
 // much else she could have taken.
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
-export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'nakhimov', 'cleveland', 'brooklyn', 'ajax', 'fargo', 'atlanta', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'trento', 'algerie', 'kirov', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'nakhimov', 'cleveland', 'brooklyn', 'ajax', 'fargo', 'atlanta', 'sanmartin', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'trento', 'napoli', 'algerie', 'conde', 'kirov', 'chapayev', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'sevastopol', 'b65', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'doria', 'roma', 'morosini', 'lorraine', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'vanguard', 'rodney', 'warspite', 'revenge', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
@@ -20845,9 +21797,10 @@ export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57'
  * and missile age's. A hull is modern if she
  * sails as she was after 1945 (Missouri as recommissioned in 1991, the Nimitz, the Ford, Leviathan, the
  * Des Moines, the Ticonderoga, the Guangzhou, the Sovremenny, the Slava and the Arleigh
- * Burke); everything else is WWII.
+ * Burke, and the Vanguard and the Chapayev, both commissioned after the war);
+ * everything else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'nakhimov', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford']);
+export const MODERN_SHIPS = new Set(['chapayev', 'vanguard', 'guangzhou', 'sovremenny', 'slava', 'nakhimov', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford']);
 // And the Great War's: the dreadnoughts that sailed as they were before 1919.
 export const WWI_SHIPS = new Set(['agincourt', 'revenge']);
 // And the ships that are not warships at all, whatever war they sailed in:
@@ -20864,7 +21817,7 @@ export const CIVIL_ORDER = SHIP_ORDER.filter((id) => CIVIL_SHIPS.has(id));
  * captain finds them under Premium Equipment, Ships. Every one of them sails
  * as any other hull does once she is in a fleet (see PLAYABLE).
  */
-export const PREMIUM_ORDER = ['tillman', 'oregon'];
+export const PREMIUM_ORDER = ['tillman', 'oregon', 'hannover', 'ushakov'];
 
 /**
  * What the store keeps in a department of its own, Special: things that sail

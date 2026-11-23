@@ -143,6 +143,9 @@ const TURRET_ROOF = {
   // proof mounts, and the Project 1144's AK-100.
   revenge: 127, roma: 200, doria: 100, tennessee: 127, maine: 184, wichita: 51, pensacola: 38, neworleans: 64, fargo: 76, atlanta: 3,
   furutaka: 25, kitakami: 3, tenryu: 3, yubari: 3, oyodo: 25, kirov: 50, algerie: 70, trento: 40, nakhimov: 13,
+  // And those of the end of the month: the battleships' heavy gunhouses, the
+  // super cruisers' and the cruisers' lighter ones.
+  hannover: 220, ushakov: 230, vanguard: 152, lorraine: 160, sevastopol: 125, b65: 100, napoli: 60, conde: 50, chapayev: 65, sanmartin: 76,
   // A Liberty ship's 4-inch: an open gun behind a splinter shield.
   liberty: 6,
   // A Higgins boat's Brownings: a thin shield on the pintle, and the sky.
@@ -154,6 +157,7 @@ const SEC_ROOF = {
   guangzhou: 6, sovremenny: 6, slava: 6, burke: 6, dunkerque: 20, iowa: 25, louisiana: 50, oregon: 50, missouri: 25, northcarolina: 25, massachusetts: 25, cleveland: 25, brooklyn: 3, county: 6, indianapolis: 3, desmoines: 25, baltimore: 25, alaska: 25, ticonderoga: 13, leviathan: 25, ajax: 6, bismarck: 35, tirpitz: 35, soyuz: 50,
   borgia: 10,
   revenge: 76, roma: 70, doria: 25, tennessee: 25, maine: 25, wichita: 3, pensacola: 3, neworleans: 3, fargo: 25, furutaka: 6, oyodo: 6, yubari: 3, kirov: 6, algerie: 10, trento: 6,
+  hannover: 40, ushakov: 50, vanguard: 25, lorraine: 160, sevastopol: 50, b65: 6, napoli: 25, conde: 20, chapayev: 25,
   // The Mogamis' 127 mm behind splinter shields, their 100 mm and the Yodo's
   // 127 mm in light enclosed gunhouses.
   suzuya: 3, mogami: 6, yodo: 6,
