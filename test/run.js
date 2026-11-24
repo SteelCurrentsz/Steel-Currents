@@ -5314,7 +5314,9 @@ check('the USS Alaska is commissioned just after the USS Baltimore, a large crui
   assert.equal(cls.fullName, 'USS Alaska');
   assert.equal(cls.type, 'CB', 'her hull symbol is not CB');
   assert.equal(cls.typeName, 'Large Cruiser');
-  assert.ok(Object.values(SHIP_CLASSES).every((c) => c.id === 'alaska' || c.id === 'guam' || c.type !== 'CB'),
+  // CB is the Alaskas' alone: she, the Guam, and the Puerto Rico that was to
+  // have been the third of them.
+  assert.ok(Object.values(SHIP_CLASSES).every((c) => ['alaska', 'guam', 'puertorico'].includes(c.id) || c.type !== 'CB'),
     'another ship carries her symbol');
   assert.equal(cls.nation, 'usa');
   // Nine 12 in/50 in three triple turrets, A and B forward, C aft.
