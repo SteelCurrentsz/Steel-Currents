@@ -24,7 +24,7 @@ import {
   freshAirframe, hitAirframe, stepAirframe, airframeState, flightState,
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
-import { stepInfantry, blastInfantry } from './infantry.js';
+import { stepInfantry, blastInfantry, gunAtMan } from './infantry.js';
 import {
   monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody, MONSTER,
 } from './monster.js';
@@ -9838,7 +9838,8 @@ const BOX_CELL = 1.19;
  * any class carries has one.
  */
 export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g', vulcan: 'v', s300: 'f', osa: 'm',
-  essm: 'r', ram: 'x', agm84: 'q', penguin: 'p', kh25: 'c', aim9: 'w', aim120: 'u', agm65: 'k', agm86: 'l' };
+  essm: 'r', ram: 'x', agm84: 'q', penguin: 'p', kh25: 'c', aim9: 'w', aim120: 'u', agm65: 'k', agm86: 'l',
+  meteor: 'd', micair: 'i', micaem: 'j', scalp: 'o', hammer: 'A', am39: 'y', anl: 'z', aster15: 'B', mistral: 'C' };
 export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(([k, c]) => [c, k]));
 
 /** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc', 'aam' (an aeroplane's, at aeroplanes), 'ground' (an aeroplane's, at a gun ashore). */
@@ -10597,6 +10598,9 @@ function loseMissile(state, m, why) {
   state.events.push({ e: 'mslDown', x: r(m.x), y: r(m.y), z: r(m.z), k: m.kind, i: m.id, why, owner: m.owner });
 }
 
+/** The missiles that come in on the sea and go into a ship's side at her waterline. */
+const SEA_SKIMMERS = new Set(['harpoon', 'agm84', 'penguin', 'kh25', 'am39', 'anl']);
+
 /** Put a missile into her: a burst inside her, fire, and for a Harpoon a hole at her waterline. */
 function missileHit(state, m, K, t, cls) {
   const owner = state.ships.find((s) => s.id === m.owner);
@@ -10607,7 +10611,7 @@ function missileHit(state, m, K, t, cls) {
   // Her armour takes some of it: a thousand pounds of explosive bursting on a
   // battleship's armour deck does a great deal less than it does inside a
   // cruiser.
-  const skims = m.kind === 'harpoon' || m.kind === 'agm84' || m.kind === 'penguin' || m.kind === 'kh25';
+  const skims = SEA_SKIMMERS.has(m.kind);
   const armour = skims ? cls.armor.belt : cls.armor.deck;
   const cut = clamp(armour / 900, 0, 0.32);
   t.heavyBlow = true;
@@ -12751,6 +12755,7 @@ export function slotOrder(cls, group, fighters, bomb, torp, offset = {}) {
         role: spec.role, count: 1, type: SL[k].type, load: key,
         torp: torpOf(spec), bomb: spec.bomb || 0, bombEach: spec.bomb || 1,
         standoff: spec.standoff || null, asw: spec.asw || 0,
+        ...(spec.fish ? { fish: spec.fish } : {}),
         rack: spec.rack || null, rockets: spec.rockets || 0,
       });
     }
@@ -12971,6 +12976,8 @@ function stepLaunch(state, ship, dt) {
       // fireLocked); her own fighter direction fires them too.
       ...(f.rack ? { rack: { ...f.rack } } : {}),
       ...(f.asw ? { asw: f.asw } : {}),
+      // Which homing torpedo they are: a Mk 46, unless the load says.
+      ...(f.fish ? { fish: f.fish } : {}),
       // And unguided rockets on rails under her wings (see fireRockets).
       ...(f.rockets ? { rockets: f.rockets } : {}),
       ...(f.load ? { load: f.load } : {}),
@@ -15173,6 +15180,129 @@ function stepRearGunners(state, dt) {
 }
 
 /**
+ * A helicopter's door guns: the Caiman's two heavy machine guns in each cabin
+ * door (AERO's `doorGuns`, a side). Nobody lays them for her: each door's
+ * pair looks out over its own side for the nearest thing of the enemy's in
+ * reach -- an aeroplane or a helicopter, a man on the ground, a gun or a tank
+ * ashore, a ship -- swings onto it and fires, in bursts, whatever her pilot
+ * is doing. At an aeroplane, a ship or a gun the rounds are real rounds, laid
+ * off for where it will be (see stepBullets); at a man they are walked onto
+ * him down the line and hit what they hit, the ground and the houses in the
+ * way included (see gunAtMan).
+ */
+export const DOOR_REACH = 1500;
+/** Of FIGHTER_GUNS, per gun, at an aeroplane. */
+const DOOR_BITE = 0.18;
+/** What a round does to a ship's people, or to a gun ashore. */
+const DOOR_HURT = 30;
+/** What a heavy machine-gun round does to a man. */
+const DOOR_MAN = 110;
+export function stepDoorGuns(state, dt) {
+  for (const p of state.planes) {
+    const n = AERO[p.type]?.doorGuns;
+    if (!n || p.dead || !(p.count > 0)) continue;
+    const py = p.y ?? 200;
+    // Off the deck and clear of it.
+    if (py < 8) continue;
+    const fx = Math.sin(p.heading || 0), fz = Math.cos(p.heading || 0);
+    p.doors ||= { look: 0, t: 0, '-1': null, 1: null, at: { '-1': -9, 1: -9 } };
+    const D = p.doors;
+    D.look -= dt;
+    if (D.look <= 0) {
+      D.look = 0.5;
+      // Which door a point is off -- the one to her right of her heading
+      // (+1) or her left (-1) -- and not one dead ahead or dead astern of her
+      // that neither door sees.
+      const doorOf = (x, z) => {
+        const dx = x - p.x, dz = z - p.z;
+        const l = Math.hypot(dx, dz) || 1;
+        const across = (fx * dz - fz * dx) / l;
+        if (Math.abs(across) < 0.2) return 0;
+        return across < 0 ? 1 : -1;
+      };
+      const best = { '-1': null, 1: null };
+      const bd = { '-1': DOOR_REACH, 1: DOOR_REACH };
+      const offer = (k, ref, x, y, z) => {
+        const d = Math.hypot(x - p.x, y - py, z - p.z);
+        const side = doorOf(x, z);
+        if (!side || d >= bd[side] || d < 10) return;
+        bd[side] = d; best[side] = { k, ref };
+      };
+      for (const q of state.planes) {
+        if (q.dead || q === p || q.team === p.team || !mayHurt(state, p.team, q)) continue;
+        offer('a', q, q.x, q.y ?? 220, q.z);
+      }
+      for (const s of state.soldiers || []) {
+        if (!s.alive || (s.team === p.team && !state.friendlyFire)) continue;
+        offer('s', s, s.x, s.y + 1.2, s.z);
+      }
+      for (const b of state.batteries || []) {
+        if (!b.alive || b.team === p.team || !mayHurt(state, p.team, b)) continue;
+        offer('b', b, b.x, (b.y ?? 0) + 1.5, b.z);
+      }
+      for (const t of state.ships) {
+        if (!t.alive || t.team === p.team || submerged(t) || !mayHurt(state, p.team, t)) continue;
+        offer('h', t, t.x, 6, t.z);
+      }
+      D['-1'] = best['-1']; D[1] = best[1];
+    }
+    // In bursts: a second and a half on, most of a second to lay off again.
+    D.t += dt;
+    if ((D.t % 2.4) >= 1.5) continue;
+    D.gunAt = (D.gunAt ?? 0) + dt;
+    if (D.gunAt < 1 / BURST_RATE) continue;
+    const rounds = Math.min(3, Math.floor(D.gunAt * BURST_RATE));
+    D.gunAt = 0;
+    const v = airVelocity(p);
+    for (const side of [-1, 1]) {
+      const tg = D[side];
+      if (!tg) continue;
+      const ref = tg.ref;
+      if (tg.k === 'a' ? ref.dead : tg.k === 'h' ? !ref.alive || submerged(ref) : !ref.alive) { D[side] = null; continue; }
+      // Out of her door: a metre and a half out over her side, under her rotor.
+      const from = { x: p.x + fz * side * 1.8, y: py - 0.4, z: p.z - fx * side * 1.8 };
+      if (tg.k === 's') {
+        // A round a gun each time: every round at a man is one he can be hit by.
+        for (let i = 0; i < n; i++) {
+          gunAtMan(state, from, ref, p.team, DOOR_MAN, 0.003 + Math.hypot(ref.x - p.x, ref.z - p.z) * 4e-6);
+        }
+        continue;
+      }
+      let tx = ref.x, ty = tg.k === 'a' ? ref.y ?? 220 : tg.k === 'b' ? (ref.y ?? 0) + 1.5 : 6, tz = ref.z;
+      const d0 = Math.hypot(tx - from.x, ty - from.y, tz - from.z);
+      // Laid off for where it will be when the rounds get there.
+      const tof = d0 / BULLET_V;
+      if (tg.k === 'a') {
+        const tv = airVelocity(ref);
+        tx += tv.x * tof; ty += tv.y * tof; tz += tv.z * tof;
+      } else if (tg.k === 'h') {
+        const tv = velocityOf(ref);
+        tx += tv.x * tof; tz += tv.z * tof;
+      }
+      const dx = tx - from.x, dy = ty - from.y, dz = tz - from.z;
+      const l = Math.hypot(dx, dy, dz) || 1;
+      for (let i = 0; i < rounds * n; i++) {
+        const sx = (state.rng() + state.rng() - 1) * 0.006, sy = (state.rng() + state.rng() - 1) * 0.006;
+        state.bullets.push({
+          id: eid(), team: p.team, owner: p.owner, plane: p.id,
+          x: from.x, y: from.y, z: from.z,
+          vx: (dx / l + sx) * BULLET_V + v.x, vy: (dy / l + sy) * BULLET_V + v.y, vz: (dz / l - sx) * BULLET_V + v.z,
+          life: 0, dmg: (FIGHTER_GUNS * DOOR_BITE) / BURST_RATE, hurt: DOOR_HURT / BURST_RATE * 4, cal: 12.7,
+        });
+      }
+      // The tracer, for everybody's screen: from her door to where it is going.
+      if (state.t - D.at[side] >= 0.12) {
+        D.at[side] = state.t;
+        state.events.push({
+          e: 'doorGun', i: p.id, team: p.team,
+          x: r(from.x), y: r(from.y), z: r(from.z), tx: r(tx), ty: r(ty), tz: r(tz),
+        });
+      }
+    }
+  }
+}
+
+/**
  * The back seat's gun, laid and fired by a player sitting in it.
  *
  * `yaw` is where he is looking off her nose -- pi is dead astern -- and
@@ -15465,6 +15595,16 @@ const ASW_SHIP_NEAR = 2500;
 const ASW_SHIP_DROP = 1000;
 
 /**
+ * The homing torpedoes a helicopter drops, by kind: the American Mk 46 the
+ * Seahawk and the Ka-27 carry, and the Franco-Italian MU90 the Caiman does --
+ * newer, faster, further, with a better seeker. Every one of them homes.
+ */
+export const ASW_FISH = {
+  mk46: { kind: 'mk46', speed: 20.6, range: 4000, damage: 7000, homing: { seek: 1400, cone: 0.8, turn: 0.2, after: 0 } },
+  mu90: { kind: 'mu90', speed: 25.7, range: 5500, damage: 7600, homing: { seek: 1800, cone: 0.9, turn: 0.24, after: 0 } },
+};
+
+/**
  * A helicopter's homing torpedoes into the sea: off her as she hovers, each
  * a little either side of the bearing of the boat she has on her sonar --
  * or, with nothing heard, the way she is heading -- to swim out and search
@@ -15476,13 +15616,14 @@ export function dropAsw(state, p, best = null) {
   if (n <= 0) return 0;
   const r = (v) => Math.round(v * 10) / 10;
   const toward = best ? headingTo(p.x, p.z, best.x, best.z) : (p.heading || 0);
+  const F = ASW_FISH[p.fish] || ASW_FISH.mk46;
   for (let i = 0; i < n; i++) {
     const h = wrapAngle(toward + (i - (n - 1) / 2) * 0.4);
     state.torps.push({
       id: eid(), owner: p.owner, team: p.team,
       x: p.x, z: p.z, heading: h,
-      speed: 20.6, range: 4000, travelled: 0, damage: 7000, detection: 1400, arming: 0, flood: 0.3,
-      kind: 'mk46', homing: { seek: 1400, cone: 0.8, turn: 0.2, after: 0 }, aerial: true, air: 2,
+      speed: F.speed, range: F.range, travelled: 0, damage: F.damage, detection: 1400, arming: 0, flood: 0.3,
+      kind: F.kind, homing: { ...F.homing }, aerial: true, air: 2,
     });
   }
   state.events.push({ e: 'airDrop', x: r(p.x), z: r(p.z), r: p.role, i: p.id, fish: n });
@@ -15771,9 +15912,12 @@ function enemyAir(state, p, q) {
  */
 function airMissileShot(state, p) {
   const rack = p.rack;
-  if (!(rack.aim9 > 0) && !(rack.aim120 > 0)) return false;
+  // Every missile for the air she has on her rails, the shortest reach first.
+  const kinds = Object.keys(rack).filter((k) => rack[k] > 0 && airKind(k)?.role === 'aam')
+    .sort((a, b) => airKind(a).range - airKind(b).range);
+  if (!kinds.length) return false;
   const y = p.y ?? 200;
-  const longest = Math.max(rack.aim120 > 0 ? airKind('aim120').range : 0, rack.aim9 > 0 ? airKind('aim9').range : 0);
+  const longest = airKind(kinds[kinds.length - 1]).range;
   const look = (t) => {
     const dx = t.x - p.x, dy = t.y - y, dz = t.z - p.z;
     const d = Math.hypot(dx, dy, dz);
@@ -15799,12 +15943,9 @@ function airMissileShot(state, p) {
   if (ahead < Math.cos(LOCK_CONE)) return false;
   // Not two at the one aeroplane.
   if (state.missiles.some((m) => m.team === p.team && m.tk === 'a' && m.target === id && !m.decoy)) return false;
-  let kind = null;
-  // The short one close in, the long one further out.
-  for (const k of d < airKind('aim9').range * 0.8 ? ['aim9', 'aim120'] : ['aim120', 'aim9']) {
-    const K = airKind(k);
-    if (rack[k] > 0 && d < K.range * 0.8 && d > 300) { kind = k; break; }
-  }
+  // The short one close in, the long one further out: the shortest-reaching
+  // of hers that reaches.
+  const kind = kinds.find((k) => d < airKind(k).range * 0.8 && d > 300) || null;
   if (!kind) return false;
   rack[kind]--;
   p.lockCool = 4;
@@ -15881,7 +16022,7 @@ function surfaceMissileShot(state, p, force) {
 // her and veer off after it, and burst on nothing when it burns out.
 
 /** The aeroplanes that carry a dispenser, and how many salvos are in it. */
-export const CHAFF_LOAD = { f18: 8, f35: 8, e2d: 6, sh60: 6 };
+export const CHAFF_LOAD = { f18: 8, f35: 8, e2d: 6, sh60: 6, rafale: 8, nh90: 6 };
 /** Flares in a salvo. */
 const CHAFF_FLARES = 6;
 /** How long a flare burns, in seconds. */
@@ -21444,6 +21585,7 @@ export function step(state, dt = DT) {
   stepMines(state, dt);
   stepPlanes(state, dt);
   stepRearGunners(state, dt);
+  stepDoorGuns(state, dt);
   stepBombers(state, dt);
   if (state.world?.works) stepFields(state, dt);
   stepEscortCalls(state, dt);

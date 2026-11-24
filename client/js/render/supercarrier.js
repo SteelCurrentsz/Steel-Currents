@@ -29,10 +29,12 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { DECK_RUN, lightMounts } from '../../../shared/sim.js';
 import { box, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { f18, e2d, sh60, f35 } from './planekit.js';
+import { f18, e2d, sh60, f35, rafale, nh90 } from './planekit.js';
 
 /** Each type a super carrier flies, as it is built. */
-const MAKERS = { f18, e2d, sh60, f35 };
+const MAKERS = { f18, e2d, sh60, f35, rafale, nh90 };
+/** The helicopters among them: up off a spot and down onto it, not off a catapult. */
+const HELOS = new Set(['sh60', 'nh90']);
 
 /**
  * A super carrier. `cfg`:
@@ -46,6 +48,7 @@ const MAKERS = { f18, e2d, sh60, f35 };
  *   helo, land         her helicopter spot, and where her jets touch down
  *   prefer             which of her lifts each evolution would rather have
  *   kinds              the types she flies, and kindOf: which flies each role
+ *   railPiece          which of her pieces each missile kind's launcher is drawn by
  *   label              what she is called in an error
  */
 export function supercarrier(cfg) {
@@ -378,7 +381,9 @@ export function supercarrier(cfg) {
    */
   function launchers(g) {
     return CLS.missiles.rails.map(([x, , z, rest, kind]) => {
-      const which = kind === 'ram' ? 'ram' : 'sparrow';
+      // Which of her pieces the launcher is: the config's word for a kind, or
+      // a Sea Sparrow's or a RAM's.
+      const which = cfg.railPiece?.[kind] || (kind === 'ram' ? 'ram' : 'sparrow');
       const s = seatFor(MOUNT_SEATS[which], x, z, which);
       const m = new THREE.Group();
       m.position.set(s.x, s.y, s.z);
@@ -645,7 +650,7 @@ export function supercarrier(cfg) {
    */
   function poseActor(deck, a, t, plan) {
     const k = t - a.t0;
-    const helo = a.kind === 'sh60';
+    const helo = HELOS.has(a.kind);
     const flown = a.plan === 'launch' ? CAT_T + OFF_T : a.plan === 'heloLaunch' ? RISE_T : 0;
     const ph = phaseAt(PLANS[a.plan], k, a.dur ? Math.max(1, a.dur - flown) : 0);
     const L = a.lift;
@@ -863,7 +868,7 @@ export function supercarrier(cfg) {
     // the evolution is played to. `kind` is which of her types she is.
     g.userData.launch = (t, role, dur = DECK_RUN, kind = null) => {
       const k = isKind(kind) ? kind : KIND_OF[role] || KINDS[0];
-      const helo = k === 'sh60';
+      const helo = HELOS.has(k);
       const a = begin(deck, t, helo ? 'heloLaunch' : 'launch', k, role, dur);
       deck.current = a;
       deck.stowed = false;
@@ -883,7 +888,7 @@ export function supercarrier(cfg) {
     // One of hers down: a jet in the wires, or a Seahawk on the spot.
     g.userData.recover = (t = deck.lastT ?? 0, role = null, kind = null) => {
       const k = isKind(kind) ? kind : KIND_OF[role] || KINDS[0];
-      begin(deck, t, k === 'sh60' ? 'heloRecover' : 'recover', k, role, 0);
+      begin(deck, t, HELOS.has(k) ? 'heloRecover' : 'recover', k, role, 0);
     };
     // Told the deck is done with the launch it was on. Every aeroplane on her
     // deck has her own evolution and her own clock, so there is nothing to

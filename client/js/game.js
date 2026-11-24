@@ -295,6 +295,8 @@ const FLIGHT_NAME = {
   f35: 'her Lightnings',
   e2d: 'her Hawkeye',
   sh60: 'her Seahawks',
+  rafale: 'her Rafales',
+  nh90: 'her Caimans',
   ka27: 'her Ka-27',
   arado: 'her Arados',
   kingfisher: 'her Kingfishers',
@@ -318,6 +320,7 @@ const PLANE_NAME = {
   hellcat: 'F6F Hellcat', wildcat: 'F4F Wildcat', dauntless: 'SBD Dauntless', avenger: 'TBF Avenger',
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
   f18: 'F/A-18 Super Hornet', f35: 'F-35C Lightning', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
+  rafale: 'Dassault Rafale M', nh90: 'NH90 Caiman',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   walrus: 'Supermarine Walrus', kor1: 'Beriev KOR-1', ro43: 'IMAM Ro.43',
   zero: 'A6M Zero',
@@ -349,6 +352,8 @@ const GUN_CALIBRE = {
   f18: 20,            // her M61 in the nose
   f35: 25,            // the GAU-22/A in her gun pod
   sh60: 7.62,         // the door gun
+  rafale: 30,         // her GIAT 30M791 in her starboard side
+  nh90: 12.7,         // her door guns, two a side
   ka27: 7.62,         // the door gun
   arado: 20,          // two MG FF in the wings and an MG 17 over the engine
   kingfisher: 7.62,   // the one thirty she had
@@ -384,7 +389,7 @@ const GUN_CALIBRE = {
  */
 const GUN_COUNT = {
   seafire: 2, firefly: 4, corsair: 6, a5m: 2, b4y: 1, val: 2, tenzan: 1,
-  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, rafale: 1, nh90: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
 };
@@ -4777,6 +4782,12 @@ export class Battle {
           // Drawn on her, at each gun, for as long as the burst lasts -- see
           // airFx -- rather than left in the air where she was when it began.
           if (from) this.airBursts.set(ev.i, this.time + 0.35);
+          break;
+        }
+        case 'doorGun': {
+          // A Caiman's door guns, firing on their own out of her cabin door:
+          // tracer from the door to whatever they are on.
+          this.scene.flak.fire(ev.x, ev.y, ev.z, ev.tx, ev.ty, ev.tz, 12.7, 10, fx);
           break;
         }
         case 'rearGun': {

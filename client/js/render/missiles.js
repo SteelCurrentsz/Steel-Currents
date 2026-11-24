@@ -78,6 +78,21 @@ export const MISSILE_SHAPES = {
   // its nose. A long, blunt, white body, a pair of swept wings folded out of
   // its belly once it is away, and a tail.
   l: { name: 'AGM-86B ALCM', len: 6.32, r: 0.31, span: 3.66, chord: 0.55, fin: 0.5, wingZ: 0.3, body: MAT.harpoon },
+  // The Charles de Gaulle's: her Aster 15, slim and white with long strakes
+  // along it; her Mistral, small enough to carry; and her Rafales' and her
+  // Caimans' -- the Meteor with its ramjet's intakes amidships, the two
+  // MICAs with long low wings, the SCALP-EG flat and wide, the Hammer short
+  // with its tail kit, the Exocet with its four cropped wings, and the Sea
+  // Venom.
+  B: { name: 'Aster 15', len: 4.2, r: 0.09, span: 0.6, chord: 1.4, fin: 0.3, wingZ: -0.4, body: MAT.standard },
+  C: { name: 'Mistral', len: 1.86, r: 0.045, span: 0.2, chord: 0.15, fin: 0.14, wingZ: 0.6, body: MAT.standard },
+  d: { name: 'Meteor', len: 3.65, r: 0.089, span: 0.4, chord: 0.6, fin: 0.28, wingZ: -0.3, body: MAT.standard },
+  i: { name: 'MICA IR', len: 3.1, r: 0.08, span: 0.45, chord: 1.2, fin: 0.26, wingZ: -0.2, body: MAT.standard },
+  j: { name: 'MICA EM', len: 3.1, r: 0.08, span: 0.45, chord: 1.2, fin: 0.26, wingZ: -0.2, body: MAT.standard },
+  o: { name: 'SCALP-EG', len: 5.1, r: 0.3, span: 2.84, chord: 0.5, fin: 0.4, wingZ: 0.3, body: MAT.tomahawk },
+  A: { name: 'AASM Hammer', len: 3.1, r: 0.16, span: 0.7, chord: 0.5, fin: 0.3, wingZ: -0.8, body: MAT.harpoon },
+  y: { name: 'Exocet', len: 4.69, r: 0.175, span: 1.1, chord: 0.6, fin: 0.36, wingZ: -0.6, body: MAT.harpoon },
+  z: { name: 'Sea Venom', len: 2.5, r: 0.1, span: 0.7, chord: 0.3, fin: 0.24, wingZ: -0.2, body: MAT.harpoon },
 };
 /** A missile code the client has no shape for is drawn as a Harpoon. */
 const shapeOf = (k) => (MISSILE_SHAPES[k] ? k : 'h');
@@ -110,7 +125,7 @@ function geometryOf(k) {
   const band = lathe([[L / 2 - R * 4.2, 0], [L / 2 - R * 4.2, R * 1.02], [L / 2 - R * 3.6, R * 1.02], [L / 2 - R * 3.6, 0]]);
   // Its wings: a Tomahawk's pair, out flat either side; a Harpoon's four,
   // cruciform. Its tail fins: four, in an X.
-  const wings = k === 't' || k === 'l'
+  const wings = k === 't' || k === 'l' || k === 'o'
     ? [plate(Math.PI / 2, R * 0.6, S.span / 2, S.chord, S.wingZ, 0.04), plate(-Math.PI / 2, R * 0.6, S.span / 2, S.chord, S.wingZ, 0.04)]
     : [0, 1, 2, 3].map((i) => plate(Math.PI / 4 + (i * Math.PI) / 2, R * 0.8, S.span / 2 - R, S.chord, S.wingZ));
   const fins = [0, 1, 2, 3].map((i) => plate(Math.PI / 4 + (i * Math.PI) / 2, R * 0.7, S.fin, 0.34, -L / 2 + 0.3));

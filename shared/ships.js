@@ -463,6 +463,53 @@ export const AIR_MISSILES = {
     // How near what it was sent at it goes off, in metres.
     fuze: 45,
   },
+  // The Charles de Gaulle's Rafale Ms. For the air: the Meteor, ramjet-driven
+  // and the longest reach of any missile an aeroplane here carries; the MICA
+  // in its two seekers -- the IR round, which goes for the heat of an engine
+  // and turns hardest, and the EM round, on its own radar, further out.
+  meteor: {
+    name: 'MBDA Meteor', short: 'METEOR', role: 'aam',
+    speed: 1250, range: 30000, turn: 1.6, kill: 18, pk: 0.85,
+    hp: 1, interval: 1, length: 3.65,
+  },
+  micair: {
+    name: 'MICA IR', short: 'MICA IR', role: 'aam',
+    speed: 950, range: 8000, turn: 2.6, kill: 14, pk: 0.85,
+    hp: 1, interval: 1, length: 3.1,
+  },
+  micaem: {
+    name: 'MICA EM', short: 'MICA EM', role: 'aam',
+    speed: 1000, range: 14000, turn: 2.0, kill: 15, pk: 0.8,
+    hp: 1, interval: 1, length: 3.1,
+  },
+  // For something ashore: the SCALP-EG, a stealthy cruise missile flown low
+  // a long way in to a gun position or a ship's side; and the AASM Hammer, a
+  // guided bomb with a rocket in its tail that carries it out to a target
+  // well off her nose.
+  scalp: {
+    name: 'SCALP-EG', short: 'SCALP', role: 'ground',
+    speed: 280, range: 40000, cruise: 30, turn: 0.6,
+    damage: 5200, fire: 0.45, hp: 1, interval: 1, raise: 0, length: 5.1, popUp: 0,
+  },
+  hammer: {
+    name: 'AASM Hammer', short: 'HAMMER', role: 'ground',
+    speed: 300, range: 15000, cruise: 60, turn: 1.0,
+    damage: 3200, fire: 0.3, hp: 1, interval: 1, raise: 0, length: 3.1, popUp: 0,
+  },
+  // For a ship: the AM39 Exocet, skimming the sea all the way in and into her
+  // side at the waterline.
+  am39: {
+    name: 'AM39 Exocet', short: 'EXOCET', role: 'surface',
+    speed: 315, range: 26000, cruise: 4, turn: 0.5,
+    damage: 4400, fire: 0.5, hp: 1, interval: 1, raise: 0, length: 4.69, popUp: 0,
+  },
+  // And the Caiman's: the ANL Sea Venom, a light anti-ship missile her crew
+  // steer in on what her seeker shows them.
+  anl: {
+    name: 'ANL Sea Venom', short: 'SEA VENOM', role: 'surface',
+    speed: 290, range: 14000, cruise: 6, turn: 0.65,
+    damage: 2800, fire: 0.35, hp: 1, interval: 1, raise: 0, length: 2.5, popUp: 0,
+  },
 };
 
 /**
@@ -473,6 +520,7 @@ export const AIR_MISSILES = {
  */
 export const AIR_MISSILE_HITS = {
   agm84: ['s'], penguin: ['s'], kh25: ['s'], aim9: ['a'], aim120: ['a'], agm65: ['b', 's'], agm86: ['a', 's', 'b'],
+  meteor: ['a'], micair: ['a'], micaem: ['a'], scalp: ['b', 's'], hammer: ['b', 's'], am39: ['s'], anl: ['s'],
 };
 
 /**
@@ -513,6 +561,27 @@ export const SEAHAWK_LOADOUTS = {
 export const KA27_LOADOUTS = {
   as: { name: 'Anti-Ship Load Out', note: 'two Kh-25ML laser-guided missiles', role: 'torpedo', standoff: { kind: 'kh25', n: 2 } },
   asw: { name: 'ASW Load Out', note: 'dipping sonar and two APR-3 homing torpedoes', role: 'torpedo', asw: 2 },
+};
+
+/**
+ * What a Rafale M off the Charles de Gaulle can be loaded with, as her
+ * captain chooses in the yard. Every missile on her is one a pilot can lock
+ * on and fire by hand (see fireLocked in sim.js); the Exocet goes on its own
+ * too, the moment she has a ship in its reach.
+ */
+export const RAFALE_LOADOUTS = {
+  aa: { name: 'Air-to-Air Load Out', note: 'four Meteors for beyond visual range, and two MICA EM and two MICA IR for medium and short range', role: 'fighter', rack: { meteor: 4, micaem: 2, micair: 2 } },
+  strike: { name: 'Land Strike Load Out', note: 'a SCALP-EG stealth cruise missile, two AASM Hammer smart bombs, two GBU-12/24/49 Paveway laser- and GPS-guided bombs, and two MICA IR', role: 'dive', bomb: 2, rack: { scalp: 1, hammer: 2, micair: 2 } },
+  as: { name: 'Anti-Ship Load Out', note: 'an AM39 Exocet, sea-skimming, fired from twenty-five kilometres, and two MICA EM and two MICA IR', role: 'dive', standoff: { kind: 'am39', n: 1 }, rack: { micaem: 2, micair: 2 } },
+};
+/**
+ * And the Caiman's two: missiles for a ship, or her dipping sonar and two
+ * MU90 homing torpedoes for a boat. Either way her four door guns go with
+ * her, and fire on their own (see stepDoorGuns in sim.js).
+ */
+export const CAIMAN_LOADOUTS = {
+  as: { name: 'Anti-Ship Load Out', note: 'two ANL Sea Venom anti-ship missiles', role: 'torpedo', standoff: { kind: 'anl', n: 2 } },
+  asw: { name: 'ASW Load Out', note: 'dipping sonar and two MU90 homing torpedoes', role: 'torpedo', asw: 2, fish: 'mu90' },
 };
 
 /** How high over her spot a helicopter hovers going and coming (see heloHover in sim.js). */
@@ -11342,6 +11411,171 @@ export const SHIP_CLASSES = {
     },
   },
 
+  cdg: {
+    // FS Charles de Gaulle (R91): the French Navy's carrier, and the only
+    // nuclear-powered carrier not American. Forty-two thousand tons, two K15
+    // reactors on two shafts, two hundred and sixty-one metres over her
+    // flight deck with its landing area angled eight degrees off to port,
+    // two C-13-3 steam catapults -- one on her bow, one in her waist -- and
+    // two deck-edge lifts to starboard abaft her island. She went into
+    // commission in 2001.
+    //
+    // She is drawn from the owner's model of her (see cdg.js and
+    // build/prepare-cdg-hull.mjs) -- "Charles De Gaulle Aircraft Carrier" by
+    // Muhamad Mirza Arrafi, under Creative Commons Attribution 4.0 -- at her
+    // own length, floated at her own draught. She carries no gun at all: her
+    // weapons are what the model stands on her sponsons -- her Aster 15s,
+    // thirty-two of them in four eight-cell Sylver A43 modules, two on her
+    // starboard bow sponson and two on her port one amidships; and her
+    // Mistrals off six sextuple Sadral launchers round her deck edge. Both
+    // are for what comes at her through the air, and nothing else.
+    //
+    // Her air wing is forty aircraft: thirty Rafale Ms, three E-2 Hawkeyes --
+    // the same early-warning machine as the Ford's -- and seven NH90
+    // Caimans, each type loaded as her captain chooses (see `slots`).
+    id: 'cdg',
+    name: 'Charles de Gaulle',
+    fullName: 'FS Charles de Gaulle (R91)',
+    className: 'Charles de Gaulle',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'fra',
+    blurb: 'Forty aircraft -- Rafale Ms, Hawkeyes and NH90 Caimans, armed as you choose -- with Aster 15 and Mistral to keep the sky clear over her. No guns.',
+    hull: { length: 261.5, beam: 36.3, draft: 9.4, superstructure: 0.5, flightDeck: true },
+    hp: 46000,
+    maxSpeed: 27 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.45,
+    turnRate: 0.05,
+    rudderShift: 12,
+    speedLossInTurn: 0.17,
+    concealment: 16000,
+    fireDetectPenalty: 4800,
+    // Her DRBJ 11B and DRBV 26D.
+    radarRange: 23000,
+    repairCooldown: 85,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    armor: { belt: 50, deck: 60, citadel: 80, bow: 20, superstructure: 15 },
+    // No guns: her missiles are all she has. (The figures below describe
+    // nothing she carries: with no mounting to put it in, it never fires.)
+    turrets: [],
+    gun: {
+      name: 'None', role: 'dp',
+      elev: { min: -0.1, max: 0.6 },
+      reach: 0.5,
+      caliber: 20, reload: 9999, traverse: 1, range: 1000, sigma: 1.4,
+      shells: shells(20, 1, 1, 1, 800, 0.004),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: { range: 0, dps: 0, guns: [] },
+    // Her missiles, both surface-to-air only: the Aster 15 straight up out of
+    // her Sylver cells, quick and agile and with the longer reach; the
+    // Mistral off the arms of her two Sadrals, which train onto what they
+    // fire at, a last line inside them.
+    missiles: {
+      kinds: {
+        aster15: {
+          name: 'Aster 15', short: 'ASTER 15', code: 'B', role: 'sam', launch: 'tube', rounds: 32,
+          launchers: 4, note: '32 in 4 eight-cell Sylver A43',
+          speed: 1000, range: 30000, cruise: 800, turn: 2.4, damage: 0, hp: 1, interval: 1.0,
+          length: 4.2, kill: 14, pk: 0.85, air: true,
+        },
+        mistral: {
+          name: 'Mistral', short: 'MISTRAL', code: 'C', role: 'sam', launch: 'rail', rounds: 36,
+          launchers: 6, note: '36 in 6 sextuple Sadral launchers',
+          speed: 800, range: 6000, cruise: 400, turn: 2.6, damage: 0, hp: 1, interval: 1.2,
+          length: 1.86, kill: 6, pk: 0.75, air: true,
+        },
+      },
+      // [across, up, along, bearing, elevation, kind]: the hatch of each of
+      // her thirty-two Sylver cells (CDG_CELLS), as the model draws them:
+      // four modules, each two hatch panels of four cells laid across her,
+      // two modules on her starboard bow sponson and two on her port sponson
+      // amidships. Each goes straight up.
+      tubes: [
+        [-23.88, 16.4, 76.2], [-23.38, 16.5, 77.9], [-22.48, 16.5, 80.3], [-21.88, 16.5, 81.9],
+        [31.32, 17.1, -9.6], [31.32, 17.1, -7.8], [31.32, 17.0, -4.2], [31.32, 17.0, -2.5],
+      ].flatMap(([x, y, z]) => [-1.05, -0.35, 0.35, 1.05]
+        .map((dx) => [+(x + dx).toFixed(3), +(y + 0.1).toFixed(3), z, 0, Math.PI / 2 - 0.02, 'aster15'])),
+      tubeElev: Math.PI / 2 - 0.02,
+      // The tops of her six Sadrals, [across, up, along, stowed bearing,
+      // kind] (CDG_MOUNTS.sadral): two to starboard aft and forward of her
+      // island, one more forward; three to port. Each stowed pointing out
+      // over her side.
+      rails: [
+        [-27.814, 14.4, -95.096, -Math.PI / 2, 'mistral'],
+        [26.825, 14.2, -76.386, Math.PI / 2, 'mistral'],
+        [30.986, 14.2, -47.275, Math.PI / 2, 'mistral'],
+        [32.295, 14.2, 7.353, Math.PI / 2, 'mistral'],
+        [-27.064, 14.4, 30.795, -Math.PI / 2, 'mistral'],
+        [-27.064, 14.4, 65.772, -Math.PI / 2, 'mistral'],
+      ],
+      fcs: 'SAM',
+    },
+    planes: {
+      squadrons: 3, perSquadron: 14, cruiseSpeed: 180, strikeRange: 30000,
+      // Each type at her own pace: a Rafale at three hundred and seventy
+      // knots, a Hawkeye at two hundred and thirty, a Caiman at a hundred and
+      // thirty-five.
+      cruiseOf: { rafale: 190, e2d: 120, nh90: 70 },
+      // Where her aircraft put their wheels down coming home: up her angled
+      // deck from the round-down.
+      touchdown: { z: -100, y: 18.05 },
+      types: { fighter: 'rafale', dive: 'rafale', torpedo: 'nh90', aew: 'e2d' },
+      // Shot off her bow or her waist catapult, off her at a hundred and
+      // forty knots and climbing. A Caiman goes straight up off her spot aft
+      // to a hover eighteen metres over it.
+      runOut: { fighter: 150, dive: 150, aew: 150, torpedo: -60 },
+      runHeight: { fighter: 24, dive: 24, aew: 23, torpedo: 36.05 },
+      launchSpeed: { fighter: 72, dive: 72, aew: 72, torpedo: 4 },
+      helipad: { x: 10, z: -60, y: 18.05 },
+      // Up a lift from the hangar, along the deck and off a catapult. Two
+      // steam catapults: one off every ten seconds.
+      deckRun: 14, deckNext: 10, deckCycle: 14,
+      turnaround: 60,
+      rearm: 40, torpDamage: 7000, torpSpeed: 40 * KNOTS, torpRange: 4000,
+      floodChance: 0.3, hp: 1600, dropSpread: 0.05,
+      // A Paveway: guided, laser or GPS, and it goes where it is put.
+      bombDamage: 3400, bombHit: 0.75, bombFire: 0.35, bombPen: 70, bombBore: 0.32,
+      group: {
+        total: 40,
+        min: { fighters: 30, dive: 3, torpedo: 7 },
+        max: { fighters: 30, dive: 3, torpedo: 7 },
+        minStrike: 0,
+        default: { fighters: 30, dive: 3, torpedo: 7 },
+      },
+      // `fighters` are her Rafale Ms, `dive` her Hawkeyes and `torpedo` her
+      // Caimans.
+      slots: {
+        fighters: {
+          type: 'rafale', label: 'Rafale M', default: 'aa',
+          loadouts: RAFALE_LOADOUTS,
+        },
+        dive: {
+          type: 'e2d', label: 'E-2 Hawkeye', role: 'aew',
+          note: 'her radar shows her side everything for forty kilometres, and her ships fire further and sooner',
+        },
+        torpedo: {
+          type: 'nh90', label: 'NH90 Caiman', default: 'asw',
+          loadouts: CAIMAN_LOADOUTS,
+        },
+      },
+    },
+    datasheet: {
+      displacement: 42500,
+      aircraft: 0,
+      mainRounds: 0,
+      secondary: null,
+      tertiary: [],
+      missiles: [
+        { label: 'Aster 15 (4 Sylver A43)', rounds: 32 },
+        { label: 'Mistral (6 Sadral)', rounds: 36 },
+      ],
+    },
+  },
+
   kongo: {
     // IJN Kongo, the last capital ship built for Japan abroad: laid down at
     // Barrow in 1911 to a design of Thurston's, the battlecruiser the Lion
@@ -19130,18 +19364,18 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'cleveland', 'brooklyn', 'ajax', 'county', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'suzuya', 'yodo', 'agano', 'aoba', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'cdg', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
  * yard opens: the Great War's hulls, the Second World War's, or the post-war
  * and missile age's. A hull is modern if she
- * sails as she was after 1945 (Missouri as recommissioned in 1991, the Nimitz, the Ford, Leviathan, the
+ * sails as she was after 1945 (Missouri as recommissioned in 1991, the Nimitz, the Ford, the Charles de Gaulle, Leviathan, the
  * Des Moines, the Ticonderoga, the Guangzhou, the Sovremenny, the Slava and the Arleigh
  * Burke); everything else is WWII.
  */
-export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford']);
+export const MODERN_SHIPS = new Set(['guangzhou', 'sovremenny', 'slava', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford', 'cdg']);
 // And the Great War's: the dreadnoughts that sailed as they were before 1919.
 export const WWI_SHIPS = new Set(['agincourt']);
 // And the ships that are not warships at all, whatever war they sailed in:
