@@ -36,7 +36,7 @@ await prepare({
   // 260.6 m over all, 9.59 m draught: the Taihō's.
   loa: 260.6, draught: 9.59, bow: '+z', groupDepth: 2, shiftX: 2.68,
   paints: SHOKAKU_PAINTS, paint: shokakuPaint, paintLines: [0],
-  deckFallback: 9, hullTris: 90000, rigging: { y: 13 },
+  deckFallback: 9, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0, rigging: { y: 13 },
   // Her island, amidships on her starboard side; her flight deck flat from
   // her round-down to her bow.
   carrier: { minY: 9.5, island: { x0: -22.5, x1: -13.2, z0: -7, z1: 36, face: -13.4 } },

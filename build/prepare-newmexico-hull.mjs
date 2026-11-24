@@ -16,7 +16,7 @@ await prepare({
   credit: '"USS New Mexico" by kriss50 (https://skfb.ly/ptOVP), CC BY 4.0',
   loa: 190.2, draught: 9.1, bow: '+z',
   paints: USN_PAINTS, paint: usnPaint, paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 70000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her twelve 5-inch/51, behind their shields on her upper deck and her
     // 01 level, six a side.

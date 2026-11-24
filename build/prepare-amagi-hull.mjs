@@ -43,7 +43,7 @@ await prepare({
   // The model is drawn to a million and a half faces, her bridge alone a
   // third of a million: thinned to what is seen, never more than five
   // centimetres from where the model has it, her waterline kept exact.
-  decimate: true, hullTris: 340000, hullError: 0.0002, buckets: 60,
+  decimate: true, hullTris: 90000, hullError: 0.001, buckets: 60,
   kinds: {
     // Her sixteen 14 cm/50 3rd Year Type, eight a side in casemates in her
     // side under her forecastle deck, each a shield and its barrel, drawn

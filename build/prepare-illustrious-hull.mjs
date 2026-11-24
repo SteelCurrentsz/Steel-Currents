@@ -23,7 +23,7 @@ await prepare({
   // hull's, measured low, not the reach of her lowered masts.
   loa: 225.6, draught: 8.8, bow: '+z', endsBelow: 15,
   paints: RN_PAINTS, paint: rnPaint, paintLines: [0, BOOT],
-  deckFallback: 10, hullTris: 80000,
+  deckFallback: 10, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   // Her island to starboard, her funnel built into it.
   // Her lowered W/T masts and their aerial, outboard of her deck edges.
