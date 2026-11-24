@@ -503,6 +503,9 @@ import {
   sheerAt as iowaSheer, keelAt as iowaKeel, shellAt as iowaShell,
   zAt as iowaZAt, halfDeck as iowaHalfDeck, iowaParts, iowaDecks,
 } from '../client/js/render/iowa.js';
+import { GUNS as PUERTORICO_GUNS, MOUNTS as PUERTORICO_MOUNTS } from '../client/js/render/puertoricoHull.data.js';
+import { ALASKA_GUNS } from '../client/js/render/alaskaHull.data.js';
+import { MOUNTS as IOWA_MOUNTS } from '../client/js/render/iowaHull.data.js';
 import * as THREE from '../vendor/three.module.js';
 import { EAST_X } from '../shared/coast.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
@@ -4746,6 +4749,111 @@ check('the Hannover and the Admiral Ushakov are sold in the store under their fu
   assert.equal(SHIP_CLASSES.ushakov.fullName, 'RF Admiral Ushakov');
   assert.deepEqual(SHIP_CLASSES.hannover.turrets.map((t) => t.guns), [2, 2, 2, 2]);
   assert.deepEqual(SHIP_CLASSES.ushakov.turrets.map((t) => t.guns), [3, 3, 3]);
+});
+
+// ---- the ships of the end of November 2026 --------------------------------
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs, put
+// together by krissShip.js (the Ranger by carrier.js); the Aki a premium hull
+// in the store. And the Iowa, redrawn off the owner's Missouri.
+const END_NOV26 = [
+  { id: 'kurfurst', type: 'BB', nation: 'ger', era: 'wwii', link: 'https://skfb.ly/o7DPp', title: 'G.kurfürst', by: 'Hhikj789' },
+  { id: 'hildebrand', type: 'CA', nation: 'ger', era: 'wwii', link: 'https://skfb.ly/oHuvE', title: 'The Third Reich Navy large cruiser HILDEBRAND', by: '全斗焕' },
+  { id: 'beowulf', type: 'CA', nation: 'ger', era: 'wwii', link: 'https://skfb.ly/oHuvu', title: 'The Third Reich Navy large cruiser BEOWULF', by: '全斗焕' },
+  { id: 'aki', type: 'BB', nation: 'jpn', era: 'premium', link: 'https://skfb.ly/psZAH', title: 'Japan Hybrid Warship Dewa(近江)', by: '全斗焕' },
+  { id: 'dido', type: 'CL', nation: 'gbr', era: 'wwii', link: 'https://skfb.ly/oKuwP', title: 'British Navy CLAA Tier 6 SIRIUS', by: '全斗焕' },
+  { id: 'balao', type: 'SS', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pwTJX', title: 'Balao (World of Warships)', by: 'KojfDiscord' },
+  { id: 'puertorico', type: 'CB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pLHuB', title: 'Puerto Rico B (World of Warships)', by: 'KojfDiscord' },
+  { id: 'ranger', type: 'CV', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pNoyx', title: 'uss Ranger wows', by: 'zeek' },
+  { id: 'iowa', type: 'BB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/ptpCu', title: 'USS Missouri (World of Warships)', by: 'KojfDiscord' },
+];
+check('the ships of the end of November 2026 come in their yards or the store, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of END_NOV26) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    if (m.era === 'premium') {
+      assert.ok(PREMIUM_ORDER.includes(m.id) && !SHIP_ORDER.includes(m.id), `${m.id} is not in the store alone`);
+      assert.ok(cls.premium, `${m.id} is not marked premium`);
+      assert.ok(premiumUnlocked(m.id), `${m.id} is locked`);
+    } else {
+      assert.ok(SHIP_ORDER.includes(m.id), `${m.id} is not in the yard`);
+      assert.ok(WWII_ORDER.includes(m.id), `${m.id} is not in the Second World War's yard`);
+    }
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+});
+
+check('the owner\'s new ships sail under the names the owner gave them', () => {
+  assert.equal(SHIP_CLASSES.kurfurst.fullName, 'KMS Großer Kurfürst');
+  assert.equal(SHIP_CLASSES.hildebrand.fullName, 'KMS Hildebrand');
+  assert.equal(SHIP_CLASSES.beowulf.fullName, 'KMS Beowulf');
+  assert.equal(SHIP_CLASSES.aki.fullName, 'IJN Aki');
+  assert.equal(SHIP_CLASSES.dido.fullName, 'HMS Dido');
+  assert.equal(SHIP_CLASSES.puertorico.fullName, 'USS Puerto Rico');
+  assert.equal(SHIP_CLASSES.ranger.fullName, 'USS Ranger CV-4');
+  assert.equal(SHIP_CLASSES.balao.fullName, 'USS Balao');
+  // Not the models' names: the Dewa is the Aki, the Sirius the Dido, and
+  // the Puerto Rico has no "B" to her.
+  for (const c of Object.values(SHIP_CLASSES)) {
+    const names = `${c.id} ${c.name} ${c.fullName || ''}`;
+    assert.ok(!/\bdewa\b|sirius|puerto rico b\b/i.test(names), `${c.id} is still called ${names}`);
+  }
+});
+
+check('the Aki is a hybrid battleship in the store, her dive bombers off her catapult', () => {
+  const cls = SHIP_CLASSES.aki;
+  assert.ok(cls.premium && cls.hybrid, 'she is not a premium hybrid');
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3]);
+  assert.equal(cls.gun.caliber, 460);
+  assert.ok(cls.planes && cls.planes.catapult && cls.planes.type === 'suisei', 'she throws no Suisei off');
+  assert.ok(cls.planes.flight.dive > 0, 'she flies no dive bombers');
+});
+
+check('the Puerto Rico carries the Alaska\'s own turrets and the Alaska\'s quadruple Bofors', () => {
+  const cls = SHIP_CLASSES.puertorico;
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3, 3, 3]);
+  // The Alaska's 12"/50 and her shell.
+  assert.equal(cls.gun.name, SHIP_CLASSES.alaska.gun.name);
+  assert.equal(cls.gun.caliber, SHIP_CLASSES.alaska.gun.caliber);
+  // And the pieces themselves are the Alaska's, cut from the owner's model of her.
+  assert.equal(PUERTORICO_GUNS.main.house, ALASKA_GUNS.main.house, 'her turrets are not the Alaska\'s');
+  assert.equal(PUERTORICO_GUNS.aa4.house, ALASKA_GUNS.quad.house, 'her quadruple Bofors are not the Alaska\'s');
+  const quads = cls.aa.guns.find((g) => g.caliber === 40);
+  assert.ok(quads && quads.mounts.length >= 8 && quads.mounts.every((m) => m.guns === 4), 'she carries no quadruple Bofors');
+  for (const m of PUERTORICO_MOUNTS.main) assert.ok(m.y > 4 && m.y < 8, `a turret of hers stands at ${m.y} m, off her barbette`);
+});
+
+check('the Ranger carries seventy aircraft', () => {
+  const P = SHIP_CLASSES.ranger.planes;
+  assert.equal(P.group.total, 70);
+  const d = P.group.default;
+  assert.equal(d.fighters + d.dive + d.torpedo, 70);
+  const built = buildShip('ranger');
+  const e = built.group.userData.deck.endPoses;
+  for (const role of ['fighter', 'dive', 'torpedo']) {
+    assert.ok(Math.abs(P.runOut[role] - e[role].z) < 6 && Math.abs(P.runHeight[role] - e[role].y) < 1.5,
+      `her deck leaves her ${role}s at ${e[role].z.toFixed(0)}, ${e[role].y.toFixed(1)} up, and the simulation puts them up at ${P.runOut[role]}, ${P.runHeight[role]}`);
+  }
+});
+
+check('the Iowa is drawn off the owner\'s Missouri, every turret and mounting on the model\'s own', () => {
+  const cls = SHIP_CLASSES.iowa;
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3, 3]);
+  assert.equal(IOWA_MOUNTS.main.length, 3);
+  assert.equal(IOWA_MOUNTS.sec.length, cls.secondary.mounts.length);
+  for (const t of cls.turrets) assert.ok(IOWA_MOUNTS.main.some((m) => Math.hypot(m.x - t.x, m.z - t.z) < 0.8), `turret ${t.name} is not on the model's`);
 });
 
 check('the Maine carries sixteen 16-inch, twin 5-inch dual-purpose, 3-inch dual-purpose and 20 mm', () => {

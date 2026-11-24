@@ -85,6 +85,8 @@ export async function prepare(cfg) {
   const OUT_DATA = path.isAbsolute(cfg.out) ? cfg.out : path.join(ROOT, cfg.out);
   const model = await flatten(readFileSync(SRC), cfg.groupDepth ?? 3);
   const { j } = model;
+  /** The model's pieces an `auto` kind is cut from: by number, or by a pattern their names match. */
+  const autoNodes = (A) => A.nodes || (A.names ? j.nodes.map((n, i) => (new RegExp(A.names).test(n?.name || '') ? i : -1)).filter((i) => i >= 0) : null);
   const LOA = cfg.loa;
   const DRAUGHT = cfg.draught;
 
@@ -566,7 +568,7 @@ export async function prepare(cfg) {
       }
     }
     const BAND = 0.6;
-    const GUN_NODES = new Set(Object.values(cfg.kinds || {}).flatMap((k) => (k.auto && k.auto.nodes) || []));
+    const GUN_NODES = new Set(Object.values(cfg.kinds || {}).flatMap((k) => (k.auto && autoNodes(k.auto)) || []));
     const T2 = [], G2 = [], L2 = [], M2 = [];
     let gone = 0;
     for (let t = 0; t < nf; t++) {
@@ -794,6 +796,7 @@ export async function prepare(cfg) {
     return inBox(b, ...p.mid) && inBox(b, ...p.lo, b.slack ?? 0.4) && inBox(b, ...p.hi, b.slack ?? 0.4);
   };
   const taken = new Set();
+  const faceTaken = new Set();
   for (const box of cfg.remove || []) {
     for (const p of parts) if (!taken.has(p) && !kept(p) && claim(box, p, { hullToo: box.hullToo })) { for (const t of p.tris) NOT_HERS.add(t); taken.add(p); }
     // `wires`: and whatever thin runs in it the rigging pass took for wires --
@@ -834,9 +837,18 @@ export async function prepare(cfg) {
       && A.regions.some((r) => inBox(r, ...p.mid)) && Math.max(p.hi[0] - p.lo[0], p.hi[2] - p.lo[2]) < A.size[1])
       .map((p) => ({ ps: [p], lo: [...p.lo], hi: [...p.hi] }));
     // `nodes`: only the model's pieces that draw this kind of gun, so a gun
-    // stood against a deckhouse is not taken for part of it.
-    const near = (X, Y) => [0, 1, 2].every((c) => X.lo[c] - gap <= Y.hi[c] && Y.lo[c] - gap <= X.hi[c]);
-    if (A.nodes) cl = cl.filter((c) => A.nodes.includes(c.ps[0].node));
+    // stood against a deckhouse is not taken for part of it. Or `names`: the
+    // pieces whose names match it, where the model names its pieces for the
+    // guns they are -- the World of Warships exports do ("ggs123_127mm...").
+    // `byNode`: a mounting is a piece of the model to itself, and is never
+    // run together with the one beside it -- a superfiring turret's barrels
+    // reach out over the roof of the one under it.
+    // Or `group(name)`: the mounting a piece belongs to, by its name, where
+    // the model draws one mounting in several pieces named alike.
+    const key = (n) => (A.group ? A.group(j.nodes[n]?.name || '') : n);
+    const near = (X, Y) => (!(A.byNode || A.group) || key(X.ps[0].node) === key(Y.ps[0].node)) && [0, 1, 2].every((c) => X.lo[c] - gap <= Y.hi[c] && Y.lo[c] - gap <= X.hi[c]);
+    const only = autoNodes(A);
+    if (only) cl = cl.filter((c) => only.includes(c.ps[0].node));
     for (let merged = true; merged;) {
       merged = false;
       for (let a = 0; a < cl.length; a++) {
@@ -904,6 +916,23 @@ export async function prepare(cfg) {
         if (taken.has(p) || kept(p) || !claim(box, p, { hullToo: box.hullToo ?? spec.hullToo, nodes: spec.nodes })) continue;
         taken.add(p);
         for (const t of p.tris) s.add(t);
+      }
+      // `faces`: and every face standing wholly in the box, of a run that
+      // reaches out of it -- a model whose gunhouses are run in with her
+      // decks, one run of faces from her stem to her stern.
+      if (box.faces) {
+        const P = model.P, T = model.T;
+        for (const p of parts) {
+          if (taken.has(p) || kept(p) || !(p.lo[0] <= box.x[1] && p.hi[0] >= box.x[0] && p.lo[1] <= box.y[1] && p.hi[1] >= box.y[0] && p.lo[2] <= box.z[1] && p.hi[2] >= box.z[0])) continue;
+          for (const t of p.tris) {
+            if (faceTaken.has(t)) continue;
+            const v = [0, 1, 2].map((k) => T[t * 3 + k] * 3);
+            if (!v.every((i) => inBox(box, P[i], P[i + 1], P[i + 2], 0.02))) continue;
+            const c = [0, 1, 2].map((a) => (P[v[0] + a] + P[v[1] + a] + P[v[2] + a]) / 3);
+            if (box.not && box.not.some((n) => inBox(n, ...c))) continue;
+            faceTaken.add(t); s.add(t);
+          }
+        }
       }
       if (s.size < (spec.min ?? 20)) throw new Error(`${kind}: only ${s.size} faces of her in ${JSON.stringify(box)}`);
       return s;
