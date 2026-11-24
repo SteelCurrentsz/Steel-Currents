@@ -27,7 +27,7 @@ await prepare({
   // high.
   paints: IJN_PAINTS, paintLines: [0, BOOT],
   paint: (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 12 && f.ny > 0.97 ? 'deck' : ijnPaint({ ...f, up: false })),
-  deckFallback: 6, hullTris: 70000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her three twin 20.3 cm/50: No.1 on her forecastle and No.2 superfiring
     // over it, trained ahead, and No.3 on her quarterdeck, trained astern.

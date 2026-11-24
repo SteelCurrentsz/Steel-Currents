@@ -24,7 +24,7 @@ await prepare({
   // 280.8 m over all (921 ft 3 in), 11 m deep.
   loa: 280.8, draught: 11.0, bow: '+z', groupDepth: 2,
   paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 90000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 16 },
   kinds: {
     // Her four quadruple 16-inch/50: No.1 on her forecastle and No.2

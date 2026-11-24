@@ -23,7 +23,7 @@ await prepare({
   // 165.1 m over all (541 ft 6 in), 6.2 m deep.
   loa: 165.1, draught: 6.2, bow: '+z', groupDepth: 2,
   paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
-  deckFallback: 5, hullTris: 70000,
+  deckFallback: 5, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her eight twin 5-inch/38 Mk 29: Nos.1-3 stepped up forward, trained

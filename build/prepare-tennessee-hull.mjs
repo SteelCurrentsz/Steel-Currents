@@ -24,7 +24,7 @@ await prepare({
   // 190.3 m over all (624 ft), 9.2 m deep.
   loa: 190.3, draught: 9.2, bow: '+x', groupDepth: 2,
   paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 90000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 16 },
   kinds: {
     // Her four triple 14-inch/50 Mk 4: No.1 on her forecastle and No.2

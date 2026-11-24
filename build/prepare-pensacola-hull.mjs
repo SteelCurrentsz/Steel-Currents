@@ -23,7 +23,7 @@ await prepare({
   // 178.5 m over all (585 ft 6 in), 5.9 m deep.
   loa: 178.5, draught: 5.9, bow: '+z', groupDepth: 2,
   paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
-  deckFallback: 6, hullTris: 80000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her 8-inch/55 Mk 14: the twin No.1 with the triple No.2 superfiring

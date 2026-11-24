@@ -22,7 +22,7 @@ await prepare({
   // 162.15 m over all, 4.8 m draught.
   loa: 162.15, draught: 4.8, bow: '+z',
   paints: IJN_PAINTS, paint: ijnPaint, paintLines: [0, BOOT],
-  deckFallback: 5, hullTris: 50000,
+  deckFallback: 5, decimate: true, hullTris: 50000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her 14 cm/50 3rd Year Type, a pair abreast her bridge, trained ahead.
     main: { boxes: [

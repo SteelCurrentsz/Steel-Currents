@@ -22,7 +22,7 @@ await prepare({
   // 196.96 m over all, 6.8 m draught.
   loa: 196.96, draught: 6.8, bow: '+z', groupDepth: 2,
   paints: RM_PAINTS, paint: (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 11 && Math.abs(f.ny) > 0.97 ? 'deck' : rmPaint(f)), paintLines: [0, BOOT],
-  deckFallback: 6, hullTris: 80000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her four twin 203 mm/50 Model 1924: No.1 on her forecastle and No.2

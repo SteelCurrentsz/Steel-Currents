@@ -22,7 +22,7 @@ await prepare({
   // 190.3 m over all (624 ft 3 in), 8.7 m deep load draught.
   loa: 190.3, draught: 8.7, bow: '-x', groupDepth: 2,
   paints: RENOWN_PAINTS, paint: warspitePaint, paintLines: [0, BOOT],
-  deckFallback: 7, hullTris: 90000,
+  deckFallback: 7, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 16 },
   kinds: {
     main: { boxes: [

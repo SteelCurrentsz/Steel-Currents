@@ -21,7 +21,7 @@ await prepare({
   // 186.9 m over all after her rebuilding, 8.6 m deep.
   loa: 186.9, draught: 8.6, bow: '+z', groupDepth: 2,
   paints: RM_PAINTS, paint: (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 12 && Math.abs(f.ny) > 0.97 ? 'deck' : rmPaint(f)), paintLines: [0, BOOT],
-  deckFallback: 7, hullTris: 90000,
+  deckFallback: 7, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 16 },
   kinds: {
     // Her 320 mm/44: the triple No.1 on her forecastle with the twin No.2

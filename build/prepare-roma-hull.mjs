@@ -25,7 +25,7 @@ await prepare({
   // 240.7 m over all, 9.6 m deep load draught.
   loa: 240.7, draught: 9.6, bow: '+z', groupDepth: 2,
   paints: RM_PAINTS, paint: (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 12 && Math.abs(f.ny) > 0.97 ? 'deck' : rmPaint(f)), paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 90000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 16 },
   kinds: {
     // Her three triple 381 mm/50 Model 1934: No.1 on her forecastle, No.2

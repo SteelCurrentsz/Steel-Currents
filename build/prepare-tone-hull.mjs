@@ -37,7 +37,7 @@ await prepare({
   // her boats' covers, the tops of her bridge and her directors.
   paints: IJN_PAINTS, paintLines: [0, BOOT],
   paint: (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 12.5 && f.ny > 0.97 ? 'deck' : ijnPaint({ ...f, up: false })),
-  deckFallback: 6, hullTris: 70000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her four twin 20.3 cm/50 turrets, all forward of her bridge: No.1 on
     // her forecastle and No.2 superfiring over it, both trained ahead; No.3

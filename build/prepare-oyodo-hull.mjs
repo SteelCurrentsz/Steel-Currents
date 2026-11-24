@@ -26,7 +26,7 @@ await prepare({
   shiftX: -1.7,
   paints: IJN_PAINTS, paintLines: [0, BOOT],
   paint: (f) => (f.up && !f.kind && f.cy > 2 && f.cy < 12 && f.ny > 0.97 ? 'deck' : ijnPaint({ ...f, up: false })),
-  deckFallback: 6, hullTris: 70000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her two triple 15.5 cm/60 3rd Year Type, No.1 on her forecastle and

@@ -22,7 +22,7 @@ await prepare({
   // 191.4 m over all, 6.3 m draught.
   loa: 191.4, draught: 6.3, bow: '+z',
   paints: RN_PAINTS, paint: rnPaint, paintLines: [0, BOOT],
-  deckFallback: 6, hullTris: 60000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her three triple 180 mm/57 MK-3-180: No.1 on her forecastle and No.2
     // superfiring over it, trained ahead, and No.3 aft, trained astern.

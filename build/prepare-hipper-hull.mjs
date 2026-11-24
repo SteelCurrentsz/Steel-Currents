@@ -31,7 +31,7 @@ await prepare({
   // 205.9 m over all with her Atlantic bow, 7.2 m draught.
   loa: 205.9, draught: 7.2, bow: '+z', groupDepth: 2,
   paints: PAINTS, paint, paintLines: [0, BOOT],
-  deckFallback: 7, hullTris: 80000, rigging: { y: 13 },
+  deckFallback: 7, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0, rigging: { y: 13 },
   kinds: {
     // Her four twin 20.3 cm SK C/34: Anton on her forecastle and Bruno
     // superfiring over it, trained ahead; Caesar superfiring over Dora on

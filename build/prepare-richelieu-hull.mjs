@@ -28,7 +28,7 @@ await prepare({
   // 247.85 m over all, 9.6 m draught.
   loa: 247.85, draught: 9.6, bow: '+z', groupDepth: 2,
   paints: MN_PAINTS, paint: mnPaint, paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 90000, rigging: { y: 17 },
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0, rigging: { y: 17 },
   kinds: {
     // Her two quadruple 380 mm/45 Mle 1935, both forward: I on her forecastle
     // and II superfiring over it, each a pair of twin guns in its own

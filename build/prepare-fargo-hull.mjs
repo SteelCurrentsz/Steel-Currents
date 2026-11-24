@@ -22,7 +22,7 @@ await prepare({
   // 185.9 m over all (610 ft 1 in), 7.5 m deep.
   loa: 185.9, draught: 7.5, bow: '+z', groupDepth: 2,
   paints: USN_CRUISER_PAINTS, paint: usnCruiserPaint, paintLines: [0, BOOT],
-  deckFallback: 6, hullTris: 80000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her four triple 6-inch/47 Mk 16: No.1 and No.2 superfiring forward,

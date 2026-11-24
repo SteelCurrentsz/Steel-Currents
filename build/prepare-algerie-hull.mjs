@@ -25,7 +25,7 @@ await prepare({
   // off her own.
   shiftX: -1.8,
   paints: MN_PAINTS, paint: mnPaint, paintLines: [0, BOOT],
-  deckFallback: 6, hullTris: 80000,
+  deckFallback: 6, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   kinds: {
     // Her four twin 203 mm/50 Model 1924: No.1 on her forecastle and No.2

@@ -30,7 +30,7 @@ await prepare({
   // 196.8 m over all (639 ft 5 in), 9.6 m deep load draught after her rebuild.
   loa: 196.8, draught: 9.6, bow: '+z', groupDepth: 2,
   paints: RENOWN_PAINTS, paint: warspitePaint, paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 90000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 16 },
   kinds: {
     // Her four twin 15-inch Mk I: A on her forecastle and B superfiring over
