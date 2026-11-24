@@ -525,7 +525,7 @@ import { setGroup, membersOf, vectorFlight, wingLeader, fleetCourse } from '../s
 import { crewBattle, wingOf as setupWingOf } from '../server/setup.js';
 import {
   cityPlan, wallAt, worksFloor, stageOf, STAGE, standingHeight, inFootprint, SURF, worldToCity,
-  applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
+  ruinOf, wallDamage, applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
   worksTargets, worksTarget, townTargetId, wallTargetId, wallHp, WALL_SCARS,
   cityToWorld, surfaceAt, buildingAt,
 } from '../shared/works.js';
@@ -33504,6 +33504,171 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     const { fired } = mind([['fletcher', 0, 3000], ['cleveland', 600, 3600]],
       [['fletcher', 200, 3300], ['cleveland', -300, 2800]]);
     assert.ok(!fired, `she breathed at ${fired && fired.x}, ${fired && fired.z} with her own side there`);
+  });
+
+  // Monster One ashore, in a town.
+  const inTown = () => {
+    const world = islandTown();
+    const state = createState(world, { mode: 'deathmatch' });
+    const mo = addShip(state, { name: 'Monster One', classId: 'monsterone', team: 0, index: 0 });
+    const plan = cityPlan(world);
+    // Stood `back` metres short of building `b`, facing it, on her feet.
+    const before = (b, back) => {
+      mo.heading = 0.7; mo.notch = 0; mo.speed = 0;
+      mo.x = b.x - Math.sin(mo.heading) * back; mo.z = b.z - Math.cos(mo.heading) * back;
+      MO.monsterOf(mo).pose = 'stand'; mo.mo.poseT = 10; mo.depth = 0;
+      run(state, 0.2);
+    };
+    return { world, state, mo, plan, before };
+  };
+  const ruinD = (world, id) => ruinOf(world, id)?.d || 0;
+
+  check('Monster One treads down the buildings, the sea wall and the guns she walks onto', () => {
+    const { world, state, mo, plan } = inTown();
+    const tall = plan.buildings.slice().sort((a, b) => b.h - a.h)[0];
+    const small = plan.buildings.find((b) => b.h < 12 && Math.hypot(b.x - tall.x, b.z - tall.z) > 200);
+    for (const b of [small, tall]) {
+      mo.x = b.x; mo.z = b.z; mo.heading = 0; mo.notch = 0; mo.speed = 0;
+      MO.monsterOf(mo).pose = 'stand'; mo.depth = 0;
+      run(state, 3);
+      assert.equal(ruinD(world, b.id), 1, `the ${b.kind} under her feet still stands: ${ruinD(world, b.id)}`);
+    }
+    // Off her feet, nothing is trodden on.
+    const off = plan.buildings.find((b) => Math.hypot(b.x - mo.x, b.z - mo.z) > 300 && !ruinOf(world, b.id));
+    assert.equal(ruinD(world, off.id), 0);
+    const wall = world.works.walls[0];
+    const [wx, wz] = wall.pts[Math.floor(wall.pts.length / 2)];
+    const on = wallAt(world, wx, wz);
+    mo.x = wx; mo.z = wz;
+    run(state, 3);
+    assert.ok(wallDamage(world, on.run, on.sec) >= 1, `the wall under her is not breached: ${wallDamage(world, on.run, on.sec)}`);
+    // An enemy gun in its pit under her foot.
+    const gx = tall.x, gz = tall.z;
+    mo.x = gx - 300; mo.z = gz;
+    const bat = addBattery(state, { batteryId: Object.keys(BATTERIES)[0], team: 1, x: gx, z: gz });
+    mo.x = bat.x; mo.z = bat.z;
+    run(state, 1);
+    assert.ok(!bat.alive, 'the gun under her foot is still firing');
+  });
+
+  check('Monster One rips a house out of the ground whole, bites it, and throws it down on the town', () => {
+    const { world, state, mo, plan, before } = inTown();
+    // One that, thrown, comes down on another.
+    const G = MO.MONSTER.grab;
+    const b = plan.buildings.find((q) => {
+      if (Math.max(q.w, q.d) >= 22 || q.h >= 16 || q.h <= 6) return false;
+      const go = G.carry - G.hands + G.toss * MO.lumpHeavy({ w: q.w, d: q.d, h: standingHeight(q, null) });
+      const x = q.x + Math.sin(0.7) * go, z = q.z + Math.cos(0.7) * go;
+      return plan.buildings.some((o) => o !== q && inFootprint(o, x, z, 2));
+    });
+    assert.ok(b, 'no house in the town to throw onto another');
+    before(b, MO.MONSTER.grab.hands);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
+    let ev = run(state, 2.5);
+    assert.ok(mo.mo.lump && mo.mo.lump.whole, `she did not pull it up whole: ${JSON.stringify(mo.mo.lump)}`);
+    assert.equal(mo.mo.lump.id, b.id);
+    assert.ok(ruinOf(world, b.id)?.c, 'it is still standing on its plot');
+    assert.ok(ev.some((e) => e.e === 'ruin' && e.id === b.id && e.mo), 'nobody was told it was pulled up');
+    assert.ok(ev.some((e) => e.e === 'moRip'));
+    const w = MO.readMonsterWire(shipSnapshot(mo, false, state).mo);
+    assert.deepEqual([w.lump.k, w.lump.id, w.lump.whole], ['b', b.id, true]);
+    // A mouthful out of it.
+    const h0 = mo.mo.lump.h;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS), '');
+    run(state, 1.5);
+    assert.ok(mo.mo.lump && mo.mo.lump.h < h0, 'the bite took nothing out of it');
+    assert.equal(mo.mo.act, 'hold');
+    // Thrown straight ahead of her, onto the land.
+    const ruined = Object.keys(world.ruin.b).length;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '', 'Grab with it in her hands does not throw it');
+    ev = run(state, 4);
+    assert.equal(mo.mo.lump, null);
+    const toss = ev.find((e) => e.e === 'moToss');
+    const land = ev.find((e) => e.e === 'moLand');
+    assert.ok(toss && land, 'it never came down');
+    const ahead = (land.x - mo.x) * Math.sin(mo.heading) + (land.z - mo.z) * Math.cos(mo.heading);
+    assert.ok(ahead > 120, `it went ${ahead} m ahead of her`);
+    assert.ok(Object.keys(world.ruin.b).length > ruined || ev.some((e) => e.e === 'crater'),
+      `it came down on the land and did nothing there: ${JSON.stringify(land)}`);
+  });
+
+  check('Monster One tears a piece off a building too big for her hands, and crushes it to pieces', () => {
+    const { world, state, mo, plan, before } = inTown();
+    const b = plan.buildings.slice().sort((p, q) => q.h - p.h)[0];
+    before(b, MO.MONSTER.grab.hands + b.d / 2);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
+    run(state, 2.5);
+    assert.ok(mo.mo.lump && !mo.mo.lump.whole, `she did not tear a piece off it: ${JSON.stringify(mo.mo.lump)}`);
+    assert.ok(ruinD(world, b.id) >= 0.4 && !ruinOf(world, b.id)?.c, `what is left of it: ${JSON.stringify(ruinOf(world, b.id))}`);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), '');
+    const ev = run(state, 3);
+    assert.ok(ev.some((e) => e.e === 'moShred'), 'she did not tear it apart');
+    assert.equal(mo.mo.lump, null);
+    assert.equal(mo.mo.act, '');
+    // Nothing in her hands, nothing to crush.
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), 'none');
+  });
+
+  check('Monster One bites a mouthful out of a building in front of her, and rips a slab out of a sea wall', () => {
+    const { world, state, mo, plan, before } = inTown();
+    const b = plan.buildings.slice().sort((p, q) => q.h - p.h)[0];
+    before(b, MO.MONSTER.bite.head.stand + b.d / 2 + 2);
+    const d0 = ruinD(world, b.id);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS), '');
+    const ev = run(state, 1.5);
+    assert.ok(ruinD(world, b.id) > d0 + 0.2, `the bite took ${ruinD(world, b.id) - d0} of it`);
+    assert.ok(ev.some((e) => e.e === 'moBite' && e.st && e.id === b.id));
+    // A slab out of a wall.
+    const wall = world.works.walls[0];
+    const k = Math.floor(wall.pts.length / 2);
+    const [wx, wz, nx, nz] = wall.pts[k];
+    const on = wallAt(world, wx, wz);
+    // Inland of it, facing the sea over it.
+    mo.heading = Math.atan2(nx, nz);
+    mo.x = wx - Math.sin(mo.heading) * MO.MONSTER.grab.hands; mo.z = wz - Math.cos(mo.heading) * MO.MONSTER.grab.hands;
+    run(state, 0.1);
+    const w0 = wallDamage(world, on.run, on.sec);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
+    run(state, 2.5);
+    assert.ok(mo.mo.lump && mo.mo.lump.k === 'w', `she has ${JSON.stringify(mo.mo.lump)}`);
+    assert.ok(wallDamage(world, on.run, on.sec) > w0 + 0.4, 'the wall is none the worse');
+  });
+
+  check('Monster One leaves her footprints in the ground ashore, and her tail digs craters in it', () => {
+    const world = generateWorld(77, 'archipelago');
+    let land = null;
+    for (let x = -6800; x <= 6800 && !land; x += 100) {
+      for (let z = -6800; z <= 6800; z += 100) {
+        if (groundHeight(world, x, z) > 15 && groundHeight(world, x, z + 300) > 8 && groundHeight(world, x, z + 150) > 8) { land = { x, z }; break; }
+      }
+    }
+    const state = createState(world, { mode: 'deathmatch' });
+    const mo = addShip(state, { name: 'Monster One', classId: 'monsterone', team: 0, index: 0, at: { x: land.x, z: land.z, h: 0 } });
+    mo.heading = 0; mo.notch = 3;
+    let ev = run(state, 30);
+    assert.ok(ev.filter((e) => e.e === 'crater').length >= 2, 'she walked and left no prints');
+    mo.notch = 0;
+    run(state, 8);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'tail', side: -1 }, SIM.MONSTER_HOOKS), '');
+    ev = run(state, 3);
+    assert.ok(ev.some((e) => e.e === 'moTail' && e.land), 'her tail did not come down on the land');
+    assert.ok(ev.some((e) => e.e === 'crater'), 'her tail dug nothing');
+  });
+
+  check('Monster One\'s tail smashes the town beside and behind her', () => {
+    const { world, state, mo, plan } = inTown();
+    // In the middle of the town, on her feet.
+    const mid = plan.buildings.reduce((a, q) => (Math.hypot(q.x - plan.city.x, q.z - plan.city.z) < Math.hypot(a.x - plan.city.x, a.z - plan.city.z) ? q : a));
+    mo.x = mid.x; mo.z = mid.z; mo.heading = 0; mo.notch = 0;
+    MO.monsterOf(mo).pose = 'stand'; mo.depth = 0;
+    run(state, 0.5);
+    const was = JSON.stringify(world.ruin);
+    const ruins = Object.values(world.ruin.b).filter((r) => r.d >= 0.5).length;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'tail', side: 1 }, SIM.MONSTER_HOOKS), '');
+    const ev = run(state, 3);
+    assert.ok(ev.some((e) => e.e === 'moTail' && e.land), 'her tail did not come down on the land');
+    assert.ok(Object.values(world.ruin.b).filter((r) => r.d >= 0.5).length > ruins, 'it knocked nothing down');
+    assert.notEqual(JSON.stringify(world.ruin), was);
   });
 }
 

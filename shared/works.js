@@ -2527,6 +2527,58 @@ export function buildingAt(world, x, z, pad = 0) {
   return null;
 }
 
+/** How far a point is from the nearest wall of a building's footprint: nought inside it. */
+export function footGap(b, x, z) {
+  const dx = x - b.x;
+  const dz = z - b.z;
+  const s = Math.sin(b.rot);
+  const k = Math.cos(b.rot);
+  const a = Math.max(0, Math.abs(k * dx - s * dz) - b.w / 2);
+  const c = Math.max(0, Math.abs(s * dx + k * dz) - b.d / 2);
+  return Math.hypot(a, c);
+}
+
+/**
+ * Every building still standing -- not a heap, not cleared away -- whose
+ * footprint comes within `r` of a point, nearest first: `[{ b, gap }]`.
+ */
+export function buildingsAround(world, x, z, r) {
+  const out = [];
+  for (const plan of cityPlans(world)) {
+    const { u, v } = worldToCity(plan.city, x, z);
+    if (Math.abs(u) > plan.W / 2 + r + 60 || Math.abs(v) > plan.D / 2 + r + 60) continue;
+    const G = plan.G;
+    const seen = new Set();
+    for (let a = Math.floor((u - r) / G); a <= Math.floor((u + r) / G); a++) {
+      for (let c = Math.floor((v - r) / G); c <= Math.floor((v + r) / G); c++) {
+        for (const id of plan.grid.get(a * 4099 + c) || []) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const ru = ruinOf(world, id);
+          if (ru?.c || (ru?.d || 0) >= 1) continue;
+          const b = plan.byId.get(id);
+          const gap = footGap(b, x, z);
+          if (gap <= r) out.push({ b, gap });
+        }
+      }
+    }
+  }
+  return out.sort((p, q) => p.gap - q.gap);
+}
+
+/**
+ * A building pulled up out of the ground whole -- Monster One's hands round
+ * it, and the whole of it torn off its footing -- and nothing left on the
+ * plot where it stood. `at` is where she was, for the dust.
+ */
+export function pluckBuilding(world, b, events, at = null) {
+  const ruin = world.ruin || (world.ruin = { b: {}, w: {} });
+  if (ruin.b[b.id]?.c) return false;
+  ruin.b[b.id] = { d: 1, f: 0, c: 1 };
+  events.push({ ...ruinRecord(b, ruin.b[b.id], at), mo: 1 });
+  return true;
+}
+
 /**
  * The first building a shell's path from a to b runs into, with the point it
  * struck: `{ b, x, y, z }` or null.
@@ -2685,13 +2737,17 @@ export function hurtBuilding(world, b, dmg, events, rng, at = null) {
 }
 
 function ruinEvent(events, b, r, at) {
-  events.push({
+  events.push(ruinRecord(b, r, at));
+}
+
+function ruinRecord(b, r, at) {
+  return {
     e: 'ruin', k: 'b', id: b.id, d: r.d, f: r.f, c: r.c ? 1 : 0,
     s: stageOf(r.d, !!r.c),
     x: Math.round(b.x), z: Math.round(b.z),
     ...(at ? { bx: Math.round(at.x), bz: Math.round(at.z) } : {}),
     ...(at?.nk ? { nk: Math.round(at.nk * 100) / 100 } : {}),
-  });
+  };
 }
 
 /**

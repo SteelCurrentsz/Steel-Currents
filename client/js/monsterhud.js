@@ -170,7 +170,9 @@ export class MonsterBar {
     this.el.hidden = !s.a;
     if (!s.a) return;
     this.pose = w.pose;
-    this.holding = !!w.holdId;
+    this.holding = !!w.holdId || !!w.lump;
+    // A building or a slab of wall in her hands, not a ship.
+    const lump = !w.holdId && w.lump ? (w.lump.k === 'w' ? 'Concrete in hands' : w.lump.whole ? 'Building in hands' : 'Rubble in hands') : '';
     const set = (k, sub, { wait = false, live = false, fill = 0, label = null } = {}) => {
       const b = this.keys[k];
       if (label != null && b.querySelector('b').textContent !== label) b.querySelector('b').textContent = label;
@@ -197,14 +199,15 @@ export class MonsterBar {
     // A small ship in her hands is thrown; a big one held down is let go.
     if (w.holdId && w.pin) set('grab', 'Too big to lift', { live: true, label: 'Let go' });
     else if (w.holdId) set('grab', 'Throw it', { live: true, label: 'Throw' });
-    else set('grab', w.act === 'reach' ? 'Reaching' : w.grabCool > 0 ? `${w.grabCool}s` : 'Arm\'s length',
+    else if (lump) set('grab', 'Throw it', { live: true, label: 'Throw' });
+    else set('grab', w.act === 'reach' ? 'Reaching' : w.grabCool > 0 ? `${w.grabCool}s` : w.ashore ? 'Ship or building' : 'Arm\'s length',
       { wait: w.grabCool > 0, live: w.act === 'reach', label: 'Grab' });
     const POSE = { deep: ['Deep', 'Surface ↑'], swim: ['Swimming', 'Stand ↑'], stand: ['Standing', 'Dive ↓'] }[w.pose] || ['Swimming', ''];
     if (w.ashore) set('pose', 'On land', { label: 'Walking', wait: true });
     else set('pose', POSE[1], { label: POSE[0] });
-    set('crush', w.act === 'crush' ? 'Crushing' : !w.holdId ? 'Grab first' : w.crushCool > 0 ? `${w.crushCool}s` : 'Ready',
-      { wait: !w.holdId || w.crushCool > 0, live: w.act === 'crush' });
-    set('bite', w.act === 'bite' ? 'Biting' : w.biteCool > 0 ? `${w.biteCool}s` : w.holdId ? 'Ship in hands' : 'Ship ahead',
+    set('crush', w.act === 'crush' ? 'Crushing' : !this.holding ? 'Grab first' : w.crushCool > 0 ? `${w.crushCool}s` : lump ? 'Rip it apart' : 'Ready',
+      { wait: !this.holding || w.crushCool > 0, live: w.act === 'crush' });
+    set('bite', w.act === 'bite' ? 'Biting' : w.biteCool > 0 ? `${w.biteCool}s` : w.holdId ? 'Ship in hands' : lump || (w.ashore ? 'Ship or building ahead' : 'Ship ahead'),
       { wait: w.biteCool > 0, live: w.act === 'bite' });
     set('roar', w.act === 'roar' ? 'Roaring' : '', { live: w.act === 'roar' });
     this.showAim(this.aimNow || w.aim, w.act === 'bite' || !!w.holdId);
