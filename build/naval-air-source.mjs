@@ -1,7 +1,7 @@
 // The Nimitz's three aircraft, the Ka-27, and the Implacable's Seafire and
 // Firefly, from the glbs the owner uploaded to the pieces the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|a5m|b4y|val|tenzan|corsair
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|rafale|nh90|a5m|b4y|val|tenzan|corsair
 //     ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
@@ -27,6 +27,13 @@
 //   f35   "F-35A Lightning II - USAF (WARNO mod)" by rran81 (Sketchfab), the
 //         owner's upload -- assets/models/f-35a_lightning_ii__usaf_warno_mod-maximum-compressed.glb,
 //         flown as the Ford's F-35C
+//   rafale  "Dassault Rafale" by CloudHubOmniTeam (https://skfb.ly/oOHxM)
+//         -- assets/models/dassault_rafale-maximum-compressed.glb, flown as the
+//         Charles de Gaulle's Rafale M
+//   nh90  "NH90 Caiman Door Gun - French Army (WARNO mod)" by rran81
+//         (Sketchfab), the owner's upload --
+//         assets/models/nh90_caiman_door_gun__french_army_warno_mod-maximum-compressed.glb,
+//         flown as the Charles de Gaulle's Caiman
 //
 // What comes out, in her own frame -- nose +z, up +y, wheels on y = 0, put to
 // her real length -- each piece painted at every point off the model's own
@@ -152,6 +159,41 @@ const KINDS = {
       return 'body';
     },
     spins: [],
+  },
+  // The Charles de Gaulle's Rafale M, off the owner's model of a Rafale:
+  // "Dassault Rafale" by CloudHubOmniTeam (https://skfb.ly/oOHxM), under
+  // Creative Commons Attribution 4.0. Drawn nose along -x, her canopy and her
+  // lights in its glass materials; no legs of her own.
+  rafale: {
+    src: 'dassault_rafale-maximum-compressed.glb', length: 15.27, keep: 0.6, nose: '-x',
+    piece: ({ mat }) => ([18, 19, 20, 21, 24, 25].includes(mat) ? 'glass' : 'body'),
+    spins: [],
+    guns: null,
+  },
+  // And her NH90 Caiman, off the owner's model of the army's: "NH90 Caiman
+  // Door Gun - French Army (WARNO mod)" by rran81 (Sketchfab). Drawn nose along
+  // +x. Her four-bladed main rotor and its head, her tail rotor and its
+  // gearbox on her port side, her three wheels, and a machine gun in each
+  // cabin door -- given a second each (`copies`), a metre aft of the first,
+  // which is the two a side she carries here.
+  nh90: {
+    src: 'nh90_caiman_door_gun__french_army_warno_mod-maximum-compressed.glb', length: 16.13, keep: 0.5, nose: '+x',
+    lengthOf: 'body',
+    copies: [{ nodes: ['Tourelle_01_35', 'Axe_Canon_01_34', 'Canon_01_33', 'Tourelle_02_39', 'Axe_Canon_02_38', 'Canon_02_37'], d: [-1.1, 0, 0] }],
+    piece: ({ mat, node }) => {
+      if (mat === 2) return 'glass';
+      if (/^(Helice_Ls_1|Bloc_Moteur_1)/.test(node)) return 'spin0';
+      if (/^(Helice_Ls_2|Bloc_Moteur_2)/.test(node)) return 'spin1';
+      if (/^Roue_/.test(node)) return 'gear';
+      return 'body';
+    },
+    // In her frame once her nose is along +z: the main rotor over her cabin,
+    // turning about the vertical; the tail rotor out to port of her fin,
+    // turning about her span.
+    spins: [
+      { name: 'rotor', hub: [0, 4.35, -0.57], axis: 'y' },
+      { name: 'tail', hub: [0.67, 3.98, -11.07], axis: 'x' },
+    ],
   },
   // The Implacable's fighter: a Seafire, off the owner's Spitfire Mk.IIa --
   // the same airframe, hooked and navalised -- repainted in the Fleet Air
@@ -687,6 +729,35 @@ if (K.addBlade) {
     model.T.push(...tri); model.M.push(model.M[t]); model.L.push(model.L[t]);
   }
   console.log(`addBlade: ${sel.length} faces of a blade at ${(a1 * 180 / Math.PI).toFixed(0)} deg copied to ${((a1 + turn) * 180 / Math.PI).toFixed(0)} deg (the other at ${(a2 * 180 / Math.PI).toFixed(0)})`);
+}
+// `copies`: the faces of the pieces named, drawn again moved by `d` in the
+// model's own frame -- a second door gun beside the first.
+for (const { nodes, d } of K.copies || []) {
+  const parent = new Map();
+  j.nodes.forEach((n, i) => (n.children || []).forEach((c) => parent.set(c, i)));
+  const named = (ni) => nodes.includes(j.nodes[ni].name) || nodes.includes((j.nodes[parent.get(ni)] || {}).name);
+  const nT = model.T.length / 3;
+  const map = new Map();
+  let n = 0;
+  for (let t = 0; t < nT; t++) {
+    if (!named(model.L[t])) continue;
+    const tri = [];
+    for (let k = 0; k < 3; k++) {
+      const v = model.T[t * 3 + k];
+      let w = map.get(v);
+      if (w === undefined) {
+        w = P.length / 3;
+        P.push(P[v * 3] + d[0], P[v * 3 + 1] + d[1], P[v * 3 + 2] + d[2]);
+        UV.push(UV[v * 2] || 0, UV[v * 2 + 1] || 0);
+        model.NY.push(model.NY[v] || 0);
+        map.set(v, w);
+      }
+      tri.push(w);
+    }
+    model.T.push(...tri); model.M.push(model.M[t]); model.L.push(model.L[t]);
+    n++;
+  }
+  console.log(`copies: ${n} faces of ${nodes.join(', ')} drawn again, moved ${d.join(', ')}`);
 }
 const P0 = Float64Array.from(P);
 if (K.nose === '+x') {

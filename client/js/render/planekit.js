@@ -4111,6 +4111,9 @@ const sh60 = (g, x, y, z, ry, folded, opts = {}) => navalAir('sh60', g, x, y, z,
 const ka27 = (g, x, y, z, ry, folded, opts = {}) => navalAir('ka27', g, x, y, z, ry, opts);
 // The Ford's F-35C.
 const f35 = (g, x, y, z, ry, folded, opts = {}) => navalAir('f35', g, x, y, z, ry, opts);
+// The Charles de Gaulle's Rafale M and NH90 Caiman.
+const rafale = (g, x, y, z, ry, folded, opts = {}) => navalAir('rafale', g, x, y, z, ry, opts);
+const nh90 = (g, x, y, z, ry, folded, opts = {}) => navalAir('nh90', g, x, y, z, ry, opts);
 // And the Implacable's two of her own, off the owner's models of them.
 const seafire = (g, x, y, z, ry, folded, opts = {}) => navalAir('seafire', g, x, y, z, ry, opts);
 const firefly = (g, x, y, z, ry, folded, opts = {}) => fireflyStores(navalAir('firefly', g, x, y, z, ry, opts), opts);
@@ -5861,7 +5864,7 @@ function b52Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
-export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, a5m, b4y, val, tenzan, corsair };
+export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, rafale, nh90, a5m, b4y, val, tenzan, corsair };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };
 // And the heavy squadrons, which are not flown off anything and so are asked

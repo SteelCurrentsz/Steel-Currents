@@ -174,6 +174,26 @@ export const AERO = {
     helix: 0.07, gLimit: 3.0,
     rotor: true,
   },
+  // The Charles de Gaulle's Rafale M: a delta with close-coupled canards and
+  // two M88s, a navalised airframe strong enough for a steam catapult and an
+  // arrested landing, and quicker round a turn than anything else here.
+  rafale: {
+    mass: 15000, wing: 45.7, span: 10.8, clMax: 1.8, cd0: 0.0220,
+    thrust: 150000, vMax: 300, name: 'Rafale M', jet: true,
+    helix: 0.12, gLimit: 9.0,
+  },
+  // And her NH90 Caiman, the navy's NFH, flown as the Seahawk is: a little
+  // heavier, and a little quicker.
+  nh90: {
+    mass: 10600, wing: 62, span: 16.3, clMax: 6.0, cd0: 0.0720,
+    thrust: 45000, vMax: 83, name: 'NH90 Caiman',
+    helix: 0.07, gLimit: 3.0,
+    rotor: true,
+    // Two heavy machine guns in each of her cabin doors, which fire on their
+    // own at whatever of the enemy's comes in reach either side of her (see
+    // stepDoorGuns in the simulation).
+    doorGuns: 2,
+  },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',

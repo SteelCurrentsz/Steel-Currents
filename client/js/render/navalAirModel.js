@@ -23,6 +23,10 @@ const SOURCES = {
   firefly: () => import('./fireflyModel.data.js').then((m) => [m.FIREFLY_PIECES, m.FIREFLY_META]),
   // And the Gerald R. Ford's F-35C Lightning II.
   f35: () => import('./f35Model.data.js').then((m) => [m.F35_PIECES, m.F35_META]),
+  // And the Charles de Gaulle's Rafale M and NH90 Caiman, off the owner's
+  // models of them.
+  rafale: () => import('./rafaleModel.data.js').then((m) => [m.RAFALE_PIECES, m.RAFALE_META]),
+  nh90: () => import('./nh90Model.data.js').then((m) => [m.NH90_PIECES, m.NH90_META]),
   // And the Hosho's two: the A5M in her model's own texture, and the B4Y in
   // the texture her paint is drawn on.
   a5m: () => import('./a5mModel.data.js').then((m) => [m.A5M_PIECES, m.A5M_META, m.A5M_TEXTURE]),
@@ -139,7 +143,7 @@ function texturedMaterials(kind) {
 const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22, prop: 1 };
 
 /** How far each kind's legs rise into her as they come up. */
-const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2, tenzan: 1.3, corsair: 1.2 };
+const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2, tenzan: 1.3, corsair: 1.2, rafale: 1.3, nh90: 0.6 };
 // (The A5M's and the B4Y's legs are fixed, in their spats: they have no `gear`.)
 
 /**

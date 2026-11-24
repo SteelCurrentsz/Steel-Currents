@@ -120,6 +120,14 @@ export const TORPEDO_KINDS = {
     blades: [4, 4], stud: false,
     paint: { head: 0x2e3a2c, flask: 0x56604f, after: 0x4f5949, tail: 0x3e4739, joint: 0xb3a04e, screw: 0x6d706a, ring: 0x3e4739 },
   },
+  // The Caiman's MU90 Impact: the Franco-Italian lightweight homing torpedo
+  // that followed the Mk 46, a little longer, its seeker under a flat nose,
+  // grey, with a ducted pump-jet for a tail.
+  mu90: {
+    len: 2.96, r: 0.162, nose: 'blunt', head: 0.26, flask: 0.4, cone: 3.2, fin: 0.94, ring: true,
+    blades: [4, 4], stud: false,
+    paint: { head: 0x2f3337, flask: 0x7d858b, after: 0x737b81, tail: 0x5a6167, joint: 0xc9a13c, screw: 0x6d706a, ring: 0x5a6167 },
+  },
   // The Avenger's Mk 13: short and fat, and a ring round its tail that held
   // it straight through the water once its wooden drop gear had gone.
   mk13: {

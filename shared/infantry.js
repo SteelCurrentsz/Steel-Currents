@@ -493,6 +493,21 @@ function fireRound(state, from, dx, dy, dz, range, damage, by, gun = null) {
   return hit;
 }
 
+/**
+ * A round from a gun that is not a soldier's or a tank's -- a helicopter's
+ * door gun -- at one man, from `from`, on `team`'s side: laid on his chest
+ * with `spread` of error, and down the line from there it hits what it hits
+ * (see fireRound). Returns the man it hit, or null.
+ */
+export function gunAtMan(state, from, s, team, damage, spread = 0.004) {
+  const d = Math.hypot(s.x - from.x, s.z - from.z);
+  const yaw = headingTo(from.x, from.z, s.x, s.z) + gauss(state.rng) * spread;
+  const pitch = Math.atan2(chestOf(s) - from.y, Math.max(1, d)) + gauss(state.rng) * spread;
+  const c = Math.cos(pitch);
+  const reach = Math.hypot(d, chestOf(s) - from.y) + 40;
+  return fireRound(state, from, Math.sin(yaw) * c, Math.sin(pitch), Math.cos(yaw) * c, reach, damage, null, { team, id: undefined });
+}
+
 /** A man hurt: how badly, where, by whom, and whether that was the end of him. */
 export function woundSoldier(state, s, dmg, { x, y, z, dx = 0, dy = 0, dz = 0, part = 1, by = null, gib = false } = {}) {
   if (!s.alive) return;

@@ -14,7 +14,7 @@ import { MISSILE_SHAPES } from './render/missiles.js';
 
 /** The key each missile is fired on, by kind (see onKey in game.js). */
 export const MISSILE_KEYS = {
-  tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y', sunburn: 'V', uragan: 'I', vulcan: 'V', s300: 'O', osa: 'I', essm: 'I', ram: 'O',
+  tomahawk: 'Z', harpoon: 'V', asroc: 'U', sm2: 'I', sm2er: 'O', sm3: 'Y', sunburn: 'V', uragan: 'I', vulcan: 'V', s300: 'O', osa: 'I', essm: 'I', ram: 'O', aster15: 'I', mistral: 'O',
 };
 import {
   worksTargets, townTargetId, wallTargetId, wallSections, sectionSpan, wallDamage, cityToWorld,
