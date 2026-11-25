@@ -534,6 +534,14 @@ export function brakeDrag(a, v, out) {
 }
 
 /** Thrust, in newtons. A propeller makes most of it standing still. */
+/**
+ * Whether she can hang in the air: a helicopter (`rotor`) or a VTOL aeroplane
+ * (`vtol`). Only these have the hover hold on the throttle.
+ */
+export function hovers(a) {
+  return !!(a && (a.rotor || a.vtol));
+}
+
 export function thrust(a, v, throttle = 1) {
   return a.thrust * throttle * Math.max(0.28, 1 - 0.52 * (v / a.vMax));
 }

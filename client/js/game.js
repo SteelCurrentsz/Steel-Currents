@@ -14,7 +14,7 @@ import { TargetingView } from './render/targetview.js';
 import { PlaneBoard, PART_NAME } from './render/planeboard.js';
 import { holeRadius } from './render/plating.js';
 import { blastPower } from './render/rupture.js';
-import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct, alphaFor }
+import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct, alphaFor, hovers }
   from './render/aero.js';
 import { startManeuver, pathOf, upOf } from '../../shared/pilot.js';
 import { VIC, vicAt } from '../../shared/formation.js';
@@ -1099,6 +1099,7 @@ export class Battle {
       chaff: () => this.dropChaff(),
       bombCam: () => this.toggleShellCam(),
       brakes: () => this.toggleBrakes(),
+      hover: () => this.toggleHover(),
       move: (kind) => this.flyMove(kind),
     });
     // The shell camera, beside the target plate: ride the rounds this ship is
@@ -5309,6 +5310,11 @@ export class Battle {
     if (this.flight && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'KeyQ', 'KeyE', 'KeyC'].includes(code)) return;
     // Her dive brakes, out and in.
     if (this.flight && !this.flight.heavy && code === 'KeyX') { this.toggleBrakes(); return; }
+    // The hover hold, on a helicopter or a VTOL aeroplane.
+    if (this.flight && !this.flight.heavy && code === 'KeyH' && hovers(this.flight.pilot.a)) {
+      this.toggleHover();
+      return;
+    }
     // Her missiles: step the seeker on, and fire at what it has locked.
     // A B-52's seeker too: her cruise missiles go at what it has locked.
     const seeks = this.flight && (!this.flight.heavy || this.flight.load?.alcm) && !this.turret;
@@ -6509,6 +6515,7 @@ export class Battle {
       this.flight.pilot.brakeCmd = pl.db > 0.5;
     }
     this.hud.setBrakes(!!aero.brake, this.flight.pilot.brakeCmd);
+    this.hud.setHover(!this.flight.heavy && hovers(aero), false);
     // No set pieces any more: she is flown through them by the pilot, by
     // looking where he wants her to go.
     this.hud.setMoves(false);
@@ -7146,6 +7153,20 @@ export class Battle {
   }
 
   /**
+   * The hover hold: she stops where she is and hangs there. Off again on this
+   * same key, or by moving the throttle (see stepFlight).
+   */
+  toggleHover() {
+    const f = this.flight;
+    if (!f || f.heavy || f.orphan || !hovers(f.pilot.a)) return;
+    const on = f.pilot.setHover(!f.pilot.hover);
+    f.hoverThr = this.hud.fly ? this.hud.fly.throttle : null;
+    this.hud.setHover(true, on);
+    if (on) this.hud.alert('Hover hold — move the throttle to fly on');
+    audio.click();
+  }
+
+  /**
    * Fly her for one frame.
    *
    * The stick and the throttle come off the cockpit; the aeroplane comes off
@@ -7306,7 +7327,10 @@ export class Battle {
     // long as they are held, which is an aileron roll, a barrel roll with the
     // view pulled up as well, or simply flying her on her back.
     const handRoll = (keys.down('KeyE') ? 1 : 0) - (keys.down('KeyQ') ? 1 : 0);
-    if (handRoll) {
+    // On her rotor Q and E are the pedals: her nose round on the spot.
+    if (handRoll && p.rotorBorne?.()) {
+      p.stickYaw = handRoll;
+    } else if (handRoll) {
       p.stickRoll = handRoll;
       p.stickYaw = 0;
       p.stickPitch = Math.max(p.stickPitch, 0.08 * Math.cos(p.bank));
@@ -7323,6 +7347,11 @@ export class Battle {
     // The keys, for a desk: W and S open and close her up, as they do a ship.
     if (keys.down('KeyW') || keys.down('ShiftLeft')) this.hud.setThrottle(stick.throttle + dt * 0.6);
     if (keys.down('KeyS') || keys.down('ControlLeft')) this.hud.setThrottle(stick.throttle - dt * 0.6);
+    // The hover hold lets go the moment the throttle is moved, by thumb or key.
+    if (p.hover && stick.throttle !== f.hoverThr) {
+      p.setHover(false);
+      this.hud.setHover(true, false);
+    }
     p.throttle = stick.throttle * wear.speed;
     const sea = this.scene.ocean.heightAt(p.x, p.z);
     p.gale = galeOf(this.world, this.renderST ?? this.time);
@@ -9921,8 +9950,10 @@ export class Battle {
       }
       // A helicopter's nose is not on her path: she hangs level in the hover,
       // going straight up or down, and dips it a few degrees going ahead.
-      const pitchWant = a.rotor && !flown
-        ? -0.07 * clamp((gs - 12) / 50, 0, 1)
+      // Flown by a player, she hangs level the same way whenever she is down
+      // to the speeds her rotor rather than her wing is holding her up at.
+      const pitchWant = hovers(a) && (!flown || gs < stallSpeed(a) * 1.15)
+        ? (flown ? (pl.pt || 0) : -0.07 * clamp((gs - 12) / 50, 0, 1))
         : flown
           ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), load) * Math.cos(bank)
           : flightAttitude(a, gs, pl.vy || 0, 1 / Math.max(0.35, Math.cos(bank)));

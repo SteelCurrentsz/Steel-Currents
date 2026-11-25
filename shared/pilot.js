@@ -12,7 +12,7 @@
 
 import {
   G, rollRate, rollTau, pitchTau, pitchRate, stallSpeed,
-  thrust, drag, brakeDrag, clFor, alphaFor, wrapAngle,
+  thrust, drag, brakeDrag, clFor, alphaFor, wrapAngle, hovers,
 } from './aero.js';
 
 /** How much livelier a player's aeroplane is than her book figures. */
@@ -87,6 +87,12 @@ export class Pilot {
     // on a type built without them.
     this.brakeCmd = false;
     this.brakes = 0;
+    // The hover hold, on a machine that can hang in the air (a helicopter,
+    // and a VTOL aeroplane): selected, she bleeds off her way and holds the
+    // height she was at, going neither up nor down nor anywhere across, and
+    // the stick only turns her nose. Moving the throttle again lets her go.
+    this.hover = false;
+    this.hoverY = 0;
     // What the stick is asking for, -1 to 1: nose up positive, right roll
     // positive.
     this.stickPitch = 0;
@@ -120,6 +126,23 @@ export class Pilot {
 
   /** The speed below which this wing will not hold her up in level flight. */
   get vStall() { return stallSpeed(this.a); }
+
+  /**
+   * Whether she is being held up by her rotor rather than flown on her wing:
+   * on a machine that can hover, whenever the hover hold is on or she is
+   * going too slowly for the wing to carry her.
+   */
+  rotorBorne() {
+    return hovers(this.a) && (this.hover || this.v < this.vStall * ROTOR_BAND);
+  }
+
+  /** Hover hold on or off. Only a machine that can hang in the air has one. */
+  setHover(on) {
+    const want = !!on && hovers(this.a);
+    if (want && !this.hover) this.hoverY = this.y;
+    this.hover = want;
+    return this.hover;
+  }
 
   /**
    * The angle her nose is at, which is not the angle she is going.
@@ -214,6 +237,9 @@ export class Pilot {
     // every time she was pushed over the top of a climb or eased out of a
     // dive -- which is the twitch she had going up and coming down.
     const sign = Math.max(-1, Math.min(1, g / 0.6));
+    // Held up by her rotor (or her lift jets) and not her wing, her nose is
+    // wherever she is putting it, not hanging off her path.
+    if (this.rotorBorne()) return 0;
     return a * (1 - 0.7 * this.stall) * sign;
   }
 
@@ -240,6 +266,7 @@ export class Pilot {
    */
   substep(s, seaAt, solid = null) {
     const a = this.a;
+    if (this.rotorBorne()) { this.rotorStep(s, seaAt, solid); return; }
     this.frame();
     const F = this.F, U = this.U;
     const vs = this.vStall;
@@ -385,6 +412,90 @@ export class Pilot {
   }
 }
 
+/**
+ * The speeds, as a multiple of her wing's stall speed, below which a machine
+ * that can hover is flown on her rotor rather than her wing. Above it she is
+ * an aeroplane again, flown as one.
+ */
+const ROTOR_BAND = 1.15;
+/** How fast she turns on her pedals in the hover, radians a second. */
+const PEDAL_RATE = 0.8;
+/** How fast she goes up or down on the collective going slowly, m/s. */
+const ROTOR_CLIMB = 7;
+/** The furthest her nose is put up or down hanging in the air, radians. */
+const ROTOR_NOSE = 0.35;
+
+/**
+ * One step on her rotor: hanging in the air, or going slowly enough that the
+ * wing she is otherwise flown on would not hold her up.
+ *
+ * She does not fall here. With the hover hold on she bleeds off whatever way
+ * she had, holds the height it was selected at, and the stick turns her nose
+ * round on the spot (and up or down, for her guns) without moving her. With it
+ * off she is a helicopter going slowly: the throttle pulls her ahead, the
+ * stick turns her and takes her up or down, and once she is going fast enough
+ * she is handed back to the wing.
+ */
+Pilot.prototype.rotorStep = function rotorStep(s, seaAt, solid) {
+  const a = this.a;
+  this.frame();
+  this.angles();
+  this.roll = 0;
+  this.stall = 0;
+  this.g += (1 - this.g) * (1 - Math.exp(-s / 0.3));
+  this.gSeen += (this.g - this.gSeen) * (1 - Math.exp(-s / 0.12));
+  // Her nose round on the pedals, toward wherever the stick is asking.
+  const turn = Math.max(-1, Math.min(1, this.stickYaw + this.stickRoll));
+  this.heading = wrapAngle(this.heading + turn * PEDAL_RATE * s);
+  // Wings level: she hangs under her rotor.
+  this.bank *= Math.exp(-s / 0.5);
+  let vy;
+  if (this.hover) {
+    // Her way off her, and her height held where she was.
+    this.v *= Math.exp(-s / 1.2);
+    if (this.v < 0.05) this.v = 0;
+    this.hoverY = Math.max(this.hoverY, seaAt + 6);
+    vy = Math.max(-4, Math.min(4, (this.hoverY - this.y) * 1.5));
+    // The nose put up or down where her guns are wanted, which moves her
+    // nowhere with no way on her.
+    const want = Math.max(-ROTOR_NOSE, Math.min(ROTOR_NOSE, this.pitch + this.stickPitch * 0.8 * s));
+    this.pitch = want;
+  } else {
+    // Ahead on the throttle, against the air.
+    this.v += (thrust(a, this.v, this.throttle) / a.mass - 0.08 * this.v) * s;
+    this.v = Math.max(0, this.v);
+    vy = this.stickPitch * ROTOR_CLIMB;
+    // Her nose a few degrees down going ahead, level in the hover.
+    const want = -0.07 * Math.min(1, this.v / 30);
+    this.pitch += (want - this.pitch) * (1 - Math.exp(-s / 0.6));
+  }
+  this.frame();
+  const F = this.F;
+  const fl = Math.hypot(F.x, F.z) || 1;
+  // A gale still knocks her about a little; her pilot holds her on station
+  // against the drift of it.
+  let gy = 0;
+  if (this.gale) {
+    this.galeT += s;
+    gy = (this.gale.rough || 0) * 0.6 * Math.sin(this.galeT * 1.13);
+  }
+  const x0 = this.x, y0 = this.y, z0 = this.z;
+  this.x += (F.x / fl) * this.v * s;
+  this.z += (F.z / fl) * this.v * s;
+  this.y += (vy + gy) * s;
+  const hit = solid ? solid(x0, y0, z0, this.x, this.y, this.z) : null;
+  if (hit) {
+    this.x = hit.x; this.y = hit.y; this.z = hit.z;
+    this.alive = false;
+    this.struck = hit;
+    return;
+  }
+  if (this.y < seaAt + 2) {
+    this.y = seaAt + 2;
+    this.alive = false;
+  }
+};
+
 function cross(a, b) {
   return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x };
 }
@@ -446,6 +557,18 @@ function orthonormal(F, U) {
  * heading.
  */
 export function instruct(p, aim) {
+  // On her rotor there is no wing to roll and pull: her nose is put round on
+  // the pedals onto the mark, and up or down onto it on the collective (or,
+  // in the hover, by tilting her nose there).
+  if (p.rotorBorne && p.rotorBorne()) {
+    const yawErr = wrapAngle(Math.atan2(aim.x, aim.z) - p.heading);
+    const aimGamma = Math.asin(Math.max(-1, Math.min(1, aim.y)));
+    p.stickRoll = 0;
+    p.stickYaw = Math.max(-1, Math.min(1, yawErr * 2.5));
+    p.stickPitch = Math.max(-1, Math.min(1, (aimGamma - (p.hover ? p.pitch : 0)) * 3));
+    return Math.acos(Math.max(-1, Math.min(1, aim.x * Math.sin(p.heading) * Math.cos(p.pitch)
+      + aim.y * Math.sin(p.pitch) + aim.z * Math.cos(p.heading) * Math.cos(p.pitch))));
+  }
   // (Anything flown without a frame of its own is read off its three angles.)
   if (p.frame) p.frame();
   const F = p.F || pathOf(p);

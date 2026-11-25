@@ -16942,6 +16942,29 @@ check('a pilot flies her flight, and nobody else can', () => {
   assert.ok(Math.abs(p.x - wasX) > 1 || Math.abs(p.z - z) > 1, 'nobody is flying her at all');
 });
 
+check('a helicopter on the hover hold hangs where she is until the throttle lets her go', () => {
+  const p = new Pilot(AERO.sh60, { y: 120, speed: 60 });
+  for (let i = 0; i < 60 * 5; i++) { instruct(p, { x: 0, y: 0, z: 1 }); p.step(1 / 60); }
+  assert.ok(p.setHover(true), 'a helicopter has no hover hold');
+  const y0 = p.y;
+  // Settled into it, she stays put however the view is swung about: the stick
+  // only turns her nose round on the spot and tips it down at the mark.
+  for (let i = 0; i < 60 * 10; i++) { instruct(p, { x: 0.7, y: -0.2, z: 0.7 }); p.step(1 / 60); }
+  const x1 = p.x, z1 = p.z;
+  for (let i = 0; i < 60 * 10; i++) { instruct(p, { x: 0.7, y: -0.2, z: 0.7 }); p.step(1 / 60); }
+  assert.ok(p.alive, 'she fell out of the hover');
+  assert.ok(Math.abs(p.y - y0) < 0.5, `she went ${(p.y - y0).toFixed(1)} m up or down in the hover`);
+  assert.ok(Math.hypot(p.x - x1, p.z - z1) < 0.5, 'she drifted about in the hover');
+  assert.ok(Math.abs(p.heading - Math.PI / 4) < 0.1, 'her nose was not turned onto the mark');
+  // Let go with the throttle open, she flies off and back onto her wing.
+  p.setHover(false);
+  p.throttle = 1;
+  for (let i = 0; i < 60 * 20; i++) { instruct(p, { x: 0.7, y: 0, z: 0.7 }); p.step(1 / 60); }
+  assert.ok(p.alive && !p.rotorBorne(), `let go she only got to ${p.v.toFixed(1)} m/s`);
+  // And only a machine that can hang in the air has one.
+  assert.equal(new Pilot(AERO_WILDCAT, { y: 900 }).setHover(true), false, 'a Wildcat hovers');
+});
+
 check('an aeroplane flies on her wing, not on a cursor', () => {
   // Hands off she holds what she is given; hauled round she pays for it in
   // speed and height, and hauled round hard enough she stalls. That is the

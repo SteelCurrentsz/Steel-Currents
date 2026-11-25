@@ -720,6 +720,21 @@ input[type="range"] { accent-color: var(--red); }
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
 }
 .fly-throttle-val::after { content: '%'; }
+/* The hover hold, sitting on the head of the throttle ladder. */
+.fly-hover {
+  position: absolute; right: max(4.2rem, calc(env(safe-area-inset-right) + 3.8rem));
+  bottom: calc(max(1.4rem, calc(env(safe-area-inset-bottom) + 1rem)) + min(30vh, 220px) + 24px);
+  width: 56px; height: 26px; padding: 0;
+  pointer-events: auto; touch-action: manipulation; cursor: pointer;
+  font-family: var(--ui); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.06em;
+  color: #fff; background: rgba(8, 20, 32, 0.55);
+  border: 1.5px solid rgba(255, 255, 255, 0.75); border-radius: 13px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.fly-hover[hidden] { display: none; }
+.fly-hover.on {
+  color: #08140f; background: rgba(120, 230, 170, 0.92); border-color: #b8ffd8; text-shadow: none;
+}
 
 /* The flying surface: the whole screen. Put a thumb down anywhere and drag,
    and the view -- and the aeroplane after it -- goes where the thumb goes. It

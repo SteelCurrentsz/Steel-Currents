@@ -400,6 +400,7 @@ class HudBase {
       flyGuns: $('fly-guns'), flyDrop: $('fly-drop'), flyLeave: $('fly-leave'),
       flyArms: $('fly-arms'), flyBombCam: $('fly-bombcam'), flyMoves: $('fly-moves'),
       flyBrakes: $('fly-brakes'),
+      flyHover: $('fly-hover'),
       flyLock: $('fly-lock'), flyLockLabel: $('fly-lock-label'),
       flyLockOn: $('fly-lockon'), flyMsl: $('fly-msl'),
       flyChaff: $('fly-chaff'), flyChaffN: $('fly-chaff-n'),
@@ -1490,6 +1491,7 @@ class HudBase {
     if (el.flyArms) el.flyArms.onclick = () => this.togglePanel('arms');
     if (el.flyBombCam) el.flyBombCam.onclick = () => this.flyFns.bombCam?.();
     if (el.flyBrakes) el.flyBrakes.onclick = () => this.flyFns.brakes?.();
+    if (el.flyHover) el.flyHover.onclick = () => this.flyFns.hover?.();
     if (el.flyLockOn) el.flyLockOn.onclick = () => this.flyFns.lock?.();
     if (el.flyMsl) el.flyMsl.onclick = () => this.flyFns.missile?.();
     if (el.flyChaff) el.flyChaff.onclick = () => this.flyFns.chaff?.();
@@ -1646,6 +1648,17 @@ class HudBase {
   }
 
   /**
+   * The hover hold on the head of the throttle: there only on a machine that
+   * can hang in the air, lit while she is holding.
+   */
+  setHover(has, on = false) {
+    const b = this.el.flyHover;
+    if (!b) return;
+    b.hidden = !has;
+    b.classList.toggle('on', !!has && !!on);
+  }
+
+  /**
    * Who she is: her type in the bottom left corner, and the ship she came off
    * under it. A pilot flying one of the carrier's Avengers from a destroyer's
    * bridge has to be told which aeroplane he has.
@@ -1779,6 +1792,7 @@ class HudBase {
       if (this.el.flyHint) this.el.flyHint.classList.remove('gone');
       this.setSightHot(false);
       this.setBrakes(false);
+      this.setHover(false);
     }
   }
 
