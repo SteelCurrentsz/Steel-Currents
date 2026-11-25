@@ -9952,7 +9952,7 @@ export class Battle {
       // going straight up or down, and dips it a few degrees going ahead.
       // Flown by a player, she hangs level the same way whenever she is down
       // to the speeds her rotor rather than her wing is holding her up at.
-      const pitchWant = hovers(a) && (!flown || gs < stallSpeed(a) * 1.15)
+      const pitchWant = hovers(a) && (!flown || gs < stallSpeed(a) * 1.6)
         ? (flown ? (pl.pt || 0) : -0.07 * clamp((gs - 12) / 50, 0, 1))
         : flown
           ? (pl.pt || 0) + alphaFor(a, Math.hypot(gs, pl.vy || 0), load) * Math.cos(bank)

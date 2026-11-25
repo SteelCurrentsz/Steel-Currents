@@ -415,9 +415,12 @@ export class Pilot {
 /**
  * The speeds, as a multiple of her wing's stall speed, below which a machine
  * that can hover is flown on her rotor rather than her wing. Above it she is
- * an aeroplane again, flown as one.
+ * an aeroplane again, flown as one. Not much over the stall: a rotor type's
+ * stand-in wing is so draggy near it that her engine cannot hold her there,
+ * and handed over too early she slowed back out of it and flickered between
+ * the two.
  */
-const ROTOR_BAND = 1.15;
+const ROTOR_BAND = 1.6;
 /** How fast she turns on her pedals in the hover, radians a second. */
 const PEDAL_RATE = 0.8;
 /** How fast she goes up or down on the collective going slowly, m/s. */
@@ -433,7 +436,7 @@ const ROTOR_NOSE = 0.35;
  * she had, holds the height it was selected at, and the stick turns her nose
  * round on the spot (and up or down, for her guns) without moving her. With it
  * off she is a helicopter going slowly: the throttle pulls her ahead, the
- * stick turns her and takes her up or down, and once she is going fast enough
+ * stick turns her and takes her up or down, and once she is going fast enough for the wing to hold her and pull her on
  * she is handed back to the wing.
  */
 Pilot.prototype.rotorStep = function rotorStep(s, seaAt, solid) {
