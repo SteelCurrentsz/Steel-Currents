@@ -155,7 +155,26 @@ const { j } = model;
 // glass of her bridge, each a sheet painted by a texture mostly clear -- is
 // left off her: drawn solid it walls her decks in.
 {
-  const clear = new Set(j.materials.map((m, i) => (m.alphaMode === 'BLEND' ? i : -1)).filter((i) => i >= 0));
+  // Only what really is clear: a blended material whose colour, and the
+  // alpha of its texture on the average, leave less than half of it there.
+  // Several of the model's plates are blended over a JPEG, which has no
+  // alpha at all, and are as solid as any.
+  const sharp0 = createRequire(process.env.SCULPT_TOOLS ? path.join(process.env.SCULPT_TOOLS, 'index.js') : import.meta.url)('sharp');
+  const clear = new Set();
+  for (const [i, m] of j.materials.entries()) {
+    if (m.alphaMode !== 'BLEND') continue;
+    const sg = (m.extensions || {}).KHR_materials_pbrSpecularGlossiness || {};
+    const f = (sg.diffuseFactor || (m.pbrMetallicRoughness || {}).baseColorFactor || [1, 1, 1, 1])[3];
+    const tx = sg.diffuseTexture || (m.pbrMetallicRoughness || {}).baseColorTexture;
+    let a = 1;
+    if (tx) {
+      const img = j.images[j.textures[tx.index].source];
+      const { data, info } = await sharp0(Buffer.from(model.views[img.bufferView])).raw().toBuffer({ resolveWithObject: true });
+      if (info.channels === 4) { let sum = 0; for (let k = 3; k < data.length; k += 4) sum += data[k]; a = sum / (data.length / 4) / 255; }
+    }
+    console.log(`material ${i}: blended, ${(f * a * 100).toFixed(0)}% opaque`);
+    if (f * a < 0.5) clear.add(i);
+  }
   const T2 = [], G2 = [], L2 = [], M2 = [];
   for (let t = 0; t < model.T.length / 3; t++) {
     if (clear.has(model.M[t])) continue;
@@ -874,6 +893,23 @@ function orient(m, cell = 0.4) {
   return S0;
 }
 hullRaw.S0 = orient(hullRaw);
+// The plates either side of her ski-jump, between its ramp and her
+// bulwarks, and the ramp's sides, are a handful of great plates of the
+// model's (cut fine above), half hidden under the ramp's overhang: the rays
+// above turned many of them to face in or down, and from outside her the sea
+// showed through either side of the ramp. Every face of her above the water
+// forward of her forward sponsons is drawn from both sides.
+{
+  let n = 0;
+  for (let t = 0; t < hullRaw.T.length / 3; t++) {
+    const v = [0, 1, 2].map((k) => hullRaw.T[t * 3 + k]);
+    const z = v.reduce((a, i) => a + hullRaw.P[i * 3 + 2], 0) / 3;
+    const y = v.reduce((a, i) => a + hullRaw.P[i * 3 + 1], 0) / 3;
+    if (z < 78 || y < 8) continue;
+    if (!hullRaw.S0[t]) { hullRaw.S0[t] = 1; n++; }
+  }
+  console.log(`ski-jump: ${n} faces of her bow drawn from both sides`);
+}
 // Pruned as it is decimated: what is too small to keep whole -- a cleat, a
 // stanchion -- goes, rather than being kept as a shard.
 // And her waterline held where it is drawn, the length of her new bottom:
@@ -1006,6 +1042,26 @@ console.log('hull:', hull.T.length / 3, 'triangles,', hull.P.length / 3, 'points
     }
   }
   console.log(`cracks: ${plated} slivers between her plates closed, of ${open.length} open edges below ${MAXY} m`);
+}
+
+// The model leaves her open under the overhang of her flight deck forward,
+// between her forecastle and her ski-jump: seen from abeam, the sea on her
+// far side showed through her. A bulkhead down her centreline there, in her
+// darkest paint, is the inside of her that the model never drew.
+{
+  const { P, N, T, C, S } = hull;
+  let dark = 0;
+  PALETTE.forEach((c, i) => { if (c[0] + c[1] + c[2] < PALETTE[dark][0] + PALETTE[dark][1] + PALETTE[dark][2]) dark = i; });
+  const Z0 = +(process.env.WEB_Z0 || 30), Z1 = +(process.env.WEB_Z1 || 140), Y0 = 9, Y1 = FD_GUESS - 0.3;
+  for (const side of [1, -1]) {
+    const base = P.length / 3;
+    P.push(0, Y0, Z0, 0, Y1, Z0, 0, Y1, Z1, 0, Y0, Z1);
+    for (let k = 0; k < 4; k++) N.push(side, 0, 0);
+    if (side > 0) T.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    else T.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    C.push(dark, dark); S.push(0, 0);
+  }
+  console.log(`bulkhead under her forward overhang, z ${Z0}..${Z1}, painted ${PALETTE[dark].join(',')}`);
 }
 
 // Her decks: painted steel from end to end, non-skid grey: every face of

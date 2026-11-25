@@ -11896,7 +11896,7 @@ export const SHIP_CLASSES = {
       // climbing; a helicopter straight up off her spot aft to a hover
       // eighteen metres over it.
       runOut: { fighter: 173, dive: 173, torpedo: -128 },
-      runHeight: { fighter: 27.4, dive: 27.4, torpedo: 36.85 },
+      runHeight: { fighter: 25.9, dive: 25.9, torpedo: 36.85 },
       launchSpeed: { fighter: 61, dive: 61, torpedo: 4 },
       helipad: { x: -8, z: -128, y: 18.85 },
       // Up a lift from the hangar, along the deck to a take-off position and

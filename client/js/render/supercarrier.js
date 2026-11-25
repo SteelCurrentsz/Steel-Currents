@@ -499,10 +499,29 @@ export function supercarrier(cfg) {
    * her bow in `CAT_T`, her wheels on the ramp and her nose following it up;
    * off the lip she goes on up at the angle it threw her at, climbing.
    */
+  /**
+   * Each take-off position's ramp, metre by metre up its track: the running
+   * highest of her surface under it, so a hole in her height map at her lip
+   * (her surface is read off a grid half a metre square) does not drop an
+   * aeroplane through her bow.
+   */
+  const RAMPS = new Map();
+  function rampOf(cat) {
+    if (!RAMPS.has(cat)) {
+      const h = [];
+      for (let s = 0, top = 0; s <= STROKE + 1; s++) { top = Math.max(top, ramp(cat.x, cat.z + s)); h.push(top); }
+      RAMPS.set(cat, h);
+    }
+    return RAMPS.get(cat);
+  }
   function jump(k, cat) {
     const v = 2 * STROKE / CAT_T;
-    const at = (s) => ramp(cat.x, cat.z + s);
-    const slope = (s) => Math.atan2(at(s) - at(s - 2), 2);
+    const H = rampOf(cat);
+    const at = (s) => {
+      const c = clamp(s, 0, H.length - 1.001), i = Math.floor(c);
+      return H[i] + (H[i + 1] - H[i]) * (c - i);
+    };
+    const slope = (s) => Math.atan2(at(s) - at(s - 6), 6);
     if (k < CAT_T) {
       const u = k / CAT_T;
       const s = STROKE * u * u;
