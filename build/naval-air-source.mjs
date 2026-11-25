@@ -1,7 +1,7 @@
 // The Nimitz's three aircraft, the Ka-27, and the Implacable's Seafire and
 // Firefly, from the glbs the owner uploaded to the pieces the game flies.
 //
-//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|rafale|nh90|a5m|b4y|val|tenzan|corsair
+//   node build/naval-air-source.mjs f18|e2d|sh60|ka27|seafire|firefly|f35|rafale|nh90|su33|mig29k|su25|ka52|a5m|b4y|val|tenzan|corsair
 //     ->  client/js/render/<kind>Model.data.js
 //
 // Wants the decimator and the image decoder (see build/sculpt-source.mjs):
@@ -34,6 +34,13 @@
 //         (Sketchfab), the owner's upload --
 //         assets/models/nh90_caiman_door_gun__french_army_warno_mod-maximum-compressed.glb,
 //         flown as the Charles de Gaulle's Caiman
+//   su33  "Sukhoi Su-33" by andertan (Sketchfab) -- assets/models/Su33-maximum-compressed.glb
+//   mig29k  "MiG 29" by Uxman (Sketchfab) -- assets/models/mig_29-maximum-compressed.glb,
+//         flown as the Admiral Kuznetsov's MiG-29K
+//   su25  "Su-25" by mamont nikita (Sketchfab) -- assets/models/su-25-maximum-compressed.glb
+//   ka52  "Russian Ka-52 '58 Blue'" by 42manako (Sketchfab) --
+//         assets/models/russian_ka-52_58_blue-maximum-compressed.glb, flown as
+//         the Admiral Kuznetsov's Ka-52K Katran
 //
 // What comes out, in her own frame -- nose +z, up +y, wheels on y = 0, put to
 // her real length -- each piece painted at every point off the model's own
@@ -193,6 +200,48 @@ const KINDS = {
     spins: [
       { name: 'rotor', hub: [0, 4.35, -0.57], axis: 'y' },
       { name: 'tail', hub: [0.67, 3.98, -11.07], axis: 'x' },
+    ],
+  },
+  // The Admiral Kuznetsov's four new types, off the owner's models of them.
+  // Her Su-33, the navalised Flanker with canards and folding wings:
+  // "Sukhoi Su-33" by andertan (Sketchfab).
+  su33: {
+    src: 'Su33-maximum-compressed.glb', length: 21.19, keep: 0.6, nose: '+x',
+    piece: ({ mat }) => (mat === 2 ? 'glass' : 'body'),
+    spins: [],
+    guns: null,
+  },
+  // Her MiG-29K: "MiG 29" by Uxman (Sketchfab), at the K's length.
+  mig29k: {
+    src: 'mig_29-maximum-compressed.glb', length: 17.3, keep: 0.8,
+    piece: ({ mat }) => (mat === 0 ? 'glass' : 'body'),
+    spins: [],
+    guns: null,
+  },
+  // Her Su-25: "Su-25" by mamont nikita (Sketchfab).
+  su25: {
+    src: 'su-25-maximum-compressed.glb', length: 15.33, keep: 0.5,
+    piece: ({ mat }) => (mat === 1 ? 'glass' : 'body'),
+    spins: [],
+    guns: null,
+  },
+  // And her Ka-52K Katran: "Russian Ka-52 '58 Blue'" by 42manako (Sketchfab).
+  ka52: {
+    src: 'russian_ka-52_58_blue-maximum-compressed.glb', length: 13.53, keep: 0.1,
+    lengthOf: 'body',
+    // Her two three-bladed rotors one over the other on the one mast (the
+    // model's Object_24), each with its hub (Object_18 the upper, Object_19
+    // the lower), told apart by height; her canopy its own material.
+    piece: ({ c, own, mat }) => {
+      if (own === 'Object_18') return 'spin0';
+      if (own === 'Object_19') return c[1] > 2.2 ? 'spin0' : 'spin1';
+      if (own === 'Object_24') return c[1] > 2.4 ? 'spin0' : 'spin1';
+      if ([0, 3, 4, 5, 6, 7, 9, 10].includes(mat)) return 'glass';
+      return 'body';
+    },
+    spins: [
+      { name: 'rotor', hub: [0, 2.9, 0], axis: 'y' },
+      { name: 'lower', hub: [0, 1.5, 0], axis: 'y' },
     ],
   },
   // The Implacable's fighter: a Seafire, off the owner's Spitfire Mk.IIa --

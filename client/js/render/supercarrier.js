@@ -29,12 +29,12 @@ import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { DECK_RUN, lightMounts } from '../../../shared/sim.js';
 import { box, strip, sheet } from './shipkit.js';
 import { decodeSlices, decodePiece, surfaceOf } from './sculpt.js';
-import { f18, e2d, sh60, f35, rafale, nh90 } from './planekit.js';
+import { f18, e2d, sh60, f35, rafale, nh90, su33, mig29k, su25, ka27, ka52 } from './planekit.js';
 
 /** Each type a super carrier flies, as it is built. */
-const MAKERS = { f18, e2d, sh60, f35, rafale, nh90 };
+const MAKERS = { f18, e2d, sh60, f35, rafale, nh90, su33, mig29k, su25, ka27, ka52 };
 /** The helicopters among them: up off a spot and down onto it, not off a catapult. */
-const HELOS = new Set(['sh60', 'nh90']);
+const HELOS = new Set(['sh60', 'nh90', 'ka27', 'ka52']);
 
 /**
  * A super carrier. `cfg`:
@@ -49,6 +49,10 @@ const HELOS = new Set(['sh60', 'nh90']);
  *   prefer             which of her lifts each evolution would rather have
  *   kinds              the types she flies, and kindOf: which flies each role
  *   railPiece          which of her pieces each missile kind's launcher is drawn by
+ *   mainPiece          which of her pieces her battery is drawn by ('ciws', her Phalanx, if not said)
+ *   guns               pieces of hers that are not the model's own (the owner's AK-630)
+ *   skiJump, runT      she has no catapults: her aircraft run up her bow ramp from
+ *                      `cats` under their own power, in `runT` seconds
  *   label              what she is called in an error
  */
 export function supercarrier(cfg) {
@@ -138,8 +142,11 @@ export function supercarrier(cfg) {
    */
   function gun(kind) {
     if (!pieces.has(kind)) {
-      const p = D.GUNS[kind];
-      pieces.set(kind, { house: decodePiece(p.house), trunnion: p.trunnion, muzzles: p.muzzles, roof: p.roof });
+      const p = D.GUNS[kind] || cfg.guns?.[kind];
+      pieces.set(kind, {
+        house: decodePiece(p.house), guns: p.guns ? decodePiece(p.guns) : null,
+        trunnion: p.trunnion, muzzles: p.muzzles, roof: p.roof, pitch: p.pitch || 0,
+      });
     }
     return pieces.get(kind);
   }
@@ -325,6 +332,12 @@ export function supercarrier(cfg) {
     if (!hidden) m.add(new THREE.Mesh(piece.house, materials().sheet));
     const cradle = new THREE.Group();
     cradle.position.set(...piece.trunnion);
+    // A gun that elevates out of its house (the AK-630's barrels) on a
+    // cradle of its own, laid back as the model stowed it.
+    if (piece.guns) {
+      cradle.rotation.x = -piece.pitch;
+      if (!hidden) cradle.add(new THREE.Mesh(piece.guns, materials().sheet));
+    }
     m.add(cradle);
     arm(m, cradle, piece.muzzles);
     g.add(m);
@@ -342,11 +355,13 @@ export function supercarrier(cfg) {
   }
   const stowed = (m) => (m.rest === undefined ? m.angle : m.rest);
 
+  /** The piece her battery is drawn by. */
+  const MAIN = cfg.mainPiece || 'ciws';
   /** Her two Phalanx, as her battery, in the order her datasheet lists them. */
   function mainBattery(g) {
     const turrets = CLS.turrets.map((t) => {
-      const s = seatFor(MOUNT_SEATS.ciws, t.x, t.z, 'Phalanx');
-      const m = sculpted(g, 'ciws', s.x, s.y, s.z, stowed(t), CLS.gun.traverse, t.name);
+      const s = seatFor(MOUNT_SEATS[MAIN], t.x, t.z, MAIN);
+      const m = sculpted(g, MAIN, s.x, s.y, s.z, stowed(t), CLS.gun.traverse, t.name);
       m.userData.rest = undefined;
       return m;
     });
@@ -359,9 +374,12 @@ export function supercarrier(cfg) {
     const aa = [];
     const lights = lightMounts(CLS);
     for (const gun of CLS.aa.guns) {
+      // Her battery's own mountings are drawn once, as her battery; any
+      // other kind (the Kuznetsov's Kashtans) is drawn here.
+      const piece = gun.piece === 'ciws' ? MAIN : gun.piece;
       for (const spec of gun.mounts) {
-        const s = seatFor(MOUNT_SEATS.ciws, spec.x, spec.z, 'Phalanx');
-        const a = sculpted(g, 'ciws', s.x, s.y, s.z, stowed(spec), 1.4, null, true);
+        const s = seatFor(MOUNT_SEATS[piece], spec.x, spec.z, piece);
+        const a = sculpted(g, piece, s.x, s.y, s.z, stowed(spec), piece === MAIN ? 1.4 : 2.0, null, piece === MAIN);
         a.userData.rest = 0;
         a.userData.ciws = !!gun.ciws;
         a.userData.sector = { angle: spec.angle, arc: spec.arc, stow: stowed(spec) };
@@ -371,7 +389,16 @@ export function supercarrier(cfg) {
     }
     if (aa.length !== lights.length) throw new Error(`the ${cfg.label} built a light battery her datasheet does not list`);
     g.userData.aaMounts = aa;
-    return { aa };
+    // Her ASW rocket launchers, if she has them: each laid by the simulation
+    // (see stepRbu), held on the bearing it last fired on.
+    const rbu = (CLS.rbu?.mounts || []).map((spec, i) => {
+      const s = seatFor(MOUNT_SEATS.rbu, spec.x, spec.z, CLS.rbu.name);
+      const m = sculpted(g, 'rbu', s.x, s.y, s.z, stowed(spec), CLS.rbu.traverse, `RBU ${i + 1}`);
+      m.userData.sector = { angle: spec.angle, arc: spec.arc, stow: stowed(spec) };
+      return m;
+    });
+    g.userData.rbuMounts = rbu;
+    return { aa, rbu };
   }
 
   /**
@@ -459,9 +486,34 @@ export function supercarrier(cfg) {
    * climbing away. Her place along the track, her height over the deck and her
    * pitch.
    */
-  const CAT_T = 2.4;
+  const CAT_T = cfg.runT ?? 2.4;
   const OFF_T = 0.4;
-  function shot(k) {
+  /** Her bow ramp's height over her flight deck along a launch's track, and where it ends. */
+  const RAMP_END = D.DECK.fwd - 0.5;
+  const ramp = (x, z) => {
+    const y = surfaceY(x, Math.min(z, RAMP_END));
+    return y > -50 ? Math.max(0, y - FD) : 0;
+  };
+  /**
+   * A run up her ski-jump: from a standing start at full power to the lip of
+   * her bow in `CAT_T`, her wheels on the ramp and her nose following it up;
+   * off the lip she goes on up at the angle it threw her at, climbing.
+   */
+  function jump(k, cat) {
+    const v = 2 * STROKE / CAT_T;
+    const at = (s) => ramp(cat.x, cat.z + s);
+    const slope = (s) => Math.atan2(at(s) - at(s - 2), 2);
+    if (k < CAT_T) {
+      const u = k / CAT_T;
+      const s = STROKE * u * u;
+      return { s, h: at(s), pitch: 0.02 + slope(s), v: v * u };
+    }
+    const e = k - CAT_T;
+    const p0 = slope(STROKE);
+    return { s: STROKE + v * e, h: at(STROKE) + v * e * Math.tan(p0) + 1.5 * e * e, pitch: Math.min(0.3, p0 + 0.1 * e), v };
+  }
+  function shot(k, cat = CATS[0]) {
+    if (cfg.skiJump) return jump(k, cat);
     if (k < CAT_T) {
       const u = k / CAT_T;
       return { s: STROKE * u * u, h: 0, pitch: 0.03 + 0.04 * u, v: (2 * STROKE / CAT_T) * u };
@@ -726,7 +778,7 @@ export function supercarrier(cfg) {
         turn(14);
         return;
       }
-      const s = shot(ph.over);
+      const s = shot(ph.over, cat);
       p.position.set(cat.x, FD + ON + s.h, cat.z + s.s);
       p.rotation.set(-s.pitch, 0, 0);
       p.userData.gear(ph.over > CAT_T ? Math.min(1, (ph.over - CAT_T) / 2) : 0);
@@ -880,8 +932,8 @@ export function supercarrier(cfg) {
       if (helo) {
         a.endPose = { x: HELO.x, y: FD + ON + HELO_RISE, z: HELO.z, pitch: 0, v: 6 };
       } else {
-        const s = shot(CAT_T + OFF_T);
         const cat = CATS[a.cat];
+        const s = shot(CAT_T + OFF_T, cat);
         a.endPose = { x: cat.x, y: FD + ON + s.h, z: cat.z + s.s, pitch: s.pitch };
       }
     };
@@ -920,7 +972,7 @@ export function supercarrier(cfg) {
       group: g, turrets, lifts,
       deckPlane: planes,
       length: LOA, beam: BEAM, deckY: HANGAR, flightDeckY: FD,
-      secMounts: [], aaMounts: g.userData.aaMounts || [], torpMounts: [],
+      secMounts: [], aaMounts: g.userData.aaMounts || [], torpMounts: [], rbuMounts: g.userData.rbuMounts || [],
     };
   }
 

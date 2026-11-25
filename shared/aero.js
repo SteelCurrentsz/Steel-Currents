@@ -194,6 +194,36 @@ export const AERO = {
     // stepDoorGuns in the simulation).
     doorGuns: 2,
   },
+  // The Admiral Kuznetsov's. Her Su-33: the navalised Flanker, big and long-
+  // legged, with canards, folding wings and two AL-31Fs; off her ski-jump
+  // under her own power, not a catapult.
+  su33: {
+    mass: 29000, wing: 67.84, span: 14.7, clMax: 1.9, cd0: 0.0230,
+    thrust: 250000, vMax: 290, name: 'Su-33', jet: true,
+    helix: 0.11, gLimit: 8.0,
+  },
+  // Her MiG-29K: the smaller multirole fighter, with the bigger wing of the
+  // naval Fulcrum and two RD-33MKs.
+  mig29k: {
+    mass: 18500, wing: 42, span: 11.99, clMax: 1.8, cd0: 0.0235,
+    thrust: 176000, vMax: 290, name: 'MiG-29K', jet: true,
+    helix: 0.11, gLimit: 8.0,
+  },
+  // Her Su-25: the armoured ground-attack jet -- slow for a jet, straight-
+  // winged, and steady low down with a great deal under her wings.
+  su25: {
+    mass: 14600, wing: 30.1, span: 14.36, clMax: 1.9, cd0: 0.0300,
+    thrust: 88000, vMax: 270, name: 'Su-25', jet: true,
+    helix: 0.1, gLimit: 6.5,
+  },
+  // And her Ka-52K Katran: the naval attack helicopter, two coaxial rotors
+  // and two seats side by side, quicker than the Ka-27 and handier.
+  ka52: {
+    mass: 10400, wing: 62, span: 14.5, clMax: 6.0, cd0: 0.0700,
+    thrust: 46000, vMax: 83, name: 'Ka-52K',
+    helix: 0.07, gLimit: 3.5,
+    rotor: true,
+  },
   avenger: {
     mass: 7210, wing: 45.5, span: 16.51, clMax: 1.60, cd0: 0.0310,
     thrust: 22400, vMax: 130, name: 'TBF-1',

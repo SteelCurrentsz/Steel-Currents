@@ -44,7 +44,7 @@ import { loadDauntless } from './dauntlessModel.js';
 let buildMonsterOne;
 let buildSpee, buildTakao, buildMaya, buildHood, buildKgv, buildSoyuz, buildHagen, buildMorosini, buildTillman, buildMissouri, buildRodney, buildBaltimore, buildMassachusetts, buildNorthCarolina,
   buildFuso, buildMutsu, buildAgincourt, buildKongo, buildBismarck, buildTirpitz, buildScharnhorst, buildMatsu, buildYukikaze,
-  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildFord, buildCdg, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildBorgia, buildSuzuya, buildYodo, buildMogami, buildLouisiana, buildOregon, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
+  buildGrafZeppelin, buildShokaku, buildHornet, buildNimitz, buildFord, buildCdg, buildKuznetsov, buildLeviathan, buildCounty, buildIndianapolis, buildAlaska, buildDesMoines, buildBrooklyn, buildAjax, buildBorgia, buildSuzuya, buildYodo, buildMogami, buildLouisiana, buildOregon, buildScheer, buildTiconderoga, buildGuangzhou, buildBurke, buildSovremenny, buildSlava, buildLiberty, buildHiggins, buildLcm;
 /**
  * The ships put together by krissShip.js off the owner's whole-ship models,
  * each builder by class once its module has loaded: every one of them is
@@ -175,6 +175,7 @@ const SCULPTED = {
   nimitz: () => import('./nimitz.js').then((m) => { buildNimitz = m.buildNimitz; }),
   ford: () => import('./ford.js').then((m) => { buildFord = m.buildFord; }),
   cdg: () => import('./cdg.js').then((m) => { buildCdg = m.buildCdg; }),
+  kuznetsov: () => import('./kuznetsov.js').then((m) => { buildKuznetsov = m.buildKuznetsov; }),
   leviathan: () => import('./leviathan.js').then((m) => { buildLeviathan = m.buildLeviathan; }),
   county: () => import('./county.js').then((m) => { buildCounty = m.buildCounty; }),
   indianapolis: () => import('./indianapolis.js').then((m) => { buildIndianapolis = m.buildIndianapolis; }),
@@ -216,7 +217,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'cdg', 'essex', 'lexington', 'ranger', 'illustrious', 'aki'].includes(classId) ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'cdg', 'kuznetsov', 'essex', 'lexington', 'ranger', 'illustrious', 'aki'].includes(classId) ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */
@@ -1569,8 +1570,8 @@ function buildModel(classId) {
   // Sea Sparrow and RAM, and their deck cycles off their bow catapults. And
   // the Charles de Gaulle, off the owner's model of her the same way, with
   // her Sadrals and her two catapults.
-  if (cls.id === 'nimitz' || cls.id === 'ford' || cls.id === 'cdg') {
-    const built = cls.id === 'ford' ? buildFord() : cls.id === 'cdg' ? buildCdg() : buildNimitz();
+  if (cls.id === 'nimitz' || cls.id === 'ford' || cls.id === 'cdg' || cls.id === 'kuznetsov') {
+    const built = cls.id === 'ford' ? buildFord() : cls.id === 'cdg' ? buildCdg() : cls.id === 'kuznetsov' ? buildKuznetsov() : buildNimitz();
     Object.assign(built.group.userData, {
       classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
       flightDeckY: built.flightDeckY,
@@ -1580,6 +1581,7 @@ function buildModel(classId) {
       deckPlane: built.deckPlane,
       length: built.length, beam: built.beam, deckY: built.deckY,
       secMounts: [], aaMounts: orderLightMounts(cls, built.aaMounts), torpMounts: [],
+      rbuMounts: built.rbuMounts || [],
     };
   }
 

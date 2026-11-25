@@ -27,6 +27,11 @@ const SOURCES = {
   // models of them.
   rafale: () => import('./rafaleModel.data.js').then((m) => [m.RAFALE_PIECES, m.RAFALE_META]),
   nh90: () => import('./nh90Model.data.js').then((m) => [m.NH90_PIECES, m.NH90_META]),
+  // And the Admiral Kuznetsov's Su-33, MiG-29K, Su-25 and Ka-52K.
+  su33: () => import('./su33Model.data.js').then((m) => [m.SU33_PIECES, m.SU33_META]),
+  mig29k: () => import('./mig29kModel.data.js').then((m) => [m.MIG29K_PIECES, m.MIG29K_META]),
+  su25: () => import('./su25Model.data.js').then((m) => [m.SU25_PIECES, m.SU25_META]),
+  ka52: () => import('./ka52Model.data.js').then((m) => [m.KA52_PIECES, m.KA52_META]),
   // And the Hosho's two: the A5M in her model's own texture, and the B4Y in
   // the texture her paint is drawn on.
   a5m: () => import('./a5mModel.data.js').then((m) => [m.A5M_PIECES, m.A5M_META, m.A5M_TEXTURE]),

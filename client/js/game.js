@@ -297,6 +297,10 @@ const FLIGHT_NAME = {
   sh60: 'her Seahawks',
   rafale: 'her Rafales',
   nh90: 'her Caimans',
+  su33: 'her Su-33s',
+  mig29k: 'her MiG-29Ks',
+  su25: 'her Su-25s',
+  ka52: 'her Katrans',
   ka27: 'her Ka-27',
   arado: 'her Arados',
   kingfisher: 'her Kingfishers',
@@ -321,6 +325,7 @@ const PLANE_NAME = {
   devastator: 'TBD-1 Devastator', mitchell: 'B-25B Mitchell',
   f18: 'F/A-18 Super Hornet', f35: 'F-35C Lightning', e2d: 'E-2D Hawkeye', sh60: 'MH-60 Seahawk', ka27: 'Ka-27 Helix',
   rafale: 'Dassault Rafale M', nh90: 'NH90 Caiman',
+  su33: 'Sukhoi Su-33', mig29k: 'MiG-29K', su25: 'Sukhoi Su-25', ka52: 'Ka-52K Katran',
   arado: 'Arado 196', kingfisher: 'OS2U Kingfisher', besson: 'Besson MB.411', loire: 'Loire 130',
   walrus: 'Supermarine Walrus', kor1: 'Beriev KOR-1', ro43: 'IMAM Ro.43',
   zero: 'A6M Zero',
@@ -354,6 +359,10 @@ const GUN_CALIBRE = {
   sh60: 7.62,         // the door gun
   rafale: 30,         // her GIAT 30M791 in her starboard side
   nh90: 12.7,         // her door guns, two a side
+  su33: 30,           // her GSh-30-1 in her starboard wing root
+  mig29k: 30,         // her GSh-30-1 in her port wing root
+  su25: 30,           // her twin-barrelled GSh-30-2 under her nose
+  ka52: 30,           // her 2A42 on her starboard side
   ka27: 7.62,         // the door gun
   arado: 20,          // two MG FF in the wings and an MG 17 over the engine
   kingfisher: 7.62,   // the one thirty she had
@@ -389,7 +398,7 @@ const GUN_CALIBRE = {
  */
 const GUN_COUNT = {
   seafire: 2, firefly: 4, corsair: 6, a5m: 2, b4y: 1, val: 2, tenzan: 1,
-  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, rafale: 1, nh90: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
+  hellcat: 6, wildcat: 4, dauntless: 2, avenger: 2, devastator: 1, mitchell: 1, f18: 1, f35: 1, rafale: 1, nh90: 1, su33: 1, mig29k: 1, su25: 2, ka52: 1, sh60: 1, ka27: 1, arado: 3, kingfisher: 1, besson: 1, loire: 1, walrus: 1, kor1: 1, ro43: 1,
   zero: 4, suisei: 2, b5n: 1, jake: 1,
   bf109: 4, ju87c: 2, ju87d: 2,
 };
