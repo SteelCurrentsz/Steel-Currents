@@ -92,6 +92,27 @@ export const MISSILE_SHAPES = {
   o: { name: 'SCALP-EG', len: 5.1, r: 0.3, span: 2.84, chord: 0.5, fin: 0.4, wingZ: 0.3, body: MAT.tomahawk },
   A: { name: 'AASM Hammer', len: 3.1, r: 0.16, span: 0.7, chord: 0.5, fin: 0.3, wingZ: -0.8, body: MAT.harpoon },
   y: { name: 'Exocet', len: 4.69, r: 0.175, span: 1.1, chord: 0.6, fin: 0.36, wingZ: -0.6, body: MAT.harpoon },
+  // The Admiral Kuznetsov's: her Granit, ten metres of it with a ring
+  // intake in its nose; her Kinzhal, short and slim off its drum; and her
+  // aircraft's -- the R-27s with their butterfly wings, the R-77 with its
+  // lattice tail, the R-73 with canards in its nose, the R-60M and the
+  // Igla-V, small; the Kh-31s and the Kh-35U, the Kh-29L and the Kh-38, and
+  // the Vikhr and the Ataka, thin tubes with flick-out fins.
+  Q: { name: 'P-700 Granit', len: 10, r: 0.43, span: 2.6, chord: 1.0, fin: 0.6, wingZ: -2.0, body: MAT.vulcan },
+  R: { name: 'Kinzhal', len: 2.9, r: 0.1, span: 0.4, chord: 0.3, fin: 0.3, wingZ: 0.8, body: MAT.osa },
+  D: { name: 'R-27ER', len: 4.78, r: 0.13, span: 0.8, chord: 0.5, fin: 0.4, wingZ: 0.6, body: MAT.standard },
+  E: { name: 'R-27ET', len: 4.5, r: 0.13, span: 0.8, chord: 0.5, fin: 0.4, wingZ: 0.6, body: MAT.standard },
+  F: { name: 'R-73', len: 2.9, r: 0.085, span: 0.51, chord: 0.3, fin: 0.3, wingZ: 1.1, body: MAT.standard },
+  G: { name: 'R-77', len: 3.6, r: 0.1, span: 0.4, chord: 0.8, fin: 0.35, wingZ: 0.0, body: MAT.standard },
+  H: { name: 'R-60M', len: 2.09, r: 0.06, span: 0.39, chord: 0.2, fin: 0.2, wingZ: 0.7, body: MAT.standard },
+  I: { name: 'Igla-V', len: 1.57, r: 0.036, span: 0.15, chord: 0.1, fin: 0.12, wingZ: 0.5, body: MAT.standard },
+  J: { name: 'Kh-31A', len: 4.7, r: 0.18, span: 0.9, chord: 0.5, fin: 0.4, wingZ: 0.4, body: MAT.harpoon },
+  K: { name: 'Kh-35U', len: 3.85, r: 0.21, span: 1.3, chord: 0.45, fin: 0.4, wingZ: 0.1, body: MAT.harpoon },
+  L: { name: 'Kh-31P', len: 4.7, r: 0.18, span: 0.9, chord: 0.5, fin: 0.4, wingZ: 0.4, body: MAT.harpoon },
+  M: { name: 'Kh-29L', len: 3.9, r: 0.2, span: 1.1, chord: 0.4, fin: 0.3, wingZ: 1.2, body: MAT.harpoon },
+  N: { name: 'Vikhr', len: 2.75, r: 0.065, span: 0.4, chord: 0.15, fin: 0.2, wingZ: -0.9, body: MAT.harpoon },
+  O: { name: 'Ataka', len: 1.83, r: 0.065, span: 0.3, chord: 0.12, fin: 0.18, wingZ: -0.6, body: MAT.harpoon },
+  P: { name: 'Kh-38', len: 4.2, r: 0.16, span: 1.1, chord: 0.4, fin: 0.36, wingZ: 0.2, body: MAT.harpoon },
   z: { name: 'Sea Venom', len: 2.5, r: 0.1, span: 0.7, chord: 0.3, fin: 0.24, wingZ: -0.2, body: MAT.harpoon },
 };
 /** A missile code the client has no shape for is drawn as a Harpoon. */

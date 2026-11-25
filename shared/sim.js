@@ -10008,7 +10008,9 @@ const BOX_CELL = 1.19;
  */
 export const MISSILE_CODE = { tomahawk: 't', harpoon: 'h', sm2: 's', sm2er: 'e', sm3: 'b', asroc: 'a', sunburn: 'n', uragan: 'g', vulcan: 'v', s300: 'f', osa: 'm',
   essm: 'r', ram: 'x', agm84: 'q', penguin: 'p', kh25: 'c', aim9: 'w', aim120: 'u', agm65: 'k', agm86: 'l',
-  meteor: 'd', micair: 'i', micaem: 'j', scalp: 'o', hammer: 'A', am39: 'y', anl: 'z', aster15: 'B', mistral: 'C' };
+  meteor: 'd', micair: 'i', micaem: 'j', scalp: 'o', hammer: 'A', am39: 'y', anl: 'z', aster15: 'B', mistral: 'C',
+  r27er: 'D', r27et: 'E', r73: 'F', r77: 'G', r60: 'H', iglav: 'I', kh31a: 'J', kh35: 'K', kh31p: 'L', kh29: 'M',
+  vikhr: 'N', ataka: 'O', kh38: 'P', granit: 'Q', kinzhal: 'R' };
 export const CODE_MISSILE = Object.fromEntries(Object.entries(MISSILE_CODE).map(([k, c]) => [c, k]));
 
 /** What a missile is for: 'surface' (ships), 'sam' (aeroplanes and missiles), 'abm' (missiles), 'asroc', 'aam' (an aeroplane's, at aeroplanes), 'ground' (an aeroplane's, at a gun ashore). */
@@ -10768,7 +10770,7 @@ function loseMissile(state, m, why) {
 }
 
 /** The missiles that come in on the sea and go into a ship's side at her waterline. */
-const SEA_SKIMMERS = new Set(['harpoon', 'agm84', 'penguin', 'kh25', 'am39', 'anl']);
+const SEA_SKIMMERS = new Set(['harpoon', 'agm84', 'penguin', 'kh25', 'am39', 'anl', 'kh35', 'kh31a']);
 
 /** Put a missile into her: a burst inside her, fire, and for a Harpoon a hole at her waterline. */
 function missileHit(state, m, K, t, cls) {
@@ -16191,7 +16193,7 @@ function surfaceMissileShot(state, p, force) {
 // her and veer off after it, and burst on nothing when it burns out.
 
 /** The aeroplanes that carry a dispenser, and how many salvos are in it. */
-export const CHAFF_LOAD = { f18: 8, f35: 8, e2d: 6, sh60: 6, rafale: 8, nh90: 6 };
+export const CHAFF_LOAD = { f18: 8, f35: 8, e2d: 6, sh60: 6, rafale: 8, nh90: 6, su33: 8, mig29k: 8, su25: 8, ka52: 6 };
 /** Flares in a salvo. */
 const CHAFF_FLARES = 6;
 /** How long a flare burns, in seconds. */

@@ -495,6 +495,10 @@ import {
 } from '../client/js/render/cdg.js';
 import { CDG_MOUNTS, CDG_CELLS } from '../client/js/render/cdgHull.data.js';
 import {
+  FD as KUZ_FD, HELO as KUZ_HELO, HELO_RISE as KUZ_RISE, LIFTS as KUZ_LIFTS, CATS as KUZ_CATS,
+} from '../client/js/render/kuznetsov.js';
+import { KUZ_MOUNTS, KUZ_CELLS } from '../client/js/render/kuznetsovHull.data.js';
+import {
   fletcherParts, buildFletcher, fletcherCharges, deckAt as fletcherDeckAt,
   halfDeck as fletcherHalfDeck, sheer as fletcherSheer,
 } from '../client/js/render/fletcher.js';
@@ -2075,6 +2079,89 @@ check('the Charles de Gaulle brings Rafales up her lifts to her catapults, and h
   assert.ok(Math.abs(d.launchers[0].group.rotation.y - 0.4) < 0.05, 'her Sadral did not train');
 });
 
+check('the Admiral Kuznetsov: fifty-two aircraft of five types, AK-630s, Kashtans, Granits, Kinzhals and RBU-12000s', () => {
+  const i = MODERN_ORDER.indexOf('kuznetsov');
+  assert.ok(i > 0 && MODERN_ORDER[i - 1] === 'cdg', 'she is not in the modern yard after the Charles de Gaulle');
+  const cls = SHIP_CLASSES.kuznetsov;
+  assert.equal(cls.nation, 'sov');
+  const g = cls.planes.group;
+  assert.equal(g.total, 52);
+  assert.equal(g.default.fighters + g.default.dive + g.default.torpedo, 52);
+  const S = cls.planes.slots;
+  assert.deepEqual(['fighters', 'mig29k', 'dive', 'torpedo', 'ka52'].map((k) => S[k].type), ['su33', 'mig29k', 'su25', 'ka27', 'ka52']);
+  // The Ka-27s carry what the Ka-52Ks do.
+  assert.equal(S.torpedo.loadouts, S.ka52.loadouts);
+  // Six AK-630s and eight Kashtans, each where her build stands it.
+  assert.equal(cls.turrets.length, 6);
+  for (const t of cls.turrets) assert.ok(KUZ_MOUNTS.ak630.some((m) => Math.hypot(m.x - t.x, m.z - t.z) < 0.01), `no AK-630 at ${t.x}, ${t.z}`);
+  const kash = cls.aa.guns.find((q) => q.piece === 'kashtan');
+  assert.equal(kash.mounts.length, 8);
+  for (const m of kash.mounts) assert.ok(KUZ_MOUNTS.kashtan.some((q) => Math.hypot(q.x - m.x, q.z - m.z) < 0.01), `no Kashtan at ${m.x}, ${m.z}`);
+  assert.equal(cls.rbu.mounts.length, 2);
+  // Twelve Granits for ships; 192 Kinzhals, eight to each of twenty-four drums, for the air.
+  const tubes = (k) => cls.missiles.tubes.filter((t) => t[5] === k);
+  assert.equal(tubes('granit').length, 12);
+  assert.equal(tubes('kinzhal').length, 192);
+  assert.deepEqual(missileHits(cls.missiles.kinds.granit), ['s']);
+  assert.deepEqual(missileHits(cls.missiles.kinds.kinzhal), ['a', 'm']);
+  for (const [x, y, z] of cls.missiles.tubes) {
+    assert.ok([...KUZ_CELLS.granit, ...KUZ_CELLS.kinzhal].some((c) => Math.hypot(c[0] - x, c[2] - z) < 0.01 && Math.abs(c[1] + 0.1 - y) < 0.02), `no hatch at ${x}, ${z}`);
+  }
+  // Every missile she or her aircraft carry has a name on the wire, and goes for what it was built for.
+  const kinds = [...Object.keys(cls.missiles.kinds), ...Object.values(S).flatMap((sl) => Object.values(sl.loadouts || {}))
+    .flatMap((l) => [...Object.keys(l.rack || {}), ...(l.standoff ? [l.standoff.kind] : [])])];
+  for (const k of kinds) assert.ok(MISSILE_CODE[k], `${k} has no code`);
+  assert.equal(new Set(Object.values(MISSILE_CODE)).size, Object.keys(MISSILE_CODE).length, 'two missiles share a code');
+  for (const k of ['r27er', 'r27et', 'r77', 'r73', 'r60', 'iglav']) assert.deepEqual(lockHits(k), ['a']);
+  for (const k of ['kh31a', 'kh35']) assert.deepEqual(lockHits(k), ['s']);
+  for (const k of ['kh31p', 'kh29', 'kh38', 'vikhr', 'ataka']) assert.ok(lockHits(k).includes('b'), `${k} cannot be laid on a gun ashore`);
+  for (const k of ['su33', 'mig29k', 'su25', 'ka52']) assert.ok(AIRFRAMES[k], `no airframe for the ${k}`);
+});
+
+check('the Admiral Kuznetsov sends her aircraft up her ski-jump, fights with them, and fires her Granits and Kinzhals', () => {
+  const ud = buildShip('kuznetsov').group.userData;
+  const d = ud.deck;
+  assert.equal(d.lifts.length, 2, 'she has two lifts');
+  assert.ok(KUZ_LIFTS.every((l) => l.side < 0), 'both are to starboard');
+  assert.equal(ud.rbuMounts.length, 2, 'her RBU-12000s are not drawn');
+  const run = (t0, t1, f) => { for (let t = t0; t <= t1 + 1e-9; t += 0.05) { ud.step(t); if (f) f(t); } };
+  ud.step(0);
+  ud.launch(0, 'fighter', 15, 'su33');
+  const a = d.actors[d.actors.length - 1];
+  let top = 0;
+  run(0, 15.1, () => { if (!a.done) top = Math.max(top, a.m.body.position.y); });
+  assert.ok(d.airborne && a.done && d.plane.kind === 'su33', 'she was not off the deck when the simulation put her in the air');
+  // Up the ramp: well over her flight deck by the time she leaves it.
+  assert.ok(top > KUZ_FD + 4, `she never went up the ski-jump (highest ${top.toFixed(1)} m)`);
+  for (const c of KUZ_CATS) assert.ok(Math.abs(c.x) < 10, `a take-off position at ${c.x} m is off her centreline`);
+  const P = SHIP_CLASSES.kuznetsov.planes;
+  assert.ok(Math.abs(d.endPose.z - P.runOut.fighter) < 1 && Math.abs(d.endPose.y - P.runHeight.fighter) < 1,
+    `the simulation picks her up at ${P.runOut.fighter}, ${P.runHeight.fighter} and the deck leaves her at ${d.endPose.z.toFixed(1)}, ${d.endPose.y.toFixed(1)}`);
+  assert.ok(Math.abs(P.runOut.torpedo - KUZ_HELO.z) < 0.5 && Math.abs(P.runHeight.torpedo - (KUZ_FD + KUZ_RISE)) < 0.5,
+    'the simulation does not pick her helicopters up where the deck leaves them');
+  const state = createState(generateWorld(5, 'open_ocean'), { mode: 'deathmatch' });
+  const k = addShip(state, { name: 'Kuz', classId: 'kuznetsov', team: 0, index: 0 });
+  const foe = addShip(state, { name: 'Foe', classId: 'ford', team: 1, index: 0 });
+  k.x = 0; k.z = 0; foe.x = 0; foe.z = 16000;
+  setAirGroup(k, SHIP_CLASSES.kuznetsov, { fighters: 28, dive: 6, torpedo: 18, load: { fighters: 'aa', mig29k: 'as', dive: 'cas', torpedo: 'as', ka52: 'at' } });
+  setAirGroup(foe, SHIP_CLASSES.ford, { fighters: 66, dive: 5, torpedo: 19, load: { fighters: 'aa', f35: 'aa', torpedo: 'as' } });
+  const fired = new Set();
+  const seen = new Map();
+  for (let i = 0; i < 30 * 150; i++) {
+    foe.spottedBy[0] = 3; k.spottedBy[1] = 3; k.aimX = foe.x; k.aimZ = foe.z; foe.aimX = k.x; foe.aimZ = k.z;
+    if (i % 90 === 0) { launchStrike(state, k); launchStrike(state, foe); }
+    if (i % 90 === 45) fireMissile(state, k, 'granit', foe.id);
+    for (const e of step(state, DT)) if (e.e === 'mslLaunch') fired.add(e.k);
+    for (const p of state.planes) if (p.team === 0 && !seen.has(p.id)) seen.set(p.id, p);
+  }
+  const types = new Set([...seen.values()].map((p) => p.type));
+  for (const t of ['su33', 'mig29k', 'su25', 'ka27', 'ka52']) assert.ok(types.has(t), `no ${t} left her deck: ${[...types]}`);
+  assert.ok(fired.has('kinzhal'), `she never fired a Kinzhal: ${[...fired]}`);
+  assert.ok(fired.has('granit'), `she never fired a Granit: ${[...fired]}`);
+  assert.ok(['r27er', 'r27et', 'r73', 'r77'].some((m) => fired.has(m)), `no fighter of hers fired at the air: ${[...fired]}`);
+  assert.ok(fired.has('kh35'), `no Kh-35 went: ${[...fired]}`);
+});
+
 check('a torpedo bomber off a slot carrier carries her fish, and drops it', () => {
   // The Implacable's Avengers are a slot with no choice of loads. Each was
   // sent out with nothing under her, flew her run in on the water, and pulled
@@ -2644,10 +2731,10 @@ check('the Nimitz flies her Hornets, Hawkeyes and Seahawks as their loads say, a
 check('the Kongo is commissioned before the Amagi and the Fuso, after the Missouri', () => {
   const i = SHIP_ORDER.indexOf('kongo');
   assert.ok(i >= 0, 'the Kongo is not in the yard');
-  // The Nimitz, the Ford and the Charles de Gaulle are in the list between
-  // them, but in the missile age's yard.
-  assert.deepEqual(SHIP_ORDER.slice(i - 4, i), ['missouri', 'nimitz', 'ford', 'cdg'],
-    `before the Kongo come ${SHIP_ORDER.slice(i - 4, i).join(', ')}`);
+  // The Nimitz, the Ford, the Charles de Gaulle and the Admiral Kuznetsov
+  // are in the list between them, but in the missile age's yard.
+  assert.deepEqual(SHIP_ORDER.slice(i - 5, i), ['missouri', 'nimitz', 'ford', 'cdg', 'kuznetsov'],
+    `before the Kongo come ${SHIP_ORDER.slice(i - 5, i).join(', ')}`);
   assert.deepEqual(WWII_ORDER.slice(WWII_ORDER.indexOf('kongo') - 2, WWII_ORDER.indexOf('kongo')), ['iowa', 'louisiana'],
     'in the WWII yard the Kongo does not follow the Iowa and the Louisiana');
   // Her own design's successor, the Amagi, between her and the Fuso.

@@ -30,7 +30,8 @@ export function pickLockKind(rack, tk, d) {
   const air = Object.keys(rack || {}).filter((k) => AIR_MISSILES[k]?.role === 'aam' && rack[k] > 0)
     .sort((a, b) => AIR_MISSILES[a].range - AIR_MISSILES[b].range);
   const best = tk === 'a' ? [...air.filter((k) => d < AIR_MISSILES[k].range * 0.85), ...air]
-    : tk === 's' ? ['agm84', 'am39', 'penguin', 'anl', 'kh25', 'scalp', 'agm65', 'hammer'] : ['agm65', 'hammer', 'scalp'];
+    : tk === 's' ? ['agm84', 'am39', 'kh35', 'kh31a', 'penguin', 'anl', 'kh25', 'scalp', 'agm65', 'hammer', 'kh29', 'kh38', 'vikhr', 'ataka', 'kh31p']
+      : ['agm65', 'hammer', 'scalp', 'kh29', 'kh38', 'kh31p', 'vikhr', 'ataka'];
   // (A B-52's AGM-86B goes at any of them: it is found among her rails below.)
   const order = [...best, ...Object.keys(rack || {}).filter((k) => !best.includes(k))];
   for (const k of order) {

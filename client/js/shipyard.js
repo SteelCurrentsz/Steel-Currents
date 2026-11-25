@@ -523,7 +523,7 @@ export function armsSheet(cls, group = null, vls = null) {
     const SL = cls.planes.slots;
     if (SL) {
       // Her types by name, and what each is armed with.
-      const short = { f18: 'F/A-18', f35: 'F-35C', e2d: 'E-2D', sh60: 'MH-60', ka27: 'Ka-27', rafale: 'Rafale M', nh90: 'NH90' };
+      const short = { f18: 'F/A-18', f35: 'F-35C', e2d: 'E-2D', sh60: 'MH-60', ka27: 'Ka-27', rafale: 'Rafale M', nh90: 'NH90', su33: 'Su-33', mig29k: 'MiG-29K', su25: 'Su-25', ka52: 'Ka-52K' };
       // A type flown among another's machines (`of`) -- the Ford's F-35Cs
       // among her Super Hornets -- is counted out of that type's number.
       const subs = (k) => Object.values(SL).filter((q) => q.of === k);

@@ -510,6 +510,86 @@ export const AIR_MISSILES = {
     speed: 290, range: 14000, cruise: 6, turn: 0.65,
     damage: 2800, fire: 0.35, hp: 1, interval: 1, raise: 0, length: 2.5, popUp: 0,
   },
+  // The Admiral Kuznetsov's. For the air: the R-27ER on its own radar and the
+  // R-27ET on the heat of an engine, the Su-33's long arm; the R-77, the
+  // MiG-29K's, finding its own way in on its own radar; the R-73, the
+  // dogfight missile, aimed off the pilot's helmet and turning hardest of
+  // all; the R-60M, small and quick, on the Su-25's wingtips; and the
+  // Igla-V, a shoulder-launched missile put on a helicopter's pylon.
+  r27er: {
+    name: 'R-27ER', short: 'R-27ER', role: 'aam',
+    speed: 1150, range: 26000, turn: 1.4, kill: 18, pk: 0.78,
+    hp: 1, interval: 1, length: 4.78,
+  },
+  r27et: {
+    name: 'R-27ET', short: 'R-27ET', role: 'aam',
+    speed: 1150, range: 22000, turn: 1.5, kill: 18, pk: 0.8,
+    hp: 1, interval: 1, length: 4.5,
+  },
+  r77: {
+    name: 'R-77 (RVV-AE)', short: 'R-77', role: 'aam',
+    speed: 1100, range: 22000, turn: 1.8, kill: 16, pk: 0.82,
+    hp: 1, interval: 1, length: 3.6,
+  },
+  r73: {
+    name: 'R-73', short: 'R-73', role: 'aam',
+    speed: 850, range: 7000, turn: 2.9, kill: 14, pk: 0.87,
+    hp: 1, interval: 1, length: 2.9,
+  },
+  r60: {
+    name: 'R-60M', short: 'R-60M', role: 'aam',
+    speed: 800, range: 4500, turn: 2.6, kill: 10, pk: 0.75,
+    hp: 1, interval: 1, length: 2.09,
+  },
+  iglav: {
+    name: 'Igla-V', short: 'IGLA-V', role: 'aam',
+    speed: 570, range: 4500, turn: 2.4, kill: 6, pk: 0.7,
+    hp: 1, interval: 1, length: 1.57,
+  },
+  // For a ship: the Kh-31A, ramjet-driven and twice the speed of sound,
+  // too quick to be stopped easily; and the Kh-35U, subsonic and skimming the
+  // sea, with the heavier warhead -- the Ka-52K's Kh-35UV is the same
+  // missile with a booster to get it off a helicopter.
+  kh31a: {
+    name: 'Kh-31A', short: 'KH-31A', role: 'surface',
+    speed: 1000, range: 25000, cruise: 10, turn: 0.55,
+    damage: 3800, fire: 0.45, hp: 1, interval: 1, raise: 0, length: 4.7, popUp: 0,
+  },
+  kh35: {
+    name: 'Kh-35U', short: 'KH-35U', role: 'surface',
+    speed: 270, range: 26000, cruise: 4, turn: 0.5,
+    damage: 4600, fire: 0.5, hp: 1, interval: 1, raise: 0, length: 3.85, popUp: 0,
+  },
+  // For something ashore, or a ship's radars: the Kh-31P, which rides an
+  // enemy radar's own beam down onto it; the Kh-29L and the Kh-38, each down
+  // the laser spot onto a gun position or a ship's side; and the anti-tank
+  // missiles of the Su-25T and the Ka-52K -- the Vikhr, quick and long-
+  // reaching down its laser beam, and the Ataka on its radio link.
+  kh31p: {
+    name: 'Kh-31P', short: 'KH-31P', role: 'ground',
+    speed: 1000, range: 24000, cruise: 40, turn: 0.7,
+    damage: 2600, fire: 0.35, hp: 1, interval: 1, raise: 0, length: 4.7, popUp: 0,
+  },
+  kh29: {
+    name: 'Kh-29L', short: 'KH-29L', role: 'ground',
+    speed: 330, range: 10000, cruise: 40, turn: 0.9,
+    damage: 3800, fire: 0.35, hp: 1, interval: 1, raise: 0, length: 3.9, popUp: 0,
+  },
+  kh38: {
+    name: 'Kh-38', short: 'KH-38', role: 'ground',
+    speed: 450, range: 30000, cruise: 40, turn: 0.8,
+    damage: 3600, fire: 0.35, hp: 1, interval: 1, raise: 0, length: 4.2, popUp: 0,
+  },
+  vikhr: {
+    name: '9K121 Vikhr-1', short: 'VIKHR', role: 'ground',
+    speed: 610, range: 8000, cruise: 20, turn: 1.2,
+    damage: 1500, fire: 0.25, hp: 1, interval: 1, raise: 0, length: 2.75, popUp: 0,
+  },
+  ataka: {
+    name: '9M120 Ataka', short: 'ATAKA', role: 'ground',
+    speed: 550, range: 6000, cruise: 20, turn: 1.1,
+    damage: 1400, fire: 0.25, hp: 1, interval: 1, raise: 0, length: 1.83, popUp: 0,
+  },
 };
 
 /**
@@ -521,6 +601,8 @@ export const AIR_MISSILES = {
 export const AIR_MISSILE_HITS = {
   agm84: ['s'], penguin: ['s'], kh25: ['s'], aim9: ['a'], aim120: ['a'], agm65: ['b', 's'], agm86: ['a', 's', 'b'],
   meteor: ['a'], micair: ['a'], micaem: ['a'], scalp: ['b', 's'], hammer: ['b', 's'], am39: ['s'], anl: ['s'],
+  r27er: ['a'], r27et: ['a'], r77: ['a'], r73: ['a'], r60: ['a'], iglav: ['a'],
+  kh31a: ['s'], kh35: ['s'], kh31p: ['b', 's'], kh29: ['b', 's'], kh38: ['b', 's'], vikhr: ['b', 's'], ataka: ['b', 's'],
 };
 
 /**
@@ -582,6 +664,50 @@ export const RAFALE_LOADOUTS = {
 export const CAIMAN_LOADOUTS = {
   as: { name: 'Anti-Ship Load Out', note: 'two ANL Sea Venom anti-ship missiles', role: 'torpedo', standoff: { kind: 'anl', n: 2 } },
   asw: { name: 'ASW Load Out', note: 'dipping sonar and two MU90 homing torpedoes', role: 'torpedo', asw: 2, fish: 'mu90' },
+};
+
+/**
+ * What the Admiral Kuznetsov's aircraft can be loaded with, as her captain
+ * chooses in the yard. Every missile on a rack is one a pilot can lock on
+ * and fire by hand (see fireLocked in sim.js); a standoff missile goes on its
+ * own too, the moment she has a ship in its reach. Bombs are her class's
+ * (FAB-250s and FAB-500s, KAB-500 guided bombs, RBK-500 cluster bombs) and
+ * rockets her pods' (S-8, S-13, S-24 and S-25), fired in one ripple down her
+ * dive (see fireRockets).
+ *
+ * The Su-33: fleet defence first, with her twelve hardpoints; and the bombs
+ * and rockets she dropped over Syria.
+ */
+export const SU33_LOADOUTS = {
+  aa: { name: 'Fleet Defence Load Out', note: 'four R-27ER and two R-27ET medium-to-long-range missiles, and four R-73 dogfight missiles', role: 'fighter', rack: { r27er: 4, r27et: 2, r73: 4 } },
+  bomb: { name: 'Bomb Load Out', note: 'six FAB-250/500 unguided bombs and two R-73s', role: 'dive', bomb: 6, rack: { r73: 2 } },
+  rkt: { name: 'Rocket Load Out', note: 'S-8, S-13 and S-25 rocket pods, fired in one ripple down her dive, and two R-73s', role: 'dive', rockets: 48, rack: { r73: 2 } },
+};
+/** The MiG-29K: the multirole fighter, with precision weapons for a ship or a radar. */
+export const MIG29K_LOADOUTS = {
+  aa: { name: 'Air-to-Air Load Out', note: 'four R-77 active-radar missiles and two R-73 dogfight missiles', role: 'fighter', rack: { r77: 4, r73: 2 } },
+  as: { name: 'Anti-Ship Load Out', note: 'two Kh-35U sea-skimming missiles, fired from twenty-five kilometres, and two R-73s', role: 'dive', standoff: { kind: 'kh35', n: 2 }, rack: { r73: 2 } },
+  asx: { name: 'Supersonic Anti-Ship Load Out', note: 'two Kh-31A ramjet missiles at twice the speed of sound, two R-77s and two R-73s', role: 'dive', standoff: { kind: 'kh31a', n: 2 }, rack: { r77: 2, r73: 2 } },
+  sead: { name: 'Anti-Radiation Load Out', note: 'two Kh-31P anti-radiation missiles, two R-77s and two R-73s', role: 'dive', rack: { kh31p: 2, r77: 2, r73: 2 } },
+  strike: { name: 'Precision Strike Load Out', note: 'four KAB-500Kr/L guided bombs and two R-73s', role: 'dive', bomb: 4, rack: { r73: 2 } },
+};
+/** The Su-25: close air support, precision strike, and saturation of an area. */
+export const SU25_LOADOUTS = {
+  cas: { name: 'Close Air Support Load Out', note: 'four B-8M1 pods of S-8 rockets -- eighty rockets in one ripple -- and two R-60M on her wingtips', role: 'dive', rockets: 80, rack: { r60: 2 } },
+  pgm: { name: 'Precision Strike Load Out', note: 'two Kh-29L and two Kh-25ML laser-guided missiles, eight Vikhr anti-tank missiles, two KAB-500 guided bombs and two R-60M', role: 'dive', bomb: 2, rack: { kh29: 2, kh25: 2, vikhr: 8, r60: 2 } },
+  heavy: { name: 'Heavy Rocket Load Out', note: 'S-24 and S-25 heavy unguided rockets for hardened targets, and two R-60M', role: 'dive', rockets: 8, rack: { r60: 2 } },
+  area: { name: 'Area Saturation Load Out', note: 'eight FAB-500 bombs or RBK-500 cluster dispensers, and two R-60M', role: 'dive', bomb: 8, rack: { r60: 2 } },
+};
+/**
+ * The Ka-52K Katran: naval attack and reconnaissance, her 2A42 cannon and
+ * four pylons; and the Kuznetsov's Ka-27s, which carry the same.
+ */
+export const KATRAN_LOADOUTS = {
+  at: { name: 'Anti-Tank Load Out', note: 'twelve 9K121 Vikhr-1 laser-guided missiles and two Igla-V air-to-air missiles', role: 'torpedo', rack: { vikhr: 12, iglav: 2 } },
+  ataka: { name: 'Ataka Load Out', note: 'eight 9M120 Ataka radio-guided missiles and two Igla-V', role: 'torpedo', rack: { ataka: 8, iglav: 2 } },
+  rkt: { name: 'Rocket Load Out', note: 'S-8 and S-13 unguided rocket pods, and two Igla-V', role: 'torpedo', rockets: 40, rack: { iglav: 2 } },
+  as: { name: 'Anti-Ship Load Out', note: 'two Kh-35UV anti-ship missiles', role: 'torpedo', standoff: { kind: 'kh35', n: 2 } },
+  strike: { name: 'Strike Load Out', note: 'two Kh-38 air-to-surface missiles and two Igla-V', role: 'torpedo', rack: { kh38: 2, iglav: 2 } },
 };
 
 /** How high over her spot a helicopter hovers going and coming (see heloHover in sim.js). */
@@ -11590,6 +11716,248 @@ export const SHIP_CLASSES = {
       missiles: [
         { label: 'Aster 15 (4 Sylver A43)', rounds: 32 },
         { label: 'Mistral (6 Sadral)', rounds: 36 },
+      ],
+    },
+  },
+
+  kuznetsov: {
+    // Admiral Kuznetsov (Project 1143.5): the Russian Navy's heavy aircraft-
+    // carrying cruiser. Fifty-eight thousand tons, three hundred and five
+    // metres, steam turbines on four shafts; no catapult -- her aircraft go
+    // off a fourteen-degree ski-jump over her bow under their own power --
+    // an angled deck to port with its arresting wires, and two deck-edge
+    // lifts to starboard either side of her island. She went into commission
+    // in 1990; she is sailed here as she might be modernised.
+    //
+    // She is drawn from the owner's model of her (see kuznetsov.js and
+    // build/prepare-kuznetsov-hull.mjs) -- "CV Admiral Kuznetsov (War
+    // Thunder)" by KojfDiscord, under Creative Commons Attribution 4.0 -- at
+    // her own length, floated at her own draught. Armed as the owner asked:
+    //
+    //   6 AK-630        six-barrelled 30 mm close-in guns, her battery, on
+    //                   her deck-edge sponsons (the owner's AK-630)
+    //   8 Kashtan       the model's own: two six-barrelled 30 mm guns a
+    //                   mounting, four on her bow sponsons, four on her
+    //                   quarters; close-in weapons, like the AK-630s
+    //   12 P-700 Granit heavy supersonic anti-ship missiles, under hatches in
+    //                   her flight deck forward, straight up out of them
+    //   24 Kinzhal      eight-round drums, 192 surface-to-air missiles, in
+    //                   four blocks of six on her sponsons
+    //   RBU-12000       two ten-tubed anti-submarine and anti-torpedo rocket
+    //                   launchers either side of her stern
+    //
+    // Her air wing is fifty-two: Su-33s and MiG-29Ks, Su-25s, and Ka-27 and
+    // Ka-52K helicopters, each type loaded as her captain chooses (`slots`).
+    id: 'kuznetsov',
+    name: 'Admiral Kuznetsov',
+    fullName: 'RF Admiral Kuznetsov',
+    className: 'Admiral Kuznetsov',
+    type: 'CV',
+    typeName: 'Aircraft Carrier',
+    nation: 'sov',
+    blurb: 'Fifty-two aircraft off a ski-jump -- Su-33s, MiG-29Ks, Su-25s, Ka-27s and Ka-52Ks, armed as you choose -- twelve P-700 Granits, 192 Kinzhal SAMs, eight Kashtans, six AK-630s and two RBU-12000s.',
+    hull: { length: 305, beam: 38, draft: 10.5, superstructure: 0.6, flightDeck: true },
+    hp: 72000,
+    maxSpeed: 29 * KNOTS,
+    reverseSpeed: 8 * KNOTS,
+    accel: 0.42,
+    turnRate: 0.045,
+    rudderShift: 13,
+    speedLossInTurn: 0.17,
+    concealment: 17500,
+    fireDetectPenalty: 5000,
+    // Her Mars-Passat phased array and her air search.
+    radarRange: 25000,
+    repairCooldown: 85,
+    repairHeal: 0.14,
+    smokeCharges: 0,
+    // A cruiser's protection over her magazines and her machinery: she
+    // carries the Granits a cruiser does.
+    armor: { belt: 60, deck: 70, citadel: 90, bow: 25, superstructure: 18 },
+    // Her six AK-630s, as her battery (KUZ_MOUNTS.ak630): two to port on the
+    // edge of her angled deck, two on her bow sponsons, two on her quarters,
+    // each stowed facing out over her side.
+    turrets: [
+      { id: 0, name: 'AK-630 1', x: 30.2, z: 8, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 6, my: 19.7 },
+      { id: 1, name: 'AK-630 2', x: 30.2, z: 38, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 6, my: 19.7 },
+      { id: 2, name: 'AK-630 3', x: -21.5, z: 66, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 6, my: 16.51 },
+      { id: 3, name: 'AK-630 4', x: 20.5, z: 64.5, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 6, my: 16.51 },
+      { id: 4, name: 'AK-630 5', x: -26, z: -109, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 6, my: 19.7 },
+      { id: 5, name: 'AK-630 6', x: 24.5, z: -110, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 6, my: 19.7 },
+    ],
+    gun: {
+      name: '30 mm AK-630', role: 'dp',
+      reach: 1.9,
+      caliber: 30, reload: 0.6, traverse: 2.0, range: 4000, sigma: 0.7,
+      elev: { min: -0.21, max: 1.54 },
+      shells: shells(30, 400, 400, 30, 900, 0.03),
+    },
+    torpedoes: null,
+    secondary: null,
+    aa: {
+      range: 5000, dps: 90,
+      guns: [
+        // The same six, as the close-in weapons they are: each finds the
+        // nearest missile coming at her side and pours its five thousand
+        // rounds a minute into it. See stepCiws.
+        { name: 'AK-630 CIWS', caliber: 30, role: 'aa', reload: 0.012, range: 2000, piece: 'ciws', ciws: true,
+          elev: { min: -0.21, max: 1.54 },
+          mounts: [
+            { x: 30.2, z: 8, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 6, my: 19.7 },
+            { x: 30.2, z: 38, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 6, my: 19.7 },
+            { x: -21.5, z: 66, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 6, my: 16.51 },
+            { x: 20.5, z: 64.5, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 6, my: 16.51 },
+            { x: -26, z: -109, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 6, my: 19.7 },
+            { x: 24.5, z: -110, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 6, my: 19.7 },
+          ] },
+        // Her eight Kashtans (KUZ_MOUNTS.kashtan): two GSh-6-30K six-barrelled
+        // guns a mounting either side of its fire-control radar, ten thousand
+        // rounds a minute between them; the last line against a missile.
+        { name: 'Kashtan CIWS', caliber: 30, role: 'aa', reload: 0.006, range: 2500, piece: 'kashtan', ciws: true,
+          elev: { min: -0.44, max: 1.54 },
+          mounts: [
+            { x: -25.761, z: -133.237, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 12, my: 18.63 },
+            { x: 23.837, z: -133.239, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 12, my: 18.62 },
+            { x: -25.765, z: -127.258, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 12, my: 18.63 },
+            { x: 23.822, z: -127.233, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 12, my: 18.62 },
+            { x: -21.281, z: 68.743, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 12, my: 17.03 },
+            { x: 20.917, z: 68.726, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 12, my: 17.03 },
+            { x: -21.062, z: 74.225, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, guns: 12, my: 17.03 },
+            { x: 20.713, z: 74.205, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, guns: 12, my: 17.03 },
+          ] },
+      ],
+    },
+    // Her two RBU-12000 Udav-1 launchers either side of her stern
+    // (KUZ_MOUNTS.rbu): ten 300 mm barrels each, throwing anti-torpedo and
+    // depth projectiles out to three kilometres. Her own fire control works
+    // them (see stepRbu): onto a torpedo running at her first, then onto a
+    // submarine her sonar holds, then onto a ship close aboard.
+    rbu: {
+      name: 'RBU-12000', caliber: 300, tubes: 10,
+      reload: 30, traverse: 0.6, range: 3000, minRange: 100,
+      speed: 200, spread: 25, ripple: 0.25,
+      shells: shells(300, 2000, 2000, 18, 200, 0.1),
+      sink: 11.5, damage: 7000, lethal: 9, hurt: 22, arming: 3,
+      kill: 35,
+      sonar: 4000, sonarSpeed: 24 * KNOTS,
+      mounts: [
+        { id: 0, x: -22.253, z: -140.489, angle: -Math.PI / 2, arc: 2.8, rest: -Math.PI / 2, my: 17.6 },
+        { id: 1, x: 21.751, z: -140.487, angle: Math.PI / 2, arc: 2.8, rest: Math.PI / 2, my: 17.6 },
+      ],
+    },
+    // Her missiles: twelve Granits straight up out of the hatches in her
+    // flight deck forward, for ships; and 192 Kinzhals out of the drums under
+    // her twenty-four sponson hatches, for whatever comes at her through
+    // the air.
+    missiles: {
+      kinds: {
+        granit: {
+          name: 'P-700 Granit (SS-N-19 Shipwreck)', short: 'GRANIT', code: 'Q', role: 'surface', launch: 'tube', rounds: 12,
+          launchers: 12, note: '12 under hatches in her flight deck forward',
+          // Two and a half times the speed of sound, a very long way, and a
+          // warhead heavier than any but the Vulcan's.
+          speed: 850, range: 60000, cruise: 14, turn: 0.45,
+          damage: 9600, fire: 0.6, hp: 1, interval: 2.5, raise: 0,
+          length: 10, popUp: 0,
+        },
+        kinzhal: {
+          name: '3K95 Kinzhal (SA-N-9 Gauntlet)', short: 'KINZHAL', code: 'R', role: 'sam', launch: 'tube', rounds: 192,
+          launchers: 24, note: '192 in 24 eight-round drums',
+          speed: 850, range: 12000, cruise: 600, turn: 2.0, damage: 0, hp: 1, interval: 1.5,
+          length: 2.9, kill: 10, pk: 0.75, air: true,
+        },
+      },
+      // [across, up, along, bearing, elevation, kind]: the hatch of each of
+      // her Granits (KUZ_CELLS.granit) and of her Kinzhal drums
+      // (KUZ_CELLS.kinzhal), eight rounds a drum. Each goes straight up.
+      tubes: [
+        ...[[-7.5, 20.42, 86], [-2.5, 20.42, 86], [2.5, 20.42, 86], [7.5, 20.42, 86],
+          [-7.5, 20.92, 92], [-2.5, 20.92, 92], [2.5, 20.92, 92], [7.5, 20.92, 92],
+          [-7.5, 21.32, 98], [-2.5, 21.42, 98], [2.5, 21.42, 98], [7.5, 21.42, 98]]
+          .map(([x, y, z]) => [x, y + 0.1, z, 0, Math.PI / 2 - 0.02, 'granit']),
+        ...[[21.25, 17.74, 55], [21.25, 17.75, 58], [21.25, 17.75, 61], [18.75, 17.74, 55], [18.75, 17.74, 58], [18.75, 17.74, 61],
+          [-18.9, 17.74, 56.3], [-18.9, 17.74, 59.4], [-18.9, 17.74, 62.5], [-21.1, 17.74, 56.3], [-21.1, 17.75, 59.4], [-21.1, 17.75, 62.5],
+          [24.3, 18.56, -121.3], [24.3, 18.56, -118.3], [24.3, 18.56, -115.3], [22, 18.56, -121.3], [22, 18.56, -118.3], [22, 18.8, -115.3],
+          [-23.6, 18.8, -119], [-23.6, 18.8, -116.5], [-23.6, 18.8, -114], [-26.1, 18.56, -119], [-26.1, 18.56, -116.5], [-26.1, 18.56, -114]]
+          .flatMap(([x, y, z]) => Array.from({ length: 8 }, () => [x, y + 0.1, z, 0, Math.PI / 2 - 0.02, 'kinzhal'])),
+      ],
+      tubeElev: Math.PI / 2 - 0.02,
+      rails: [],
+      fcs: 'SAM',
+    },
+    planes: {
+      squadrons: 4, perSquadron: 13, cruiseSpeed: 180, strikeRange: 30000,
+      cruiseOf: { su33: 190, mig29k: 190, su25: 150, ka27: 60, ka52: 70 },
+      // Where her aircraft put their wheels down coming home: on her angled
+      // deck, up from the round-down.
+      touchdown: { z: -112, y: 18.85 },
+      types: { fighter: 'su33', dive: 'su25', torpedo: 'ka27' },
+      // Off the lip of her ski-jump at a hundred and twenty knots and
+      // climbing; a helicopter straight up off her spot aft to a hover
+      // eighteen metres over it.
+      runOut: { fighter: 173, dive: 173, torpedo: -128 },
+      runHeight: { fighter: 25.9, dive: 25.9, torpedo: 36.85 },
+      launchSpeed: { fighter: 61, dive: 61, torpedo: 4 },
+      helipad: { x: -8, z: -128, y: 18.85 },
+      // Up a lift from the hangar, along the deck to a take-off position and
+      // up the ramp: two positions, one off every eleven seconds.
+      deckRun: 15, deckNext: 11, deckCycle: 15,
+      turnaround: 60,
+      rearm: 40, torpDamage: 7000, torpSpeed: 40 * KNOTS, torpRange: 4000,
+      floodChance: 0.3, hp: 1700, dropSpread: 0.06,
+      // A FAB-500, or a KAB-500 on a laser spot: her bombs, half guided.
+      bombDamage: 3600, bombHit: 0.6, bombFire: 0.35, bombPen: 60, bombBore: 0.4,
+      // Her pods' rockets, S-8s to S-25s.
+      rocketDamage: 1100, rocketPen: 70, rocketFire: 0.15,
+      group: {
+        total: 52,
+        min: { fighters: 28, dive: 6, torpedo: 18 },
+        max: { fighters: 28, dive: 6, torpedo: 18 },
+        minStrike: 0,
+        default: { fighters: 28, dive: 6, torpedo: 18 },
+      },
+      // `fighters` are her Su-33s with her MiG-29Ks among them, `dive` her
+      // Su-25s, and `torpedo` her Ka-27s with her Ka-52Ks among them.
+      slots: {
+        fighters: {
+          type: 'su33', label: 'Su-33', default: 'aa',
+          rowLabel: 'Su-33s & MiG-29Ks',
+          loadouts: SU33_LOADOUTS,
+        },
+        mig29k: {
+          type: 'mig29k', label: 'MiG-29K', default: 'aa',
+          of: 'fighters', n: 14,
+          loadouts: MIG29K_LOADOUTS,
+        },
+        dive: {
+          type: 'su25', label: 'Su-25', default: 'cas',
+          loadouts: SU25_LOADOUTS,
+        },
+        torpedo: {
+          type: 'ka27', label: 'Ka-27', default: 'at',
+          rowLabel: 'Ka-27s & Ka-52Ks',
+          loadouts: KATRAN_LOADOUTS,
+        },
+        ka52: {
+          type: 'ka52', label: 'Ka-52K Katran', default: 'at',
+          of: 'torpedo', n: 6,
+          loadouts: KATRAN_LOADOUTS,
+        },
+      },
+    },
+    datasheet: {
+      displacement: 58600,
+      aircraft: 0,
+      mainRounds: 12000,
+      secondary: null,
+      tertiary: [
+        { caliber: 30, label: 'AK-630 CIWS', barrels: 36, mounts: 6, rounds: 12000 },
+        { caliber: 30, label: 'Kashtan CIWS', barrels: 96, mounts: 8, rounds: 24000 },
+        { caliber: 300, label: 'RBU-12000', barrels: 20, mounts: 2, rounds: 60 },
+      ],
+      missiles: [
+        { label: 'P-700 Granit (SS-N-19)', rounds: 12 },
+        { label: '3K95 Kinzhal (24 x 8)', rounds: 192 },
       ],
     },
   },
@@ -22901,19 +23269,19 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'nakhimov', 'cleveland', 'brooklyn', 'ajax', 'fargo', 'atlanta', 'dido', 'sanmartin', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'hildebrand', 'beowulf', 'trento', 'napoli', 'algerie', 'conde', 'kirov', 'chapayev', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'puertorico', 'sevastopol', 'b65', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'balao', 'kurfurst', 'lorraine', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'vanguard', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'cdg', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'balao', 'kurfurst', 'lorraine', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'vanguard', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'cdg', 'kuznetsov', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'ranger', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
  * The yard's list split by era, for the choice the ship icon offers before the
  * yard opens: the Great War's hulls, the Second World War's, or the post-war
  * and missile age's. A hull is modern if she
- * sails as she was after 1945 (Missouri as recommissioned in 1991, the Nimitz, the Ford, the Charles de Gaulle, Leviathan, the
+ * sails as she was after 1945 (Missouri as recommissioned in 1991, the Nimitz, the Ford, the Charles de Gaulle, the Admiral Kuznetsov, Leviathan, the
  * Des Moines, the Ticonderoga, the Guangzhou, the Sovremenny, the Slava and the Arleigh
  * Burke, and the Vanguard and the Chapayev, both commissioned after the war);
  * everything else is WWII.
  */
-export const MODERN_SHIPS = new Set(['chapayev', 'vanguard', 'guangzhou', 'sovremenny', 'slava', 'nakhimov', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford', 'cdg']);
+export const MODERN_SHIPS = new Set(['chapayev', 'vanguard', 'guangzhou', 'sovremenny', 'slava', 'nakhimov', 'burke', 'ticonderoga', 'desmoines', 'leviathan', 'missouri', 'nimitz', 'ford', 'cdg', 'kuznetsov']);
 // And the Great War's: the dreadnoughts that sailed as they were before 1919.
 export const WWI_SHIPS = new Set(['agincourt', 'revenge']);
 // And the ships that are not warships at all, whatever war they sailed in:

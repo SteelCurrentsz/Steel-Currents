@@ -20,7 +20,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SLOTS, slotAt } from '../../../shared/formation.js';
 import {
   wildcat, arado, kingfisher, besson, loire, walrus, kor1, ro43,
-  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, rafale, nh90, a5m, b4y, val, tenzan, corsair, muzzlesOf, dressPlane,
+  jake, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, rafale, nh90, su33, mig29k, su25, ka52, a5m, b4y, val, tenzan, corsair, muzzlesOf, dressPlane,
 } from './planekit.js';
 import {
   ZERO, ZERO_SEGS, zeroGeometries, zeroMaterial, zeroSegOf,
@@ -1083,6 +1083,11 @@ export function flightModels() {
   // And the Charles de Gaulle's Rafale M and NH90 Caiman.
   make('rafale', (g) => rafale(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   make('nh90', (g) => nh90(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  // And the Admiral Kuznetsov's Su-33, MiG-29K, Su-25 and Ka-52K.
+  make('su33', (g) => su33(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  make('mig29k', (g) => mig29k(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  make('su25', (g) => su25(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
+  make('ka52', (g) => ka52(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Ka-27 off the Sovremenny's and the Slava's pads.
   make('ka27', (g) => ka27(g, 0, 0, 0, 0, false, { gear: false, solidGlass: true }));
   // And the Implacable's Seafires and Fireflies.
@@ -1161,7 +1166,7 @@ export const ROLE_TYPE = {
   fighter: 'hellcat', dive: 'dauntless', torpedo: 'avenger', scout: 'dauntless',
 };
 
-const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'f35', 'rafale', 'nh90', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'a5m', 'b4y', 'val', 'tenzan', 'corsair', 'arado', 'kingfisher',
+const TYPES = new Set(['hellcat', 'wildcat', 'dauntless', 'avenger', 'devastator', 'mitchell', 'f18', 'f35', 'rafale', 'nh90', 'su33', 'mig29k', 'su25', 'ka52', 'e2d', 'sh60', 'ka27', 'seafire', 'firefly', 'a5m', 'b4y', 'val', 'tenzan', 'corsair', 'arado', 'kingfisher',
   'besson', 'loire', 'walrus', 'kor1', 'ro43', 'zero', 'suisei', 'b5n', 'jake', 'bf109', 'ju87c', 'ju87d']);
 
 /** The machine a flight is: what her ship flies, or what her job takes. */
