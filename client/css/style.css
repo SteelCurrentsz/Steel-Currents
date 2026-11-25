@@ -720,11 +720,10 @@ input[type="range"] { accent-color: var(--red); }
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
 }
 .fly-throttle-val::after { content: '%'; }
-/* The hover hold, sitting on the head of the throttle ladder. */
+/* The hover hold, at the foot of the missile column on the head of the
+   throttle ladder (it flows in that column, so nothing sits on top of it). */
 .fly-hover {
-  position: absolute; right: max(4.2rem, calc(env(safe-area-inset-right) + 3.8rem));
-  bottom: calc(max(1.4rem, calc(env(safe-area-inset-bottom) + 1rem)) + min(30vh, 220px) + 24px);
-  width: 56px; height: 26px; padding: 0;
+  flex: none; width: 56px; height: 26px; padding: 0;
   pointer-events: auto; touch-action: manipulation; cursor: pointer;
   font-family: var(--ui); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.06em;
   color: #fff; background: rgba(8, 20, 32, 0.55);
@@ -2782,12 +2781,19 @@ body.in-battle .fs-toggle:hover { opacity: 1; }
   .fly-fire.left { width: 84px; height: 84px; }
   .fly-fire.right { width: 64px; height: 64px; }
   .fly-throttle { height: 38vh; }
+  /* The throttle is taller here, so what sits on its head goes up with it. */
+  .fly-missiles { bottom: calc(max(1.4rem, calc(env(safe-area-inset-bottom) + 1rem)) + 38vh + 0.9rem); gap: 0.4rem; }
   .fly-round, .fly-btn { width: 48px; height: 48px; }
   .fly-move { width: 42px; height: 42px; }
   .fly-move span { display: none; }
   .fly-readout { top: 36%; }
   .fly-readout b { font-size: 0.9rem; }
   .fly-readout i { font-size: 0.7rem; }
+}
+/* Shorter still: the keys over the throttle shrink so the column stays on screen. */
+@media (max-height: 360px) {
+  .fly-missiles { gap: 0.3rem; }
+  .fly-missiles .fly-btn { width: 40px; height: 40px; font-size: 0.44rem; }
 }
 
 /* The searchlight plan: her outline from overhead, bow up, with a lighthouse
@@ -3333,24 +3339,43 @@ body.dir-clean .fs-toggle, body.dir-clean .toast { display: none !important; }
   background: radial-gradient(ellipse at center, rgba(120, 0, 0, 0) 45%, rgba(120, 0, 0, 0.75) 100%);
 }
 
-/* Load outs: five slots, each with what is in it and its three keys. */
-.lo-box { width: min(40rem, 100%); }
-.lo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; text-align: left; }
+/* Load outs: five slots, each with what is in it and its three keys. Kept
+   small, and never taller than the screen: the list scrolls inside the box. */
+.lo-box {
+  width: min(30rem, 100%);
+  max-height: calc(100vh - 2rem); max-height: calc(100dvh - 2rem);
+  display: flex; flex-direction: column;
+  padding: 0.75rem 0.85rem 0.7rem;
+}
+.lo-box h3 { font-size: 0.95rem; }
+.lo-box .era-sub { margin-bottom: 0.55rem; font-size: 0.72rem; }
+.lo-list {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; text-align: left;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+}
 .lo-slot {
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.55rem 0.7rem; border: 1px solid var(--panel-line); background: rgba(8, 19, 31, 0.55);
+  flex: none; display: flex; align-items: center; gap: 0.45rem;
+  padding: 0.35rem 0.5rem; border: 1px solid var(--panel-line); background: rgba(8, 19, 31, 0.55);
 }
 .lo-slot.empty { opacity: 0.7; }
-.lo-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
-.lo-info b { color: var(--sand); font-size: 0.86rem; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lo-info span { color: var(--steel); font-size: 0.72rem; letter-spacing: 0.03em; }
-.lo-acts { display: flex; gap: 0.35rem; flex: 0 0 auto; }
-.lo-acts .btn { min-width: 0; padding: 0.4rem 0.7rem; font-size: 0.78rem; }
+.lo-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.lo-info b { color: var(--sand); font-size: 0.78rem; letter-spacing: 0.05em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lo-info span { color: var(--steel); font-size: 0.66rem; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lo-acts { display: flex; gap: 0.25rem; flex: 0 0 auto; }
+.lo-acts .btn { min-width: 0; padding: 0.28rem 0.55rem; font-size: 0.7rem; letter-spacing: 0.08em; }
 .lo-acts .btn.on { border-color: var(--enemy); color: var(--enemy); }
 .lo-acts .btn[disabled] { opacity: 0.35; cursor: default; }
-@media (max-width: 560px) {
-  .lo-slot { flex-direction: column; align-items: stretch; }
+.lo-box .era-cancel { flex: none; align-self: center; margin-top: 0.55rem; padding: 0.35rem 1.2rem; font-size: 0.8rem; }
+@media (max-width: 480px) {
+  .lo-slot { flex-wrap: wrap; }
+  .lo-info { flex-basis: 100%; }
+  .lo-acts { flex: 1 1 100%; }
   .lo-acts .btn { flex: 1; }
+}
+@media (max-height: 420px) {
+  .lo-box { padding: 0.5rem 0.7rem; }
+  .lo-box .era-sub { display: none; }
+  .lo-box .era-cancel { margin-top: 0.4rem; }
 }
 
 

@@ -1062,11 +1062,6 @@
       <div class="fly-throttle-knob" id="fly-throttle-knob"></div>
       <span class="fly-throttle-val" id="fly-thr">100</span>
     </div>
-    <!-- The hover hold, on the head of the throttle: a helicopter (or a VTOL
-         aeroplane) only. Pressed, she stops where she is and hangs there,
-         neither climbing nor sinking nor drifting; moving the throttle again
-         lets her go. H at a desk. -->
-    <button class="fly-hover" id="fly-hover" type="button" hidden>HOVER</button>
     <!-- The two triggers: the big one under the left thumb, and one by the
          throttle under the right. Either fires everything she has forward. -->
     <button class="fly-fire left" id="fly-guns" type="button" aria-label="Fire">
@@ -1117,6 +1112,12 @@
       <!-- Flares and chaff, on a modern aeroplane: a salvo out behind her to
            pull a missile coming for her off her (V), and how many are left. -->
       <button class="fly-btn chaff" id="fly-chaff" type="button" hidden>CHAFF<br><span id="fly-chaff-n">0</span> V</button>
+      <!-- The hover hold, at the foot of the column on the head of the
+           throttle: a helicopter (or a VTOL aeroplane) only. Pressed, she
+           stops where she is and hangs there, neither climbing nor sinking
+           nor drifting; moving the throttle again lets her go. H at a desk.
+           In the column, so the missile keys stack above it, not over it. -->
+      <button class="fly-hover" id="fly-hover" type="button" hidden>HOVER</button>
     </div>
     <button class="fly-leave" id="fly-leave" type="button">LEAVE THE COCKPIT</button>
     <p class="fly-hint" id="fly-hint">Drag to look — she flies where you look, loops and all · two fingers or right-drag to look around · Q/E roll · X dive brakes · R lock · F missile · V chaff</p>
