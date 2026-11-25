@@ -1581,7 +1581,7 @@ export class Battle {
     if (!s.a) view.monsterDie = (view.monsterDie || 0) + dt;
     view.group.updateMatrixWorld(true);
     const toLocal = (wx, wy, wz) => view.group.worldToLocal(new THREE.Vector3(wx, wy, wz));
-    const beamTo = w.beam ? toLocal(w.beam.x, 6, w.beam.z) : null;
+    const beamTo = w.beam && !w.beam.up ? toLocal(w.beam.x, 6, w.beam.z) : null;
     // What she looks at: where her breath is going, or the nearest enemy
     // ship in sight of her.
     let look = beamTo;
@@ -1619,7 +1619,10 @@ export class Battle {
       charge: w.charge,
       glow: w.glow,
       look,
-      beamTo: w.act === 'fire' ? beamTo : null,
+      beamTo: w.act === 'fire' && !w.beam?.up ? beamTo : null,
+      // Her breath from below: the glow under the ship while she gathers it,
+      // the beam straight up through her when it goes.
+      column: s.a && w.beam?.up ? { x: w.beam.x, z: w.beam.z, charge: w.charge, firing: w.act === 'fire' && w.beam.live ? 1 : 0 } : null,
       holding: !!w.holdId || !!w.lump,
       pinned: !!w.pin,
       // Where her head is turned for her jaws: her own captain's as he moves
@@ -1707,7 +1710,8 @@ export class Battle {
   }
 
   /**
-   * Monster One's keys: F (or Space) her breath, T her tail, G to take hold
+   * Monster One's keys: F (or Space) her breath, U her breath from below
+   * (under a ship and up through her), T her tail, G to take hold
    * of the ship in front of her or throw the one she has, C to crush it, B to
    * bite, X down / up / standing, R to roar, ` (backquote) to fold her bar away. True when the key was hers.
    */
@@ -1715,6 +1719,7 @@ export class Battle {
     const pose = readMonsterWire(this.shownShip()?.mo)?.pose || 'swim';
     switch (code) {
       case 'KeyF': case 'Space': this.monsterOrder({ a: 'breath' }); return true;
+      case 'KeyU': this.monsterOrder({ a: 'under' }); return true;
       case 'KeyT': this.monsterOrder({ a: 'tail' }); return true;
       case 'KeyG': this.monsterOrder({ a: 'grab' }); return true;
       case 'KeyX': this.monsterOrder({ a: 'pose', pose: { deep: 'swim', swim: 'stand', stand: 'deep' }[pose] }); return true;
@@ -1737,7 +1742,7 @@ export class Battle {
   /** An order to Monster One, from her bar or a key. */
   monsterOrder(o) {
     const ship = this.conned();
-    if (o.a === 'breath') {
+    if (o.a === 'breath' || o.a === 'under') {
       // At the ship picked off the plot, if an enemy is; at where the
       // captain is looking, if not.
       // Marked ships first (the Attack key), in the order marked.
@@ -3999,15 +4004,22 @@ export class Battle {
         case 'splash': fx.splash(ev.x, ev.z, ev.cal, { kind: ev.bomb ? 'bomb' : 'shell' }); audio.splash(ev.cal, { x: ev.x, y: 1, z: ev.z }, !!ev.bomb); break;
         // Monster One. Her breath gathering is told to everybody: there is
         // nobody on the sea who would not see her plates lighting up.
+        case 'moUnder': {
+          if (ev.tm === this.team) this.hud.alert('Monster One is going in under her');
+          break;
+        }
         case 'moCharge': {
           const ours = ev.tm === this.team;
-          this.hud.alert(ours ? 'Monster One is gathering her atomic breath' : 'Monster One is charging her atomic breath — take cover');
+          if (ev.up) this.hud.alert(ours ? 'Monster One is under her keel, gathering her breath' : 'Blue light under the water — Monster One is beneath us');
+          else this.hud.alert(ours ? 'Monster One is gathering her atomic breath' : 'Monster One is charging her atomic breath — take cover');
           const v = this.scene.shipViews.get(ev.ship);
-          if (v) audio.breathCharge({ x: v.group.position.x, y: 60, z: v.group.position.z }, MONSTER.breath.climb + MONSTER.breath.throat);
+          if (v) audio.breathCharge({ x: v.group.position.x, y: ev.up ? -20 : 60, z: v.group.position.z }, ev.up ? MONSTER.under.charge : MONSTER.breath.climb + MONSTER.breath.throat);
           break;
         }
         case 'moFire': {
-          this.hud.alert('Atomic breath');
+          this.hud.alert(ev.up ? 'Atomic breath — up through her keel' : 'Atomic breath');
+          // Up through a ship: the sea over her thrown up around the beam.
+          if (ev.up) fx.splash(ev.x, ev.z, 1400, { kind: 'bomb' });
           const v = this.scene.shipViews.get(ev.ship);
           if (v) audio.breathFire({ x: v.group.position.x, y: 60, z: v.group.position.z });
           this.shake = Math.max(this.shake || 0, 0.6);

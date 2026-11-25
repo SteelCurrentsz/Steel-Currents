@@ -93,6 +93,7 @@ export class MonsterBar {
       this.keys[k] = b;
     };
     key('breath', 'Atomic Breath', 'F', () => order({ a: 'breath' }));
+    key('under', 'From Below', 'U', () => order({ a: 'under' }));
     key('tail', 'Tail', 'T', () => order({ a: 'tail' }));
     key('grab', 'Grab', 'G', () => order({ a: this.holding ? 'throw' : 'grab' }));
     key('pose', 'Swimming', 'X', () => order({ a: 'pose', pose: { deep: 'swim', swim: 'stand', stand: 'deep' }[this.pose || 'swim'] }));
@@ -187,6 +188,14 @@ export class MonsterBar {
     else if (w.act === 'fire') set('breath', 'Firing', { live: true, fill: 1 });
     else if (w.cool > 0) set('breath', `Ready in ${fmt(w.cool)}`, { wait: true, fill: 1 - w.cool / B.cooldown });
     else set('breath', `Ready · ${B.kt} kt`, { fill: 1 });
+    // The same breath from under a ship: going in, under her keel, up.
+    const up = w.beam && w.beam.up;
+    if (w.act === 'under') set('under', 'Closing in', { live: true });
+    else if (w.act === 'upcharge') set('under', `Under keel ${Math.round(w.charge * 100)}%`, { live: true, fill: w.charge });
+    else if (w.act === 'fire' && up) set('under', 'Firing up', { live: true, fill: 1 });
+    else if (w.cool > 0) set('under', `Ready in ${fmt(w.cool)}`, { wait: true, fill: 1 - w.cool / B.cooldown });
+    else if (w.ashore) set('under', 'Needs deep water', { wait: true });
+    else set('under', 'Dive under a ship', { fill: 1 });
     // Ships marked for it with the Attack key, waiting their turn.
     const nm = (w.marks || []).length;
     if (nm && w.act !== 'charge' && w.act !== 'fire') {

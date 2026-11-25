@@ -17,6 +17,13 @@
 //     it strikes, a burst of ten kilotons: a little smaller than the B-29's
 //     sixteen. Two and a half minutes before she can do it again.
 //
+//   * Her breath from below. She goes down, swims in under a ship, keeps
+//     station under her keel while the glow climbs her -- a blue light
+//     spreading in the water under the ship -- and breathes straight up
+//     through her. The same breath, on the same cooldown: the beam goes in
+//     through her bottom and out through her decks, and bursts where it
+//     strikes.
+//
 //   * Her tail, swung up out of the sea and across whatever is beside or
 //     behind her.
 //
@@ -63,6 +70,12 @@ export const MONSTER = {
     // Ten kilotons: a little under the B-29's sixteen.
     kt: 10,
   },
+  // Her breath from below (see stepUnder): how far off a ship can be for
+  // her to go for her, how close under her keel she has to be -- a share of
+  // the ship's length from her middle -- how long she gathers it down
+  // there, how long she gives the chase before she gives it up, and what the
+  // beam does to the ship it goes up through, on top of the burst.
+  under: { range: 6000, keel: 0.3, close: 600, charge: 4.5, chase: 180, share: 0.5 },
   tail: {
     // The swing: up and away, across, and back (see the rig's 'tail').
     time: 2.6,
@@ -190,7 +203,9 @@ export const MONSTER = {
   // Her three ways of going about: how deep the dive puts her, and her best
   // speed in each, in knots.
   deep: 60,
-  speed: { deep: 36, swim: 30, stand: 11 },
+  // Going in under a ship (see stepUnder) she rushes, faster than she goes
+  // about deep: it is an attack, not a passage.
+  speed: { deep: 36, swim: 30, stand: 11, under: 50 },
   // How long a change of posture takes before she can act out of it.
   settle: 1.6,
   // Ground higher than this under her (metres, the sea bed below nought) is
@@ -200,7 +215,7 @@ export const MONSTER = {
 
 export const POSES = ['deep', 'swim', 'stand'];
 // (New ones go on the end: the wire carries the index.)
-export const ACTS = ['', 'tail', 'reach', 'hold', 'throw', 'charge', 'fire', 'roar', 'die', 'bite', 'crush'];
+export const ACTS = ['', 'tail', 'reach', 'hold', 'throw', 'charge', 'fire', 'roar', 'die', 'bite', 'crush', 'under', 'upcharge'];
 
 const KNOT = 0.514444;
 
@@ -307,9 +322,10 @@ export function monsterTopSpeed(ship) {
   // his own screen, which knows her posture off the wire and not her depth.
   const pose = m ? m.pose : 'swim';
   // Standing and doing something, she is not going anywhere much.
-  const busy = m && (m.act === 'charge' || m.act === 'fire' || m.act === 'reach' || m.act === 'hold' || m.act === 'crush') ? 0.75 : 1;
+  const busy = m && (m.act === 'charge' || m.act === 'fire' || m.act === 'upcharge' || m.act === 'reach' || m.act === 'hold' || m.act === 'crush') ? 0.75 : 1;
   // Holding down a ship she could not lift, she stays where she is.
   if (m && m.holdId && m.pin) return 0;
+  if (m && (m.act === 'under' || m.act === 'upcharge') && pose === 'deep') return MONSTER.speed.under * KNOT;
   return MONSTER.speed[pose] * KNOT * busy;
 }
 
@@ -343,6 +359,7 @@ function startAct(m, act) {
  * stepMonsterBot), as `{ a, ... }`:
  *
  *   { a: 'breath', x, z, target }   the atomic breath, at a point or a ship
+ *   { a: 'under', x, z, target }    the breath from below: under a ship, and up through her
  *   { a: 'tail', side }             her tail, to her left (+1) or right (-1)
  *   { a: 'grab', target }           take hold of a ship in front of her
  *   { a: 'throw', x, z }            throw the ship she has, toward a point
@@ -366,6 +383,8 @@ export function monsterOrder(state, ship, o, hooks) {
       if (m.act === 'charge' || m.act === 'fire') return 'busy';
       // Going down with a ship in her hands, she lets go of her.
       if (o.pose === 'deep' && (m.holdId || m.lump)) letGo(state, ship, hooks);
+      // Brought up out of a run in under a ship, she gives it up.
+      if (o.pose !== 'deep' && (m.act === 'under' || m.act === 'upcharge')) { m.act = ''; m.charge = 0; m.underId = 0; }
       if (['reach', 'hold', 'throw', 'crush', 'bite'].includes(m.act)) { if (o.pose === 'deep') m.act = ''; else return 'busy'; }
       setPose(ship, o.pose);
       m.queued = null;
@@ -392,6 +411,25 @@ export function monsterOrder(state, ship, o, hooks) {
       state.events.push({ e: 'moCharge', ship: ship.id, tm: ship.team, x: Math.round(aim.x), z: Math.round(aim.z) });
       return '';
     }
+    case 'under': {
+      if (m.cool > 0) return 'cooling';
+      if (m.act === 'charge' || m.act === 'fire' || m.act === 'upcharge') return 'busy';
+      if (m.ashore) return 'ashore';
+      const t = underTarget(state, ship, o);
+      if (!t) return 'none';
+      if (dist(ship.x, ship.z, t.x, t.z) > MONSTER.under.range) return 'far';
+      // Whatever is in her hands goes first: she cannot dive with it.
+      if (m.holdId || m.lump) letGo(state, ship, hooks);
+      if (busy) m.act = '';
+      m.underId = t.id;
+      m.aim = null; m.aimId = 0;
+      setPose(ship, 'deep');
+      startAct(m, 'under');
+      m.charge = 0;
+      m.queued = null;
+      state.events.push({ e: 'moUnder', ship: ship.id, tm: ship.team, at: t.id });
+      return '';
+    }
     case 'mark': {
       // Mark a ship for her breath, or with no target clear the marks.
       if (!o.target) { m.marks = []; return ''; }
@@ -406,9 +444,10 @@ export function monsterOrder(state, ship, o, hooks) {
       return '';
     }
     case 'cancel': {
-      if (m.act !== 'charge') return 'bad';
+      if (m.act !== 'charge' && m.act !== 'under' && m.act !== 'upcharge') return 'bad';
       m.act = '';
       m.charge = 0;
+      m.underId = 0;
       return '';
     }
     case 'tail': {
@@ -632,6 +671,29 @@ function chewable(state, ship, hooks) {
 }
 
 /**
+ * The ship she goes in under: the one asked for, if she is an enemy on the
+ * surface; the enemy nearest a point she was given, if one is near it; or
+ * the nearest enemy to her in reach.
+ */
+function underTarget(state, ship, o) {
+  const ok = (s) => s && s.alive && s.team !== ship.team && !shipClass(s).monster && !s.flung && (s.depth || 0) < 8;
+  if (o.target) {
+    const t = state.ships.find((s) => s.id === o.target);
+    return ok(t) ? t : null;
+  }
+  const at = Number.isFinite(o.x) && Number.isFinite(o.z) ? { x: o.x, z: o.z } : null;
+  let best = null, bd = Infinity;
+  for (const s of state.ships) {
+    if (!ok(s)) continue;
+    const d = at ? dist(at.x, at.z, s.x, s.z) : dist(ship.x, ship.z, s.x, s.z);
+    if (at && d > 1500) continue;
+    if (d < bd) { bd = d; best = s; }
+  }
+  if (!best && at) return underTarget(state, ship, {});
+  return best;
+}
+
+/**
  * Where her breath goes, off whatever she was given: a ship, a point, or
  * nothing at all. It never refuses: a point too close for the beam is carried
  * out along the same line to where it is not (and a point right under her, as
@@ -747,11 +809,13 @@ export function stepMonster(state, ship, dt, hooks) {
   if (m.marks && m.marks.length && !m.act && m.cool <= 0) breatheAtMark(state, ship, m, hooks);
 
   // The glow dies away when she is not gathering the breath.
-  if (m.act !== 'charge' && m.act !== 'fire') m.glow = Math.max(0, m.glow - dt / 3);
+  if (m.act !== 'charge' && m.act !== 'fire' && m.act !== 'upcharge') m.glow = Math.max(0, m.glow - dt / 3);
 
   switch (m.act) {
     case 'charge': stepCharge(state, ship, m, dt, hooks); break;
     case 'fire': stepFire(state, ship, m, dt, hooks); break;
+    case 'under': stepUnder(state, ship, m, dt, hooks); break;
+    case 'upcharge': stepUpCharge(state, ship, m, dt, hooks); break;
     case 'tail': stepTail(state, ship, m, hooks); break;
     case 'reach': stepReach(state, ship, m, hooks); break;
     case 'hold': stepHold(state, ship, m, dt, hooks); break;
@@ -798,8 +862,21 @@ function stepFire(state, ship, m, dt, hooks) {
   const B = MONSTER.breath;
   m.charge = 1;
   m.glow = 1;
+  // Up through a ship: the beam stays on her until it has gone through.
+  if (m.beam && m.beam.up && !m.beam.hit) {
+    const t = state.ships.find((s) => s.id === m.beam.id && s.alive);
+    if (t) { m.beam.x = t.x; m.beam.z = t.z; }
+  }
   if (m.beam && !m.beam.hit && m.actT >= m.beam.hitT) {
     m.beam.hit = true;
+    // Straight up through the ship over her: in at her bottom and out
+    // through her decks, before the burst over her.
+    if (m.beam.up) {
+      const t = state.ships.find((s) => s.id === m.beam.id && s.alive);
+      if (t && hooks.mayHurt(state, ship.team, t)) {
+        hooks.damageShip(state, t, ship, shipClass(t).hp * MONSTER.under.share, 'nuke');
+      }
+    }
     // Where it strikes: ten kilotons.
     hooks.nukeBlast(state, m.beam.x, 0, m.beam.z, { team: ship.team, bomber: 0, monster: ship.id }, B.kt);
   }
@@ -807,6 +884,70 @@ function stepFire(state, ship, m, dt, hooks) {
     m.act = '';
     m.beam = null;
     m.charge = 0;
+  }
+}
+
+/** The ship she is going in under, if she is still there to go under. */
+function underShip(state, m) {
+  return m.underId ? state.ships.find((s) => s.id === m.underId && s.alive && !s.flung && s.gripBy == null) || null : null;
+}
+
+/**
+ * Her way in under a ship: down, and at her as fast as she can swim, cutting
+ * the corner as she goes; within a few hundred metres, matched to her course
+ * and speed and brought in under her keel. Once she is there, deep enough
+ * and close enough under her middle, the breath gathers.
+ */
+function stepUnder(state, ship, m, dt, hooks) {
+  const U = MONSTER.under;
+  const t = underShip(state, m);
+  if (!t || m.ashore || m.pose !== 'deep' || m.actT > U.chase) { m.act = ''; m.underId = 0; return; }
+  const d = dist(ship.x, ship.z, t.x, t.z);
+  if (d > U.close) {
+    hooks.steerToward(state, ship, headingTo(ship.x, ship.z, ...xz(lead(ship, t))));
+    ship.notch = 5;
+    return;
+  }
+  keepUnder(ship, t, dt);
+  const keel = Math.max(12, shipClass(t).hull.length * U.keel);
+  if (dist(ship.x, ship.z, t.x, t.z) <= keel && ship.depth > MONSTER.deep * 0.5) {
+    startAct(m, 'upcharge');
+    m.charge = 0;
+    state.events.push({ e: 'moCharge', ship: ship.id, tm: ship.team, x: Math.round(t.x), z: Math.round(t.z), up: 1 });
+  }
+}
+
+/**
+ * Close under her: her course and speed matched to the ship's, and her
+ * middle drawn in under the ship's as fast as she can swim to it.
+ */
+function keepUnder(ship, t, dt) {
+  ship.heading += angleDelta(ship.heading, t.heading) * Math.min(1, dt * 1.5);
+  ship.speed = t.speed;
+  ship.rudderCmd = 0;
+  const dx = t.x - ship.x, dz = t.z - ship.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 0.01) {
+    const step = Math.min(d, MONSTER.speed.under * KNOT * dt);
+    ship.x += (dx / d) * step;
+    ship.z += (dz / d) * step;
+  }
+}
+
+/** Under her keel, the glow climbing her: and then straight up through her. */
+function stepUpCharge(state, ship, m, dt, hooks) {
+  const U = MONSTER.under;
+  const t = underShip(state, m);
+  if (!t || m.pose !== 'deep') { m.act = ''; m.charge = 0; m.underId = 0; return; }
+  keepUnder(ship, t, dt);
+  m.charge = clamp(m.actT / U.charge, 0, 1);
+  m.glow = 1;
+  if (m.actT >= U.charge) {
+    m.beam = { x: t.x, z: t.z, hitT: 0.12, hit: false, up: true, id: t.id };
+    m.underId = 0;
+    startAct(m, 'fire');
+    m.cool = MONSTER.breath.cooldown;
+    state.events.push({ e: 'moFire', ship: ship.id, tm: ship.team, x: Math.round(t.x), z: Math.round(t.z), up: 1 });
   }
 }
 
@@ -1500,9 +1641,10 @@ export function monsterWire(ship) {
     Math.ceil(m.cool),
     Math.round(m.glow * 100) / 100,
     m.holdId || 0,
-    m.beam ? Math.round(m.beam.x) : m.aim && m.act === 'charge' ? Math.round(m.aim.x) : 0,
-    m.beam ? Math.round(m.beam.z) : m.aim && m.act === 'charge' ? Math.round(m.aim.z) : 0,
-    m.beam ? 1 : m.act === 'charge' ? 2 : 0,
+    m.beam ? Math.round(m.beam.x) : m.aim && m.act === 'charge' ? Math.round(m.aim.x) : m.act === 'upcharge' ? Math.round(ship.x) : 0,
+    m.beam ? Math.round(m.beam.z) : m.aim && m.act === 'charge' ? Math.round(m.aim.z) : m.act === 'upcharge' ? Math.round(ship.z) : 0,
+    // 1 the beam, 2 gathering it; 3 and 4 the same from below, straight up.
+    m.beam ? (m.beam.up ? 3 : 1) : m.act === 'charge' ? 2 : m.act === 'upcharge' ? 4 : 0,
     Math.ceil(m.tailCool),
     Math.ceil(m.grabCool),
     Math.ceil(m.biteCool),
@@ -1532,7 +1674,7 @@ export function readMonsterWire(w) {
     cool: w[5] || 0,
     glow: w[6] || 0,
     holdId: w[7] || 0,
-    beam: w[10] ? { x: w[8], z: w[9], live: w[10] === 1 } : null,
+    beam: w[10] ? { x: w[8], z: w[9], live: w[10] === 1 || w[10] === 3, up: w[10] >= 3 } : null,
     tailCool: w[11] || 0,
     grabCool: w[12] || 0,
     biteCool: w[13] || 0,
@@ -1639,8 +1781,11 @@ export function stepMonsterBot(state, ship, brain, dt, conned, hooks) {
   if (!m.holdId) { m.botCrushed = false; m.botBitten = false; }
   // Her posture, when she is not in the middle of something that set it.
   if (!m.act && !m.queued && P.pose && m.pose !== P.pose) setPose(ship, P.pose);
-  // Her helm and her telegraph, unless the breath has her turning to aim.
-  if (m.act !== 'charge' && m.act !== 'fire') {
+  // Her helm and her telegraph, unless the breath has her turning to aim,
+  // or she is on her way in under a ship and steering herself there.
+  if (m.act === 'under' || m.act === 'upcharge') {
+    // (see stepUnder)
+  } else if (m.act !== 'charge' && m.act !== 'fire') {
     if (P.go) hooks.steerToward(state, ship, headingTo(ship.x, ship.z, P.go.x, P.go.z));
     else ship.rudderCmd = 0;
     ship.notch = P.notch ?? 2;
@@ -1696,8 +1841,13 @@ function plan(state, ship, m, B, foes, seen, friends, hpFrac, hooks) {
   // jaws and her tail only).
   const noBreath = !!(state.moNoBreath && state.moNoBreath[ship.team === 1 ? 1 : 0]);
   if (m.cool <= 0 && !m.holdId && seen.length && !mark && !noBreath) {
-    const best = breathTarget(state, ship, seen, friends, hooks);
-    if (best) return { order: { a: 'breath', target: best.id }, go: null, pose: 'stand', notch: 1 };
+    const best = breathPick(state, ship, seen, friends, hooks);
+    // Close in among their guns, she need not stand up in front of them to
+    // breathe: where a ship near her is as good a place for it as any, she
+    // goes down, in under her, and breathes up through her.
+    const under = m.ashore ? null : breathPick(state, ship, seen, friends, hooks, 0, 3000);
+    if (under && (!best || under.score >= best.score)) return { order: { a: 'under', target: under.ship.id }, go: null, pose: 'deep', notch: 5 };
+    if (best) return { order: { a: 'breath', target: best.ship.id }, go: null, pose: 'stand', notch: 1 };
   }
 
   if (torp) return { go: anyFoe ? { x: anyFoe.x, z: anyFoe.z } : null, pose: 'deep', notch: 4 };
@@ -1759,18 +1909,20 @@ function lead(ship, t) {
 }
 
 /**
- * Where the breath does most, of the ships she can see: each one weighed as a
- * place to put her breath by what it would do to all of them, less three times
- * what it would do to her own side. Null when nothing is worth it.
+ * Where the breath does most, of the ships she can see between `min` and
+ * `max` metres off: each one weighed as a place to put her breath by what it
+ * would do to all of them, less three times what it would do to her own
+ * side. `{ ship, score }`, or null when nothing is worth it.
  */
-function breathTarget(state, ship, seen, friends, hooks) {
+function breathPick(state, ship, seen, friends, hooks, min = MONSTER.breath.min + 150, max = MONSTER.breath.range) {
   const B = MONSTER.breath;
   let best = null, bestScore = 0;
   for (const s of seen) {
     const d = dist(ship.x, ship.z, s.x, s.z);
     // She is not hurt by her own: only too close for the beam to be worth
     // drawing stops her.
-    if (d < B.min + 150 || d > B.range) continue;
+    if (d < min || d > max) continue;
+    if (max !== B.range && (s.depth || 0) >= 8) continue;
     let score = 0;
     for (const q of seen) {
       const b = Math.min(1.2, hooks.bite(dist(q.x, q.z, s.x, s.z)));
@@ -1783,7 +1935,7 @@ function breathTarget(state, ship, seen, friends, hooks) {
     if (score > bestScore) { bestScore = score; best = s; }
   }
   // At least one good ship's worth.
-  return bestScore >= 1.0 ? best : null;
+  return bestScore >= 1.0 ? { ship: best, score: bestScore } : null;
 }
 
 function worth(s) {

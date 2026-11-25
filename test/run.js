@@ -33416,6 +33416,60 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.ok(ev.some((e) => e.e === 'sink' && e.by === mo.id) || state.events.length >= 0, 'her kills are not hers');
   });
 
+  check('Monster One dives, swims in under a ship, keeps station under her keel and breathes straight up through her', () => {
+    const { state, mo, ships } = field([['baltimore', 0, 2500]]);
+    const t = ships[0];
+    t.notch = 3;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'under', target: t.id }, SIM.MONSTER_HOOKS), '');
+    assert.equal(mo.mo.pose, 'deep', 'she did not go down for it');
+    assert.equal(mo.mo.act, 'under');
+    let charged = null, ev = [];
+    for (let s = 0; s < 180 && !charged; s += DT) {
+      const e = step(state, DT);
+      ev.push(...e);
+      if (mo.mo.act === 'upcharge') charged = { d: Math.hypot(mo.x - t.x, mo.z - t.z), depth: mo.depth };
+    }
+    assert.ok(charged, 'she never got in under her');
+    assert.ok(charged.d < MO.MONSTER.under.keel * 205 + 1, `she gathered it ${charged.d.toFixed(0)} m from her middle`);
+    assert.ok(charged.depth > MO.MONSTER.deep * 0.5, `she gathered it at ${charged.depth.toFixed(0)} m`);
+    // She stays under her while it gathers, the ship under way over her.
+    ev = run(state, MO.MONSTER.under.charge * 0.6);
+    assert.equal(mo.mo.act, 'upcharge');
+    assert.ok(Math.hypot(mo.x - t.x, mo.z - t.z) < 40, 'the ship steamed out from over her');
+    assert.ok(mo.depth > 20, 'she came up to do it');
+    ev = run(state, MO.MONSTER.under.charge * 0.4 + 2);
+    const fire = ev.find((e) => e.e === 'moFire');
+    assert.ok(fire && fire.up, 'the beam did not go up');
+    const nuke = ev.find((e) => e.e === 'nuke');
+    assert.ok(nuke && nuke.kt === 10, 'no burst over her');
+    assert.ok(Math.hypot(nuke.x - t.x, nuke.z - t.z) < 60, 'the burst was not on the ship over her');
+    run(state, 10);
+    assert.ok(!t.alive, 'the ship she breathed up through is still afloat');
+    assert.ok(mo.alive && mo.hp === mo.maxHp, 'she was hurt by her own breath');
+    assert.equal(mo.mo.pose, 'deep', 'she came up after it');
+    assert.ok(mo.mo.cool > MO.MONSTER.breath.cooldown - 20, 'it did not take her breath\'s cooldown');
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'under' }, SIM.MONSTER_HOOKS), 'cooling');
+  });
+
+  check('Monster One\'s breath from below: refused out of reach, given up when brought up, and on the wire as a beam going up', () => {
+    const { state, mo, ships } = field([['fletcher', 0, 9000]]);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'under', target: ships[0].id }, SIM.MONSTER_HOOKS), 'far');
+    ships[0].z = 1500;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'under' }, SIM.MONSTER_HOOKS), '', 'she would not go for the nearest');
+    run(state, 2);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'pose', pose: 'swim' }, SIM.MONSTER_HOOKS), '');
+    run(state, 0.2);
+    assert.equal(mo.mo.act, '', 'she carried on under after being brought up');
+    assert.equal(mo.mo.cool, 0, 'giving it up cost her the breath');
+    mo.mo.act = 'upcharge'; mo.mo.actT = 1; mo.mo.charge = 0.5;
+    let w = MO.readMonsterWire(MO.monsterWire(mo));
+    assert.equal(w.act, 'upcharge');
+    assert.ok(w.beam && w.beam.up && !w.beam.live, 'gathering it from below is not on the wire');
+    mo.mo.act = 'fire'; mo.mo.beam = { x: 5, z: 6, up: true, hit: false, hitT: 0.1, id: ships[0].id };
+    w = MO.readMonsterWire(MO.monsterWire(mo));
+    assert.ok(w.beam.up && w.beam.live && w.beam.x === 5, 'the beam going up is not on the wire');
+  });
+
   check('Monster One\'s ten kilotons is a little smaller than the B-29\'s sixteen, every radius and its wave', () => {
     const k = nukeScale(MO.MONSTER.breath.kt);
     assert.equal(MO.MONSTER.breath.kt, 10);
@@ -33861,6 +33915,23 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
       [['fletcher', -1500, -9000]]);
     assert.ok(fired, 'she never breathed');
     assert.ok(Math.hypot(fired.x - 2533, fired.z - 8233) < 900, `she breathed at ${fired.x}, ${fired.z}`);
+  });
+
+  check('Monster One\'s own mind goes in under a ship close to her and breathes up through her', () => {
+    const { fired, state } = pinned(() => {
+      const { state, mo } = field([['iowa', 0, 1800]]);
+      for (const q of state.ships) q.spottedBy = [true, true];
+      const brain = createBotBrain('veteran');
+      let fired = null;
+      for (let t = 0; t < 120 && !fired; t += DT) {
+        stepBot(state, mo, brain, DT, false, null);
+        fired = step(state, DT).find((e) => e.e === 'moFire') || fired;
+      }
+      return { fired, state };
+    });
+    assert.ok(fired, 'she never breathed');
+    assert.ok(fired.up, 'she stood up in front of a battleship\'s guns to do it');
+    assert.ok(state.ships.find((q) => q.classId === 'monsterone').mo.pose === 'deep', 'she was not down');
   });
 
   check('Monster One\'s own mind never breathes where her own side would die of it', () => {

@@ -315,6 +315,10 @@ function beamMesh(halo, radius) {
   return mesh;
 }
 
+// Her breath from below: from how deep under the water the beam starts, and
+// how high into the sky it goes.
+const COLUMN = { bottom: -70, top: 1600 };
+
 // A soft round spot of light, for the glow at her mouth and on her plates.
 let GLOW_TEX = null;
 function glowTexture() {
@@ -361,6 +365,9 @@ const _e1 = new THREE.Vector3(), _e2 = new THREE.Vector3(), _e3 = new THREE.Vect
  *   glow     nought to one, how bright what is lit burns
  *   look     a point in her own frame to look at, or null
  *   beamTo   a point in her own frame the breath strikes, or null
+ *   column   her breath from below, in the world: { x, z, charge, firing }
+ *            -- a glow spreading in the water under the ship, then the beam
+ *            straight up through her -- or null
  *   holding  whether she has a ship in her hands
  *   pinned   whether that ship is one too big to lift, held down in the water
  */
@@ -394,6 +401,40 @@ export class MonsterRig {
     this.oneHand = 0;
     this.holdSide = 0;
     this.ripSide = 0;
+  }
+
+  /**
+   * Her breath from below. She is down out of sight, so it is drawn in the
+   * world and not on her: in the scene she is in, beside her and not under
+   * her, so that it shows when she does not. While she gathers it, blue light
+   * spreading in the water under the ship; then the beam, out of the deep and
+   * straight up through her and on up into the sky.
+   */
+  stepColumn(dt, C) {
+    const col = this.column;
+    if (!col) return;
+    if (!col.group.parent && this.group.parent) this.group.parent.add(col.group);
+    const charge = C ? C.charge || 0 : 0;
+    const firing = C ? C.firing || 0 : 0;
+    col.on += ((firing > 0 ? 1 : 0) - col.on) * (1 - Math.exp(-dt / (firing > 0 ? 0.05 : 0.5)));
+    col.pool += ((C ? 0.35 + 0.65 * charge : 0) - col.pool) * (1 - Math.exp(-dt / 0.4));
+    if (C) col.group.position.set(C.x, 0, C.z);
+    // The glow in the water: wider and brighter as the breath gathers,
+    // flickering as it does on her plates.
+    const flick = 0.85 + 0.15 * Math.sin(this.t * 23) * Math.sin(this.t * 7.3);
+    col.glow.material.opacity = Math.min(1, col.pool * flick + col.on);
+    col.glow.scale.setScalar(80 + 260 * col.pool + 160 * col.on);
+    col.glow.visible = col.glow.material.opacity > 0.01;
+    // The beam: up from her, under the keel, through the ship and the sky.
+    if (firing > 0) col.len = Math.min(COLUMN.top - COLUMN.bottom, col.len + dt * 9000);
+    else col.len = Math.max(0, col.len - dt * 6000);
+    const len = Math.max(1e-3, col.len);
+    for (const m of col.beams) {
+      m.position.set(0, COLUMN.bottom, 0);
+      m.scale.set(col.len > 0 ? 1 + 0.6 * col.on : 1e-3, len, col.len > 0 ? 1 + 0.6 * col.on : 1e-3);
+      m.material.uniforms.uOn.value = col.on;
+      m.material.uniforms.uTime.value = this.t;
+    }
   }
 
   /** Every bone's target angle for this frame, as Euler [x, y, z]. */
@@ -894,6 +935,7 @@ export class MonsterRig {
       }
     }
     if (firing > 0 && S.beamTo) this.beamsParked = false;
+    this.stepColumn(dt, S.column);
     this.stepSparks();
   }
 
@@ -1187,9 +1229,27 @@ export function buildMonsterOne() {
   sparks.frustumCulled = false;
   group.add(sparks);
 
+  // Her breath from below, drawn in the world beside her (see stepColumn):
+  // a glow lying flat on the water, and the beam -- the same two -- standing
+  // up out of it. Parked from the start, so its shaders are built with her.
+  const colGroup = new THREE.Group();
+  colGroup.name = 'monster-column';
+  const colGlow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
+    map: glowTexture(), color: BREATH_BLUE, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, opacity: 0,
+  }));
+  colGlow.rotation.x = -Math.PI / 2;
+  colGlow.position.y = 0.6;
+  colGlow.renderOrder = 4;
+  colGlow.visible = false;
+  colGroup.add(colGlow);
+  const colBeams = [beamMesh(1.8, 5), beamMesh(0.9, 13)];
+  for (const m of colBeams) { m.scale.set(1e-3, 1e-3, 1e-3); colGroup.add(m); }
+  const column = { group: colGroup, glow: colGlow, beams: colBeams, on: 0, pool: 0, len: 0 };
+
   const rig = new MonsterRig({
     group, body, bones, skeleton, byName, meshes, uniforms,
-    snout, chin, palmL, palmR, mouthGlow, light, beams, sparks, sparkSrc,
+    snout, chin, palmL, palmR, mouthGlow, light, beams, sparks, sparkSrc, column,
   });
   // Settled into her posture before anybody sees her.
   rig.update(0, {});
