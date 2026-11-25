@@ -10,7 +10,7 @@
 //
 // Reads assets/models/cv_admiral_kuznetsov_war_thunder-maximum-compressed.glb
 // as the owner uploaded it: "CV Admiral Kuznetsov (War Thunder)" by
-// KojfDiscord (Sketchfab), under Creative Commons Attribution 4.0 -- credited
+// KojfDiscord (https://skfb.ly/pGuso), under Creative Commons Attribution 4.0 -- credited
 // on the game's Credits screen. A Sketchfab export in sixty-seven unnamed
 // pieces, painted by specular-glossiness textures: each face is cut fine and
 // takes the colour of the texture under it. The model stands her bow along

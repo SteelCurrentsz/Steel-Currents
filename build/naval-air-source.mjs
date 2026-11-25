@@ -34,11 +34,11 @@
 //         (Sketchfab), the owner's upload --
 //         assets/models/nh90_caiman_door_gun__french_army_warno_mod-maximum-compressed.glb,
 //         flown as the Charles de Gaulle's Caiman
-//   su33  "Sukhoi Su-33" by andertan (Sketchfab) -- assets/models/Su33-maximum-compressed.glb
-//   mig29k  "MiG 29" by Uxman (Sketchfab) -- assets/models/mig_29-maximum-compressed.glb,
+//   su33  "Sukhoi Su-33" by andertan (https://skfb.ly/pnzn8) -- assets/models/Su33-maximum-compressed.glb
+//   mig29k  "MiG 29" by Usman Zia (https://skfb.ly/6XBBu) -- assets/models/mig_29-maximum-compressed.glb,
 //         flown as the Admiral Kuznetsov's MiG-29K
-//   su25  "Su-25" by mamont nikita (Sketchfab) -- assets/models/su-25-maximum-compressed.glb
-//   ka52  "Russian Ka-52 '58 Blue'" by 42manako (Sketchfab) --
+//   su25  "Su-25" by Ford mondeo (https://skfb.ly/oLNqX) -- assets/models/su-25-maximum-compressed.glb
+//   ka52  "Russian Ka-52 58 Blue" by 42manako (https://skfb.ly/pvZNE) --
 //         assets/models/russian_ka-52_58_blue-maximum-compressed.glb, flown as
 //         the Admiral Kuznetsov's Ka-52K Katran
 //
@@ -204,28 +204,28 @@ const KINDS = {
   },
   // The Admiral Kuznetsov's four new types, off the owner's models of them.
   // Her Su-33, the navalised Flanker with canards and folding wings:
-  // "Sukhoi Su-33" by andertan (Sketchfab).
+  // "Sukhoi Su-33" by andertan (https://skfb.ly/pnzn8).
   su33: {
     src: 'Su33-maximum-compressed.glb', length: 21.19, keep: 0.6, nose: '+x',
     piece: ({ mat }) => (mat === 2 ? 'glass' : 'body'),
     spins: [],
     guns: null,
   },
-  // Her MiG-29K: "MiG 29" by Uxman (Sketchfab), at the K's length.
+  // Her MiG-29K: "MiG 29" by Usman Zia (https://skfb.ly/6XBBu), at the K's length.
   mig29k: {
     src: 'mig_29-maximum-compressed.glb', length: 17.3, keep: 0.8,
     piece: ({ mat }) => (mat === 0 ? 'glass' : 'body'),
     spins: [],
     guns: null,
   },
-  // Her Su-25: "Su-25" by mamont nikita (Sketchfab).
+  // Her Su-25: "Su-25" by Ford mondeo (https://skfb.ly/oLNqX).
   su25: {
     src: 'su-25-maximum-compressed.glb', length: 15.33, keep: 0.5,
     piece: ({ mat }) => (mat === 1 ? 'glass' : 'body'),
     spins: [],
     guns: null,
   },
-  // And her Ka-52K Katran: "Russian Ka-52 '58 Blue'" by 42manako (Sketchfab).
+  // And her Ka-52K Katran: "Russian Ka-52 58 Blue" by 42manako (https://skfb.ly/pvZNE).
   ka52: {
     src: 'russian_ka-52_58_blue-maximum-compressed.glb', length: 13.53, keep: 0.1,
     lengthOf: 'body',
