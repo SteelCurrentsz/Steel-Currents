@@ -31,7 +31,7 @@ import { footing } from '../../shared/infantry.js';
 import { getSettings, setSettings, qualityName } from './settings.js';
 import { Director } from './director.js';
 import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
-import { readMonsterWire, MONSTER } from '../../shared/monster.js';
+import { readMonsterWire, readLump, MONSTER } from '../../shared/monster.js';
 import { MonsterBar } from './monsterhud.js';
 import { stepLock, nextLock, lockLabel, rackLabel, hasRack } from './lockon.js';
 import {
@@ -57,7 +57,7 @@ import {
 import { groundHeight, drawnGround, applyCrater, applyGouge, getWeather } from '../../shared/world.js';
 import {
   applyRuin, cityPlans, cityToWorld, worksFloor, surfaceAt, wallAt, SURF, solidHit, worksHard,
-  worksTarget, worksTargets, wallMiddle, isWorksTarget,
+  worksTarget, worksTargets, wallMiddle, isWorksTarget, buildingById,
 } from '../../shared/works.js';
 import { MISSILE_SHAPES } from './render/missiles.js';
 import { EventLog } from './eventlog.js';
@@ -1610,7 +1610,7 @@ export class Battle {
       glow: w.glow,
       look,
       beamTo: w.act === 'fire' ? beamTo : null,
-      holding: !!w.holdId,
+      holding: !!w.holdId || !!w.lump,
       pinned: !!w.pin,
       // Where her head is turned for her jaws: her own captain's as he moves
       // it, everybody else's off the wire.
@@ -1619,6 +1619,8 @@ export class Battle {
     });
     // Gone under, she is not drawn.
     view.group.visible = !s.un && !(!s.a && view.monsterDie > 45);
+    // What she has of the works ashore, in her hands.
+    this.monsterLump(view, s.a ? w.lump : null, rig, h);
     // Her wake: swimming on the surface she throws one; down, or standing
     // in the water, she does not.
     if (s.a && w.pose === 'swim' && ground < -20 && Math.abs(speed) > 1) view.wake.update(dt, x, z, h, speed);
@@ -1634,6 +1636,64 @@ export class Battle {
       this.moMarks = w.marks || [];
       this.hud.setBreathMarks?.(s.a ? this.moMarks : null);
     }
+  }
+
+  /**
+   * A building, a piece of one or a slab of sea wall in Monster One's hands:
+   * made when she takes hold of it (and again when a bite has taken some of
+   * it), carried where her hands are, and turned as she turns.
+   */
+  monsterLump(view, L, rig, h) {
+    const key = L ? `${L.k}${L.id}:${L.whole ? 1 : 0}:${L.h}` : '';
+    if (view.lumpKey !== key) {
+      if (view.lumpMesh) {
+        view.lumpMesh.parent?.remove(view.lumpMesh);
+        view.lumpMesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      }
+      view.lumpMesh = null;
+      const same = L && view.lumpKey && view.lumpKey.startsWith(`${L.k}${L.id}:`);
+      view.lumpKey = key;
+      const works = this.scene.worksView;
+      if (L && works) {
+        try { view.lumpMesh = works.lumpMesh(L); } catch (e) { console.warn('Steel Currents: lump', e); }
+        if (view.lumpMesh) this.scene.scene.add(view.lumpMesh);
+        // Taken up as it stood, and turned with her from then on.
+        if (!same) view.lumpTurn = h;
+      }
+    }
+    const M = view.lumpMesh;
+    if (!M) return;
+    // (Not for a moment after it has left her hands, while the wire catches up.)
+    M.visible = view.group.visible && !(view.lumpHide > performance.now());
+    const p = rig.gripPoint(new THREE.Vector3());
+    // Hung from between her hands by its middle, a little below them.
+    M.position.set(p.x, p.y - L.h * 0.15, p.z);
+    M.rotation.set(0, angleDelta(view.lumpTurn ?? h, h), 0);
+  }
+
+  /** What Monster One has thrown of the works, on its way: on this screen's own clock, off the throw. */
+  stepMonsterLumps(dt) {
+    const list = this.moFlights;
+    if (!list || !list.length) return;
+    for (let k = list.length - 1; k >= 0; k--) {
+      const f = list[k];
+      f.t += dt;
+      const u = clamp(f.t / f.T, 0, 1);
+      f.mesh.position.set(f.x0 + (f.x1 - f.x0) * u, f.y0 * (1 - u) + f.y1 * u + 4 * f.h * u * (1 - u), f.z0 + (f.z1 - f.z0) * u);
+      f.mesh.rotation.set(f.spin * f.t * 0.8, f.turn, f.spin * f.t * 0.35);
+      if (f.t > f.T + 0.6) this.dropMonsterLump(f.i);
+    }
+  }
+
+  dropMonsterLump(i) {
+    const list = this.moFlights || [];
+    const k = list.findIndex((q) => q.i === i);
+    if (k < 0) return null;
+    const f = list[k];
+    list.splice(k, 1);
+    f.mesh.parent?.remove(f.mesh);
+    f.mesh.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    return f;
   }
 
   /**
@@ -1736,6 +1796,14 @@ export class Battle {
   monsterReach(s, w, x, z, h, ships, rig) {
     const aim = (s.i === this.conned() && this.moAim) ? this.moAim : (w.aim || { x: 0, y: 0 });
     let tv = null;
+    // A piece of the town in her hands: her jaws go into the top of it.
+    if (!w.holdId && w.lump) {
+      rig.holdSide = 0; rig.holdFor = 0;
+      if (w.act !== 'bite') return null;
+      const p = rig.gripPoint(new THREE.Vector3());
+      p.y += w.lump.h * 0.3;
+      return { mouth: p };
+    }
     if (w.holdId) tv = this.scene.shipViews.get(w.holdId);
     else if (w.act === 'bite') {
       const jx = x + Math.sin(h) * MONSTER.bite.head.stand, jz = z + Math.cos(h) * MONSTER.bite.head.stand;
@@ -3937,6 +4005,16 @@ export class Battle {
         }
         case 'moRoar': audio.roar({ x: ev.x, y: 60, z: ev.z }); break;
         case 'moTail': {
+          if (ev.land) {
+            // Her tail come down on the land: earth and whatever stood there
+            // thrown up, and the ground shaking.
+            const g = groundHeight(this.scene.world, ev.x, ev.z);
+            fx.debris(ev.x, g + 4, ev.z, 26);
+            fx.dust(ev.x, g + 2, ev.z, 6);
+            this.scene.worksView?.blast(ev.x, ev.z, 600);
+            audio.slam({ x: ev.x, y: g + 1, z: ev.z }, 1.6);
+            break;
+          }
           fx.splash(ev.x, ev.z, ev.at ? 900 : 600, { kind: 'bomb' });
           audio.slam({ x: ev.x, y: 1, z: ev.z }, 2);
           if (ev.at) audio.crash({ x: ev.x, y: 4, z: ev.z }, 12);
@@ -3965,6 +4043,72 @@ export class Battle {
           }
           fx.splash(ev.x, ev.z, 500, { kind: 'bomb' });
           if (ev.at === this.shipId) this.hud.alert('Monster One has you in her hands');
+          break;
+        }
+        // Her hands into the works ashore: a building, or a slab of wall,
+        // torn up out of the ground.
+        case 'moRip': {
+          const g = groundHeight(this.scene.world, ev.x, ev.z);
+          const L = readLump(ev.l);
+          fx.debris(ev.x, g + 6, ev.z, 30);
+          for (let k = 0; k < 4; k++) fx.dust(ev.x + (Math.random() - 0.5) * (L?.w || 12), g + 2, ev.z + (Math.random() - 0.5) * (L?.d || 12), 5);
+          this.scene.worksView?.blast(ev.x, ev.z, 400);
+          audio.crash({ x: ev.x, y: g + 6, z: ev.z }, 16);
+          break;
+        }
+        // Out of her hands, thrown or let fall: drawn on its way on this
+        // screen, off where it left them and where it comes down.
+        case 'moToss': {
+          const L = readLump(ev.l);
+          const works = this.scene.worksView;
+          if (!L || !works) break;
+          let mesh = null;
+          try { mesh = works.lumpMesh(L); } catch (e) { mesh = null; }
+          if (!mesh) break;
+          this.scene.scene.add(mesh);
+          // From where it is drawn in her hands, if she is in sight.
+          const mv = this.scene.shipViews.get(ev.ship);
+          const held = mv?.lumpMesh;
+          const x0 = held ? held.position.x : ev.x0, z0 = held ? held.position.z : ev.z0;
+          const y0 = held ? held.position.y : ev.y0;
+          (this.moFlights || (this.moFlights = [])).push({
+            i: ev.i, mesh, t: 0, T: ev.T, x0, z0, y0, x1: ev.x1, z1: ev.z1, h: ev.h,
+            // Down onto the ground where it lands, or into the sea, by its middle.
+            y1: Math.max(0, groundHeight(this.scene.world, ev.x1, ev.z1)) + (L.h || 6) * 0.3,
+            spin: ev.drop ? 0.4 : 2.2 * (ev.i % 2 ? 1 : -1), turn: held ? held.rotation.y : 0,
+          });
+          if (mv) mv.lumpHide = performance.now() + 500;
+          if (!ev.drop) audio.roar({ x: ev.x0, y: 60, z: ev.z0 }, { level: 0.45, dur: 0.8 });
+          break;
+        }
+        case 'moLand': {
+          this.dropMonsterLump(ev.i);
+          const g = Math.max(0, groundHeight(this.scene.world, ev.x, ev.z));
+          if (ev.land) {
+            fx.hit(ev.x, g + 4, ev.z, 'he', 300 * (ev.big || 1));
+            fx.debris(ev.x, g + 4, ev.z, 30 + 20 * (ev.big || 1));
+            for (let k = 0; k < 3; k++) fx.dust(ev.x + (Math.random() - 0.5) * 20, g + 2, ev.z + (Math.random() - 0.5) * 20, 6 + 3 * (ev.big || 1));
+            this.scene.worksView?.blast(ev.x, ev.z, 500 * (ev.big || 1));
+          } else {
+            fx.splash(ev.x, ev.z, 900 * (ev.big || 1), { kind: 'bomb' });
+          }
+          audio.slam({ x: ev.x, y: g + 1, z: ev.z }, 1.2 + 0.6 * (ev.big || 1));
+          audio.crash({ x: ev.x, y: g + 4, z: ev.z }, 14);
+          if (this.hud && Math.hypot(ev.x - (this.localShip?.x ?? 1e9), ev.z - (this.localShip?.z ?? 1e9)) < 200) this.shake = Math.max(this.shake || 0, 0.8);
+          break;
+        }
+        // Crushed to pieces in her hands, and rained down under them.
+        case 'moShred': {
+          const L = readLump(ev.l);
+          const mv = this.scene.shipViews.get(ev.ship);
+          const held = mv?.lumpMesh;
+          const p = held ? held.position : { x: ev.x, y: MONSTER.grab.release.up, z: ev.z };
+          if (mv) mv.lumpHide = performance.now() + 500;
+          this.scene.worksView?.shred(L, p.x, p.y, p.z);
+          fx.debris(p.x, p.y, p.z, 40);
+          if (!ev.land) fx.splash(ev.x, ev.z, 500, { kind: 'bomb' });
+          audio.crash({ x: p.x, y: p.y, z: p.z }, 18);
+          audio.roar({ x: ev.x, y: 60, z: ev.z }, { level: 0.5, dur: 1 });
           break;
         }
         case 'moSlam': {
@@ -4013,7 +4157,19 @@ export class Battle {
                 },
               });
           }
-          if (ev.at) {
+          if (!ev.at && (ev.st || ev.lump)) {
+            // Her jaws in a building or a wall ashore, or in what she has of
+            // one in her hands: a mouthful of it torn away.
+            const g = groundHeight(this.scene.world, ev.x, ev.z);
+            const mrig = this.scene.shipViews.get(ev.ship)?.group.userData.monster;
+            const w = mrig ? mrig.mouthPoint(new THREE.Vector3()) : { x: ev.x, y: ev.y ?? g + 15, z: ev.z };
+            const b = ev.st && ev.k === 'b' ? buildingById(this.scene.world, ev.id) : null;
+            const L = ev.lump ? readLump(ev.l) : null;
+            this.scene.worksView?.shred(L || (b ? { k: 'b', id: b.id, w: 6, d: 6, h: 6 } : { k: 'w', id: 0, w: 5, d: 5, h: 5 }), w.x, w.y, w.z);
+            fx.debris(w.x, w.y, w.z, 22);
+            if (ev.st) fx.dust(ev.x, g + 3, ev.z, 5);
+            audio.crash({ x: w.x, y: w.y, z: w.z }, 13);
+          } else if (ev.at) {
             // Where her jaws or her fingers went in, and only there -- not a
             // burst in the middle of the ship as though the whole of her had
             // been hit.
@@ -9049,6 +9205,7 @@ export class Battle {
 
   /** Interpolate every remote entity and drive its view model. */
   syncEntities(dt) {
+    this.stepMonsterLumps(dt);
     // A ship the atomic shock took apart before she was ever drawn, now that
     // she is.
     if (this.pendingShatter && this.pendingShatter.size) {

@@ -40,7 +40,7 @@ import {
   worksImpact, blastWorks, stepWorks, clearForBattery, siteOnWorks, worksCeiling, breachedAt,
   wallAt, hurtBuilding, hurtWall, wallHp, solidGround, solidAt, solidHit, buildingAt, worksTarget,
   cityPlans, worksFloor, airbasesOf, harborsOf, runwayOf, berthAlong, cityPlan, ruinOf, stageOf, STAGE,
-  worldToCity, worksName,
+  worldToCity, worksName, buildingsAround, pluckBuilding, buildingById, wallDamage, wallId, standingHeight, worksHard,
 } from './works.js';
 import {
   TANK_ARMOUR, SHERMAN_ARMOUR, tankStrike, insideHarm, outsideHarm, crewRoles, freshTankDamage, CREW, partTough,
@@ -8031,6 +8031,9 @@ const MONSTER_HOOKS = {
   tear: (...a) => monsterTear(...a),
   // How high the ground is under her: below nought the sea bed, above it land.
   ground: (state, x, z) => groundHeight(state.world, x, z),
+  // The works ashore: what she can get her hands and her jaws into, and what
+  // her feet, her tail and what she throws come down on.
+  works: null,
 };
 export { MONSTER_HOOKS, monsterOrder };
 
@@ -8148,6 +8151,172 @@ function monsterTear(state, t, mo, how) {
   const r1 = (v) => Math.round(v * 10) / 10;
   return { lx: r1(lx), ly: r1(ly), lz: r1(lz), r: r1(rad), sd: Math.floor(state.rng() * 1e6), where };
 }
+
+// ---------------------------------------------------------------------------
+// Monster One and the works ashore
+// ---------------------------------------------------------------------------
+//
+// A town is in her way as a ship is not: it is under her feet. Whatever she
+// walks onto goes down under her -- a house, a block of flats, a section of
+// sea wall, a gun in its pit -- and her tail swung across a street takes the
+// street with it. Her hands rip a building out of the ground whole, if it is
+// small enough to get them round, or a piece of it if it is not, or a slab
+// out of a wall; what she has she can crush to pieces over the town, bite
+// into, or throw, and what she throws comes down on the ground as hard as a
+// heavy shell. Her jaws take a mouthful out of anything standing in front of
+// them. See shared/monster.js for when; this is what it does to the works.
+
+/** How big a building her hands go round, whole: across, and high. */
+const MO_PLUCK = { across: 34, high: 26 };
+
+/** What she has hold of, small enough for the wire. */
+function lumpOf(s, w, d, h, whole) {
+  const r1 = (v) => Math.round(v * 10) / 10;
+  return { k: s.k, id: s.id, w: r1(w), d: r1(d), h: r1(h), whole: whole ? 1 : 0 };
+}
+
+const MONSTER_WORKS = {
+  /**
+   * The structure nearest a point, within `reach` of it: a building still
+   * standing, or a section of sea wall not yet breached. `{ k: 'b' | 'w', id,
+   * gap, x, z }` (with `run` and `sec` for a wall), or null.
+   */
+  near(state, x, z, reach) {
+    const world = state.world;
+    if (!world?.works) return null;
+    let best = null;
+    if (world.works.cities?.length) {
+      const bs = buildingsAround(world, x, z, reach);
+      if (bs.length) best = { k: 'b', id: bs[0].b.id, gap: bs[0].gap, x: bs[0].b.x, z: bs[0].b.z };
+    }
+    if (world.works.walls?.length) {
+      const on = wallAt(world, x, z, reach);
+      if (on && wallDamage(world, on.run, on.sec) < 1) {
+        const gap = Math.max(0, on.d - world.works.walls[on.run].width / 2);
+        if (!best || gap < best.gap) best = { k: 'w', id: wallId(on.run, on.sec), run: on.run, sec: on.sec, gap, x, z };
+      }
+    }
+    return best;
+  },
+
+  /** Whether it is still there to be had. */
+  standing(state, s) {
+    const world = state.world;
+    if (!s || !world?.works) return false;
+    if (s.k === 'b') {
+      const r0 = ruinOf(world, s.id);
+      return !!buildingById(world, s.id) && !r0?.c && (r0?.d || 0) < 1;
+    }
+    return wallDamage(world, s.run, s.sec) < 1;
+  },
+
+  /** `share` of all it is worth taken out of it, at a point: by her jaws, her tail, her feet. */
+  hurt(state, s, share, at = null, scar = 0) {
+    const world = state.world;
+    if (state.predict || !world?.works || !(share > 0)) return;
+    if (s.k === 'b') {
+      const b = buildingById(world, s.id);
+      if (b) hurtBuilding(world, b, b.hp * share, state.events, worksDice(state), at);
+    } else {
+      const run = world.works.walls[s.run];
+      if (run) hurtWall(world, s.run, s.sec, share, state.events, at ? { x: at.x, y: at.y ?? run.top, z: at.z } : null, scar);
+    }
+  },
+
+  /**
+   * Torn out of the ground and up into her hands: the whole of a building
+   * small enough for them to go round, a piece of a bigger one -- and what is
+   * left of it badly knocked about -- or a slab out of a sea wall. Returns
+   * what she has (see lumpOf), or null if there is nothing there now.
+   */
+  rip(state, s, at) {
+    const world = state.world;
+    if (!MONSTER_WORKS.standing(state, s)) return null;
+    if (s.k === 'b') {
+      const b = buildingById(world, s.id);
+      const h = standingHeight(b, ruinOf(world, b.id));
+      if (Math.max(b.w, b.d) <= MO_PLUCK.across && h <= MO_PLUCK.high) {
+        if (!state.predict) pluckBuilding(world, b, state.events, at);
+        return lumpOf(s, b.w, b.d, h, true);
+      }
+      MONSTER_WORKS.hurt(state, s, 0.45, at);
+      return lumpOf(s, Math.min(b.w, 14), Math.min(b.d, 12), Math.min(h, 12), false);
+    }
+    const run = world.works.walls[s.run];
+    MONSTER_WORKS.hurt(state, s, 0.6, at, 9);
+    return lumpOf(s, 12, Math.min(run.width * 0.5, 12), Math.max(4, Math.min(run.top, 8)), false);
+  },
+
+  /**
+   * Her weight on whatever is under her feet, for `dt`: each point of
+   * `pts` is a part of her that is down on the ground. A house under her
+   * goes in a moment, a block of flats in a few; a section of sea wall
+   * cracks through; a gun in its pit, or a tank, is trodden flat.
+   */
+  stomp(state, ship, pts, dt) {
+    const world = state.world;
+    if (state.predict || !world) return;
+    const rng = world.works ? worksDice(state) : null;
+    if (world.works?.cities?.length) {
+      const hit = new Map();
+      for (const p of pts) for (const { b } of buildingsAround(world, p.x, p.z, 1.5)) if (!hit.has(b.id)) hit.set(b.id, { b, p });
+      for (const { b, p } of hit.values()) {
+        const rate = b.h <= 20 ? 2.4 : b.h <= 40 ? 1.1 : 0.6;
+        hurtBuilding(world, b, b.hp * rate * dt, state.events, rng, { x: p.x, z: p.z });
+      }
+    }
+    if (world.works?.walls?.length) {
+      const hit = new Map();
+      for (const p of pts) {
+        const on = wallAt(world, p.x, p.z);
+        if (on && wallDamage(world, on.run, on.sec) < 1) hit.set(wallId(on.run, on.sec), { on, p });
+      }
+      for (const { on, p } of hit.values()) {
+        hurtWall(world, on.run, on.sec, 0.9 * dt, state.events, { x: p.x, y: world.works.walls[on.run].top, z: p.z });
+      }
+    }
+    for (const bat of state.batteries || []) {
+      if (!bat.alive || bat.aboard || bat.team === ship.team) continue;
+      if (!pts.some((p) => dist2(p.x, p.z, bat.x, bat.z) < 15 * 15)) continue;
+      const was = bat.alive;
+      hurtBattery(state, bat, 60000 * dt);
+      if (was && !bat.alive) ship.kills = (ship.kills || 0) + 1;
+    }
+  },
+
+  /** A foot put down on soft ground: the print it leaves. */
+  footprint(state, x, z) {
+    const world = state.world;
+    if (state.predict || !world || groundHeight(world, x, z) <= 0.5) return;
+    if (world.works && worksHard(world, x, z)) return;
+    if (state.inf) blastInfantry(state, x, z, 0.2, 'shell');
+    const soft = soilAt(world, x, z);
+    const c = addCrater(world, x, z, 8 + soft * 3, 0.5 + soft * 0.9, 2);
+    if (c) state.events.push({ e: 'crater', c: craterWire(c), soft: Math.round(soft * 100) / 100 });
+  },
+
+  /**
+   * Something heavy coming down hard on the ground at (x, z) -- her tail, or
+   * a piece of a town she threw -- as a round of bore `bore`, metres, would:
+   * the crater it digs and what it knocks down round it. Returns true if it
+   * was the land (or a wall) and not the sea.
+   */
+  slam(state, x, z, bore, spread = 0, share = 0) {
+    const world = state.world;
+    if (!world) return false;
+    const land = groundHeight(world, x, z) > 0.5 || !!(world.works?.walls?.length && wallAt(world, x, z, 4));
+    if (!land || state.predict) return land;
+    // Whatever it comes down on top of, beaten in under it.
+    if (spread > 0 && share > 0 && world.works?.cities?.length) {
+      for (const { b, gap } of buildingsAround(world, x, z, spread)) {
+        hurtBuilding(world, b, b.hp * share * (1 - 0.5 * gap / spread), state.events, worksDice(state), { x, z, he: true });
+      }
+    }
+    landStrike(state, x, z, bore, 'crash', 1);
+    return true;
+  },
+};
+MONSTER_HOOKS.works = MONSTER_WORKS;
 
 /**
  * The shock of every atomic burst, going out, and what it finds.

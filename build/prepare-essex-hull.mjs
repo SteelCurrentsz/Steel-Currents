@@ -19,7 +19,7 @@ await prepare({
   loa: 266.0, draught: 8.66, bow: '+z',
   paints: USN_PAINTS, paint: usnPaint, paintLines: [0, BOOT],
   deckFallback: 10,
-  hullTris: 90000,
+  decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 22 },
   // Her island to starboard, with the twin 5"/38s fore and aft of it.
   carrier: { minY: 12, island: { x0: -26, x1: -11.0, z0: -40, z1: 53, face: -11.8 } },

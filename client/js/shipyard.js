@@ -12,7 +12,6 @@ import { Breakers } from './render/breakers.js';
 import { Wake, WakeField } from './render/wakefield.js';
 import { Seakeeping } from './render/seakeeping.js';
 import { buildShip } from './render/ships.js';
-import { buildIowa } from './render/iowa.js';
 import { skyDome } from './render/scene.js';
 import { SHIP_CLASSES } from '../../shared/ships.js';
 import { MONSTER } from '../../shared/monster.js';
@@ -115,10 +114,9 @@ export class ShipyardScene {
       this.scene.remove(this.ship.group);
       this.ship.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     }
-    // The Iowa has a portrait model of her own — every barrel, director and
-    // aerial on her. It is far too much geometry for forty ships in a battle,
-    // and exactly right for one ship being looked over.
-    this.ship = classId === 'iowa' ? buildIowa() : buildShip(classId);
+    // The Iowa is drawn off the owner's model of her sister the Missouri,
+    // here as in a battle.
+    this.ship = buildShip(classId);
     this.hullView = { group: this.ship.group, cls: SHIP_CLASSES[classId], classId };
     // Trained a little off the bow so the barrels read as barrels rather than
     // as three dots pointing at the lens.
@@ -366,7 +364,7 @@ const num = (n) => n.toLocaleString('en-US');
  *  main battery is a forty-six, not an eighteen-inch. The Regia Marina ordered
  *  in millimetres. */
 function gunLabel(caliber, nation) {
-  if (nation === 'ger' || nation === 'jpn' || nation === 'fra' || nation === 'sov' || nation === 'ita' || nation === 'chn' || caliber < 100) return `${caliber}mm`;
+  if (nation === 'ger' || nation === 'jpn' || nation === 'fra' || nation === 'sov' || nation === 'ita' || nation === 'chn' || nation === 'arg' || caliber < 100) return `${caliber}mm`;
   const inches = caliber / 25.4;
   const shown = Math.abs(inches - Math.round(inches)) < 0.06
     ? Math.round(inches) : inches.toFixed(1);

@@ -17,7 +17,7 @@ await prepare({
   credit: '"HMS Implacable" by kriss50 (https://skfb.ly/ptKt7), CC BY 4.0',
   loa: 233.6, draught: 8.9, bow: '+z',
   paints: RN_PAINTS, paint: rnPaint, paintLines: [0, BOOT],
-  deckFallback: 10, hullTris: 80000,
+  deckFallback: 10, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   // Her island to starboard, her funnel built into it.
   carrier: { minY: 10, island: { x0: -23, x1: -10.6, z0: -10, z1: 40, face: -11.2 },

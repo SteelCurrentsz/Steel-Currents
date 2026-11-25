@@ -6,7 +6,6 @@ import * as THREE from '../../../vendor/three.module.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { buildEnterprise } from './enterprise.js';
 import { buildCleveland } from './cleveland.js';
-import { buildIowa } from './iowa.js';
 import { buildUboat } from './uboat.js';
 import { buildSurcouf } from './surcouf.js';
 import { buildSboat } from './sboat.js';
@@ -103,6 +102,46 @@ const SCULPTED = {
   renown: () => import('./renown.js').then((m) => { KRISS.renown = m.buildRenown; }),
   repulse: () => import('./repulse.js').then((m) => { KRISS.repulse = m.buildRepulse; }),
   warspite: () => import('./warspite.js').then((m) => { KRISS.warspite = m.buildWarspite; }),
+  revenge: () => import('./revenge.js').then((m) => { KRISS.revenge = m.buildRevenge; }),
+  roma: () => import('./roma.js').then((m) => { KRISS.roma = m.buildRoma; }),
+  doria: () => import('./doria.js').then((m) => { KRISS.doria = m.buildDoria; }),
+  wichita: () => import('./wichita.js').then((m) => { KRISS.wichita = m.buildWichita; }),
+  fargo: () => import('./fargo.js').then((m) => { KRISS.fargo = m.buildFargo; }),
+  atlanta: () => import('./atlanta.js').then((m) => { KRISS.atlanta = m.buildAtlanta; }),
+  pensacola: () => import('./pensacola.js').then((m) => { KRISS.pensacola = m.buildPensacola; }),
+  neworleans: () => import('./neworleans.js').then((m) => { KRISS.neworleans = m.buildNewOrleans; }),
+  furutaka: () => import('./furutaka.js').then((m) => { KRISS.furutaka = m.buildFurutaka; }),
+  kitakami: () => import('./kitakami.js').then((m) => { KRISS.kitakami = m.buildKitakami; }),
+  tenryu: () => import('./tenryu.js').then((m) => { KRISS.tenryu = m.buildTenryu; }),
+  oyodo: () => import('./oyodo.js').then((m) => { KRISS.oyodo = m.buildOyodo; }),
+  yubari: () => import('./yubari.js').then((m) => { KRISS.yubari = m.buildYubari; }),
+  kirov: () => import('./kirov.js').then((m) => { KRISS.kirov = m.buildKirov; }),
+  algerie: () => import('./algerie.js').then((m) => { KRISS.algerie = m.buildAlgerie; }),
+  hannover: () => import('./hannover.js').then((m) => { KRISS.hannover = m.buildHannover; }),
+  ushakov: () => import('./ushakov.js').then((m) => { KRISS.ushakov = m.buildUshakov; }),
+  sevastopol: () => import('./sevastopol.js').then((m) => { KRISS.sevastopol = m.buildSevastopol; }),
+  chapayev: () => import('./chapayev.js').then((m) => { KRISS.chapayev = m.buildChapayev; }),
+  vanguard: () => import('./vanguard.js').then((m) => { KRISS.vanguard = m.buildVanguard; }),
+  b65: () => import('./b65.js').then((m) => { KRISS.b65 = m.buildB65; }),
+  napoli: () => import('./napoli.js').then((m) => { KRISS.napoli = m.buildNapoli; }),
+  sanmartin: () => import('./sanmartin.js').then((m) => { KRISS.sanmartin = m.buildSanMartin; }),
+  conde: () => import('./conde.js').then((m) => { KRISS.conde = m.buildConde; }),
+  lorraine: () => import('./lorraine.js').then((m) => { KRISS.lorraine = m.buildLorraine; }),
+  kurfurst: () => import('./kurfurst.js').then((m) => { KRISS.kurfurst = m.buildKurfurst; }),
+  hildebrand: () => import('./hildebrand.js').then((m) => { KRISS.hildebrand = m.buildHildebrand; }),
+  beowulf: () => import('./beowulf.js').then((m) => { KRISS.beowulf = m.buildBeowulf; }),
+  aki: () => import('./aki.js').then((m) => { KRISS.aki = m.buildAki; }),
+  dido: () => import('./dido.js').then((m) => { KRISS.dido = m.buildDido; }),
+  puertorico: () => import('./puertorico.js').then((m) => { KRISS.puertorico = m.buildPuertoRico; }),
+  balao: () => import('./balao.js').then((m) => { KRISS.balao = m.buildBalao; }),
+  // The Iowa, off the owner's model of her sister the Missouri (see
+  // iowaModel.js); iowa.js, her hull lofted through her lines, is what she
+  // was drawn as before.
+  iowa: () => import('./iowaModel.js').then((m) => { KRISS.iowa = m.buildIowaModel; }),
+  trento: () => import('./trento.js').then((m) => { KRISS.trento = m.buildTrento; }),
+  nakhimov: () => import('./nakhimov.js').then((m) => { KRISS.nakhimov = m.buildNakhimov; }),
+  maine: () => import('./maine.js').then((m) => { KRISS.maine = m.buildMaine; }),
+  tennessee: () => import('./tennessee.js').then((m) => { KRISS.tennessee = m.buildTennessee; }),
   shimakaze: () => import('./shimakaze.js').then((m) => { KRISS.shimakaze = m.buildShimakaze; }),
   yugumo: () => import('./yugumo.js').then((m) => { KRISS.yugumo = m.buildYugumo; }),
   dunkerque: () => import('./dunkerque.js').then((m) => { KRISS.dunkerque = m.buildDunkerque; }),
@@ -123,6 +162,7 @@ const SCULPTED = {
   taiho: () => import('./taiho.js').then((m) => { CARRIERS.taiho = m.buildTaiho; }),
   essex: () => import('./essex.js').then((m) => { CARRIERS.essex = m.buildEssex; }),
   lexington: () => import('./lexington.js').then((m) => { CARRIERS.lexington = m.buildLexington; }),
+  ranger: () => import('./ranger.js').then((m) => { CARRIERS.ranger = m.buildRanger; }),
   victory: () => import('./victory.js').then((m) => { KRISS.victory = m.buildVictory; }),
   bismarck: () => import('./bismarck.js')
     .then((m) => { buildBismarck = m.buildBismarck; buildTirpitz = m.buildTirpitz; }),
@@ -176,7 +216,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'cdg', 'essex', 'lexington', 'illustrious'].includes(classId) ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'cdg', 'essex', 'lexington', 'ranger', 'illustrious', 'aki'].includes(classId) ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */
@@ -811,25 +851,6 @@ function buildModel(classId) {
       secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
       torpMounts: built.torpMounts || [],
       deckPlane: built.deckPlane,
-    };
-  }
-
-  // And the Iowa, whose hull is lofted through her own lines rather than
-  // through a length and a beam: no procedural curve gets a forebody that
-  // fine, a stem that raked, or a counter that overhangs. She was built here
-  // from the start and used only on the shipyard's turntable; a battle
-  // rendered the generic hull instead, so none of it was ever seen where it
-  // mattered.
-  if (cls.id === 'iowa') {
-    const built = buildIowa({ breakaway: false });
-    Object.assign(built.group.userData, {
-      classId: cls.id, length: built.length, beam: built.beam, deckY: built.deckY,
-    });
-    return {
-      group: built.group, turrets: built.turrets,
-      length: built.length, beam: built.beam, deckY: built.deckY,
-      secMounts: built.secMounts || [], aaMounts: orderLightMounts(cls, built.aaMounts),
-      torpMounts: [],
     };
   }
 

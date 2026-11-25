@@ -49,6 +49,65 @@ export async function borrowGuns(out, swaps) {
 }
 
 /**
+ * Guns put on a ship where her model draws none -- an empty barbette, a bare
+ * tub -- each as another ship's model draws it, and seated on her own deck:
+ *
+ *   await plantGuns('client/js/render/<ship>Hull.data.js',
+ *     { kind: { from: ['<donor>', '<donor kind>'], at: [[x, z, rest], ...], r: 1.5 } })
+ *
+ * Each mounting stands at [x, z], trained to `rest` (radians, 0 ahead), its
+ * foot on the middle height of what her height map (SURFACE) finds within `r`
+ * metres of it: the top of the barbette, the floor of the tub. Its reach and
+ * the height of its trunnions are the donor's.
+ */
+export async function plantGuns(out, plants) {
+  const file = path.isAbsolute(out) ? out : path.join(ROOT, out);
+  let src = readFileSync(file, 'utf8');
+  const line = (name) => {
+    const m = src.match(new RegExp(`^export const ${name} = (.*);$`, 'm'));
+    if (!m) throw new Error(`${out} has no ${name}`);
+    return JSON.parse(m[1]);
+  };
+  const GUNS = line('GUNS'), MOUNTS = line('MOUNTS'), SURFACE = line('SURFACE');
+  const bytes = Buffer.from(SURFACE.b64, 'base64');
+  const heightAt = (x, z) => {
+    const i = Math.round((x - SURFACE.x0) / SURFACE.step), j = Math.round((z - SURFACE.z0) / SURFACE.step);
+    if (i < 0 || j < 0 || i >= SURFACE.nx || j >= SURFACE.nz) return -99;
+    return bytes.readInt16LE((j * SURFACE.nx + i) * 2) / 100;
+  };
+  const seat = (x, z, r) => {
+    const hs = [];
+    for (let dz = -r; dz <= r + 1e-6; dz += SURFACE.step) {
+      for (let dx = -r; dx <= r + 1e-6; dx += SURFACE.step) {
+        if (dx * dx + dz * dz > r * r + 1e-6) continue;
+        const y = heightAt(x + dx, z + dz);
+        if (y > -50) hs.push(y);
+      }
+    }
+    if (!hs.length) throw new Error(`nothing of her under ${x}, ${z}`);
+    hs.sort((a, b) => a - b);
+    return hs[Math.floor(hs.length / 2)];
+  };
+  for (const [kind, { from: [donor, dk], at, r = 0.8, lift = 0 }] of Object.entries(plants)) {
+    const D = await import(pathToFileURL(path.join(ROOT, `client/js/render/${donor}Hull.data.js`)).href);
+    const G = D.GUNS || D[`${donor.toUpperCase()}_GUNS`];
+    const M = D.MOUNTS || D[`${donor.toUpperCase()}_MOUNTS`];
+    if (!G || !G[dk]) throw new Error(`the ${donor} has no ${dk}`);
+    const { each, ...piece } = G[dk];
+    GUNS[kind] = piece;
+    const reach = M && M[dk] && M[dk][0] ? M[dk][0].reach : Math.max(...piece.muzzles.map((m) => Math.hypot(m[0], m[2])));
+    MOUNTS[kind] = at.map(([x, z, rest]) => {
+      const y = +(seat(x, z, r) + lift).toFixed(3);
+      return { x, z, y, rest: +rest.toFixed(4), reach, my: +(y + piece.trunnion[1]).toFixed(2) };
+    });
+    console.log(`${kind}: the ${donor}'s ${dk}, ${at.length} planted, reach ${reach}:`, MOUNTS[kind].map((m) => `(${m.x}, ${m.z}) y ${m.y}`).join(' '));
+  }
+  src = src.replace(/^export const GUNS = .*;$/m, () => `export const GUNS = ${JSON.stringify(GUNS)};`)
+    .replace(/^export const MOUNTS = .*;$/m, () => `export const MOUNTS = ${JSON.stringify(MOUNTS)};`);
+  writeFileSync(file, src);
+}
+
+/**
  * Turn a kind's barrels afresh on a lathe, where the model draws them as a
  * few flat-sided boxes: one round, tapered barrel along each of its bores, in
  * the frame of its cradle -- from `from` metres ahead of the trunnions out to

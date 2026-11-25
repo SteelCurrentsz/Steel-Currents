@@ -19,7 +19,7 @@ await prepare({
   loa: 270.66, draught: 9.3, bow: '+z',
   paints: USN_PAINTS, paint: usnPaint, paintLines: [0, BOOT],
   deckFallback: 10,
-  hullTris: 80000,
+  decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 20 },
   carrier: { minY: 10, island: { x0: -27, x1: -11.0, z0: -40, z1: 60, face: -11.8 } },
   kinds: {

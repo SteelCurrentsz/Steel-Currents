@@ -35,7 +35,7 @@ await prepare({
   // Her model is drawn with a deck inside her: her weather deck is read off
   // from over her, not along her sections.
   deckFromAbove: true,
-  hullTris: 45000,
+  decimate: true, hullTris: 45000, hullError: 0.004, amax: 2.0,
   // Her light guns are cut free of her as the model draws them; her depth
   // charge racks and K-guns stay on her as it draws them.
   kinds: {

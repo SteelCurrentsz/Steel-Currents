@@ -17,7 +17,7 @@ await prepare({
   loa: 215.14, draught: 8.7, bow: '+z',
   paints: MN_PAINTS, paint: mnPaint, paintLines: [0, BOOT], deckPaints: ['wood', 'steel'],
   deckFallback: 8.5,
-  hullTris: 70000,
+  decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her two quadruple 330 mm turrets, both forward, No.2 superfiring.
     main: { boxes: [

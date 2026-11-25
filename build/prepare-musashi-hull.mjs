@@ -35,7 +35,7 @@ await prepare({
   // forecastle and her midships deck to No.3; the rest of her is steel.
   paints: IJN_BB_PAINTS, paint: (f) => (f.mat === 5 && f.up && !f.kind ? 'wood' : ijnBBPaint(f)),
   paintLines: [0, BOOT], deckPaints: ['wood'],
-  deckFallback: 8.5, hullTris: 90000,
+  deckFallback: 8.5, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   floaters: {},
   // Her rigging kept apart from her hull: it stops no gun.
   wireCards: true,

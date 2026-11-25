@@ -32,7 +32,7 @@ await prepare({
   // 242 m over all, 8.2 m draught.
   loa: 242, draught: 8.2, bow: '+z', groupDepth: 2,
   paints: RENOWN_PAINTS, paint: renownPaint, paintLines: [0, BOOT],
-  deckFallback: 9, hullTris: 90000,
+  deckFallback: 9, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   // Her wires are what is long and thin over her bridge and her mastheads,
   // not B's barrels, which run out long and thin over A's roof.
   rigging: { y: 16 },

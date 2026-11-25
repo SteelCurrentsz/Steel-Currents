@@ -29,6 +29,15 @@
 //
 //   * Her jaws: a ship in front of her, or the one in her hands, bitten.
 //
+//   * The works ashore. What she walks onto goes down under her feet -- a
+//     house, a block of flats, a stretch of sea wall, a gun in its pit --
+//     and her tail swung across a street takes the street with it and digs
+//     into the ground. With no ship in reach her hands rip a building out of
+//     the ground (whole, if they go round it; a piece of it, if not) or a
+//     slab out of a wall, and then she crushes it to pieces over the town,
+//     bites into it, or throws it, and it comes down like a heavy shell.
+//     Her jaws take a mouthful out of anything standing in front of them.
+//
 //   * She is hard to kill -- nothing in her burns or floods, and shells do
 //     her half of what they would do a ship -- and she heals, slowly, when
 //     she is left alone long enough. But she can be killed.
@@ -145,6 +154,29 @@ export const MONSTER = {
     // second mouthful out where they have been dragged to -- `drag` of a full
     // bite's harm -- and as many as `drags` of those to a bite.
     tug: 0.45, drag: 0.5, drags: 2,
+  },
+  // The works ashore (see MONSTER_WORKS in sim.js for what each does to them).
+  works: {
+    // Her feet and her body on the ground, standing, in her own frame: metres
+    // along her from her middle (+ ahead) and across her. Whatever is under
+    // any of them is trodden on, every `every` seconds.
+    feet: { along: [-40, -26, -12, 0, 10], across: [-12, 0, 12] }, every: 0.1,
+    // How far she goes between one footprint and the next.
+    stride: 24,
+    // Her tail, swung across the ground ashore: the points along its sweep it
+    // comes down on, metres from her middle, and how hard -- as a shell of
+    // that bore, in metres -- and what it takes out of a building or a
+    // section of wall it lands on.
+    tail: { reach: [55, 95, 135], bore: 0.32, share: 0.7 },
+    // Her jaws in a building or a wall: a mouthful's share of it.
+    bite: { share: 0.34, wall: 0.3, reach: 8 },
+    // A piece of the town in her hands, bitten: how much of it is left.
+    gnaw: 0.62,
+    // What she has hold of, thrown: how far, by its bulk against a house's,
+    // and the bore it comes down as.
+    lift: 2500, heavyToss: 0.45, bore: [0.22, 0.75],
+    // Crushed to pieces in her hands: what rains down under them.
+    shower: 0.16,
   },
   // How long, after the last thing that hurt her, before she starts to heal,
   // and how fast she does: a share of her whole life a second.
@@ -333,7 +365,7 @@ export function monsterOrder(state, ship, o, hooks) {
       if (m.ashore && o.pose !== 'stand') return 'ashore';
       if (m.act === 'charge' || m.act === 'fire') return 'busy';
       // Going down with a ship in her hands, she lets go of her.
-      if (o.pose === 'deep' && m.holdId) letGo(state, ship, hooks);
+      if (o.pose === 'deep' && (m.holdId || m.lump)) letGo(state, ship, hooks);
       if (['reach', 'hold', 'throw', 'crush', 'bite'].includes(m.act)) { if (o.pose === 'deep') m.act = ''; else return 'busy'; }
       setPose(ship, o.pose);
       m.queued = null;
@@ -350,7 +382,7 @@ export function monsterOrder(state, ship, o, hooks) {
       }
       const { aim, aimId } = breathAim(state, ship, o);
       // Whatever is in her hands goes first.
-      if (m.holdId) letGo(state, ship, hooks);
+      if (m.holdId || m.lump) letGo(state, ship, hooks);
       if (busy) m.act = '';
       m.aim = aim; m.aimId = aimId;
       setPose(ship, 'stand');
@@ -395,14 +427,27 @@ export function monsterOrder(state, ship, o, hooks) {
       return '';
     }
     case 'grab': {
-      if (m.holdId) return monsterOrder(state, ship, { a: 'throw', x: o.x, z: o.z }, hooks);
+      if (m.holdId || m.lump) return monsterOrder(state, ship, { a: 'throw', x: o.x, z: o.z }, hooks);
       if (m.grabCool > 0) return 'cooling';
       if (busy) return 'busy';
       // Only what is within arm's length of her: a ship further off has to
       // be closed with first.
       const want = o.target ? state.ships.find((s) => s.id === o.target && s.alive) : null;
       const t = want ? grabbable(state, ship, ship.team, want) : grabbable(state, ship);
-      if (!t) return 'none';
+      // No ship there: whatever is standing under her hands ashore.
+      if (!t) {
+        const w = want ? null : rippable(state, ship, hooks);
+        if (!w) return 'none';
+        m.fromDeep = ship.depth > 0.6 || m.pose === 'deep';
+        m.lunge = { d: w.lunge, done: 0 };
+        setPose(ship, 'stand');
+        m.grabId = 0;
+        m.grabS = w.s;
+        startAct(m, 'reach');
+        m.grabCool = MONSTER.grab.cooldown;
+        return '';
+      }
+      m.grabS = null;
       // Off the surface she lunges, rising out of the water as she reaches;
       // out of the deep she bursts up out of the sea under the ship, which
       // takes a second longer.
@@ -416,7 +461,7 @@ export function monsterOrder(state, ship, o, hooks) {
       return '';
     }
     case 'crush': {
-      if (!m.holdId) return 'none';
+      if (!m.holdId && !m.lump) return 'none';
       if (m.crushCool > 0) return 'cooling';
       if (m.act === 'throw' || m.act === 'crush' || m.act === 'bite') return 'busy';
       startAct(m, 'crush');
@@ -431,11 +476,15 @@ export function monsterOrder(state, ship, o, hooks) {
       // The ship in her hands, if she has one; if not, one in front of her
       // jaws, which she lunges for off the surface.
       let at = m.holdId;
-      if (!at) {
+      m.biteS = null;
+      if (!at && !m.lump) {
         const t = o.target ? state.ships.find((s) => s.id === o.target && s.alive) : null;
         const b = t && biteable(state, ship, t) ? t : biteable(state, ship);
-        if (!b) return 'none';
-        at = b.id;
+        // No ship in front of her jaws: whatever is standing there ashore.
+        const w = b || t ? null : chewable(state, ship, hooks);
+        if (!b && !w) return 'none';
+        if (b) at = b.id;
+        else m.biteS = w;
         if (m.pose === 'deep') setPose(ship, 'swim');
       }
       m.biteId = at;
@@ -445,7 +494,7 @@ export function monsterOrder(state, ship, o, hooks) {
       return '';
     }
     case 'throw': {
-      if (!m.holdId) return 'none';
+      if (!m.holdId && !m.lump) return 'none';
       if (m.act === 'throw') return 'busy';
       // One she could not lift she cannot throw either: she lets go of her.
       if (m.pin) { letGo(state, ship, hooks); m.act = ''; return ''; }
@@ -559,6 +608,30 @@ function biteable(state, ship, t = null) {
 }
 
 /**
+ * Something standing ashore under her hands, within arm's length of where
+ * they come down -- out to her snout, if she is not standing settled and so
+ * can lunge -- for her to rip out of the ground: `{ s, lunge }`, or null.
+ */
+export function rippable(state, ship, hooks) {
+  const W = hooks && hooks.works;
+  if (!W || !state.world?.works) return null;
+  const G = MONSTER.grab;
+  const far = settled(ship, 'stand') ? G.hands : G.snout;
+  for (let a = G.hands; a <= far; a += 8) {
+    const s = W.near(state, ...xz(handsAt(ship, a)), G.arm);
+    if (s) return { s, lunge: a - G.hands };
+  }
+  return null;
+}
+
+/** Something standing ashore in front of her jaws, for a mouthful of it. */
+function chewable(state, ship, hooks) {
+  const W = hooks && hooks.works;
+  if (!W || !state.world?.works || ship.depth > 0.6) return null;
+  return W.near(state, ...xz(jawsAt(ship)), MONSTER.bite.reach + MONSTER.works.bite.reach);
+}
+
+/**
  * Where her breath goes, off whatever she was given: a ship, a point, or
  * nothing at all. It never refuses: a point too close for the beam is carried
  * out along the same line to where it is not (and a point right under her, as
@@ -650,6 +723,8 @@ export function stepMonster(state, ship, dt, hooks) {
   // order is kept in step with her posture.
   ship.depthCmd = m.pose === 'deep' ? MONSTER.deep : 0;
   if (m.ashore) ship.depth = Math.min(ship.depth, 0.5);
+  // Her weight on whatever is under her feet.
+  if (hooks.works && m.pose === 'stand' && ship.depth < 0.6) stomp(state, ship, m, dt, hooks);
 
   // Healing, when she has been let alone.
   if (state.t - m.hurtAt > MONSTER.heal.after && ship.hp < ship.maxHp) {
@@ -766,7 +841,9 @@ function stepTail(state, ship, m, hooks) {
       s.rockRate = (s.rockRate || 0) + 0.25 * m.side;
       state.events.push({ e: 'moTail', ship: ship.id, at: s.id, x: Math.round(s.x), z: Math.round(s.z) });
     }
-    if (!hit.length) state.events.push({ e: 'moTail', ship: ship.id, at: 0, x: Math.round(ship.x - Math.sin(ship.heading) * 120), z: Math.round(ship.z - Math.cos(ship.heading) * 120) });
+    // And the ground it comes down on, and whatever is built there.
+    const struck = hooks.works ? tailOnLand(state, ship, m, hooks) : 0;
+    if (!hit.length && !struck) state.events.push({ e: 'moTail', ship: ship.id, at: 0, x: Math.round(ship.x - Math.sin(ship.heading) * 120), z: Math.round(ship.z - Math.cos(ship.heading) * 120) });
   }
   if (m.actT >= T.time) m.act = '';
 }
@@ -784,6 +861,24 @@ function stepReach(state, ship, m, hooks) {
       ship.z += Math.cos(ship.heading) * go;
       m.lunge.done = want;
     }
+  }
+  if (m.grabS) {
+    // Her hands into a building, or a wall: she rips it up out of the ground.
+    if (m.actT >= G.takeAt + lead && !m.lump) {
+      const at = handsAt(ship);
+      const W = hooks.works;
+      const s = m.grabS;
+      const still = W && W.standing(state, s) && W.near(state, at.x, at.z, G.arm + G.slip);
+      const lump = still ? W.rip(state, s, at) : null;
+      m.grabS = null;
+      if (!lump) { m.act = ''; return; }
+      m.lump = lump;
+      state.events.push({ e: 'moRip', ship: ship.id, l: lumpWire(lump), x: Math.round(at.x), z: Math.round(at.z) });
+    }
+    if (m.actT >= G.reach + lead) {
+      if (m.lump) startAct(m, 'hold'); else m.act = '';
+    }
+    return;
   }
   if (m.actT >= G.takeAt + lead && !m.holdId) {
     const t = state.ships.find((s) => s.id === m.grabId);
@@ -855,6 +950,8 @@ function stepInto(ship, m) {
 }
 
 function stepHold(state, ship, m, dt, hooks) {
+  // A piece of the town in her hands: held until she does something with it.
+  if (m.lump && !m.holdId) return;
   const t = state.ships.find((s) => s.id === m.holdId);
   if (!t || !t.alive) { letGo(state, ship, hooks); m.act = ''; return; }
   stepInto(ship, m);
@@ -866,6 +963,10 @@ function stepHold(state, ship, m, dt, hooks) {
 
 function stepThrow(state, ship, m, hooks) {
   const G = MONSTER.grab;
+  if (!m.thrown && m.actT >= G.release.at && m.lump && !m.holdId) {
+    m.thrown = true;
+    flingLump(state, ship, m, false);
+  }
   if (!m.thrown && m.actT >= G.release.at) {
     m.thrown = true;
     const t = state.ships.find((s) => s.id === m.holdId);
@@ -905,6 +1006,24 @@ function heaviness(t) {
 /** Her hands closed hard on the ship she holds; back to holding her after. */
 function stepCrush(state, ship, m, hooks) {
   const C = MONSTER.crush;
+  if (m.lump && !m.holdId) {
+    // Crushed to pieces in her hands, and what is left of it let fall over
+    // whatever is under them.
+    if (!m.crushHit && m.actT >= C.hitAt) {
+      m.crushHit = true;
+      const at = handsAt(ship, MONSTER.grab.carry);
+      const land = hooks.works ? hooks.works.slam(state, at.x, at.z, MONSTER.works.shower) : false;
+      state.events.push({ e: 'moShred', ship: ship.id, l: lumpWire(m.lump), x: Math.round(at.x), z: Math.round(at.z), land: land ? 1 : 0 });
+      for (const q of state.ships) {
+        if (!q.alive || q.id === ship.id || shipClass(q).monster || q.gripBy) continue;
+        if (hullGap(at.x, at.z, q) > 14 || !hooks.mayHurt(state, ship.team, q)) continue;
+        hooks.damageShip(state, q, ship, q.maxHp * 0.04 + 1500, 'ram');
+      }
+      m.lump = null;
+    }
+    if (m.actT >= C.time) m.act = '';
+    return;
+  }
   const t = state.ships.find((s) => s.id === m.holdId);
   if (!t || !t.alive) { letGo(state, ship, hooks); m.act = ''; return; }
   if (!m.crushHit && m.actT >= C.hitAt) {
@@ -932,6 +1051,41 @@ function stepCrush(state, ship, m, hooks) {
 function stepBite(state, ship, m, hooks) {
   const B = MONSTER.bite;
   const head = m.head || (m.head = { x: 0, y: 0 });
+  if ((m.lump && !m.holdId) || m.biteS) {
+    if (!m.biteHit && m.actT >= B.hitAt) {
+      m.biteHit = true;
+      const Wk = MONSTER.works;
+      if (m.lump && !m.holdId) {
+        // A mouthful out of what she has in her hands: less of it left, and
+        // nothing at all after a few.
+        const at = handsAt(ship, MONSTER.grab.carry);
+        const L = m.lump;
+        L.h = Math.round(L.h * Wk.gnaw * 10) / 10;
+        L.w = Math.round(L.w * (0.5 + Wk.gnaw * 0.5) * 10) / 10;
+        L.whole = 0;
+        const gone = L.w * L.d * L.h < 120;
+        state.events.push({ e: 'moBite', ship: ship.id, at: 0, lump: 1, l: lumpWire(L), x: Math.round(at.x), y: Math.round(MONSTER.grab.release.up), z: Math.round(at.z), gone: gone ? 1 : 0 });
+        if (gone) m.lump = null;
+      } else {
+        // Her jaws in a building or a wall in front of her.
+        const at = jawsAt(ship);
+        const s = m.biteS;
+        m.biteS = null;
+        const W = hooks.works;
+        if (W && W.standing(state, s) && W.near(state, at.x, at.z, B.reach + Wk.bite.reach)) {
+          W.hurt(state, s, s.k === 'b' ? Wk.bite.share : Wk.bite.wall, { x: at.x, z: at.z }, 6);
+          state.events.push({ e: 'moBite', ship: ship.id, at: 0, st: 1, k: s.k, id: s.id, x: Math.round(at.x), z: Math.round(at.z) });
+        } else {
+          state.events.push({ e: 'moBite', ship: ship.id, at: 0, x: Math.round(at.x), z: Math.round(at.z) });
+        }
+      }
+    }
+    if (m.actT >= B.time) {
+      m.biteS = null;
+      if (m.lump || m.holdId) startAct(m, 'hold'); else m.act = '';
+    }
+    return;
+  }
   if (!m.biteHit && m.actT >= B.hitAt) {
     m.biteHit = true;
     const t = state.ships.find((s) => s.id === m.biteId);
@@ -985,6 +1139,8 @@ function biteInto(state, ship, t, hooks, k) {
 /** Let go of whatever is in her hands, where it is. */
 function letGo(state, ship, hooks) {
   const m = monsterOf(ship);
+  // A piece of the town: dropped where she stands.
+  if (m.lump) flingLump(state, ship, m, true);
   const t = m.holdId ? state.ships.find((s) => s.id === m.holdId) : null;
   if (t) {
     // Dropped from her hands into the sea, from as high as they had her.
@@ -1007,6 +1163,7 @@ function letGo(state, ship, hooks) {
  */
 export function stepHeld(state, dt, hooks) {
   const G = MONSTER.grab;
+  stepLumps(state, dt, hooks);
   for (const s of state.ships) {
     if (s.gripBy) {
       const mo = state.ships.find((q) => q.id === s.gripBy);
@@ -1075,6 +1232,128 @@ export function stepHeld(state, dt, hooks) {
       s.liftY = splashY(p, clamp(p.t / p.T, 0, 1));
       if (p.t >= p.T) { s.splash = null; s.liftY = 0; }
     }
+  }
+}
+
+// ---------------------------------------------------------- the works --
+
+/** Her feet on whatever is under them, standing, and the prints they leave ashore. */
+function stomp(state, ship, m, dt, hooks) {
+  const W = MONSTER.works;
+  const hx = Math.sin(ship.heading), hz = Math.cos(ship.heading);
+  const at = (a, c) => ({ x: ship.x + hx * a + hz * c, z: ship.z + hz * a - hx * c });
+  m.stompT = (m.stompT || 0) + dt;
+  if (m.stompT >= W.every && state.world?.works) {
+    const pts = [];
+    for (const a of W.feet.along) for (const c of W.feet.across) pts.push(at(a, c));
+    hooks.works.stomp(state, ship, pts, m.stompT);
+    m.stompT = 0;
+  } else if (m.stompT >= W.every) m.stompT = 0;
+  if (!m.ashore) { m.strideD = 0; return; }
+  m.strideD = (m.strideD || 0) + Math.abs(ship.speed || 0) * dt;
+  if (m.strideD >= W.stride) {
+    m.strideD = 0;
+    m.foot = (m.foot || 1) > 0 ? -1 : 1;
+    const p = at(-4, m.foot * 9);
+    hooks.works.footprint(state, p.x, p.z);
+  }
+}
+
+/**
+ * Her tail come down across the ground beside and behind her: a crater
+ * where each length of it lands, and whatever building or wall stands there
+ * smashed. Returns how many places it struck ashore.
+ */
+function tailOnLand(state, ship, m, hooks) {
+  const W = hooks.works;
+  const T = MONSTER.works.tail;
+  let n = 0;
+  // Abaft her beam on the side it swings to, and right astern.
+  for (const rel of [m.side * 1.7, m.side * 2.4, Math.PI]) {
+    for (const d of T.reach) {
+      const h = ship.heading + rel;
+      const x = ship.x + Math.sin(h) * d, z = ship.z + Math.cos(h) * d;
+      const s = W.near(state, x, z, 10);
+      if (s) W.hurt(state, s, T.share, { x, z }, 8);
+      const land = W.slam(state, x, z, T.bore);
+      if (land || s) {
+        n++;
+        state.events.push({ e: 'moTail', ship: ship.id, at: 0, land: 1, x: Math.round(x), z: Math.round(z) });
+      }
+    }
+  }
+  return n;
+}
+
+/** What she has of the works, on the wire: [wall?, id, w, d, h, whole]. */
+export function lumpWire(L) {
+  return L ? [L.k === 'w' ? 1 : 0, L.id, L.w, L.d, L.h, L.whole ? 1 : 0] : 0;
+}
+
+/** And back. */
+export function readLump(w) {
+  if (!Array.isArray(w)) return null;
+  return { k: w[0] ? 'w' : 'b', id: w[1], w: w[2], d: w[3], h: w[4], whole: !!w[5] };
+}
+
+/** How far what she has goes when she throws it, against a house: 1 down to MONSTER.works.heavyToss. */
+export function lumpHeavy(L) {
+  const W = MONSTER.works;
+  return clamp(Math.sqrt(W.lift / Math.max(W.lift, L.w * L.d * L.h)), W.heavyToss, 1);
+}
+
+/** The bore of a shell that comes down as hard as it does. */
+function lumpBore(L) {
+  const [lo, hi] = MONSTER.works.bore;
+  return clamp(lo + Math.cbrt(L.w * L.d * L.h) / 50, lo, hi);
+}
+
+/**
+ * What she has of the works, out of her hands: thrown straight ahead of
+ * her, or (`drop`) let fall where she stands. It is in the air until it
+ * comes down (see stepHeld).
+ */
+function flingLump(state, ship, m, drop) {
+  const G = MONSTER.grab;
+  const L = m.lump;
+  m.lump = null;
+  if (!L) return;
+  const hand = handsAt(ship, G.carry);
+  const heavy = lumpHeavy(L);
+  const reach = drop ? 0 : G.toss * heavy;
+  const f = {
+    i: (state.moLumpN = (state.moLumpN || 0) + 1), by: ship.id, team: ship.team, l: L, t: 0,
+    T: drop ? 0.9 : G.flight * (0.75 + 0.25 * heavy),
+    x0: hand.x, z0: hand.z, y0: G.release.up,
+    x1: hand.x + Math.sin(ship.heading) * reach, z1: hand.z + Math.cos(ship.heading) * reach,
+    h: drop ? 2 : Math.max(30, G.arc * heavy), drop: drop ? 1 : 0,
+  };
+  (state.moLumps || (state.moLumps = [])).push(f);
+  const r = (v) => Math.round(v * 10) / 10;
+  state.events.push({ e: 'moToss', ship: ship.id, i: f.i, l: lumpWire(L), x0: r(f.x0), z0: r(f.z0), y0: r(f.y0), x1: r(f.x1), z1: r(f.z1), h: r(f.h), T: r(f.T), drop: f.drop });
+}
+
+/** Everything of the works she has thrown, on its way, and what it comes down on. */
+function stepLumps(state, dt, hooks) {
+  const list = state.moLumps;
+  if (!list || !list.length) return;
+  for (let k = list.length - 1; k >= 0; k--) {
+    const f = list[k];
+    f.t += dt;
+    if (f.t < f.T) continue;
+    list.splice(k, 1);
+    const by = state.ships.find((q) => q.id === f.by) || null;
+    const big = clamp(Math.cbrt(f.l.w * f.l.d * f.l.h) / 14, 0.3, 2) * (f.drop ? 0.4 : 1);
+    // Anything it comes down on, ashore or afloat.
+    const R = 8 + Math.max(f.l.w, f.l.d) * 0.6;
+    const land = hooks.works ? hooks.works.slam(state, f.x1, f.z1, lumpBore(f.l) * (f.drop ? 0.6 : 1), R, 0.8 * big) : false;
+    for (const q of state.ships) {
+      if (!q.alive || shipClass(q).monster || q.gripBy || q.flung) continue;
+      if (hullGap(f.x1, f.z1, q) > R) continue;
+      if (by && !hooks.mayHurt(state, by.team, q)) continue;
+      hooks.damageShip(state, q, by, (q.maxHp * 0.12 + 3000) * big, 'ram');
+    }
+    state.events.push({ e: 'moLand', ship: f.by, i: f.i, x: Math.round(f.x1), z: Math.round(f.z1), land: land ? 1 : 0, big: Math.round(big * 10) / 10 });
   }
 }
 
@@ -1236,6 +1515,8 @@ export function monsterWire(ship) {
     (m.marks || []).slice(0, 6),
     // Where her head is turned, for her jaws: hundredths, across and up.
     [Math.round((m.head?.x || 0) * 100), Math.round((m.head?.y || 0) * 100)],
+    // What she has of the works ashore in her hands.
+    lumpWire(m.lump),
   ];
 }
 
@@ -1260,6 +1541,7 @@ export function readMonsterWire(w) {
     ashore: !!w[16],
     marks: Array.isArray(w[17]) ? w[17] : [],
     aim: Array.isArray(w[18]) ? { x: (w[18][0] || 0) / 100, y: (w[18][1] || 0) / 100 } : { x: 0, y: 0 },
+    lump: readLump(w[19]),
   };
 }
 
@@ -1321,9 +1603,18 @@ export function stepMonsterBot(state, ship, brain, dt, conned, hooks) {
     const why = monsterOrder(state, ship, P.order, hooks);
     if (!why || why === 'cooling' || why === 'none' || why === 'close') P.order = null;
   }
+  // A piece of the town in her hands: thrown at a ship, if she can put one
+  // in front of her; crushed to pieces over the town, if not.
+  if (m.act === 'hold' && m.lump && !m.holdId) {
+    const into = nearestOther(ship, seen, 0);
+    const d = into ? dist(ship.x, ship.z, into.x, into.z) : Infinity;
+    const off = into ? Math.abs(angleDelta(ship.heading, headingTo(ship.x, ship.z, into.x, into.z))) : Math.PI;
+    if (m.actT > 0.8 && d < MONSTER.grab.toss * 1.4 && off < 0.25) monsterOrder(state, ship, { a: 'throw' }, hooks);
+    else if (m.actT > 2.5 && d > MONSTER.grab.toss * 2.5 && m.crushCool <= 0) monsterOrder(state, ship, { a: 'crush' }, hooks);
+    else if (m.actT > 6) monsterOrder(state, ship, { a: 'throw' }, hooks);
+  } else if (m.act === 'hold' && m.actT > 0.8 && m.crushCool <= 0 && !m.botCrushed) {
   // While she has a ship in her hands she crushes her, bites her, and then
   // looks for somewhere to put her.
-  if (m.act === 'hold' && m.actT > 0.8 && m.crushCool <= 0 && !m.botCrushed) {
     m.botCrushed = true;
     // Her free hand put somewhere along her, as her jaws are.
     botHead(state, m);
@@ -1419,6 +1710,12 @@ function plan(state, ship, m, B, foes, seen, friends, hpFrac, hooks) {
   // Her hands not ready: her jaws.
   const jaws = ship.depth < 0.6 && m.biteCool <= 0 && !m.act ? biteable(state, ship) : null;
   if (jaws) return { order: { a: 'bite', target: jaws.id }, go: { x: jaws.x, z: jaws.z }, pose: null, notch: 3 };
+  // Nothing of theirs close by, and a town under her hands: she pulls it
+  // apart as she goes.
+  if (dNear > 320 && m.grabCool <= 0 && !m.act && !m.holdId && !m.lump && ship.depth < 0.6) {
+    const w = rippable(state, ship, hooks);
+    if (w) return { order: { a: 'grab' }, go: near ? lead(ship, near) : null, pose: null, notch: 1 };
+  }
   // Up on the surface with ships beside or behind her: the tail.
   if (ship.depth < 0.6 && m.tailCool <= 0 && !m.act) {
     const flank = seen.find((s) => {

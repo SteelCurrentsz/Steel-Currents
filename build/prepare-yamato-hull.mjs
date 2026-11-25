@@ -29,7 +29,7 @@ await prepare({
   loa: 263.0, draught: 10.4, bow: '+z',
   hull: [142, 144, 146],
   paints: IJN_BB_PAINTS, paint: ijnBBPaint, paintLines: [0, BOOT], deckPaints: ['wood'],
-  deckFallback: 8.5, hullTris: 90000,
+  deckFallback: 8.5, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   rigging: { y: 14 },
   floaters: {},
   // Her rigging kept apart from her hull: it stops no gun.

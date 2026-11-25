@@ -16,7 +16,7 @@ await prepare({
   credit: '"Japanese Battleship Hyūga" by kriss50 (https://skfb.ly/ptuAM), CC BY 4.0',
   loa: 215.8, draught: 9.2, bow: '+z',
   paints: IJN_BB_PAINTS, paint: ijnBBPaint, paintLines: [0, BOOT], deckPaints: ['wood'],
-  deckFallback: 8, hullTris: 70000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her sixteen 14 cm/50, eight a side, in the battery under her upper deck
     // from abaft her funnel to No.2's barbette: each a round shield on its

@@ -16,7 +16,7 @@ await prepare({
   credit: '"USS Maryland" by kriss50 (https://skfb.ly/ptOoS), CC BY 4.0',
   loa: 190.2, draught: 9.3, bow: '+z',
   paints: USN_PAINTS, paint: usnPaint, paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 70000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her eight 5-inch/51, four a side on her upper deck.
     sec: { auto: { regions: [{}], nodes: [78, 80, 82], size: [2, 8], minFaces: 1500, gap: 0.02 }, gun: { whole: true, tris: 900, error: 0.02 } },

@@ -2601,6 +2601,81 @@ export class WorksView {
     }
   }
 
+  /**
+   * What Monster One has of the works in her hands (see readLump in
+   * shared/monster.js), as a group centred on its own middle, its own
+   * axes the town's: the whole building as it stood, with the ground it was
+   * torn out of still under it, if she pulled it up whole; a ragged block of
+   * its walls, broken off top and bottom, if she tore a piece off it; or a
+   * slab of a sea wall's concrete.
+   */
+  lumpMesh(L) {
+    const bufs = new Bufs();
+    const b = L.k === 'b' ? buildingById(this.world, L.id) : null;
+    const earth = [0.36, 0.29, 0.21];
+    const hw = L.w / 2, hd = L.d / 2, hh = L.h / 2;
+    const r = rngOf((L.id * 2654435761) >>> 0);
+    if (b && L.whole) {
+      // As it stood, on its own plot, brought round to its own middle.
+      const g0 = new Bufs();
+      buildingInto(g0, b, 0, null);
+      for (const [k, buf] of g0.m) {
+        const out = bufs.get(k);
+        for (let i = 0; i < buf.p.length; i += 3) out.p.push(buf.p[i] - b.x, buf.p[i + 1] - hh, buf.p[i + 2] - b.z);
+        out.n.push(...buf.n); out.u.push(...buf.u); out.c.push(...buf.c);
+      }
+      // The ground it came up out of, clinging under it.
+      const s = Math.sin(b.rot), k = Math.cos(b.rot);
+      const Fb = (a, y, c) => [k * a + s * c, y - hh, -s * a + k * c];
+      const dirt = bufs.get('plain');
+      dirt.quad(Fb(-hw, 0, -hd), Fb(hw, 0, -hd), Fb(hw, 0, hd), Fb(-hw, 0, hd), null, earth);
+      for (let n = 0; n < 5; n++) {
+        blobInto(dirt, Fb, (r() - 0.5) * L.w * 0.8, -0.5, (r() - 0.5) * L.d * 0.8,
+          2 + r() * hw * 0.4, 1 + r() * 2.5, 2 + r() * hd * 0.4, earth.map((v) => v * (0.8 + r() * 0.3)), n + 1);
+      }
+    } else {
+      const F = (a, y, c) => [a, y, c];
+      const pal = b ? col((WALLS[b.wall] || WALLS[0]).c) : [0.68, 0.66, 0.62];
+      const key = !b ? 'concrete' : b.kind === 'warehouse' || b.kind === 'factory' ? 'warehouse' : (WALLS[b.wall] || WALLS[0]).k;
+      const face = bufs.get(key);
+      const fh = 3.2;
+      // Its sides, to a broken edge along the top.
+      const tops = [0, 1, 2, 3].map(() => hh * (0.55 + r() * 0.45));
+      const side = (a0, c0, a1, c1, t0, t1) => {
+        const len = Math.hypot(a1 - a0, c1 - c0);
+        const uv = b ? [[0, 0], [len / 3.2, 0], [len / 3.2, -(t1 + hh) / fh], [0, -(t0 + hh) / fh]] : null;
+        face.quad(F(a0, -hh, c0), F(a1, -hh, c1), F(a1, t1, c1), F(a0, t0, c0), uv, pal);
+      };
+      side(-hw, hd, hw, hd, tops[0], tops[1]);
+      side(hw, hd, hw, -hd, tops[1], tops[2]);
+      side(hw, -hd, -hw, -hd, tops[2], tops[3]);
+      side(-hw, -hd, -hw, hd, tops[3], tops[0]);
+      // The broken top and bottom: floors and rubble, and torn concrete.
+      const broke = bufs.get('plain');
+      const dark = pal.map((v) => v * 0.55);
+      broke.quad(F(-hw, tops[0], hd), F(hw, tops[1], hd), F(hw, tops[2], -hd), F(-hw, tops[3], -hd), null, dark);
+      broke.quad(F(-hw, -hh, -hd), F(hw, -hh, -hd), F(hw, -hh, hd), F(-hw, -hh, hd), null, b ? earth : dark);
+      for (let n = 0; n < 4; n++) {
+        blobInto(broke, F, (r() - 0.5) * L.w * 0.7, hh * 0.5, (r() - 0.5) * L.d * 0.7,
+          1 + r() * hw * 0.35, 0.8 + r() * 1.5, 1 + r() * hd * 0.35, dark.map((v) => v * (0.8 + r() * 0.4)), n + 7);
+      }
+    }
+    const g = bufs.meshes(this.mats);
+    g.name = 'monster-lump';
+    return g;
+  }
+
+  /** What she tore apart in her hands, coming down out of them at (x, y, z). */
+  shred(L, x, y, z) {
+    const b = L && L.k === 'b' ? buildingById(this.world, L.id) : null;
+    const pal = b ? col((WALLS[b.wall] || WALLS[0]).c) : [0.68, 0.66, 0.62];
+    const size = Math.cbrt(Math.max(1, (L?.w || 10) * (L?.d || 10) * (L?.h || 10)));
+    for (let k = 0; k < 6; k++) this.spray(x, y - k * 2, z, 18 + Math.round(size), pal, 0.6 + size / 25, 7 + size / 4, 3);
+    this.spray(x, y, z, 20, [0.5, 0.6, 0.65], 0.2, 6, 4);
+    this.spray(x, y, z, 16, [0.32, 0.22, 0.16], 0.45, 6, 3);
+    if (this.fx) for (let k = 0; k < 4; k++) this.fx.dust(x + (Math.random() - 0.5) * size, y - k * 6, z + (Math.random() - 0.5) * size, 3 + size / 6);
+  }
+
   /** Called when the ground has been redrawn: walls are re-cut against it. */
   groundChanged() {
     (this.world.works?.walls || []).forEach((_, ri) => this.buildWall(ri));

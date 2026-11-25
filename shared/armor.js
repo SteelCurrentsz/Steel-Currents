@@ -137,6 +137,19 @@ const TURRET_ROOF = {
   tillman: 280, morosini: 200, richelieu: 170, scharnhorst: 150, hagen: 130, bismarck: 130, tirpitz: 130, soyuz: 230, hood: 127, kgv: 152, rodney: 184,
   northcarolina: 178, massachusetts: 184, iowa: 184, louisiana: 184, oregon: 250, missouri: 184, kongo: 152, amagi: 152, fuso: 152, mutsu: 152, agincourt: 76, musashi: 270, yamato: 270,
   takao: 25, maya: 25, suzuya: 25, yodo: 40, mogami: 25, baltimore: 76, alaska: 127, ticonderoga: 51, leviathan: 102, ajax: 25, borgia: 50, shinano: 6, shokaku: 6, hornet: 3, enterprise: 3, grafzeppelin: 20,
+  // The ships of November 2026: the Revenge's and the Tennessee's fifteen-
+  // and fourteen-inch gunhouses, the Littorios' and the Montanas', the treaty
+  // cruisers' thin gunhouses, the Atlanta's and the light cruisers' splinter
+  // proof mounts, and the Project 1144's AK-100.
+  revenge: 127, roma: 200, doria: 100, tennessee: 127, maine: 184, wichita: 51, pensacola: 38, neworleans: 64, fargo: 76, atlanta: 3,
+  furutaka: 25, kitakami: 3, tenryu: 3, yubari: 3, oyodo: 25, kirov: 50, algerie: 70, trento: 40, nakhimov: 13,
+  // And those of the end of the month: the battleships' heavy gunhouses, the
+  // super cruisers' and the cruisers' lighter ones.
+  hannover: 220, ushakov: 230, vanguard: 152, lorraine: 160, sevastopol: 125, b65: 100, napoli: 60, conde: 50, chapayev: 65, sanmartin: 76,
+  // And those of its last week: the H-41's and the hybrid's battleship
+  // gunhouses, the large cruisers', the Puerto Rico's (the Alaska's own), the
+  // Dido's light ones and the Ranger's open 5"/25s.
+  kurfurst: 240, aki: 270, hildebrand: 150, beowulf: 130, puertorico: 127, dido: 25, ranger: 3,
   // A Liberty ship's 4-inch: an open gun behind a splinter shield.
   liberty: 6,
   // A Higgins boat's Brownings: a thin shield on the pintle, and the sky.
@@ -147,6 +160,9 @@ const SEC_ROOF = {
   texas: 25, newmexico: 25, maryland: 25, pennsylvania: 25, ise: 25,
   guangzhou: 6, sovremenny: 6, slava: 6, burke: 6, dunkerque: 20, iowa: 25, louisiana: 50, oregon: 50, missouri: 25, northcarolina: 25, massachusetts: 25, cleveland: 25, brooklyn: 3, county: 6, indianapolis: 3, desmoines: 25, baltimore: 25, alaska: 25, ticonderoga: 13, leviathan: 25, ajax: 6, bismarck: 35, tirpitz: 35, soyuz: 50,
   borgia: 10,
+  revenge: 76, roma: 70, doria: 25, tennessee: 25, maine: 25, wichita: 3, pensacola: 3, neworleans: 3, fargo: 25, furutaka: 6, oyodo: 6, yubari: 3, kirov: 6, algerie: 10, trento: 6,
+  hannover: 40, ushakov: 50, vanguard: 25, lorraine: 160, sevastopol: 50, b65: 6, napoli: 25, conde: 20, chapayev: 25,
+  kurfurst: 40, hildebrand: 40, beowulf: 40, aki: 25, puertorico: 25,
   // The Mogamis' 127 mm behind splinter shields, their 100 mm and the Yodo's
   // 127 mm in light enclosed gunhouses.
   suzuya: 3, mogami: 6, yodo: 6,

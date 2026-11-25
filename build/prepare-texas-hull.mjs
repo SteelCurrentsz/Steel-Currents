@@ -18,7 +18,7 @@ await prepare({
   credit: '"USS Texas" by kriss50 (https://skfb.ly/ptOpy), CC BY 4.0',
   loa: 174.65, draught: 8.7, bow: '+z',
   paints: USN_PAINTS, paint: usnPaint, paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 70000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   drop: ['Object_26'],
   kinds: {
     sec: { auto: { regions: [{}], nodes: [42, 44], size: [2, 8], minFaces: 1500 }, gun: { whole: true, tris: 900, error: 0.02 } },

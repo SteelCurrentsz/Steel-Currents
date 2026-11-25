@@ -85,6 +85,8 @@ export async function prepare(cfg) {
   const OUT_DATA = path.isAbsolute(cfg.out) ? cfg.out : path.join(ROOT, cfg.out);
   const model = await flatten(readFileSync(SRC), cfg.groupDepth ?? 3);
   const { j } = model;
+  /** The model's pieces an `auto` kind is cut from: by number, or by a pattern their names match. */
+  const autoNodes = (A) => A.nodes || (A.names ? j.nodes.map((n, i) => (new RegExp(A.names).test(n?.name || '') ? i : -1)).filter((i) => i >= 0) : null);
   const LOA = cfg.loa;
   const DRAUGHT = cfg.draught;
 
@@ -566,7 +568,7 @@ export async function prepare(cfg) {
       }
     }
     const BAND = 0.6;
-    const GUN_NODES = new Set(Object.values(cfg.kinds || {}).flatMap((k) => (k.auto && k.auto.nodes) || []));
+    const GUN_NODES = new Set(Object.values(cfg.kinds || {}).flatMap((k) => (k.auto && autoNodes(k.auto)) || []));
     const T2 = [], G2 = [], L2 = [], M2 = [];
     let gone = 0;
     for (let t = 0; t < nf; t++) {
@@ -705,6 +707,17 @@ export async function prepare(cfg) {
   // stand within BYNODE_GAP of each other -- but only with runs of the same
   // piece -- and counted by size: the model draws a kind of gun to a piece, so
   // its mountings show up as a row of clusters alike.
+  // PROBE='{"x":[..],"y":[..],"z":[..]}': every run of faces standing in the
+  // box, its piece and its extent, to find what a mounting is drawn as.
+  if (process.env.PROBE) {
+    const B = JSON.parse(process.env.PROBE);
+    for (const p of parts) {
+      const hit = process.env.PROBE_ANY ? [0, 1, 2].every((c) => p.lo[c] <= (B[['x', 'y', 'z'][c]] || [-1e9, 1e9])[1] && p.hi[c] >= (B[['x', 'y', 'z'][c]] || [-1e9, 1e9])[0]) : inBox(B, ...p.mid);
+      if (!hit || p.tris.length < +(process.env.PROBE_MIN || 20)) continue;
+      console.log(`  run node ${p.node}${HULL_PIECES.has(p.node) ? '(hull)' : ''} ${p.tris.length}t x ${p.lo[0].toFixed(2)}..${p.hi[0].toFixed(2)} y ${p.lo[1].toFixed(2)}..${p.hi[1].toFixed(2)} z ${p.lo[2].toFixed(2)}..${p.hi[2].toFixed(2)}`);
+    }
+    process.exit(0);
+  }
   if (process.env.BYNODE) {
     const gap = +(process.env.BYNODE_GAP || 0.12);
     const by = new Map();
@@ -783,6 +796,7 @@ export async function prepare(cfg) {
     return inBox(b, ...p.mid) && inBox(b, ...p.lo, b.slack ?? 0.4) && inBox(b, ...p.hi, b.slack ?? 0.4);
   };
   const taken = new Set();
+  const faceTaken = new Set();
   for (const box of cfg.remove || []) {
     for (const p of parts) if (!taken.has(p) && !kept(p) && claim(box, p, { hullToo: box.hullToo })) { for (const t of p.tris) NOT_HERS.add(t); taken.add(p); }
     // `wires`: and whatever thin runs in it the rigging pass took for wires --
@@ -823,9 +837,18 @@ export async function prepare(cfg) {
       && A.regions.some((r) => inBox(r, ...p.mid)) && Math.max(p.hi[0] - p.lo[0], p.hi[2] - p.lo[2]) < A.size[1])
       .map((p) => ({ ps: [p], lo: [...p.lo], hi: [...p.hi] }));
     // `nodes`: only the model's pieces that draw this kind of gun, so a gun
-    // stood against a deckhouse is not taken for part of it.
-    const near = (X, Y) => [0, 1, 2].every((c) => X.lo[c] - gap <= Y.hi[c] && Y.lo[c] - gap <= X.hi[c]);
-    if (A.nodes) cl = cl.filter((c) => A.nodes.includes(c.ps[0].node));
+    // stood against a deckhouse is not taken for part of it. Or `names`: the
+    // pieces whose names match it, where the model names its pieces for the
+    // guns they are -- the World of Warships exports do ("ggs123_127mm...").
+    // `byNode`: a mounting is a piece of the model to itself, and is never
+    // run together with the one beside it -- a superfiring turret's barrels
+    // reach out over the roof of the one under it.
+    // Or `group(name)`: the mounting a piece belongs to, by its name, where
+    // the model draws one mounting in several pieces named alike.
+    const key = (n) => (A.group ? A.group(j.nodes[n]?.name || '') : n);
+    const near = (X, Y) => (!(A.byNode || A.group) || key(X.ps[0].node) === key(Y.ps[0].node)) && [0, 1, 2].every((c) => X.lo[c] - gap <= Y.hi[c] && Y.lo[c] - gap <= X.hi[c]);
+    const only = autoNodes(A);
+    if (only) cl = cl.filter((c) => only.includes(c.ps[0].node));
     for (let merged = true; merged;) {
       merged = false;
       for (let a = 0; a < cl.length; a++) {
@@ -893,6 +916,23 @@ export async function prepare(cfg) {
         if (taken.has(p) || kept(p) || !claim(box, p, { hullToo: box.hullToo ?? spec.hullToo, nodes: spec.nodes })) continue;
         taken.add(p);
         for (const t of p.tris) s.add(t);
+      }
+      // `faces`: and every face standing wholly in the box, of a run that
+      // reaches out of it -- a model whose gunhouses are run in with her
+      // decks, one run of faces from her stem to her stern.
+      if (box.faces) {
+        const P = model.P, T = model.T;
+        for (const p of parts) {
+          if (taken.has(p) || kept(p) || !(p.lo[0] <= box.x[1] && p.hi[0] >= box.x[0] && p.lo[1] <= box.y[1] && p.hi[1] >= box.y[0] && p.lo[2] <= box.z[1] && p.hi[2] >= box.z[0])) continue;
+          for (const t of p.tris) {
+            if (faceTaken.has(t)) continue;
+            const v = [0, 1, 2].map((k) => T[t * 3 + k] * 3);
+            if (!v.every((i) => inBox(box, P[i], P[i + 1], P[i + 2], 0.02))) continue;
+            const c = [0, 1, 2].map((a) => (P[v[0] + a] + P[v[1] + a] + P[v[2] + a]) / 3);
+            if (box.not && box.not.some((n) => inBox(n, ...c))) continue;
+            faceTaken.add(t); s.add(t);
+          }
+        }
       }
       if (s.size < (spec.min ?? 20)) throw new Error(`${kind}: only ${s.size} faces of her in ${JSON.stringify(box)}`);
       return s;
@@ -1592,13 +1632,16 @@ export async function prepare(cfg) {
     };
     return { house: part(0), barrels: part(1), face };
   }
-  function boresOf(bar, guns, face) {
+  function boresOf(bar, guns, face, given = null) {
     const xs = [];
     for (let i = 0; i < bar.P.length; i += 3) if (bar.P[i + 2] > face + 0.5) xs.push(bar.P[i]);
     xs.sort((a, b) => a - b);
     const gaps = [];
     for (let i = 1; i < xs.length; i++) gaps.push([xs[i] - xs[i - 1], (xs[i] + xs[i - 1]) / 2]);
-    const cuts = gaps.sort((a, b) => b[0] - a[0]).slice(0, guns - 1).map((g) => g[1]).sort((a, b) => a - b);
+    // `cuts`: where across the mounting one barrel's lane ends and the next
+    // begins, given, for barrels drawn so coarsely that the widest gap
+    // between their points is inside one of them.
+    const cuts = given || gaps.sort((a, b) => b[0] - a[0]).slice(0, guns - 1).map((g) => g[1]).sort((a, b) => a - b);
     const laneOf = (x) => cuts.filter((c) => x > c).length;
     const lanes = [...Array(guns)].map(() => ({ sz: 0, sy: 0, szz: 0, szy: 0, n: 0, sx: 0, tip: -Infinity }));
     for (let i = 0; i < bar.P.length; i += 3) {
@@ -1607,7 +1650,7 @@ export async function prepare(cfg) {
       const l = lanes[laneOf(x)];
       l.sz += z; l.sy += y; l.szz += z * z; l.szy += z * y; l.n++; l.sx += x; l.tip = Math.max(l.tip, z);
     }
-    if (lanes.some((l) => l.n < 3)) throw new Error(`a gun of ${guns} has a barrel with no points to it`);
+    if (lanes.some((l) => l.n < 3)) { if (process.env.PARTS) console.log("bores", face, cuts, lanes.map((l) => l.n), bar.P.length / 3); throw new Error(`a gun of ${guns} has a barrel with no points to it`); }
     const fits = lanes.map((l) => {
       const den = l.n * l.szz - l.sz * l.sz;
       const slope = Math.abs(den) > 1e-9 ? (l.n * l.szy - l.sz * l.sy) / den : 0;
@@ -1721,7 +1764,7 @@ export async function prepare(cfg) {
     const sp = splitBarrels({ ...local, LF: raw.LF }, guns, minLen, test);
     const { house, barrels } = sp;
     const face = (spec.faces && spec.faces[template] != null) ? spec.faces[template] : (spec.face ?? sp.face);
-    const { fits, pitch } = boresOf(barrels, guns, face);
+    const { fits, pitch } = boresOf(barrels, guns, face, spec.cuts || null);
     const tz = face - inside;
     const ty = fits.reduce((a, f) => a + f.yAt(tz), 0) / guns;
     const trunnion = [0, ty, tz];

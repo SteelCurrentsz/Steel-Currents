@@ -16,7 +16,7 @@ await prepare({
   credit: '"USS Pennsylvania" by kriss50 (https://skfb.ly/ptOoD), CC BY 4.0',
   loa: 185.4, draught: 8.8, bow: '+z',
   paints: USN_PAINTS, paint: usnPaint, paintLines: [0, BOOT],
-  deckFallback: 8, hullTris: 70000,
+  deckFallback: 8, decimate: true, hullTris: 60000, hullError: 0.004, amax: 2.0,
   kinds: {
     // Her ten 5-inch/51 in casemates, five a side along her upper deck.
     sec: { auto: { regions: [{}], nodes: [86, 88, 90, 92], size: [2, 8], minFaces: 1500, gap: 0.02 }, gun: { whole: true, tris: 900, error: 0.02 } },

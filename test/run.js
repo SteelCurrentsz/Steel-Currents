@@ -436,18 +436,32 @@ function shellRuler(group) {
   // starboard and four metres wide: "fourteen metres off the centreline" is
   // true of it and is also true of a point thirteen metres out on the other
   // side, in the air over her port catwalk, where there is no island at all.
-  return (y, z) => {
+  //
+  // And not off one ray alone. Her plating is welded out of plates that do
+  // not all share their corners, and where one plate's edge meets the middle
+  // of another's there is a crack a hundredth of a plate wide; a ray down it
+  // misses that side of her altogether, and anything fitted inside her on
+  // that exact line reads as standing out in the air. So the ray and four
+  // more a centimetre round it, and the widest of them -- far finer than
+  // anything this is used to catch.
+  const one = (y, z, span) => {
     const l = bucket.get(Math.floor(z / SLAB));
-    if (!l) return null;
-    let lo = Infinity;
-    let hi = -Infinity;
+    if (!l) return;
     for (let n = 0; n < l.length; n++) {
       const h = rayX(l[n], y, z);
       if (Number.isNaN(h)) continue;
-      if (h < lo) lo = h;
-      if (h > hi) hi = h;
+      if (h < span.lo) span.lo = h;
+      if (h > span.hi) span.hi = h;
     }
-    return hi < lo ? null : { lo, hi };
+  };
+  return (y, z) => {
+    const span = { lo: Infinity, hi: -Infinity };
+    one(y, z, span);
+    one(y + 0.01, z, span);
+    one(y - 0.01, z, span);
+    one(y, z + 0.01, span);
+    one(y, z - 0.01, span);
+    return span.hi < span.lo ? null : span;
   };
 }
 import {
@@ -493,6 +507,9 @@ import {
   sheerAt as iowaSheer, keelAt as iowaKeel, shellAt as iowaShell,
   zAt as iowaZAt, halfDeck as iowaHalfDeck, iowaParts, iowaDecks,
 } from '../client/js/render/iowa.js';
+import { GUNS as PUERTORICO_GUNS, MOUNTS as PUERTORICO_MOUNTS } from '../client/js/render/puertoricoHull.data.js';
+import { ALASKA_GUNS } from '../client/js/render/alaskaHull.data.js';
+import { MOUNTS as IOWA_MOUNTS } from '../client/js/render/iowaHull.data.js';
 import * as THREE from '../vendor/three.module.js';
 import { EAST_X } from '../shared/coast.js';
 import { createBotBrain, stepBot } from '../server/bots.js';
@@ -515,7 +532,7 @@ import { setGroup, membersOf, vectorFlight, wingLeader, fleetCourse } from '../s
 import { crewBattle, wingOf as setupWingOf } from '../server/setup.js';
 import {
   cityPlan, wallAt, worksFloor, stageOf, STAGE, standingHeight, inFootprint, SURF, worldToCity,
-  applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
+  ruinOf, wallDamage, applyRuin, worksHard, cityPlans, buildingById, cleanAsk, solidHit, solidAt, solidGround,
   worksTargets, worksTarget, townTargetId, wallTargetId, wallHp, WALL_SCARS,
   cityToWorld, surfaceAt, buildingAt,
 } from '../shared/works.js';
@@ -4759,6 +4776,242 @@ check('the Warspite and the Illustrious come in the yard, are credited, and buil
   for (const m of W.secondary.mounts) assert.ok(Math.sign(m.angle) === Math.sign(m.x) && Math.abs(m.angle) - m.arc > -0.35, 'a casemate of hers bears across her');
 });
 
+// ---- the nineteen ships of November 2026 ----------------------------------
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs, put
+// together by krissShip.js.
+const NOV26 = [
+  { id: 'revenge', type: 'BB', nation: 'gbr', era: 'wwi', link: 'https://skfb.ly/oTGEQ', title: 'HMS Revenge 1915', by: 'martyn169' },
+  { id: 'roma', type: 'BB', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/pyzRx', title: 'RN Roma (War Thunder) Leviathans', by: 'KojfDiscord' },
+  { id: 'doria', type: 'BB', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/pzSsC', title: 'Andrea Doria (World of Warships)', by: 'KojfDiscord' },
+  { id: 'wichita', type: 'CA', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pGVpu', title: 'USS Wichita WoWS', by: 'Jimphf' },
+  { id: 'fargo', type: 'CL', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pFCKK', title: 'USS Fargo War Thunder', by: 'Jimphf' },
+  { id: 'atlanta', type: 'CL', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pLHuw', title: 'USS Atlanta (War Thunder)', by: 'KojfDiscord' },
+  { id: 'pensacola', type: 'CA', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pLHuu', title: 'USS Pensacola (War Thunder)', by: 'KojfDiscord' },
+  { id: 'neworleans', type: 'CA', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pBB8p', title: 'USS New Orleans (War Thunder)', by: 'KojfDiscord' },
+  { id: 'furutaka', type: 'CA', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/pvYqC', title: 'IJN Furutaka (War Thunder)', by: 'KojfDiscord' },
+  { id: 'kitakami', type: 'CL', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/ptTKo', title: 'Japanese Cruiser Kitakami', by: 'kriss50' },
+  { id: 'tenryu', type: 'CL', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/ptRpM', title: 'Japanese Cruiser Tatsuta', by: 'kriss50' },
+  { id: 'oyodo', type: 'CL', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/pEsIT', title: 'IJN Oyodo (War Thunder) Line Of Contact', by: 'KojfDiscord' },
+  { id: 'yubari', type: 'CL', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/pwovz', title: 'IJN Yubari', by: '42manako' },
+  { id: 'kirov', type: 'CL', nation: 'sov', era: 'wwii', link: 'https://skfb.ly/ptMsq', title: 'Soviet Cruiser Voroshilov', by: 'kriss50' },
+  { id: 'algerie', type: 'CA', nation: 'fra', era: 'wwii', link: 'https://skfb.ly/pOtYK', title: 'Algerie (War Thunder) Sky Odyssey', by: 'KojfDiscord' },
+  { id: 'trento', type: 'CA', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/pyzQZ', title: 'RN Trento (War Thunder)', by: 'KojfDiscord' },
+  { id: 'nakhimov', type: 'CA', nation: 'sov', era: 'modern', link: 'https://skfb.ly/pBNos', title: 'Kirov-class cruiser', by: 'SB-129' },
+  { id: 'maine', type: 'BB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pzRIK', title: 'Maine', by: 'vvmilleriii' },
+  { id: 'tennessee', type: 'BB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/oP7AS', title: 'USS California', by: 'HappySunpore' },
+];
+check('the nineteen ships of November 2026 come in their yards, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of NOV26) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    assert.ok(SHIP_ORDER.includes(m.id), `${m.id} is not in the yard`);
+    const era = WWI_ORDER.includes(m.id) ? 'wwi' : MODERN_ORDER.includes(m.id) ? 'modern' : WWII_ORDER.includes(m.id) ? 'wwii' : null;
+    assert.equal(era, m.era, `${m.id}: her era`);
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+});
+
+check('the Tatsuta is sailed as the Tenryū, the Voroshilov as the Kirov and the California as the Tennessee', () => {
+  assert.equal(SHIP_CLASSES.tenryu.name, 'Tenryū');
+  assert.equal(SHIP_CLASSES.kirov.name, 'Kirov');
+  assert.equal(SHIP_CLASSES.tennessee.name, 'Tennessee');
+  for (const c of Object.values(SHIP_CLASSES)) assert.ok(!/Tatsuta|Voroshilov|California/.test(c.name), `${c.id} is still called ${c.name}`);
+  // And the Project 1144 the owner's other Kirov model draws is the Admiral
+  // Nakhimov, so the two Kirovs are not confused.
+  assert.equal(SHIP_CLASSES.nakhimov.name, 'Admiral Nakhimov');
+  // The Admiral Ushakov of the store is a battleship, not the Project 1144.
+  assert.equal(SHIP_CLASSES.ushakov.type, 'BB');
+});
+
+// ---- the ten ships of late November 2026 -----------------------------------
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs, put
+// together by krissShip.js. The Hannover and the Admiral Ushakov are premium
+// hulls, in the store and not the yard.
+const LATE_NOV26 = [
+  { id: 'hannover', type: 'BB', nation: 'ger', era: 'premium', link: 'https://skfb.ly/pz8OU', title: 'Hannover (World of Warships)', by: 'KojfDiscord' },
+  { id: 'ushakov', type: 'BB', nation: 'sov', era: 'premium', link: 'https://skfb.ly/oDLMP', title: 'Admiral Ushakov', by: 'SB-129' },
+  { id: 'sevastopol', type: 'CA', nation: 'sov', era: 'wwii', link: 'https://skfb.ly/pyzRu', title: 'Sevastopol (War Thunder) Leviathans', by: 'KojfDiscord' },
+  { id: 'chapayev', type: 'CL', nation: 'sov', era: 'modern', link: 'https://skfb.ly/pz8ME', title: 'Chapayev (War Thunder)', by: 'KojfDiscord' },
+  { id: 'vanguard', type: 'BB', nation: 'gbr', era: 'modern', link: 'https://skfb.ly/pxJ9Q', title: 'Vanguard (World of Warships)', by: 'KojfDiscord' },
+  { id: 'b65', type: 'CA', nation: 'jpn', era: 'wwii', link: 'https://skfb.ly/o8RZD', title: 'IJN Super heavy Cruiser KUMOTORI（くもとり/雲取）', by: '全斗焕' },
+  { id: 'napoli', type: 'CA', nation: 'ita', era: 'wwii', link: 'https://skfb.ly/oEKqB', title: 'Napoli', by: 'SB-129' },
+  { id: 'sanmartin', type: 'CL', nation: 'arg', era: 'wwii', link: 'https://skfb.ly/puRQt', title: 'San Martín (World of Warships)', by: 'KojfDiscord' },
+  { id: 'conde', type: 'CA', nation: 'fra', era: 'wwii', link: 'https://skfb.ly/oETGR', title: 'Conde', by: 'SB-129' },
+  { id: 'lorraine', type: 'BB', nation: 'fra', era: 'wwii', link: 'https://skfb.ly/o6xMN', title: 'French battleship Lorraine', by: '全斗焕' },
+];
+check('the ten ships of late November 2026 come in their yards or the store, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of LATE_NOV26) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    if (m.era === 'premium') {
+      assert.ok(PREMIUM_ORDER.includes(m.id) && !SHIP_ORDER.includes(m.id), `${m.id} is not in the store alone`);
+      assert.ok(cls.premium, `${m.id} is not marked premium`);
+      assert.ok(premiumUnlocked(m.id), `${m.id} is locked`);
+    } else {
+      assert.ok(SHIP_ORDER.includes(m.id), `${m.id} is not in the yard`);
+      const era = WWI_ORDER.includes(m.id) ? 'wwi' : MODERN_ORDER.includes(m.id) ? 'modern' : WWII_ORDER.includes(m.id) ? 'wwii' : null;
+      assert.equal(era, m.era, `${m.id}: her era`);
+    }
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+});
+
+check('the Kumotori model sails as the B-65', () => {
+  assert.equal(SHIP_CLASSES.b65.fullName, 'IJN B-65');
+  for (const c of Object.values(SHIP_CLASSES)) assert.ok(!/kumotori/i.test(`${c.id} ${c.name} ${c.fullName || ''}`), `${c.id} is still called Kumotori`);
+  assert.deepEqual(SHIP_CLASSES.b65.turrets.map((t) => t.guns), [3, 3, 3]);
+  assert.equal(SHIP_CLASSES.b65.gun.caliber, 310);
+});
+
+check('the Hannover and the Admiral Ushakov are sold in the store under their full names', () => {
+  assert.equal(SHIP_CLASSES.hannover.fullName, 'KMS Hannover');
+  assert.equal(SHIP_CLASSES.ushakov.fullName, 'RF Admiral Ushakov');
+  assert.deepEqual(SHIP_CLASSES.hannover.turrets.map((t) => t.guns), [2, 2, 2, 2]);
+  assert.deepEqual(SHIP_CLASSES.ushakov.turrets.map((t) => t.guns), [3, 3, 3]);
+});
+
+// ---- the ships of the end of November 2026 --------------------------------
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs, put
+// together by krissShip.js (the Ranger by carrier.js); the Aki a premium hull
+// in the store. And the Iowa, redrawn off the owner's Missouri.
+const END_NOV26 = [
+  { id: 'kurfurst', type: 'BB', nation: 'ger', era: 'wwii', link: 'https://skfb.ly/o7DPp', title: 'G.kurfürst', by: 'Hhikj789' },
+  { id: 'hildebrand', type: 'CA', nation: 'ger', era: 'wwii', link: 'https://skfb.ly/oHuvE', title: 'The Third Reich Navy large cruiser HILDEBRAND', by: '全斗焕' },
+  { id: 'beowulf', type: 'CA', nation: 'ger', era: 'wwii', link: 'https://skfb.ly/oHuvu', title: 'The Third Reich Navy large cruiser BEOWULF', by: '全斗焕' },
+  { id: 'aki', type: 'BB', nation: 'jpn', era: 'premium', link: 'https://skfb.ly/psZAH', title: 'Japan Hybrid Warship Dewa(近江)', by: '全斗焕' },
+  { id: 'dido', type: 'CL', nation: 'gbr', era: 'wwii', link: 'https://skfb.ly/oKuwP', title: 'British Navy CLAA Tier 6 SIRIUS', by: '全斗焕' },
+  { id: 'balao', type: 'SS', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pwTJX', title: 'Balao (World of Warships)', by: 'KojfDiscord' },
+  { id: 'puertorico', type: 'CB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pLHuB', title: 'Puerto Rico B (World of Warships)', by: 'KojfDiscord' },
+  { id: 'ranger', type: 'CV', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/pNoyx', title: 'uss Ranger wows', by: 'zeek' },
+  { id: 'iowa', type: 'BB', nation: 'usa', era: 'wwii', link: 'https://skfb.ly/ptpCu', title: 'USS Missouri (World of Warships)', by: 'KojfDiscord' },
+];
+check('the ships of the end of November 2026 come in their yards or the store, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  for (const m of END_NOV26) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    if (m.era === 'premium') {
+      assert.ok(PREMIUM_ORDER.includes(m.id) && !SHIP_ORDER.includes(m.id), `${m.id} is not in the store alone`);
+      assert.ok(cls.premium, `${m.id} is not marked premium`);
+      assert.ok(premiumUnlocked(m.id), `${m.id} is locked`);
+    } else {
+      assert.ok(SHIP_ORDER.includes(m.id), `${m.id} is not in the yard`);
+      assert.ok(WWII_ORDER.includes(m.id), `${m.id} is not in the Second World War's yard`);
+    }
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+});
+
+check('the owner\'s new ships sail under the names the owner gave them', () => {
+  assert.equal(SHIP_CLASSES.kurfurst.fullName, 'KMS Großer Kurfürst');
+  assert.equal(SHIP_CLASSES.hildebrand.fullName, 'KMS Hildebrand');
+  assert.equal(SHIP_CLASSES.beowulf.fullName, 'KMS Beowulf');
+  assert.equal(SHIP_CLASSES.aki.fullName, 'IJN Aki');
+  assert.equal(SHIP_CLASSES.dido.fullName, 'HMS Dido');
+  assert.equal(SHIP_CLASSES.puertorico.fullName, 'USS Puerto Rico');
+  assert.equal(SHIP_CLASSES.ranger.fullName, 'USS Ranger CV-4');
+  assert.equal(SHIP_CLASSES.balao.fullName, 'USS Balao');
+  // Not the models' names: the Dewa is the Aki, the Sirius the Dido, and
+  // the Puerto Rico has no "B" to her.
+  for (const c of Object.values(SHIP_CLASSES)) {
+    const names = `${c.id} ${c.name} ${c.fullName || ''}`;
+    assert.ok(!/\bdewa\b|sirius|puerto rico b\b/i.test(names), `${c.id} is still called ${names}`);
+  }
+});
+
+check('the Aki is a hybrid battleship in the store, her dive bombers off her catapult', () => {
+  const cls = SHIP_CLASSES.aki;
+  assert.ok(cls.premium && cls.hybrid, 'she is not a premium hybrid');
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3]);
+  assert.equal(cls.gun.caliber, 460);
+  assert.ok(cls.planes && cls.planes.catapult && cls.planes.type === 'suisei', 'she throws no Suisei off');
+  assert.ok(cls.planes.flight.dive > 0, 'she flies no dive bombers');
+});
+
+check('the Puerto Rico carries the Alaska\'s own turrets and the Alaska\'s quadruple Bofors', () => {
+  const cls = SHIP_CLASSES.puertorico;
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3, 3, 3]);
+  // The Alaska's 12"/50 and her shell.
+  assert.equal(cls.gun.name, SHIP_CLASSES.alaska.gun.name);
+  assert.equal(cls.gun.caliber, SHIP_CLASSES.alaska.gun.caliber);
+  // And the pieces themselves are the Alaska's, cut from the owner's model of her.
+  assert.equal(PUERTORICO_GUNS.main.house, ALASKA_GUNS.main.house, 'her turrets are not the Alaska\'s');
+  assert.equal(PUERTORICO_GUNS.aa4.house, ALASKA_GUNS.quad.house, 'her quadruple Bofors are not the Alaska\'s');
+  const quads = cls.aa.guns.find((g) => g.caliber === 40);
+  assert.ok(quads && quads.mounts.length >= 8 && quads.mounts.every((m) => m.guns === 4), 'she carries no quadruple Bofors');
+  for (const m of PUERTORICO_MOUNTS.main) assert.ok(m.y > 4 && m.y < 8, `a turret of hers stands at ${m.y} m, off her barbette`);
+});
+
+check('the Ranger carries seventy aircraft', () => {
+  const P = SHIP_CLASSES.ranger.planes;
+  assert.equal(P.group.total, 70);
+  const d = P.group.default;
+  assert.equal(d.fighters + d.dive + d.torpedo, 70);
+  const built = buildShip('ranger');
+  const e = built.group.userData.deck.endPoses;
+  for (const role of ['fighter', 'dive', 'torpedo']) {
+    assert.ok(Math.abs(P.runOut[role] - e[role].z) < 6 && Math.abs(P.runHeight[role] - e[role].y) < 1.5,
+      `her deck leaves her ${role}s at ${e[role].z.toFixed(0)}, ${e[role].y.toFixed(1)} up, and the simulation puts them up at ${P.runOut[role]}, ${P.runHeight[role]}`);
+  }
+});
+
+check('the Iowa is drawn off the owner\'s Missouri, every turret and mounting on the model\'s own', () => {
+  const cls = SHIP_CLASSES.iowa;
+  assert.deepEqual(cls.turrets.map((t) => t.guns), [3, 3, 3]);
+  assert.equal(IOWA_MOUNTS.main.length, 3);
+  assert.equal(IOWA_MOUNTS.sec.length, cls.secondary.mounts.length);
+  for (const t of cls.turrets) assert.ok(IOWA_MOUNTS.main.some((m) => Math.hypot(m.x - t.x, m.z - t.z) < 0.8), `turret ${t.name} is not on the model's`);
+});
+
+check('the Maine carries sixteen 16-inch, twin 5-inch dual-purpose, 3-inch dual-purpose and 20 mm', () => {
+  const M = SHIP_CLASSES.maine;
+  assert.deepEqual(M.turrets.map((t) => t.guns), [4, 4, 4, 4]);
+  assert.equal(M.gun.caliber, 406);
+  assert.equal(M.secondary.caliber, 127);
+  assert.equal(M.secondary.role, 'dp');
+  const cal = M.aa.guns.map((g) => [g.caliber, g.role]);
+  assert.ok(cal.some(([c, r]) => c === 76 && r === 'dp'), 'no 3-inch dual-purpose');
+  assert.ok(cal.some(([c]) => c === 20), 'no 20 mm');
+});
+
 check('the Illustrious flies fifty-seven Corsairs and Avengers off her two lifts', () => {
   const cls = SHIP_CLASSES.illustrious;
   assert.equal(cls.planes.group.total, 57);
@@ -5206,7 +5459,9 @@ check('the USS Alaska is commissioned just after the USS Baltimore, a large crui
   assert.equal(cls.fullName, 'USS Alaska');
   assert.equal(cls.type, 'CB', 'her hull symbol is not CB');
   assert.equal(cls.typeName, 'Large Cruiser');
-  assert.ok(Object.values(SHIP_CLASSES).every((c) => c.id === 'alaska' || c.id === 'guam' || c.type !== 'CB'),
+  // CB is the Alaskas' alone: she, the Guam, and the Puerto Rico that was to
+  // have been the third of them.
+  assert.ok(Object.values(SHIP_CLASSES).every((c) => ['alaska', 'guam', 'puertorico'].includes(c.id) || c.type !== 'CB'),
     'another ship carries her symbol');
   assert.equal(cls.nation, 'usa');
   // Nine 12 in/50 in three triple turrets, A and B forward, C aft.
@@ -7159,8 +7414,8 @@ check('the Credits screen credits the model the Mutsu is drawn from', () => {
   assert.ok(screen.includes('https://skfb.ly/ptQvY') && screen.includes('kriss50'), 'the credit is not as its licence asks');
 });
 
-check('HMS Agincourt is in a yard of her own, the Great War\'s, armed with seven twin 12-inch', () => {
-  assert.deepEqual(WWI_ORDER, ['agincourt'], 'the Great War yard is not the Agincourt alone');
+check('HMS Agincourt is in the Great War\'s yard with the Revenge, armed with seven twin 12-inch', () => {
+  assert.deepEqual([...WWI_ORDER].sort(), ['agincourt', 'revenge'], 'the Great War yard is not the Agincourt and the Revenge');
   assert.ok(!WWII_ORDER.includes('agincourt'), 'she is in the Second World War yard');
   assert.ok(!MODERN_ORDER.includes('agincourt'), 'she is in the Modern yard');
   // And the ship icon offers the Great War first, left of the Second.
@@ -33504,6 +33759,171 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     const { fired } = mind([['fletcher', 0, 3000], ['cleveland', 600, 3600]],
       [['fletcher', 200, 3300], ['cleveland', -300, 2800]]);
     assert.ok(!fired, `she breathed at ${fired && fired.x}, ${fired && fired.z} with her own side there`);
+  });
+
+  // Monster One ashore, in a town.
+  const inTown = () => {
+    const world = islandTown();
+    const state = createState(world, { mode: 'deathmatch' });
+    const mo = addShip(state, { name: 'Monster One', classId: 'monsterone', team: 0, index: 0 });
+    const plan = cityPlan(world);
+    // Stood `back` metres short of building `b`, facing it, on her feet.
+    const before = (b, back) => {
+      mo.heading = 0.7; mo.notch = 0; mo.speed = 0;
+      mo.x = b.x - Math.sin(mo.heading) * back; mo.z = b.z - Math.cos(mo.heading) * back;
+      MO.monsterOf(mo).pose = 'stand'; mo.mo.poseT = 10; mo.depth = 0;
+      run(state, 0.2);
+    };
+    return { world, state, mo, plan, before };
+  };
+  const ruinD = (world, id) => ruinOf(world, id)?.d || 0;
+
+  check('Monster One treads down the buildings, the sea wall and the guns she walks onto', () => {
+    const { world, state, mo, plan } = inTown();
+    const tall = plan.buildings.slice().sort((a, b) => b.h - a.h)[0];
+    const small = plan.buildings.find((b) => b.h < 12 && Math.hypot(b.x - tall.x, b.z - tall.z) > 200);
+    for (const b of [small, tall]) {
+      mo.x = b.x; mo.z = b.z; mo.heading = 0; mo.notch = 0; mo.speed = 0;
+      MO.monsterOf(mo).pose = 'stand'; mo.depth = 0;
+      run(state, 3);
+      assert.equal(ruinD(world, b.id), 1, `the ${b.kind} under her feet still stands: ${ruinD(world, b.id)}`);
+    }
+    // Off her feet, nothing is trodden on.
+    const off = plan.buildings.find((b) => Math.hypot(b.x - mo.x, b.z - mo.z) > 300 && !ruinOf(world, b.id));
+    assert.equal(ruinD(world, off.id), 0);
+    const wall = world.works.walls[0];
+    const [wx, wz] = wall.pts[Math.floor(wall.pts.length / 2)];
+    const on = wallAt(world, wx, wz);
+    mo.x = wx; mo.z = wz;
+    run(state, 3);
+    assert.ok(wallDamage(world, on.run, on.sec) >= 1, `the wall under her is not breached: ${wallDamage(world, on.run, on.sec)}`);
+    // An enemy gun in its pit under her foot.
+    const gx = tall.x, gz = tall.z;
+    mo.x = gx - 300; mo.z = gz;
+    const bat = addBattery(state, { batteryId: Object.keys(BATTERIES)[0], team: 1, x: gx, z: gz });
+    mo.x = bat.x; mo.z = bat.z;
+    run(state, 1);
+    assert.ok(!bat.alive, 'the gun under her foot is still firing');
+  });
+
+  check('Monster One rips a house out of the ground whole, bites it, and throws it down on the town', () => {
+    const { world, state, mo, plan, before } = inTown();
+    // One that, thrown, comes down on another.
+    const G = MO.MONSTER.grab;
+    const b = plan.buildings.find((q) => {
+      if (Math.max(q.w, q.d) >= 22 || q.h >= 16 || q.h <= 6) return false;
+      const go = G.carry - G.hands + G.toss * MO.lumpHeavy({ w: q.w, d: q.d, h: standingHeight(q, null) });
+      const x = q.x + Math.sin(0.7) * go, z = q.z + Math.cos(0.7) * go;
+      return plan.buildings.some((o) => o !== q && inFootprint(o, x, z, 2));
+    });
+    assert.ok(b, 'no house in the town to throw onto another');
+    before(b, MO.MONSTER.grab.hands);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
+    let ev = run(state, 2.5);
+    assert.ok(mo.mo.lump && mo.mo.lump.whole, `she did not pull it up whole: ${JSON.stringify(mo.mo.lump)}`);
+    assert.equal(mo.mo.lump.id, b.id);
+    assert.ok(ruinOf(world, b.id)?.c, 'it is still standing on its plot');
+    assert.ok(ev.some((e) => e.e === 'ruin' && e.id === b.id && e.mo), 'nobody was told it was pulled up');
+    assert.ok(ev.some((e) => e.e === 'moRip'));
+    const w = MO.readMonsterWire(shipSnapshot(mo, false, state).mo);
+    assert.deepEqual([w.lump.k, w.lump.id, w.lump.whole], ['b', b.id, true]);
+    // A mouthful out of it.
+    const h0 = mo.mo.lump.h;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS), '');
+    run(state, 1.5);
+    assert.ok(mo.mo.lump && mo.mo.lump.h < h0, 'the bite took nothing out of it');
+    assert.equal(mo.mo.act, 'hold');
+    // Thrown straight ahead of her, onto the land.
+    const ruined = Object.keys(world.ruin.b).length;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '', 'Grab with it in her hands does not throw it');
+    ev = run(state, 4);
+    assert.equal(mo.mo.lump, null);
+    const toss = ev.find((e) => e.e === 'moToss');
+    const land = ev.find((e) => e.e === 'moLand');
+    assert.ok(toss && land, 'it never came down');
+    const ahead = (land.x - mo.x) * Math.sin(mo.heading) + (land.z - mo.z) * Math.cos(mo.heading);
+    assert.ok(ahead > 120, `it went ${ahead} m ahead of her`);
+    assert.ok(Object.keys(world.ruin.b).length > ruined || ev.some((e) => e.e === 'crater'),
+      `it came down on the land and did nothing there: ${JSON.stringify(land)}`);
+  });
+
+  check('Monster One tears a piece off a building too big for her hands, and crushes it to pieces', () => {
+    const { world, state, mo, plan, before } = inTown();
+    const b = plan.buildings.slice().sort((p, q) => q.h - p.h)[0];
+    before(b, MO.MONSTER.grab.hands + b.d / 2);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
+    run(state, 2.5);
+    assert.ok(mo.mo.lump && !mo.mo.lump.whole, `she did not tear a piece off it: ${JSON.stringify(mo.mo.lump)}`);
+    assert.ok(ruinD(world, b.id) >= 0.4 && !ruinOf(world, b.id)?.c, `what is left of it: ${JSON.stringify(ruinOf(world, b.id))}`);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), '');
+    const ev = run(state, 3);
+    assert.ok(ev.some((e) => e.e === 'moShred'), 'she did not tear it apart');
+    assert.equal(mo.mo.lump, null);
+    assert.equal(mo.mo.act, '');
+    // Nothing in her hands, nothing to crush.
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'crush' }, SIM.MONSTER_HOOKS), 'none');
+  });
+
+  check('Monster One bites a mouthful out of a building in front of her, and rips a slab out of a sea wall', () => {
+    const { world, state, mo, plan, before } = inTown();
+    const b = plan.buildings.slice().sort((p, q) => q.h - p.h)[0];
+    before(b, MO.MONSTER.bite.head.stand + b.d / 2 + 2);
+    const d0 = ruinD(world, b.id);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'bite' }, SIM.MONSTER_HOOKS), '');
+    const ev = run(state, 1.5);
+    assert.ok(ruinD(world, b.id) > d0 + 0.2, `the bite took ${ruinD(world, b.id) - d0} of it`);
+    assert.ok(ev.some((e) => e.e === 'moBite' && e.st && e.id === b.id));
+    // A slab out of a wall.
+    const wall = world.works.walls[0];
+    const k = Math.floor(wall.pts.length / 2);
+    const [wx, wz, nx, nz] = wall.pts[k];
+    const on = wallAt(world, wx, wz);
+    // Inland of it, facing the sea over it.
+    mo.heading = Math.atan2(nx, nz);
+    mo.x = wx - Math.sin(mo.heading) * MO.MONSTER.grab.hands; mo.z = wz - Math.cos(mo.heading) * MO.MONSTER.grab.hands;
+    run(state, 0.1);
+    const w0 = wallDamage(world, on.run, on.sec);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'grab' }, SIM.MONSTER_HOOKS), '');
+    run(state, 2.5);
+    assert.ok(mo.mo.lump && mo.mo.lump.k === 'w', `she has ${JSON.stringify(mo.mo.lump)}`);
+    assert.ok(wallDamage(world, on.run, on.sec) > w0 + 0.4, 'the wall is none the worse');
+  });
+
+  check('Monster One leaves her footprints in the ground ashore, and her tail digs craters in it', () => {
+    const world = generateWorld(77, 'archipelago');
+    let land = null;
+    for (let x = -6800; x <= 6800 && !land; x += 100) {
+      for (let z = -6800; z <= 6800; z += 100) {
+        if (groundHeight(world, x, z) > 15 && groundHeight(world, x, z + 300) > 8 && groundHeight(world, x, z + 150) > 8) { land = { x, z }; break; }
+      }
+    }
+    const state = createState(world, { mode: 'deathmatch' });
+    const mo = addShip(state, { name: 'Monster One', classId: 'monsterone', team: 0, index: 0, at: { x: land.x, z: land.z, h: 0 } });
+    mo.heading = 0; mo.notch = 3;
+    let ev = run(state, 30);
+    assert.ok(ev.filter((e) => e.e === 'crater').length >= 2, 'she walked and left no prints');
+    mo.notch = 0;
+    run(state, 8);
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'tail', side: -1 }, SIM.MONSTER_HOOKS), '');
+    ev = run(state, 3);
+    assert.ok(ev.some((e) => e.e === 'moTail' && e.land), 'her tail did not come down on the land');
+    assert.ok(ev.some((e) => e.e === 'crater'), 'her tail dug nothing');
+  });
+
+  check('Monster One\'s tail smashes the town beside and behind her', () => {
+    const { world, state, mo, plan } = inTown();
+    // In the middle of the town, on her feet.
+    const mid = plan.buildings.reduce((a, q) => (Math.hypot(q.x - plan.city.x, q.z - plan.city.z) < Math.hypot(a.x - plan.city.x, a.z - plan.city.z) ? q : a));
+    mo.x = mid.x; mo.z = mid.z; mo.heading = 0; mo.notch = 0;
+    MO.monsterOf(mo).pose = 'stand'; mo.depth = 0;
+    run(state, 0.5);
+    const was = JSON.stringify(world.ruin);
+    const ruins = Object.values(world.ruin.b).filter((r) => r.d >= 0.5).length;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'tail', side: 1 }, SIM.MONSTER_HOOKS), '');
+    const ev = run(state, 3);
+    assert.ok(ev.some((e) => e.e === 'moTail' && e.land), 'her tail did not come down on the land');
+    assert.ok(Object.values(world.ruin.b).filter((r) => r.d >= 0.5).length > ruins, 'it knocked nothing down');
+    assert.notEqual(JSON.stringify(world.ruin), was);
   });
 }
 
