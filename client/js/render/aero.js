@@ -12,7 +12,7 @@ import {
   RHO, G, WIND_OVER_DECK, AERO, HEAVY_AERO,
   rollRate, rollTau, pitchTau, pitchRate, aspect, stallSpeed,
   lift, drag, thrust, clFor, alphaFor, flightAttitude, weathercock,
-  wrapAngle, turnFor, holdBank,
+  wrapAngle, turnFor, holdBank, hovers,
 } from '../../../shared/aero.js';
 import { Pilot, AGILITY, instruct } from '../../../shared/pilot.js';
 
@@ -20,7 +20,7 @@ export {
   RHO, G, WIND_OVER_DECK, AERO, HEAVY_AERO,
   rollRate, rollTau, pitchTau, pitchRate, aspect, stallSpeed,
   lift, drag, thrust, clFor, alphaFor, flightAttitude, weathercock,
-  turnFor, holdBank,
+  turnFor, holdBank, hovers,
   Pilot, AGILITY, instruct,
 };
 
