@@ -22988,7 +22988,7 @@ Object.assign(SHIP_CLASSES, {
       reload: 90, damage: 13700, speed: 32 * KNOTS, range: 7000,
       detection: 1300, arming: 400, spread: 0.07, floodChance: 0.35,
       launch: {
-        eject: 12, stagger: 0.35, lanes: [-1.295, -0.765, -0.341, 0.42, 1.253], lie: 0.8, muzzle: 5.5,
+        eject: 12, stagger: 0.35, lanes: [-1.295, -0.765, -0.341, 0.42, 1.253], lie: 0.8, muzzle: 5.534,
         fish: { len: 7.18, r: 0.267, kind: 'g7a' },
       },
     },
