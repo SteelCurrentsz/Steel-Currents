@@ -31,7 +31,7 @@ import { footing } from '../../shared/infantry.js';
 import { getSettings, setSettings, qualityName } from './settings.js';
 import { Director } from './director.js';
 import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
-import { readMonsterWire, readLump, MONSTER } from '../../shared/monster.js';
+import { readMonsterWire, readLump, MONSTER, monsterHelmHeld } from '../../shared/monster.js';
 import { MonsterBar } from './monsterhud.js';
 import { stepLock, nextLock, lockLabel, rackLabel, hasRack } from './lockon.js';
 import {
@@ -8984,7 +8984,19 @@ export class Battle {
     // Predict our own hull, then take up whatever is left of the difference
     // between her and the server's version of her. See correctOwn.
     const now = performance.now() / 1000;
+    // Monster One going in under a ship, or up through her from below, is
+    // steering herself and setting her own pace: her captain's helm and
+    // telegraph are not hers just now (monsterHelmHeld). Predicted on the
+    // server's helm and telegraph, not his, or she would be drawn swimming
+    // off where he was steering while the battle has her under the keel.
+    const held = monsterHelmHeld(ls) && this.ownSnap;
+    const myNotch = ls.notch;
+    if (held) {
+      if (typeof this.ownSnap.notch === 'number') ls.notch = this.ownSnap.notch;
+      if (Number.isFinite(this.ownSnap.rud)) ls.rudderCmd = this.ownSnap.rud;
+    }
     predictShip(this.local, ls, this.stepOwnClock(now, dt));
+    if (held) ls.notch = myNotch;
     this.takeUpFix(dt, now);
 
     if (now - this.lastInputSent > 1 / INPUT_HZ) {

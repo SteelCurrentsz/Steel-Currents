@@ -33535,6 +33535,31 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.equal(mo.rudderCmd, 0.5);
   });
 
+  check('Monster One dives in under a ship from below with a course laid on the chart, as her captain\'s ship always has', () => {
+    // The battle steers a captain's ship to the course laid on his chart
+    // every tick before it steps (see the room's tick). That took her helm
+    // off her: she swam on to the mark and never got under the ship.
+    const { state, mo, ships } = field([['iowa', 1800, 1500]]);
+    const t = ships[0];
+    t.notch = 3;
+    mo.wayX = -4000; mo.wayZ = -4000;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'under', target: t.id }, SIM.MONSTER_HOOKS), '');
+    let under = false, closest = Infinity, ev = [];
+    for (let s = 0; s < 200 && !ev.some((e) => e.e === 'moFire'); s += DT) {
+      SIM.steerToWaypoint(state, mo);
+      applyInput(mo, { notch: 2 });
+      ev.push(...step(state, DT));
+      closest = Math.min(closest, Math.hypot(mo.x - t.x, mo.z - t.z));
+      if (mo.mo.act === 'upcharge') {
+        under = true;
+        assert.ok(mo.depth > MO.MONSTER.deep * 0.5, `she is only ${mo.depth.toFixed(0)} m down under her`);
+      }
+    }
+    assert.ok(under, `she never got in under her (closest ${closest.toFixed(0)} m)`);
+    assert.ok(ev.some((e) => e.e === 'moFire' && e.up), 'the beam never went up through her');
+    assert.ok(mo.wayX === -4000, 'her captain\'s course was thrown away');
+  });
+
   check('Monster One\'s breath from below: refused out of reach, given up when brought up, and on the wire as a beam going up', () => {
     const { state, mo, ships } = field([['fletcher', 0, 9000]]);
     assert.equal(SIM.monsterOrder(state, mo, { a: 'under', target: ships[0].id }, SIM.MONSTER_HOOKS), 'far');

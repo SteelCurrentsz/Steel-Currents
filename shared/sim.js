@@ -537,6 +537,11 @@ export const WAYPOINT_REACHED = 260;
  */
 export function steerToWaypoint(state, ship) {
   if (ship.wayX === null || ship.wayZ === null) return false;
+  // Monster One going in under a ship steers herself there (see
+  // monsterHelmHeld): a course on the chart would take her helm every tick,
+  // before she could put it over for the ship, and she would swim on to the
+  // mark and never get under her. The course is kept for afterwards.
+  if (monsterHelmHeld(ship)) return true;
   if (dist(ship.x, ship.z, ship.wayX, ship.wayZ) < WAYPOINT_REACHED) {
     ship.wayX = null;
     ship.wayZ = null;
