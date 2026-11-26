@@ -1388,7 +1388,9 @@ export class Battle {
       const dk = own.dk || 0;
       if (dk === 2 && (ls.dockSt || 0) !== 2) { ls.notch = 1; this.hud.setNotch?.(1); }
       ls.dockSt = dk;
-      ls.dock = dk === 2 ? { st: 'moored' } : dk === 3 ? { st: 'off' } : dk === 1 ? { st: 'approach' } : null;
+      // (On the tugs, in or out, she lies still under her own prediction:
+      // they move her, not her engines.)
+      ls.dock = dk === 2 ? { st: 'moored' } : dk === 3 ? { st: 'off' } : dk === 4 ? { st: 'tugs' } : dk === 1 ? { st: 'approach' } : null;
       // An order given to her fleet from another ship of it: her helm and her
       // telegraph take it up, or her own prediction would steer against it.
       if ((own.fq || 0) !== (this.fleetSeq || 0)) {
@@ -4589,6 +4591,7 @@ export class Battle {
             if (ev.st === 2) this.hud.ribbon('MADE FAST ALONGSIDE');
             else if (ev.st === 1 && ev.tugs) this.hud.ribbon('TUGS ALONGSIDE');
             else if (ev.st === 1) this.hud.ribbon('STANDING IN TO HARBOUR');
+            else if (ev.st === 3) this.hud.ribbon('TUGS TAKING HER OFF');
             else this.hud.ribbon('CAST OFF');
           }
           break;

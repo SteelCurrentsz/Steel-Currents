@@ -48,7 +48,7 @@ import {
 } from '../shared/infantry.js';
 import { driveHull } from '../shared/sim.js';
 import {
-  dockShip, dockState, undock as castOff, baseBomber, airfields, setFieldSides, REARM_TIME,
+  dockShip, dockState, undock as castOff, baseBomber, airfields, setFieldSides, REARM_TIME, castOffShip,
 } from '../shared/sim.js';
 import {
   airbasesOf, harborsOf, runwayOf, berthAlong, cityPlans as worksPlans, cleanAsk as cleanWorksAsk, worldToCity as toSite,
@@ -32664,9 +32664,60 @@ check('a ship ordered into harbour is taken alongside, made good there, and cast
   assert.ok(Math.abs(s.speed) < 0.01, 'she moved while made fast');
   applyInput(s, { notch: 1 });
   applyInput(s, { notch: 4 });
-  for (let i = 0; i < Math.round(20 / DT); i++) step(state, DT);
-  assert.equal(dockState(s), 0, 'ringing up did not cast her off');
+  // The tugs pull her straight off, out to where she can be swung clear of
+  // the quay, swing her bow out to sea, and let her go.
+  let freed = -1;
+  for (let i = 0; i < Math.round(150 / DT) && freed < 0; i++) {
+    step(state, DT);
+    if (dockState(s) === 0) freed = i * DT;
+  }
+  assert.ok(freed >= 0, 'ringing up did not cast her off');
+  assert.ok(Math.abs(angleDelta(s.heading, h.rot)) < 0.05, 'she was not let go pointing out to sea');
+  for (let i = 0; i < Math.round(30 / DT); i++) step(state, DT);
   assert.ok(s.speed > 1, 'she did not get under way');
+  assert.ok(!s.aground && !s.stranded, 'she went aground going out');
+});
+
+check('every class of ship is taken into harbour and out again without touching the ground, from either hand', () => {
+  // The way in used to be a straight line from wherever she was to her berth,
+  // across the shore at the end of the quay; and casting off let her go thirty
+  // metres off the face with her bow still in against it. A battleship or a
+  // carrier ran onto the ground both ways and stayed there.
+  const world = worksField();
+  const [h] = harborsOf(world);
+  for (const cls of ['fletcher', 'iowa', 'yamato', 'nimitz']) {
+    for (const a of [-0.8, 0.8]) {
+      const state = createState(world, { mode: 'deathmatch' });
+      const foe = addShip(state, { name: 'E', classId: 'liberty', team: 1, index: 0 });
+      foe.x = -20000; foe.z = -20000;
+      const s = addShip(state, { name: 'S', classId: cls, team: 0, index: 0 });
+      s.x = h.x + Math.sin(h.rot + a) * 1400; s.z = h.z + Math.cos(h.rot + a) * 1400;
+      s.heading = h.rot + a + Math.PI;
+      s.notch = 4;
+      let touched = false;
+      assert.ok(dockShip(state, s), `the ${cls} was refused a berth`);
+      for (let i = 0; i < Math.round(500 / DT) && dockState(s) !== 2; i++) {
+        step(state, DT);
+        if (state.events.some((e) => e.i === s.id && (e.e === 'ground' || e.e === 'stranded'))) touched = true;
+      }
+      assert.equal(dockState(s), 2, `the ${cls} was never made fast (${a})`);
+      assert.ok(!touched, `the ${cls} touched the ground on her way in (${a})`);
+      // Cast off by ringing up, or by her captain's cast-off key (which
+      // used to let her go where she lay, against the face of the quay).
+      if (a < 0) { applyInput(s, { notch: 1 }); applyInput(s, { notch: 3 }); } else {
+        assert.ok(castOffShip(state, s));
+        assert.equal(dockState(s), 3, `the ${cls} was let go at the quay`);
+        s.notch = 3;
+      }
+      for (let i = 0; i < Math.round(200 / DT); i++) {
+        step(state, DT);
+        if (state.events.some((e) => e.i === s.id && (e.e === 'ground' || e.e === 'stranded'))) touched = true;
+      }
+      assert.equal(dockState(s), 0, `the ${cls} was never let go (${a})`);
+      assert.ok(!touched && !s.stranded, `the ${cls} went aground going out (${a})`);
+      assert.ok(Math.hypot(s.x - h.x, s.z - h.z) > 1000, `the ${cls} did not get out of the harbour (${a})`);
+    }
+  }
 });
 
 check('ships the board laid alongside start the battle made fast, and two do not share a berth', () => {
@@ -33449,6 +33500,39 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.equal(mo.mo.pose, 'deep', 'she came up after it');
     assert.ok(mo.mo.cool > MO.MONSTER.breath.cooldown - 20, 'it did not take her breath\'s cooldown');
     assert.equal(SIM.monsterOrder(state, mo, { a: 'under' }, SIM.MONSTER_HOOKS), 'cooling');
+  });
+
+  check('Monster One goes in under a ship and up through her with her captain\'s helm and telegraph still being sent', () => {
+    // A captain's client sends its wheel and telegraph every frame. While
+    // she goes in under a ship they are not hers to steer by, or she would
+    // be held off her and never get under her keel.
+    const { state, mo, ships } = field([['iowa', 1500, 1800]]);
+    const t = ships[0];
+    t.notch = 4;
+    assert.equal(SIM.monsterOrder(state, mo, { a: 'under', target: t.id }, SIM.MONSTER_HOOKS), '');
+    let up = null, ev = [];
+    for (let s = 0; s < 240 && !ev.some((e) => e.e === 'moFire'); s += DT) {
+      applyInput(mo, { rudder: 1, notch: 1 });
+      ev.push(...step(state, DT));
+      if (mo.mo.act === 'upcharge' && !up) up = true;
+      if (mo.mo.act === 'upcharge') {
+        const d = Math.hypot(mo.x - t.x, mo.z - t.z);
+        assert.ok(d <= MO.underKeel(t) + 2, `she drifted ${d.toFixed(0)} m out from under her middle while it gathered`);
+      }
+    }
+    assert.ok(up, 'she never got in under her');
+    assert.ok(ev.some((e) => e.e === 'moFire' && e.up), 'the beam never went up');
+    // Through the beam she is held under her, and her helm is hers again after.
+    for (let s = 0; s < 1.5; s += DT) {
+      applyInput(mo, { rudder: 1, notch: 1 });
+      step(state, DT);
+      if (t.alive) assert.ok(Math.hypot(mo.x - t.x, mo.z - t.z) <= MO.underKeel(t) + 2, 'she slid out from under her as the beam went up');
+    }
+    run(state, 5);
+    assert.ok(!MO.monsterHelmHeld(mo), 'her helm was not given back');
+    applyInput(mo, { rudder: 0.5, notch: 2 });
+    assert.equal(mo.notch, 2);
+    assert.equal(mo.rudderCmd, 0.5);
   });
 
   check('Monster One\'s breath from below: refused out of reach, given up when brought up, and on the wire as a beam going up', () => {

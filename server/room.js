@@ -10,7 +10,7 @@ import {
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack, driveTank, tankGround,
   callEscort, canCallEscort,
   fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE, fireLocked, dropChaff,
- dockShip, undock, baseBomber,
+ dockShip, castOffShip, baseBomber,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -875,7 +875,8 @@ export class Room {
       }
       case 'undock': {
         const to = this.conned(ship, msg);
-        if (to && undock(this.state, to) && to.notch === 1) to.notch = 2;
+        // Alongside, the tugs take her off first (see castOffShip).
+        if (to && castOffShip(this.state, to) && to.notch === 1) to.notch = 2;
         break;
       }
       // One of her damage control parties sent to a job, or stood down.

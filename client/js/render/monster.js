@@ -318,6 +318,9 @@ function beamMesh(halo, radius) {
 // Her breath from below: from how deep under the water the beam starts, and
 // how high into the sky it goes.
 const COLUMN = { bottom: -70, top: 1600 };
+// Up on end under a ship, how far under the water her mouth is: clear of the
+// deepest keel, close enough under it that the breath goes up into her.
+const RISE_MOUTH = -22;
 
 // A soft round spot of light, for the glow at her mouth and on her plates.
 let GLOW_TEX = null;
@@ -377,6 +380,8 @@ export class MonsterRig {
     this.t = 0;
     this.phase = 0;
     this.upright = 0;       // her posture: 0 flat, 1 standing
+    this.rise = 0;          // up on end under a ship, her face to its keel: 0 not, 1 fully
+    this.headUp = 95;       // how high her mouth stands over her soles, as she was last posed
     this.bodyY = BODY_Y.swim;
     this.beamLen = 0;
     this.glowNow = 0;
@@ -410,7 +415,7 @@ export class MonsterRig {
    * spreading in the water under the ship; then the beam, out of the deep and
    * straight up through her and on up into the sky.
    */
-  stepColumn(dt, C) {
+  stepColumn(dt, C, mouth) {
     const col = this.column;
     if (!col) return;
     if (!col.group.parent && this.group.parent) this.group.parent.add(col.group);
@@ -425,12 +430,19 @@ export class MonsterRig {
     col.glow.material.opacity = Math.min(1, col.pool * flick + col.on);
     col.glow.scale.setScalar(80 + 260 * col.pool + 160 * col.on);
     col.glow.visible = col.glow.material.opacity > 0.01;
-    // The beam: up from her, under the keel, through the ship and the sky.
-    if (firing > 0) col.len = Math.min(COLUMN.top - COLUMN.bottom, col.len + dt * 9000);
+    // The beam: up out of her mouth, under the keel, through the ship and
+    // into the sky. From her mouth when she is up on end under her (it is
+    // there, a few metres from the ship's middle), from the deep under the
+    // ship if she is not.
+    const up = this.rise > 0.5 && mouth;
+    const bottom = up ? Math.min(-2, mouth.y) : COLUMN.bottom;
+    const ox = up && C ? mouth.x - C.x : 0;
+    const oz = up && C ? mouth.z - C.z : 0;
+    if (firing > 0) col.len = Math.min(COLUMN.top - bottom, col.len + dt * 9000);
     else col.len = Math.max(0, col.len - dt * 6000);
     const len = Math.max(1e-3, col.len);
     for (const m of col.beams) {
-      m.position.set(0, COLUMN.bottom, 0);
+      m.position.set(ox, bottom, oz);
       m.scale.set(col.len > 0 ? 1 + 0.6 * col.on : 1e-3, len, col.len > 0 ? 1 + 0.6 * col.on : 1e-3);
       m.material.uniforms.uOn.value = col.on;
       m.material.uniforms.uTime.value = this.t;
@@ -751,6 +763,27 @@ export class MonsterRig {
       for (let i = 0; i <= 8; i++) add(`tail${i}`, -0.03 * limp, 0.04 * limp);
       jaw = lerp(jaw + 0.5 * roar, 0.22, limp);
     }
+    // Up on end under a ship (see update): her head thrown right back so her
+    // face is to the keel over her and her jaws open up at it, her chest
+    // arched, her arms spread out wide to hold her there, and her tail hanging
+    // straight down under her, sweeping slowly to keep her in place. Her jaw
+    // opens as the light reaches her throat.
+    if (this.rise > 0.001) {
+      const r = this.rise;
+      add('spine2', -0.06 * r);
+      add('chest', -0.12 * r);
+      add('neck1', -0.42 * r);
+      add('neck2', -0.46 * r);
+      add('head', -0.58 * r);
+      for (const [n, sg] of [['L', 1], ['R', -1]]) {
+        add(`upperArm.${n}`, -0.15 * r, 0, -0.45 * sg * r + 0.05 * sg * r * Math.sin(t * 0.8));
+        add(`foreArm.${n}`, -0.2 * r);
+        add(`fingers.${n}`, -0.2 * r);
+      }
+      add('tail0', -0.3 * r); add('tail1', -0.2 * r);
+      for (let i = 2; i <= 8; i++) add(`tail${i}`, 0, 0.04 * r * Math.sin(t * 1.1 - i * 0.5));
+      if (act === 'upcharge') jaw += 0.2 * smooth(0.75, 1.0, S.charge || 0) + 0.04 * Math.sin(t * 9) * (S.charge || 0);
+    }
     // Something in her jaws (a gun torn off a deck, a piece of a hull): she
     // works at it, her jaw chewing slowly and her head shaking it, heavy and
     // short, and then throws it away with a toss of her head to one side --
@@ -812,16 +845,25 @@ export class MonsterRig {
     // hundred metres tall does not stand up in the water in a frame.
     const pose = S.pose || 'swim';
     const act = S.act || '';
-    const want = pose === 'stand' ? 1 : 0;
-    this.upright += (want - this.upright) * ease(1.1);
+    // Her breath from below: under the ship's keel she comes up on end,
+    // straight up and down in the water, her head thrown back and her face
+    // to the hull over her, before the light has climbed her -- and stays so
+    // until the beam has gone up through her.
+    const rising = act === 'upcharge' || (act === 'fire' && !!S.column);
+    this.rise += ((rising ? 1 : 0) - this.rise) * ease(rising ? 0.7 : 1.2);
+    const want = pose === 'stand' || rising ? 1 : 0;
+    this.upright += (want - this.upright) * ease(rising ? 0.6 : 1.1);
     let y = BODY_Y[pose] ?? BODY_Y.swim;
+    // Up on end, her mouth a little under the keel: her soles as far down as
+    // she is tall.
+    if (this.rise > 0.001) y = lerp(y, RISE_MOUTH - this.headUp, this.rise);
     // Her feet on the ground under her: wading up a beach she rises out of
     // the water a step at a time, and ashore she stands on the land itself.
     const ground = S.ground ?? -1e3;
     if (ground > y) y = ground;
     this.ashore = ground > -6;
     if (act === 'die') y = lerp(y, this.ashore ? ground - 10 : BODY_Y.deep * 1.4, smooth(3, 20, S.actT || 0));
-    this.bodyY += (y - this.bodyY) * ease(pose === 'deep' || act === 'die' ? 2.2 : 1.4);
+    this.bodyY += (y - this.bodyY) * ease(rising ? 0.8 : pose === 'deep' || act === 'die' ? 2.2 : 1.4);
     this.pose(S, dt);
     // Each footfall settles her a little in the water.
     this.body.position.y = this.bodyY - this.walkBob;
@@ -862,6 +904,9 @@ export class MonsterRig {
       // the pose has her: a look down at something else would put her head
       // into the hull in front of her.
       if (S.holding || HANDS_ON.has(act)) { yaw = 0; pitch = 0; }
+      // Up on end under a ship her face is to its keel, not turned about.
+      yaw *= 1 - this.rise;
+      pitch *= 1 - this.rise;
       this.lookYaw += (yaw - this.lookYaw) * ease(0.35);
       this.lookPitch += (pitch - this.lookPitch) * ease(0.35);
       const share = [['neck1', 0.25], ['neck2', 0.35], ['head', 0.4]];
@@ -885,7 +930,7 @@ export class MonsterRig {
     // The glow.
     const charge = clamp(S.charge || 0, 0, 1);
     this.chargeNow += (charge - this.chargeNow) * ease(0.25);
-    const glowWant = act === 'charge' || act === 'fire' ? 1 : clamp(S.glow || 0, 0, 1);
+    const glowWant = act === 'charge' || act === 'fire' || act === 'upcharge' ? 1 : clamp(S.glow || 0, 0, 1);
     this.glowNow += (glowWant - this.glowNow) * ease(glowWant > this.glowNow ? 0.3 : 1.6);
     const U = this.uniforms;
     U.uCharge.value = act === 'fire' ? 1 : this.chargeNow;
@@ -898,6 +943,9 @@ export class MonsterRig {
     this.mouthPoint(_v);
     _lw.copy(_v);
     this.group.worldToLocal(_v);
+    // How high her mouth stands over her soles, for where she is put up on
+    // end next frame.
+    this.headUp = clamp(_v.y - this.body.position.y, 40, 200);
     this.mouthGlow.position.copy(_v);
     this.mouthGlow.material.opacity = Math.min(1, throat * 0.8 + firing);
     this.mouthGlow.scale.setScalar(10 + 14 * throat + 22 * firing + Math.sin(this.t * 37) * 2 * throat);
@@ -935,7 +983,7 @@ export class MonsterRig {
       }
     }
     if (firing > 0 && S.beamTo) this.beamsParked = false;
-    this.stepColumn(dt, S.column);
+    this.stepColumn(dt, S.column, _lw);
     this.stepSparks();
   }
 

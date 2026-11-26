@@ -26,7 +26,7 @@ import {
 } from './airframe.js';
 import { stepInfantry, blastInfantry, gunAtMan } from './infantry.js';
 import {
-  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody, MONSTER,
+  monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody, MONSTER, monsterHelmHeld,
 } from './monster.js';
 import { planRoute } from './tankroute.js';
 import {
@@ -560,10 +560,12 @@ export function applyInput(ship, input) {
         ship.dock.n0 = -1;
         if (ship.dock.st === 'approach' && n !== DOCK_NOTCH) undock(null, ship);
       }
-      ship.notch = n;
+      // (Monster One going in under a ship sets her own pace: see
+      // monsterHelmHeld.)
+      if (!monsterHelmHeld(ship)) ship.notch = n;
     }
   }
-  if (typeof input.rudder === 'number') ship.rudderCmd = clamp(input.rudder, -1, 1);
+  if (typeof input.rudder === 'number' && !monsterHelmHeld(ship)) ship.rudderCmd = clamp(input.rudder, -1, 1);
   if (typeof input.aimX === 'number' && typeof input.aimZ === 'number') {
     ship.aimX = input.aimX; ship.aimZ = input.aimZ;
   }
@@ -21143,13 +21145,18 @@ function finish(state, winner, reason) {
 
 /** The telegraph a ship lies alongside at: stopped. */
 const DOCK_NOTCH = 1;
-/** How far out from her berth the tugs take her over, and how fast they walk her in. */
-const TUG_REACH = 300;
-const TUG_SPEED = 4;
-const TUG_TURN = 0.06;
-/** How far off the quay the tugs pull a ship casting off, and how long they have her for at most. */
-const CAST_OFF = 30;
-const CAST_OFF_TIME = 12;
+/** How fast the tugs walk her, and how fast they swing her. */
+const TUG_SPEED = 5;
+const TUG_TURN = 0.09;
+/**
+ * How far out in front of her berth she is swung round, clear of the quay:
+ * her half-length and a margin, so her ends go round in open water.
+ */
+function offing(cls) {
+  return Math.max(200, cls.hull.length / 2 + 70);
+}
+/** How long the tugs have her for casting off, at most. */
+const CAST_OFF_TIME = 120;
 /** What a dockyard makes good a second: a share of her hull. */
 const YARD_RATE = 0.004;
 /** How long a squadron is in its hangar being refuelled and bombed up. */
@@ -21172,20 +21179,87 @@ function harborSite(state, i) {
 
 /**
  * The stretch of a harbour's quay with room for her nearest `u` that no other
- * ship lies at, as a berth, or null with the quay full.
+ * ship lies at, and that she can be got to, as a berth, or null with the quay
+ * full. A berth where the shore runs out past the end of the quay, or the way
+ * in from her offing to it, would put her aground: she is not sent there.
  */
 function freeQuay(state, c, ship, cls, u) {
   const len = cls.hull.length;
   const lying = state.ships.filter((o) => o !== ship && o.alive && o.dock && o.dock.h === c.index)
     .map((o) => ({ u: o.dock.u, len: shipClass(o).hull.length }));
   const room = Math.max(0, c.W / 2 - len / 2 - 4);
-  let best = null;
-  for (let k = -60; k <= 60; k++) {
-    const uu = clamp(u + k * 8, -room, room);
+  // (From the nearest point of the quay to her: a ship far along the coast
+  // is asked about every stretch of it, not only the end nearest her.)
+  const u0 = clamp(u, -room, room);
+  const seen = new Set();
+  const tries = [];
+  for (let k = -80; k <= 80; k++) {
+    const uu = clamp(u0 + k * 8, -room, room);
+    if (seen.has(uu)) continue;
+    seen.add(uu);
     if (lying.some((o) => Math.abs(o.u - uu) < (o.len + len) / 2 + 8)) continue;
-    if (best === null || Math.abs(uu - u) < Math.abs(best - u)) best = uu;
+    tries.push(uu);
   }
-  return best === null ? null : berthAlong(c, len, cls.hull.beam, best, ship.heading);
+  tries.sort((a, b) => Math.abs(a - u) - Math.abs(b - u));
+  for (const uu of tries) {
+    const b = berthAlong(c, len, cls.hull.beam, uu, ship.heading);
+    if (berthClear(state.world, ship, cls, c, b)) return b;
+  }
+  return null;
+}
+
+/**
+ * Whether she lies afloat at a berth, and on the way the tugs take her in to
+ * it: swung round out at her offing, and walked in from there square to the
+ * quay.
+ */
+function berthClear(world, ship, cls, c, b) {
+  const nx = Math.sin(c.rot);
+  const nz = Math.cos(c.rot);
+  const off = offing(cls);
+  const wet = (x, z, h) => keelContact(world, ship, cls, x, z, h).pen <= 0;
+  // Right alongside, her inboard bilge is a few metres off the face, where
+  // the ground as it is drawn runs up from the dredged bottom to the top of
+  // the quay between one vertex and the next: a couple of metres of that is
+  // the quay, not the shore. More is the shore running out past the end of
+  // it, and she would lie with an end of her in the land.
+  if (keelContact(world, ship, cls, b.x, b.z, b.heading).max > 3) return false;
+  for (let f = 0; f <= 1.0001; f += 0.25) {
+    const o = Math.max(12, off * f);
+    if (!wet(b.x + nx * o, b.z + nz * o, b.heading)) return false;
+  }
+  const ox = b.x + nx * off;
+  const oz = b.z + nz * off;
+  for (let a = 0; a < 6; a++) if (!wet(ox, oz, b.heading + (a * Math.PI) / 6)) return false;
+  return true;
+}
+
+/** Her offing: the point out in front of her berth where the tugs swing her. */
+function offingOf(c, d, cls) {
+  const off = offing(cls);
+  return { x: d.x + Math.sin(c.rot) * off, z: d.z + Math.cos(c.rot) * off };
+}
+
+/**
+ * Whether the water is clear for her on a straight line from where she is
+ * to a point: deep enough under her keel, and under her sides, the whole way.
+ */
+function clearRun(world, ship, cls, x, z) {
+  const L = dist(ship.x, ship.z, x, z);
+  const h = headingTo(ship.x, ship.z, x, z);
+  const sn = Math.sin(h), cs = Math.cos(h);
+  const need = cls.hull.draft + 1.5;
+  const side = cls.hull.beam;
+  const n = Math.max(1, Math.ceil(L / 40));
+  for (let i = 1; i <= n; i++) {
+    const t = (L * i) / n;
+    for (const w of [-side, 0, side]) {
+      const px = ship.x + sn * t + cs * w;
+      const pz = ship.z + cs * t - sn * w;
+      if (-bedAt(world, px, pz) < need) return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -21217,6 +21291,32 @@ export function dockShip(state, ship, h = -1, now = false) {
   return false;
 }
 
+/** The tugs take her off the quay (see stepDock), her bow to go out to sea. */
+function startCastOff(state, ship, c) {
+  const d = ship.dock;
+  // Her bow out to sea: straight out from the quay, the way she came in.
+  d.out = Math.atan2(Math.sin(c.rot), Math.cos(c.rot));
+  d.st = 'off';
+  d.t = 0;
+  state.events.push({ e: 'dock', ship: ship.id, tm: ship.team, h: d.h, st: 3 });
+}
+
+/**
+ * Her captain's order to cast off. Alongside, or being walked in to the
+ * quay, the tugs take her off it and out to where she is clear before she
+ * is let go: let go at the quay's face she would go ahead into it, or along
+ * it into the shore at its end. Still out at sea on her way in, she is
+ * simply let go.
+ */
+export function castOffShip(state, ship) {
+  const d = ship?.dock;
+  if (!d) return false;
+  if (d.st === 'off') return true;
+  const c = harborSite(state, d.h);
+  if (c && (d.st === 'moored' || (d.st === 'tugs' && d.leg))) { startCastOff(state, ship, c); return true; }
+  return undock(state, ship);
+}
+
 /** Cast her off, or take her off the tugs on the way in. */
 export function undock(state, ship) {
   if (!ship?.dock) return false;
@@ -21226,9 +21326,13 @@ export function undock(state, ship) {
   return true;
 }
 
-/** Whether she is alongside: 0 no, 1 on her way in, 2 made fast, 3 being taken off by the tugs. */
+/**
+ * Whether she is alongside: 0 no, 1 on her way in under her own steam, 2
+ * made fast, 3 being taken off by the tugs, 4 being taken in by them.
+ */
 export function dockState(ship) {
-  return !ship?.dock ? 0 : ship.dock.st === 'moored' ? 2 : ship.dock.st === 'off' ? 3 : 1;
+  const st = ship?.dock?.st;
+  return !st ? 0 : st === 'moored' ? 2 : st === 'off' ? 3 : st === 'tugs' ? 4 : 1;
 }
 
 /** Her way into harbour, and her time alongside. */
@@ -21237,36 +21341,90 @@ function stepDock(state, ship, dt) {
   const c = harborSite(state, d.h);
   if (!c || ship.blown) { undock(state, ship); return; }
   const cls = shipClass(ship);
+  const nx = Math.sin(c.rot);
+  const nz = Math.cos(c.rot);
+  const off = offingOf(c, d, cls);
   if (d.st === 'approach') {
-    // Out in front of her berth, lined up on it, the tugs take her.
-    const nx = Math.sin(c.rot);
-    const nz = Math.cos(c.rot);
-    const ax = d.x + nx * (cls.hull.beam / 2 + 150);
-    const az = d.z + nz * (cls.hull.beam / 2 + 150);
-    const toBerth = dist(ship.x, ship.z, d.x, d.z);
-    if (toBerth < TUG_REACH || (dist(ship.x, ship.z, ax, az) < 140)) {
+    // She steams for her offing, out in front of her berth with room to be
+    // swung round in, and the tugs take her there. Straight for it when the
+    // water is clear all the way; round whatever is in the way when it is
+    // not. (Asked again once a second: the way does not change faster.)
+    const toOff = dist(ship.x, ship.z, off.x, off.z);
+    const reach = Math.max(160, cls.hull.length * 0.6);
+    // Hard and fast on the way, and not coming off it under her own steam,
+    // the tugs come out for her and take her the rest of the way.
+    // (Once she has backed off once and touched again, or has been on it a
+    // while.)
+    d.stuck = ship.aground > 0 ? (d.stuck || 0) + dt : Math.max(0, (d.stuck || 0) - dt * 0.25);
+    const fast = ship.aground > 0 && ((d.tries || 0) >= 1 && !(d.back > 0) || d.stuck > 15);
+    if (toOff < reach || fast) {
+      if (ship.aground > 0) { ship.aground = 0; ship.groundAt = 0; ship.stranded = false; groundPose(ship, cls, null); }
       d.st = 'tugs';
+      d.leg = 0;
+      d.v = Math.abs(ship.speed);
       state.events.push({ e: 'dock', ship: ship.id, tm: ship.team, h: d.h, st: 1, tugs: 1 });
     } else {
-      // Kept off the land on the way, until she is close in: the quay is on
-      // the land, and steering clear of it would keep her off it for ever.
-      const want = headingTo(ship.x, ship.z, ax, az);
-      if (toBerth > 1500) steerToward(state, ship, want);
-      else ship.rudderCmd = clamp(angleDelta(ship.heading, want) * 2.2, -1, 1);
-      ship.notch = toBerth < 700 ? 2 : toBerth < 2500 ? 3 : 4;
+      const want = headingTo(ship.x, ship.z, off.x, off.z);
+      // Put on the ground on the way, she backs off it, and comes round the
+      // other way from the one that put her there.
+      if (ship.aground > 0 && !ship.stranded && !(d.back > 0) && ship.notch > DOCK_NOTCH && ship.groundAt >= 0) {
+        d.back = 10;
+        d.tries = (d.tries || 0) + 1;
+        d.side = -(Math.sign(ship.rudder) || Math.sign(angleDelta(ship.heading, want)) || 1);
+      }
+      // (Backed onto the ground astern, she goes ahead off it.)
+      if (d.back > 0 && ship.aground > 0 && ship.groundAt < 0 && ship.speed <= 0.05) d.back = dt;
+      if (d.back > 0) {
+        d.back -= dt;
+        ship.notch = 0;
+        ship.rudderCmd = 0;
+        d.look = 0;
+        if (d.back <= 0) d.swing = 60;
+        return;
+      }
+      d.look = (d.look || 0) - dt;
+      if (d.look <= 0) { d.look = 1; d.clear = clearRun(state.world, ship, cls, off.x, off.z); }
+      if (d.swing > 0) {
+        d.swing -= dt;
+        if (Math.abs(angleDelta(ship.heading, want)) < 0.3 || d.clear) d.swing = 0;
+      }
+      if (d.swing > 0) ship.rudderCmd = d.side;
+      else if (d.clear) ship.rudderCmd = clamp(angleDelta(ship.heading, want) * 2.2, -1, 1);
+      else steerToward(state, ship, want);
+      // Easing down as she closes it, so she is not carried past it; and
+      // dead slow while she is still swinging to point at it.
+      const turning = Math.abs(angleDelta(ship.heading, want)) > 0.6;
+      ship.notch = turning && toOff < 1500 ? 2 : toOff < 800 ? 2 : toOff < 2500 ? 3 : 4;
       return;
     }
   }
   if (d.st === 'tugs') {
+    // The tugs have her. First out to her offing, her way coming off her as
+    // they get hold, swung there until she lies along the quay; then walked
+    // in square to it, sideways onto her berth. She never swings close in,
+    // where her ends would go into the quay or the shore beside it.
     ship.speed = 0;
     ship.notch = DOCK_NOTCH;
+    d.v = Math.max(TUG_SPEED, (d.v || 0) * Math.exp(-dt / 6));
+    const turn = angleDelta(ship.heading, d.heading);
+    if (!d.leg) {
+      const dx = off.x - ship.x, dz = off.z - ship.z;
+      const L = Math.hypot(dx, dz);
+      // (Brisker over a long tow, from wherever she was taken off the ground.)
+      const step = Math.max(d.v, Math.min(10, L * 0.01)) * dt;
+      if (L > step) { ship.x += (dx / L) * step; ship.z += (dz / L) * step; } else { ship.x = off.x; ship.z = off.z; }
+      // Swung only once she is far enough out for her ends to clear.
+      if (L < cls.hull.length * 0.25) ship.heading = wrapAngle(ship.heading + clamp(turn, -TUG_TURN * dt, TUG_TURN * dt));
+      if (L <= step && Math.abs(angleDelta(ship.heading, d.heading)) < 0.005) { ship.heading = d.heading; d.leg = 1; }
+      return;
+    }
+    ship.heading = wrapAngle(ship.heading + clamp(turn, -TUG_TURN * dt, TUG_TURN * dt));
     const dx = d.x - ship.x;
     const dz = d.z - ship.z;
     const L = Math.hypot(dx, dz);
-    const step = TUG_SPEED * dt;
+    // Slower the last stretch, so she comes alongside and does not hit it.
+    const step = Math.min(TUG_SPEED, 0.6 + L * 0.08) * dt;
     if (L > step) { ship.x += (dx / L) * step; ship.z += (dz / L) * step; } else { ship.x = d.x; ship.z = d.z; }
-    const turn = angleDelta(ship.heading, d.heading);
-    ship.heading = wrapAngle(ship.heading + clamp(turn, -TUG_TURN * dt, TUG_TURN * dt));
     if (L <= step && Math.abs(turn) < 0.01) {
       ship.heading = d.heading;
       d.st = 'moored';
@@ -21276,32 +21434,35 @@ function stepDock(state, ship, dt) {
     return;
   }
   if (d.st === 'off') {
-    // Casting off: the tugs pull her off the quay and swing her bow out to
-    // sea, so she does not go ahead along the face of it into whatever is at
-    // the end -- and then let her go.
+    // Casting off: the tugs pull her straight off the quay, square to it,
+    // out to her offing where her ends are clear of the quay and the shore
+    // either side of it, swing her bow round to point out to sea there, and
+    // let her go. Ahead from there she goes out the way she came in.
     d.t += dt;
-    const nx = Math.sin(c.rot);
-    const nz = Math.cos(c.rot);
-    const off = Math.min(TUG_SPEED * dt, Math.max(0, CAST_OFF - ((ship.x - d.x) * nx + (ship.z - d.z) * nz)));
-    ship.x += nx * off;
-    ship.z += nz * off;
-    const turn = angleDelta(ship.heading, d.out);
-    ship.heading = wrapAngle(ship.heading + clamp(turn, -TUG_TURN * 2 * dt, TUG_TURN * 2 * dt));
-    if (d.t >= CAST_OFF_TIME || (Math.abs(turn) < 0.01 && off <= 0)) undock(state, ship);
+    ship.speed = 0;
+    const out = (ship.x - d.x) * nx + (ship.z - d.z) * nz;
+    const need = offing(cls);
+    const pull = Math.min(TUG_SPEED * dt, Math.max(0, need - out));
+    ship.x += nx * pull;
+    ship.z += nz * pull;
+    let turn = 0;
+    if (out >= need - 0.01) {
+      turn = angleDelta(ship.heading, d.out);
+      ship.heading = wrapAngle(ship.heading + clamp(turn, -TUG_TURN * dt, TUG_TURN * dt));
+    }
+    if (d.t >= CAST_OFF_TIME || (out >= need - 0.01 && Math.abs(turn) < 0.01)) {
+      // She goes with a little way on, so the helm answers at once.
+      ship.heading = wrapAngle(ship.heading + clamp(turn, -0.01, 0.01));
+      ship.speed = Math.min(2, cls.maxSpeed * 0.1);
+      undock(state, ship);
+    }
     return;
   }
   // Made fast. Way rung down on her is her casting off -- or, for a ship
   // nobody is conning, her own captain's judgement that she is fit for sea.
   const auto = ship.isBot && !ship.heldBy;
   if (auto ? d.t >= 30 && ship.hp >= cls.hp * 0.98 : ship.notch !== DOCK_NOTCH) {
-    // Her bow out from the quay, on whichever side she lies heading: a
-    // third of the way round from along the face to straight out.
-    const nx = Math.sin(c.rot);
-    const nz = Math.cos(c.rot);
-    const out = Math.atan2(nx, nz);
-    d.out = wrapAngle(ship.heading + angleDelta(ship.heading, out) * 0.4);
-    d.st = 'off';
-    d.t = 0;
+    startCastOff(state, ship, c);
     return;
   }
   ship.notch = DOCK_NOTCH;
