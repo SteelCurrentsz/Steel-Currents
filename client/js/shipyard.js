@@ -108,15 +108,61 @@ export class ShipyardScene {
 
   /** Put a different hull on the water. */
   setShip(classId) {
-    if (this.classId === classId) return;
+    if ((this.wanted ?? this.classId) === classId) return;
+    this.wanted = classId;
+    // The Iowa is drawn off the owner's model of her sister the Missouri,
+    // here as in a battle.
+    const ship = buildShip(classId);
+    // Her shaders made off the screen, all of them at once on the graphics
+    // driver's own threads, before she is put on the water: compiled in the
+    // first frame that drew her they were made one after another with the
+    // page stopped dead -- seconds of a frozen yard for Monster One, whose
+    // hide is the heaviest shader in the game. The hull already on the water
+    // stays there until she is ready.
+    const ready = this.precompile(ship.group);
+    const launch = () => {
+      if (this.wanted !== classId) {
+        // Walked on past before she was ready.
+        ship.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+        return;
+      }
+      this.wanted = undefined;
+      this.launch(classId, ship);
+    };
+    if (ready) ready.then(launch);
+    else launch();
+  }
+
+  /**
+   * Compile what `group` is drawn with against this scene as it will be once
+   * she is in it -- its lights and fog, and not the lights of the hull she is
+   * replacing -- and resolve when it is done; or null where this renderer
+   * cannot, and she is compiled as she is first drawn.
+   */
+  precompile(group) {
+    const r = this.renderer;
+    if (!r || typeof r.compileAsync !== 'function') return null;
+    const old = this.ship ? this.ship.group : null;
+    const was = old ? old.visible : false;
+    try {
+      if (old) old.visible = false;
+      this.camera.updateMatrixWorld();
+      return r.compileAsync(group, this.camera, this.scene).then(() => {}, () => {});
+    } catch {
+      return null;
+    } finally {
+      if (old) old.visible = was;
+    }
+  }
+
+  /** Put `ship`, built, on the water in place of whatever is there. */
+  launch(classId, ship) {
     this.classId = classId;
     if (this.ship) {
       this.scene.remove(this.ship.group);
       this.ship.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     }
-    // The Iowa is drawn off the owner's model of her sister the Missouri,
-    // here as in a battle.
-    this.ship = buildShip(classId);
+    this.ship = ship;
     this.hullView = { group: this.ship.group, cls: SHIP_CLASSES[classId], classId };
     // Trained a little off the bow so the barrels read as barrels rather than
     // as three dots pointing at the lens.

@@ -103,12 +103,21 @@ function unshuffled(b) {
 }
 
 function toBase64(b) {
+  // The browser's own encoder where it has one: a big hull's strings are
+  // tens of megabytes, and built up through String.fromCharCode they were a
+  // third of a second of her coming in.
+  if (typeof b.toBase64 === 'function') {
+    try { return b.toBase64(); } catch { /* by hand */ }
+  }
   let s = '';
   for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
   return btoa(s);
 }
 
 function fromBase64(s) {
+  if (typeof Uint8Array.fromBase64 === 'function') {
+    try { return Uint8Array.fromBase64(s); } catch { /* by hand */ }
+  }
   const bin = atob(s);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);

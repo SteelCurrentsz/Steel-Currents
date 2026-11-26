@@ -732,9 +732,41 @@ export class Nukes {
    * a program no material holds is thrown away.
    */
   warm(renderer, camera) {
-    if (this.kept || !renderer) return;
-    const parts = this.parts(false);
+    if (!renderer) return;
+    this.renderer = renderer;
+    this.warmCamera = camera;
+    if (!this.kept) {
+      const parts = this.parts(false);
+      parts.cloud.mesh.visible = false;
+      parts.dome.mesh.visible = false;
+      this.kept = parts;
+      // And the first burst's parts are these: made, uploaded and compiled.
+      this.pool.push(parts);
+      // The copy of the frame the shock is drawn over, at the size it will be.
+      try { this.screenFor(renderer); } catch { /* made when it is first wanted */ }
+    }
+    this.compileKept();
+  }
+
+  /**
+   * The kept parts compiled again under the lights the battle has now.
+   *
+   * How many lights a scene has is part of every shader in it, the burst's
+   * own included, and the battle goes on adding them after these were first
+   * compiled -- Monster One's two, put in the moment after -- so what was
+   * compiled ahead of time was the wrong program, and the cloud and the mist
+   * were both built again in the frame the bomb went off: the longest stall
+   * of the burst, right at the start of it, wherever the eye was. They are
+   * compiled again whenever the lights have changed (see update), while
+   * nothing is going off.
+   */
+  compileKept() {
+    const parts = this.kept, renderer = this.renderer, camera = this.warmCamera;
+    // In the sky now: drawn, and so compiled as it stands.
+    if (!parts || !renderer || !camera || !this.pool.includes(parts)) return;
+    this.warmedFor = this.lightsNow();
     const scene = new THREE.Scene();
+    const cloudWas = parts.cloud.mesh.visible, domeWas = parts.dome.mesh.visible;
     parts.cloud.mesh.visible = true;
     parts.dome.mesh.visible = true;
     scene.add(parts.cloud.mesh);
@@ -744,7 +776,6 @@ export class Nukes {
     // and a program is compiled for the scene it is drawn in.
     const pass = new THREE.Scene();
     pass.add(parts.shock);
-    this.kept = parts;
     try {
       for (const [sc, under] of [[scene, this.scene], [pass, pass]]) {
         const done = renderer.compileAsync ? renderer.compileAsync(sc, camera, under)
@@ -752,12 +783,23 @@ export class Nukes {
         done?.catch?.(() => {});
       }
     } catch { /* compiled the first time one is drawn instead */ }
-    parts.cloud.mesh.visible = false;
-    parts.dome.mesh.visible = false;
-    // And the first burst's parts are these: made, uploaded and compiled.
-    this.pool.push(parts);
-    // The copy of the frame the shock is drawn over, at the size it will be.
-    try { this.screenFor(renderer); } catch { /* made when it is first wanted */ }
+    parts.cloud.mesh.visible = cloudWas;
+    parts.dome.mesh.visible = domeWas;
+  }
+
+  /** The lights the battle's shaders are compiled for, as a key: how many of each kind are showing. */
+  lightsNow() {
+    let dir = 0, point = 0, spot = 0, hemi = 0, area = 0, shadow = 0;
+    this.scene.traverseVisible((o) => {
+      if (!o.isLight) return;
+      if (o.isDirectionalLight) dir++;
+      else if (o.isPointLight) point++;
+      else if (o.isSpotLight) spot++;
+      else if (o.isHemisphereLight) hemi++;
+      else if (o.isRectAreaLight) area++;
+      if (o.castShadow) shadow++;
+    });
+    return `${dir},${point},${spot},${hemi},${area},${shadow}`;
   }
 
   /** The copy of the picture the shock bends, the size of the drawing buffer. */
@@ -942,7 +984,16 @@ export class Nukes {
 
   update(dt, camera = null, clock = null) {
     this.flash = Math.max(0, (this.flash || 0) - dt * 0.9);
-    if (!this.live.length) return;
+    if (!this.live.length) {
+      // Every couple of seconds, while the sky is clear: have the lights
+      // changed since the burst was compiled for them?
+      this.lightCheck = (this.lightCheck || 0) + dt;
+      if (this.lightCheck > 2 && this.kept) {
+        this.lightCheck = 0;
+        if (this.lightsNow() !== this.warmedFor) this.compileKept();
+      }
+      return;
+    }
     const L = this.light();
     // What the eye can see, to leave a cloud out of sight unbuilt.
     if (camera) {

@@ -20,6 +20,7 @@ import { Contrails, GunFlashes } from './airfx.js';
 import { SmokeScreens } from './smokescreen.js';
 import { Heavies } from './heavies.js';
 import { Nukes } from './nuke.js';
+import { linkPending } from './linkwarm.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim, glide } from './mounts.js';
@@ -2921,9 +2922,6 @@ export class BattleScene {
     // And an atomic bomb going off, which is nothing like anything else here.
     // See nuke.js.
     this.nukes = new Nukes(this.scene, this.effects);
-    // Its shaders compiled now, in the background, rather than in the frame
-    // the bomb goes off.
-    this.nukes.warm(this.renderer, this.camera);
     // And whatever is made in the middle of the battle -- a hull's torn faces
     // and insides, the pieces torn out of her -- compiled as it is made and
     // shown once it is ready, not built in the frame it is first drawn.
@@ -2957,6 +2955,11 @@ export class BattleScene {
     this.wakes?.warm?.(this.renderer);
     // And the oil a wreck leaves, which a burst makes a great deal of at once.
     this.oil?.warm?.(this.renderer);
+    // And the bomb's own shaders, now, in the background, rather than in the
+    // frame it goes off -- after every light the battle starts with is in,
+    // Monster One's included, because the lights are part of every shader
+    // (and compiled again if they change: see Nukes.update).
+    this.nukes.warm(this.renderer, this.camera);
 
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the
@@ -3292,6 +3295,10 @@ export class BattleScene {
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
     this.nukes.update(dt, this.camera, this.ocean?.clock);
+    // The shaders compiled ahead of time and not yet drawn with, finished a
+    // little at a time while the sky is clear, not in the frame they are
+    // first wanted (see linkwarm.js).
+    if (!this.nukes.live.length) linkPending(this.renderer);
     this.torpedoes.update(dt, this.torpsNow || []);
     this.missiles.update(this.missilesNow || [], dt);
     this.charges.update(dt, this.chargesNow || []);

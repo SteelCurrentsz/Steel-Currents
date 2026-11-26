@@ -24,13 +24,9 @@ import * as D from './monsterOne.data.js';
 import { CRACK_MAT } from './clawtear.js';
 import { pieceMaterial } from './toss.js';
 import { MONSTER } from '../../../shared/monster.js';
+import { bytesOf } from './sculpt.js';
 
-const B64 = (s) => {
-  const bin = atob(s);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-};
+const B64 = bytesOf;
 const f32 = (s) => { const b = B64(s); return new Float32Array(b.buffer, b.byteOffset, b.byteLength / 4); };
 const u16 = (s) => { const b = B64(s); return new Uint16Array(b.buffer, b.byteOffset, b.byteLength / 2); };
 
@@ -164,17 +160,40 @@ function envTexture() {
   return ENV;
 }
 
+/**
+ * Stand-ins for the maps a material of hers does not have: an occlusion map
+ * that occludes nothing (white: the shader's `(r - 1) * k + 1` is exactly one)
+ * and a normal map that bends nothing (straight out, and scaled to nothing).
+ * Each of her materials missing one or the other was a shader program of its
+ * own -- four physical programs, each with clearcoat, specular and skinning,
+ * which is what kept her off the screen for seconds after she came down. With
+ * these (and her tongue's tangents left out: see buildMonsterOne) every one of
+ * her materials but the glowing plates is the same program, and what the
+ * stand-ins do to the picture is nothing at all.
+ */
+let NO_AO = null, NO_NORMAL = null;
+function blankMaps() {
+  if (!NO_AO) {
+    NO_AO = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    NO_AO.needsUpdate = true;
+    NO_NORMAL = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+    NO_NORMAL.needsUpdate = true;
+  }
+  return { ao: NO_AO, normal: NO_NORMAL };
+}
+
 /** One of the model's materials, as three.js's own glTF loader would make it. */
 function material(def, hasTangents) {
   const T = textures();
   const at = (i) => (i == null ? null : T[i]);
+  const blank = blankMaps();
   const m = new THREE.MeshPhysicalMaterial({
     name: def.name,
     map: at(def.map),
     roughnessMap: at(def.mr), metalnessMap: at(def.mr),
     roughness: def.roughness, metalness: def.metalness,
-    aoMap: at(def.ao),
-    normalMap: at(def.normal),
+    aoMap: at(def.ao) || blank.ao,
+    normalMap: at(def.normal) || blank.normal,
     clearcoat: def.clearcoat,
     clearcoatMap: at(def.clearcoatMap),
     clearcoatRoughness: def.clearcoatRoughness,
@@ -195,6 +214,8 @@ function material(def, hasTangents) {
     m.normalScale.y *= -1;
     m.clearcoatNormalScale.y *= -1;
   }
+  // (The blank one bends nothing at all.)
+  if (def.normal == null) m.normalScale.set(0, 0);
   return m;
 }
 
@@ -1179,13 +1200,17 @@ export function buildMonsterOne() {
     g.setAttribute('position', new THREE.BufferAttribute(f32(m.position), 3));
     g.setAttribute('normal', new THREE.BufferAttribute(f32(m.normal), 3));
     g.setAttribute('uv', new THREE.BufferAttribute(f32(m.uv), 2));
-    if (m.tangent) g.setAttribute('tangent', new THREE.BufferAttribute(f32(m.tangent), 4));
+    // (Her tongue's own tangents are not used: with them it alone was a
+    // physical program of its own; without them its normal map is read
+    // against the frame worked out on the fly, as every other part of her
+    // is, and it shares her hide's program -- one fewer to build before she
+    // can be drawn.)
     g.setAttribute('skinIndex', new THREE.BufferAttribute(B64(m.skinIndex), 4));
     g.setAttribute('skinWeight', new THREE.BufferAttribute(B64(m.skinWeight), 4, true));
     if (m.glow) g.setAttribute('glow', new THREE.BufferAttribute(f32(m.glow), 2));
     g.setIndex(new THREE.BufferAttribute(u16(m.index), 1));
     g.computeBoundingSphere();
-    const mat = material(D.MATERIALS[m.material], !!m.tangent);
+    const mat = material(D.MATERIALS[m.material], false);
     if (m.glow) glowing(mat, uniforms);
     const mesh = new THREE.SkinnedMesh(g, mat);
     mesh.name = `Monster One ${m.name}`;
