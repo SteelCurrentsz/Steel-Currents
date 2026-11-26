@@ -29811,7 +29811,7 @@ check('a battle with one captain in it runs as fast as he asks, up to five times
   run(9);
   assert.equal(room.timeScale, 5, 'faster than five');
   run(0);
-  assert.equal(room.timeScale, 1, 'slower than life');
+  assert.equal(room.timeScale, 1, 'stopped by a captain');
   room.close();
 });
 
@@ -30193,13 +30193,20 @@ check('a director can stop a staged battle dead, and run it slow', () => {
   ln.send({ t: 'leave' });
 });
 
-check('only a director may slow a battle down', () => {
+check('only a director may stop a battle; a captain alone may run it in slow motion', () => {
   const ln = new LocalNet();
   ln.connect();
   ln.send({ t: 'quickmatch', name: 'Captain', classId: 'fletcher' });
   clearInterval(ln.room.timer);
   ln.send({ t: 'warp', s: 0 });
   assert.equal(ln.room.timeScale, 1, 'a captain stopped the battle');
+  for (const s of [0.75, 0.5, 0.25]) {
+    ln.send({ t: 'warp', s });
+    assert.equal(ln.room.timeScale, s, `a captain could not run it at ${s}`);
+  }
+  // Nothing in between: what the slow key offers and nothing else.
+  ln.send({ t: 'warp', s: 0.6 });
+  assert.equal(ln.room.timeScale, 1);
   ln.send({ t: 'warp', s: 3 });
   assert.equal(ln.room.timeScale, 3);
   ln.send({ t: 'leave' });
@@ -34014,6 +34021,31 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     run(state, 6);
     assert.ok(!SIM.submerged(mo));
     assert.equal(MO.readMonsterWire(shipSnapshot(mo, false, state).mo).pose, 'swim');
+  });
+
+  check('Monster One half under is in sight; deep, a ship\'s radar still has her; in arcade she is never lost', () => {
+    const { state, mo, ships } = field([['fletcher', 0, 3000], ['fletcher', 0, -6000]]);
+    const [near, far] = ships;
+    SIM.monsterOrder(state, mo, { a: 'pose', pose: 'deep' }, SIM.MONSTER_HOOKS);
+    // The lookouts report every third tick: three of them, held at that depth.
+    const at = (depth) => { for (let i = 0; i < 3; i++) { mo.depth = depth; step(state, DT); } return [!!mo.spottedBy[1], mo.depth]; };
+    // Half under: as plain to the lookouts as she is on the surface.
+    let [seen, d] = at(20);
+    assert.ok(SIM.submerged(mo) && SIM.monsterHalfUnder(mo), `at ${d} m she is not half under`);
+    assert.ok(seen, 'half under, the lookouts lost her');
+    // Right down: out of the lookouts' sight, but inside a radar set's reach.
+    far.x = 0; far.z = -6000; near.x = 0; near.z = 3000;
+    [seen, d] = at(50);
+    assert.ok(!SIM.monsterHalfUnder(mo), `at ${d} m she is still half under`);
+    assert.ok(seen, `deep, ${Math.round(Math.hypot(near.x - mo.x, near.z - mo.z))} m off a Fletcher's radar, she was not on it`);
+    // Nobody's set reaching her and nobody close: down is down.
+    near.x = 0; near.z = 8000;
+    [seen] = at(50);
+    assert.ok(!seen, 'deep and out of every set\'s reach, she was seen');
+    // Arcade: on both plots, at any depth.
+    state.world.arcade = true;
+    [seen] = at(50);
+    assert.ok(seen && mo.spottedBy[0], 'in arcade, deep, she was lost');
   });
 
   check('Monster One walks up out of the sea and over the land on her own legs, and can be berthed ashore', () => {

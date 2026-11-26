@@ -35,9 +35,10 @@ const LOBBY_COUNTDOWN = 12;     // seconds a public lobby holds open for others
 // How much faster than life a battle may be run. A battle with one captain in
 // it is his to hurry along; one with two is nobody's, so it runs at one.
 export const MAX_TIME_SCALE = 5;
-// And how much slower: a director filming a staged battle may run it at a
-// quarter of life, or stop it dead, to line a shot up.
-export const SLOW_TIME_SCALES = [0, 0.25, 0.5];
+// And how much slower: a captain alone in his battle may watch it at three
+// quarters, half or a quarter of life, and a director filming a staged battle
+// may also stop it dead, to line a shot up.
+export const SLOW_TIME_SCALES = [0, 0.25, 0.5, 0.75];
 
 let roomSeq = 1;
 
@@ -588,9 +589,9 @@ export class Room {
     // with two aboard, one cannot hurry the other's battle along.
     if (msg.t === 'warp') {
       const asked = Number(msg.s);
-      // Below one is a director's, for slow motion and for stopping the action
-      // while a shot is lined up; anyone else is offered whole multiples.
-      const slow = player.director && SLOW_TIME_SCALES.includes(asked);
+      // Below one is slow motion, anyone's; stopping the action dead while a
+      // shot is lined up is a director's alone. Faster is whole multiples.
+      const slow = SLOW_TIME_SCALES.includes(asked) && (asked > 0 || !!player.director);
       const want = slow ? asked : Math.round(asked);
       const s = this.players.size <= 1 && Number.isFinite(want)
         ? (slow ? want : Math.max(1, Math.min(MAX_TIME_SCALE, want))) : 1;

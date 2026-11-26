@@ -117,6 +117,8 @@ function planeMap(snap) {
 }
 /** The fastest the battle may be run, in times as fast as life. See Room.timeScale. */
 const MAX_WARP = 5;
+/** And the slow motion a captain may watch it in, slowest last. See Room.SLOW_TIME_SCALES. */
+const SLOW_WARPS = [0.75, 0.5, 0.25];
 // The rate a director's stopped battle is drawn at. See onWarp.
 const PAUSED = 1e-4;
 
@@ -1137,6 +1139,8 @@ export class Battle {
     this.timeScale = 1;
     this.hud.setTimeWarp?.(1);
     this.hud.bindTimeWarp?.(() => this.cycleWarp());
+    // And the slow key beside that: three quarters, half and a quarter of life.
+    this.hud.bindTimeSlow?.(() => this.cycleSlow());
     this.hud.onToggleMap = () => this.toggleMap();
     // Fleets and squadrons, formed off the plot.
     this.hud.bindGrouping?.({
@@ -1315,7 +1319,18 @@ export class Battle {
 
   /** Press the speed key: one, two, three, four, five times as fast, and round again. */
   cycleWarp() {
-    const next = (this.timeScale || 1) >= MAX_WARP ? 1 : (this.timeScale || 1) + 1;
+    const k = this.timeScale || 1;
+    // Out of slow motion it goes back to life first.
+    const next = k < 1 ? 1 : k >= MAX_WARP ? 1 : k + 1;
+    this.net.send({ t: 'warp', s: next });
+    audio.click();
+  }
+
+  /** Press the slow key: three quarters, half, a quarter of life, and back to life. */
+  cycleSlow() {
+    const k = this.timeScale || 1;
+    const at = SLOW_WARPS.indexOf(k);
+    const next = at < 0 ? SLOW_WARPS[0] : at === SLOW_WARPS.length - 1 ? 1 : SLOW_WARPS[at + 1];
     this.net.send({ t: 'warp', s: next });
     audio.click();
   }
@@ -1327,12 +1342,14 @@ export class Battle {
    * and then thrown forward to catch up.
    */
   onWarp(s) {
-    // A director runs it slow and stops it; a captain only hurries it along.
+    // A director runs it slow and stops it; a captain hurries it along or
+    // watches it in slow motion, but never stops it.
     // Stopped is kept as a crawl rather than nought, because a great deal of
     // the clock divides by it and reads nought as "not set".
+    const asked = Number(s);
     const k = this.director
-      ? Math.max(PAUSED, clamp(Number(s) || 0, 0, MAX_WARP))
-      : clamp(Math.round(Number(s) || 1), 1, MAX_WARP);
+      ? Math.max(PAUSED, clamp(asked || 0, 0, MAX_WARP))
+      : SLOW_WARPS.includes(asked) ? asked : clamp(Math.round(asked || 1), 1, MAX_WARP);
     this.director?.heard(k > PAUSED ? k : 0);
     if (k === this.timeScale) return;
     this.timeScale = k;
@@ -5853,6 +5870,28 @@ export class Battle {
     // A battery is laid on a bearing and then trained off it.
     return hit.kind === 'battery' ? wrapAngle(e.h + e.a) : e.h;
   }
+  /**
+   * How far above the sea the ground under (x, z) stands, eased, for the
+   * camera to centre on: nought afloat and on a beach, the height of the land
+   * ashore. Eased so a hull stepping up a slope or the camera crossing a
+   * cliff edge carries the view up smoothly, not in a jump. `which` keeps the
+   * own camera's and the watching camera's apart.
+   */
+  liftAt(which, x, z) {
+    const g = Math.max(0, groundHeight(this.scene.world, x, z));
+    const L = this.camLifts || (this.camLifts = {});
+    const now = performance.now();
+    const was = L[which];
+    if (!was || now - was.at > 1000) {
+      L[which] = { v: g, at: now };
+      return g;
+    }
+    const dt = Math.min(0.1, (now - was.at) / 1000);
+    was.v += (g - was.v) * (1 - Math.exp(-dt * 3));
+    was.at = now;
+    return was.v;
+  }
+
 
   /** Where whatever the camera is watching is now, or null if it has gone. */
   watchPoint() {
@@ -5980,7 +6019,7 @@ export class Battle {
     if (this.watching.id === this.shipId) {
       const ls = this.localShip;
       return {
-        x: ls.x, y: this.scene.ocean.heightAt(ls.x, ls.z) * 0.5, z: ls.z,
+        x: ls.x, y: this.scene.ocean.heightAt(ls.x, ls.z) * 0.5 + this.liftAt('watch', ls.x, ls.z), z: ls.z,
         span: this.cls.hull.length,
         eye: 14 + this.cls.hull.superstructure * 12,
         h: ls.heading,
@@ -5993,7 +6032,7 @@ export class Battle {
     if (!s) return null;
     const cls = getClass(s.c);
     return {
-      x: s.x, y: this.scene.ocean.heightAt(s.x, s.z) * 0.5, z: s.z,
+      x: s.x, y: this.scene.ocean.heightAt(s.x, s.z) * 0.5 + this.liftAt('watch', s.x, s.z), z: s.z,
       span: cls.hull.length,
       eye: 14 + cls.hull.superstructure * 12,
       // Which way she is heading, so anything standing off her knows which
@@ -11181,17 +11220,25 @@ export class Battle {
     // off her, in which case it is wherever it was left.
     const fx = this.roam ? this.roam.x : ls.x;
     const fz = this.roam ? this.roam.z : ls.z;
+    // On the water the sea is the floor; up a hill -- Monster One walked up
+    // out of the sea onto high ground, a landing craft up a beach, the camera
+    // walked off her onto a headland -- the ground is, and the orbit, the
+    // bridge and the view from overhead all stand on it, so what is watched
+    // stays in the middle of the screen rather than sinking off the bottom.
+    const lift = this.liftAt('own', fx, fz);
     const wave = this.scene.ocean.heightAt(fx, fz);
+    // What she stands on: half the swell under her afloat, the land ashore.
+    const base = wave * 0.5 + lift;
     if (this.camMode === 'tactical') {
-      const h = 2200;
+      const h = 2200 + lift;
       cam.position.set(fx - Math.sin(this.yaw) * 300, h, fz - Math.cos(this.yaw) * 300);
-      cam.lookAt(fx, 0, fz);
+      cam.lookAt(fx, lift, fz);
     } else if (this.camMode === 'bridge' && !this.roam) {
       const fwd = this.cls.hull.length * 0.16;
       const eye = 14 + this.cls.hull.superstructure * 12;
       cam.position.set(
         ls.x + Math.sin(ls.heading) * fwd,
-        wave * 0.5 + eye,
+        base + eye,
         ls.z + Math.cos(ls.heading) * fwd,
       );
       const dir = new THREE.Vector3(
@@ -11210,10 +11257,10 @@ export class Battle {
       const d = this.scoped ? this.camDistance * 0.55 : this.camDistance;
       const el = clamp(0.38 - this.pitch, -0.78, 1.25);
       const flat = Math.cos(el);
-      const aim = wave * 0.5 + (this.roam ? 0 : this.cls.hull.superstructure * 5 + 6);
+      const aim = base + (this.roam ? 0 : this.cls.hull.superstructure * 5 + 6);
       cam.position.set(
         fx - Math.sin(this.yaw) * d * flat,
-        wave * 0.5 + 6 + d * Math.sin(el),
+        base + 6 + d * Math.sin(el),
         fz - Math.cos(this.yaw) * d * flat,
       );
       cam.lookAt(fx, aim, fz);

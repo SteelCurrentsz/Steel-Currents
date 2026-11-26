@@ -380,6 +380,7 @@ class HudBase {
       shellCam: $('shell-cam'),
       timeWarp: $('time-warp'),
       timeWarpN: $('time-warp-n'),
+      timeSlow: $('time-slow'), timeSlowN: $('time-slow-n'),
       targetLine: $('target-line'),
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
@@ -2899,14 +2900,28 @@ class HudBase {
   setTimeWarp(scale) {
     const el = this.el.timeWarp;
     if (!el) return;
-    if (this.el.timeWarpN) this.el.timeWarpN.textContent = `${scale}\u00d7`;
+    const fast = scale >= 1 ? scale : 1;
+    if (this.el.timeWarpN) this.el.timeWarpN.textContent = `${fast}\u00d7`;
     el.classList.toggle('on', scale > 1);
     el.title = scale > 1 ? `Running at ${scale}\u00d7 speed` : 'Speed up time';
+    // The slow key shows the slow motion, and one when there is none.
+    const slow = this.el.timeSlow;
+    if (slow) {
+      const k = scale < 1 ? scale : 1;
+      if (this.el.timeSlowN) this.el.timeSlowN.textContent = `${k}\u00d7`;
+      slow.classList.toggle('on', scale < 1);
+      slow.title = scale < 1 ? `Slow motion: ${scale}\u00d7 speed` : 'Slow motion';
+    }
   }
 
   /** What the speed key does when it is pressed. */
   bindTimeWarp(fn) {
     if (this.el.timeWarp) this.el.timeWarp.onclick = () => fn();
+  }
+
+  /** What the slow key does when it is pressed. */
+  bindTimeSlow(fn) {
+    if (this.el.timeSlow) this.el.timeSlow.onclick = () => fn();
   }
 
   setTarget(t) {
@@ -3757,7 +3772,7 @@ export class Hud extends HudBase {
     // buttons over.
     const el = this.el || {};
     const own = [document.getElementById('btn-leave'), el.port, el.flyDrop, el.flyLeave,
-      el.flyArms, el.flyBombCam, el.flyTake, el.gunSeat, el.shellCam, el.timeWarp, ...Object.values(this.keys || {})];
+      el.flyArms, el.flyBombCam, el.flyTake, el.gunSeat, el.shellCam, el.timeWarp, el.timeSlow, ...Object.values(this.keys || {})];
     for (const n of own) if (n) n.onclick = null;
     clearTimeout(this.portTimer);
     if (el.port) { el.port.hidden = true; el.port.classList.remove('arm'); }

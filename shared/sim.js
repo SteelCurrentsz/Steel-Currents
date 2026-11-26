@@ -20969,6 +20969,17 @@ function stepTurnaround(state, ship) {
 /** How far off a lit searchlight is seen, in clear air, in metres. */
 export const LAMP_SEEN = 14000;
 
+/**
+ * Monster One down, but not deep: no further under than half the depth she
+ * dives to. A beast a hundred metres tall is not lost the moment her back
+ * goes under -- the water humps and boils over her, her plates show through
+ * it, and her bulk is a shadow the length of a cruiser -- so to the lookouts
+ * she is as plain as she is on the surface until she is well down.
+ */
+export function monsterHalfUnder(ship) {
+  return !!shipClass(ship).monster && submerged(ship) && ship.depth <= MONSTER.deep * 0.5;
+}
+
 function stepDetection(state) {
   for (const s of state.ships) {
     // A wreck stays in sight of whoever had her in sight when she went, and
@@ -20983,11 +20994,13 @@ function stepDetection(state) {
   // sides' plots from the first second, whatever the fog, the rain or the
   // hour, and the only thing that keeps the guns quiet is range. A boat that
   // is down is still down -- there is nothing on the surface to lay a gun on.
+  // Monster One is not a boat: half under or right down in the deep, she is
+  // on both plots and in everybody's sight the whole battle.
   if (state.world?.arcade) {
     for (const target of state.ships) {
       if (!target.alive) continue;
       const tc = shipClass(target);
-      if (tc.dive && submerged(target)) continue;
+      if (tc.dive && submerged(target) && !tc.monster) continue;
       target.spottedBy = [true, true];
     }
     return;
@@ -21000,7 +21013,12 @@ function stepDetection(state) {
     // A boat that is down is a periscope feather at best, and below periscope
     // depth she is nothing at all until somebody runs over her. Radar does not
     // help either: there is nothing above the water to return an echo.
-    if (tc.dive && submerged(target)) conceal = tc.dive.concealment;
+    // Monster One half under is not down at all to the lookouts (see
+    // monsterHalfUnder), and she is never down to a radar set: a body that
+    // size a few fathoms under returns an echo off the water she heaves up,
+    // so a ship with a set has her at any depth within its reach.
+    const down = tc.dive && submerged(target) && !monsterHalfUnder(target);
+    if (down) conceal = tc.dive.concealment;
     // Weather shortens the range a lookout can pick her up at. Radar below is
     // left alone, which is the whole point of radar: in a rain squall a set is
     // worth more than every pair of eyes on the ship.
@@ -21024,7 +21042,7 @@ function stepDetection(state) {
       // war could not be trusted through a screen to tell a ship from it.
       const smoked = smokeBetween(state, observer.x, observer.z, target.x, target.z);
       const radar = d < oc.radarRange * 0.55 && !smoked
-        && !(tc.dive && submerged(target));
+        && !(tc.dive && submerged(target) && !tc.monster);
       if (d > (smoked ? conceal * 0.22 : conceal) && !radar) continue;
       if (d > 900 && landHides(state.world, observer.x, mastheadOf(observer), observer.z,
         target.x, mastheadOf(target), target.z)) continue;
@@ -21037,7 +21055,7 @@ function stepDetection(state) {
     const aew = p.role === 'aew';
     for (const target of state.ships) {
       if (!target.alive || target.team === p.team) continue;
-      if (aew && submerged(target)) continue;
+      if (aew && submerged(target) && !shipClass(target).monster) continue;
       if (dist(p.x, p.z, target.x, target.z) < (aew ? AEW_RADAR : 3200)) target.spottedBy[p.team] = true;
     }
   }
@@ -21057,7 +21075,7 @@ function stepDetection(state) {
       // From above, a ship in a smoke bank is the bank.
       if (inSmoke(state, target.x, target.z)) continue;
       const tc = shipClass(target);
-      if (tc.dive && submerged(target)) continue;
+      if (tc.dive && submerged(target) && !monsterHalfUnder(target)) continue;
       if (dist(bm.x, bm.z, target.x, target.z) < reach) {
         target.spottedBy[bm.team] = true;
       }
