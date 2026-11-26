@@ -12532,14 +12532,17 @@ export const SHIP_CLASSES = {
     aa: {
       range: 5000, dps: 20,
       guns: [
-        // Her four 8 cm/40 3rd Year Type high-angle guns abreast her funnel.
+        // Her four 8 cm/40 3rd Year Type high-angle guns abreast her funnel,
+        // each on its own beam: the forward pair stow ahead and bear from
+        // over her bow round to abaft her beam, the after pair stow astern and
+        // are masked ahead by her bridge, and none of them fires across her.
         { name: '8 cm/40 3rd Year Type', caliber: 76, role: 'dp', reload: 3, range: 6000, piece: 'aa',
           elev: { min: -0.122, max: 1.31 },
           mounts: [
-          { x: 7.373, z: 17.545, angle: 1.57, arc: 1.8, rest: -0.0021, guns: 1, my: 13.79 },
-          { x: -7.373, z: 17.545, angle: -1.57, arc: 1.8, rest: -0.0021, guns: 1, my: 13.79 },
-          { x: 11.562, z: 9.069, angle: 1.57, arc: 1.8, rest: 3.1395, guns: 1, my: 10.88 },
-          { x: -11.562, z: 9.069, angle: -1.57, arc: 1.8, rest: 3.1395, guns: 1, my: 10.88 },
+          { x: 7.373, z: 17.545, angle: 1.2, arc: 1.25, rest: 0, guns: 1, my: 13.79 },
+          { x: -7.373, z: 17.545, angle: -1.2, arc: 1.25, rest: 0, guns: 1, my: 13.79 },
+          { x: 11.562, z: 9.069, angle: 1.94, arc: 1.15, rest: 3.09, guns: 1, my: 10.88 },
+          { x: -11.562, z: 9.069, angle: -1.94, arc: 1.15, rest: -3.09, guns: 1, my: 10.88 },
           ] },
       ],
     },
@@ -23013,41 +23016,44 @@ Object.assign(SHIP_CLASSES, {
     aa: {
       range: 4500, dps: 85,
       guns: [
-        // The Hildebrand's twin 5.5 cm, two a side in her waist. (The twin on
+        // The Hildebrand's twin 5.5 cm, two a side in her waist. Here and in
+        // her 3 cm, what stands forward of her bridge bears over her bow and
+        // not her stern, what stands abaft her funnel over her stern and not
+        // her bow, and what stands on her tower both. (The twin on
         // the roof of Bruno and of Caesar is drawn with its turret, and trains
         // with it.)
         { name: "5.5 cm Gerät 58 twin", caliber: 55, role: 'dp', reload: 1.2, range: 5500, elev: { min: -0.17, max: 1.57 }, piece: 'aa55',
           mounts: [
-          { x: -11.487, z: 2.968, angle: -1.57, arc: 1.8, rest: -1.5916, guns: 2, my: 9.81 },
-          { x: 11.462, z: 2.931, angle: 1.57, arc: 1.8, rest: 1.55, guns: 2, my: 9.81 },
+          { x: -11.487, z: 2.968, angle: -1.2, arc: 1.25, rest: -1.5916, guns: 2, my: 9.81 },
+          { x: 11.462, z: 2.931, angle: 1.2, arc: 1.25, rest: 1.55, guns: 2, my: 9.81 },
           { x: -11.487, z: -9.247, angle: -1.57, arc: 1.8, rest: -1.5916, guns: 2, my: 9.81 },
           { x: 11.462, z: -9.283, angle: 1.57, arc: 1.8, rest: 1.55, guns: 2, my: 9.81 },
           ] },
         // And her 3 cm Flak 103/38, the Hildebrand's, about her decks.
         { name: "3 cm Flak 103/38", caliber: 30, role: 'aa', reload: 0.25, range: 2800, elev: { min: -0.17, max: 1.57 }, piece: 'aa30',
           mounts: [
-          { x: -8.242, z: 35.54, angle: -1.57, arc: 1.8, rest: -0.7854, guns: 1, my: 7.61 },
-          { x: 8.218, z: 35.54, angle: 1.57, arc: 1.8, rest: 0.7854, guns: 1, my: 7.61 },
-          { x: -8.579, z: 17.01, angle: -1.57, arc: 1.8, rest: -0.7854, guns: 1, my: 11.15 },
-          { x: 8.555, z: 17.01, angle: 1.57, arc: 1.8, rest: 0.7854, guns: 1, my: 11.15 },
-          { x: -4.163, z: 16.455, angle: -1.57, arc: 1.8, rest: -0.7854, guns: 1, my: 17.51 },
-          { x: 4.139, z: 16.455, angle: 1.57, arc: 1.8, rest: 0.7854, guns: 1, my: 17.51 },
+          { x: -8.242, z: 35.54, angle: -1.2, arc: 1.25, rest: -0.7854, guns: 1, my: 7.61 },
+          { x: 8.218, z: 35.54, angle: 1.2, arc: 1.25, rest: 0.7854, guns: 1, my: 7.61 },
+          { x: -8.579, z: 17.01, angle: -1.2, arc: 1.25, rest: -0.7854, guns: 1, my: 11.15 },
+          { x: 8.555, z: 17.01, angle: 1.2, arc: 1.25, rest: 0.7854, guns: 1, my: 11.15 },
+          { x: -4.163, z: 16.455, angle: -1.2, arc: 1.25, rest: -0.7854, guns: 1, my: 17.51 },
+          { x: 4.139, z: 16.455, angle: 1.2, arc: 1.25, rest: 0.7854, guns: 1, my: 17.51 },
           { x: -3.48, z: -8.737, angle: -1.57, arc: 1.8, rest: -2.3562, guns: 1, my: 19.64 },
           { x: 3.455, z: -8.737, angle: 1.57, arc: 1.8, rest: 2.3562, guns: 1, my: 19.64 },
           { x: -1.384, z: -11.362, angle: -1.57, arc: 1.8, rest: -2.3562, guns: 1, my: 19.64 },
           { x: 1.36, z: -11.362, angle: 1.57, arc: 1.8, rest: 2.3562, guns: 1, my: 19.64 },
-          { x: -5.83, z: -29.129, angle: -1.57, arc: 1.8, rest: -2.3562, guns: 1, my: 12.82 },
-          { x: 5.806, z: -29.129, angle: 1.57, arc: 1.8, rest: 2.3562, guns: 1, my: 12.82 },
-          { x: -8.101, z: -34.431, angle: -1.57, arc: 1.8, rest: -2.3562, guns: 1, my: 11.15 },
-          { x: 9.033, z: -34.431, angle: 1.57, arc: 1.8, rest: 2.3562, guns: 1, my: 11.15 },
-          { x: -2.26, z: -41.303, angle: -1.57, arc: 1.8, rest: -2.3562, guns: 1, my: 12.39 },
-          { x: 2.236, z: -41.303, angle: 1.57, arc: 1.8, rest: 2.3562, guns: 1, my: 12.39 },
-          { x: -4.375, z: -44.54, angle: -1.57, arc: 1.8, rest: -2.3562, guns: 1, my: 10.1 },
-          { x: 4.339, z: -44.54, angle: 1.57, arc: 1.8, rest: 2.3562, guns: 1, my: 10.1 },
-          { x: -4.375, z: -50.865, angle: -1.57, arc: 1.8, rest: -2.3562, guns: 1, my: 10.38 },
-          { x: 4.339, z: -50.865, angle: 1.57, arc: 1.8, rest: 2.3562, guns: 1, my: 10.38 },
-          { x: -9.574, z: -52.633, angle: -1.57, arc: 1.8, rest: -2.3562, guns: 1, my: 7.71 },
-          { x: 9.55, z: -52.633, angle: 1.57, arc: 1.8, rest: 2.3562, guns: 1, my: 7.71 },
+          { x: -5.83, z: -29.129, angle: -1.94, arc: 1.25, rest: -2.3562, guns: 1, my: 12.82 },
+          { x: 5.806, z: -29.129, angle: 1.94, arc: 1.25, rest: 2.3562, guns: 1, my: 12.82 },
+          { x: -8.101, z: -34.431, angle: -1.94, arc: 1.25, rest: -2.3562, guns: 1, my: 11.15 },
+          { x: 9.033, z: -34.431, angle: 1.94, arc: 1.25, rest: 2.3562, guns: 1, my: 11.15 },
+          { x: -2.26, z: -41.303, angle: -1.94, arc: 1.25, rest: -2.3562, guns: 1, my: 12.39 },
+          { x: 2.236, z: -41.303, angle: 1.94, arc: 1.25, rest: 2.3562, guns: 1, my: 12.39 },
+          { x: -4.375, z: -44.54, angle: -1.94, arc: 1.25, rest: -2.3562, guns: 1, my: 10.1 },
+          { x: 4.339, z: -44.54, angle: 1.94, arc: 1.25, rest: 2.3562, guns: 1, my: 10.1 },
+          { x: -4.375, z: -50.865, angle: -1.94, arc: 1.25, rest: -2.3562, guns: 1, my: 10.38 },
+          { x: 4.339, z: -50.865, angle: 1.94, arc: 1.25, rest: 2.3562, guns: 1, my: 10.38 },
+          { x: -9.574, z: -52.633, angle: -1.94, arc: 1.25, rest: -2.3562, guns: 1, my: 7.71 },
+          { x: 9.55, z: -52.633, angle: 1.94, arc: 1.25, rest: 2.3562, guns: 1, my: 7.71 },
           ] },
       ],
     },
