@@ -36,6 +36,7 @@ import {
 } from '../shared/batteries.js';
 import { mountRoof } from '../shared/armor.js';
 import { TANK_ARMOUR, tankStrike } from '../shared/tankarmor.js';
+import { buildMonsterOne } from '../client/js/render/monster.js';
 import { AIR_MISSILES, SHIP_CLASSES, SHIP_ORDER, PREMIUM_ORDER, PLAYABLE, MODERN_ORDER, WWII_ORDER, WWI_ORDER, CIVIL_ORDER } from '../shared/ships.js';
 import { shipSnapshot, buildSnapshot } from '../shared/protocol.js';
 import { HULL_TOUGHNESS, FLOOD_CHOKE, realismSpread, realismBias, UR_SETTLE } from '../shared/sim.js';
@@ -4967,6 +4968,74 @@ check('the ten ships of late November 2026 come in their yards or the store, are
     assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
     assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
   }
+});
+
+check('Monster One up on end under a ship in shallow sea is under her keel, not stood on the sea bed with her head out of the water', () => {
+  // A sea fifty-three metres deep is deep enough for her to dive in
+  // (MONSTER.wade), and she is a hundred metres tall up on end: stood on its
+  // bed, her head was drawn forty metres over the ship she was under.
+  const had = { Image: globalThis.Image, document: globalThis.document };
+  const any = () => new Proxy(function () {}, { get: (t, k) => (k === Symbol.toPrimitive ? () => 0 : k === 'then' ? undefined : any()), apply: () => any(), set: () => true });
+  globalThis.Image = class { set src(v) {} };
+  globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => any() }) };
+  try {
+    const rig = buildMonsterOne().group.userData.monster;
+    for (let i = 0; i < 400; i++) rig.update(0.1, { pose: 'deep', act: 'upcharge', charge: 0.5, ground: -53 });
+    const v = new THREE.Vector3();
+    rig.mouthPoint(v);
+    assert.ok(v.y < -10, `her mouth is ${v.y.toFixed(1)} m from the surface, up on end under the ship`);
+    // And wading on a shoal she still stands on it.
+    for (let i = 0; i < 400; i++) rig.update(0.1, { pose: 'stand', ground: -10 });
+    assert.ok(Math.abs(rig.bodyY + 10) < 0.5, `on a shoal ten metres deep her soles are at ${rig.bodyY.toFixed(1)}`);
+  } finally {
+    globalThis.Image = had.Image;
+    globalThis.document = had.document;
+  }
+});
+
+// ---- the ships of the last week of November 2026 --------------------------
+// The Tosa, the Frithjof and the Stalingrad, each off the owner's model of her
+// by build/prepare-<ship>-hull.mjs, put together by krissShip.js.
+const TOSA_FRITHJOF_STALINGRAD = [
+  { id: 'tosa', type: 'BB', nation: 'jpn', order: 'WWII_ORDER', link: 'https://skfb.ly/pBFBZ', title: 'IJN Tosa Free Model (1920 Japanese Battleship)', by: 'Mixmamo.studio' },
+  { id: 'frithjof', type: 'CA', nation: 'ger', order: 'WWII_ORDER', link: 'https://skfb.ly/oHuvz', title: 'The Third Reich Navy large cruiser FRITHJOF', by: '全斗焕' },
+  { id: 'stalingrad', type: 'CA', nation: 'sov', order: 'MODERN_ORDER', link: 'https://skfb.ly/pKArr', title: 'Project 82 "Stalingrad" battlecruiser model', by: 'Lanko Mykhailo' },
+];
+check('the Tosa, the Frithjof and the Stalingrad come in their yards, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const ORDERS = { WWII_ORDER, MODERN_ORDER };
+  for (const m of TOSA_FRITHJOF_STALINGRAD) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    assert.ok(SHIP_ORDER.includes(m.id) && ORDERS[m.order].includes(m.id), `${m.id} is not in her yard`);
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+  assert.equal(SHIP_CLASSES.tosa.fullName, 'IJN Tosa');
+  assert.equal(SHIP_CLASSES.frithjof.fullName, 'KMS Frithjof');
+  assert.equal(SHIP_CLASSES.stalingrad.fullName, 'RF Stalingrad');
+});
+
+check('the Frithjof carries 28.3 cm guns, the Scharnhorst\'s 15 cm and the Hildebrand\'s light guns on 39,000 tons', () => {
+  const F = SHIP_CLASSES.frithjof, S = SHIP_CLASSES.scharnhorst, H = SHIP_CLASSES.hildebrand;
+  assert.equal(F.gun.caliber, 283);
+  assert.deepEqual(F.turrets.map((t) => t.guns), [3, 3, 3]);
+  assert.equal(F.secondary.name, S.secondary.name);
+  assert.equal(F.secondary.caliber, S.secondary.caliber);
+  assert.deepEqual(F.secondary.shells, S.secondary.shells);
+  for (const g of F.aa.guns) assert.ok(H.aa.guns.some((h) => h.name === g.name && h.caliber === g.caliber), `${g.name} is not the Hildebrand's`);
+  assert.equal(F.datasheet.displacement, 39000);
 });
 
 check('the Kumotori model sails as the B-65', () => {

@@ -23,6 +23,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import * as D from './monsterOne.data.js';
 import { CRACK_MAT } from './clawtear.js';
 import { pieceMaterial } from './toss.js';
+import { MONSTER } from '../../../shared/monster.js';
 
 const B64 = (s) => {
   const bin = atob(s);
@@ -860,7 +861,13 @@ export class MonsterRig {
     // Her feet on the ground under her: wading up a beach she rises out of
     // the water a step at a time, and ashore she stands on the land itself.
     const ground = S.ground ?? -1e3;
-    if (ground > y) y = ground;
+    // Not down, though, nor up on end under a ship, in water deep enough to
+    // dive in (MONSTER.wade): stood on the sea bed of a sea fifty metres deep,
+    // up on end a hundred metres tall, she would have her head forty metres
+    // out of the water over the ship she is meant to be under. Down there
+    // the bed is lost in the dark, and she is drawn as deep as she is.
+    const under = pose === 'deep' || rising;
+    if (ground > y && !(under && ground <= MONSTER.wade)) y = ground;
     this.ashore = ground > -6;
     if (act === 'die') y = lerp(y, this.ashore ? ground - 10 : BODY_Y.deep * 1.4, smooth(3, 20, S.actT || 0));
     this.bodyY += (y - this.bodyY) * ease(rising ? 0.8 : pose === 'deep' || act === 'die' ? 2.2 : 1.4);
