@@ -12460,7 +12460,7 @@ export const SHIP_CLASSES = {
     blurb: 'Ten 41 cm guns in five twin turrets and twenty casemate 14 cm: the Kaga-class battleship the treaty sank as a target.',
     hull: {
       // Where her funnel comes out, [across, along, up].
-      funnels: [[0, 13, 25]], length: 234.1, beam: 30.5, draft: 9.4, superstructure: 1.45 },
+      funnels: [[0, 11, 24.5]], length: 234.1, beam: 30.5, draft: 9.4, superstructure: 1.45 },
     hp: 74000,
     // Twenty-six and a half knots on four shafts, as she was designed.
     maxSpeed: 26.5 * KNOTS,
@@ -21867,7 +21867,7 @@ Object.assign(SHIP_CLASSES, {
     blurb: "Nine 305 mm guns at thirty-five knots: Stalin's battlecruiser, laid down in 1951 and cancelled on the slip.",
     hull: {
       // Where her funnels come out, [across, along, up].
-      funnels: [[0,-3,22],[0,-26,22]], length: 273.5, beam: 32, draft: 9.2, superstructure: 1.35 },
+      funnels: [[0,-1,24.5],[0,-28,24.5]], length: 273.5, beam: 32, draft: 9.2, superstructure: 1.35 },
     hp: 54000,
     maxSpeed: 35 * KNOTS,
     reverseSpeed: 8 * KNOTS,
@@ -23605,7 +23605,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'guangzhou', 'sovremenny', 'slava', 'burke', 'nakhimov', 'cleveland', 'brooklyn', 'ajax', 'fargo', 'atlanta', 'dido', 'sanmartin', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'hildebrand', 'beowulf', 'frithjof', 'trento', 'napoli', 'algerie', 'conde', 'kirov', 'chapayev', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'puertorico', 'sevastopol', 'stalingrad', 'b65', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'balao', 'kurfurst', 'lorraine', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'vanguard', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'cdg', 'kuznetsov', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'tosa', 'yamato', 'musashi',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'balao', 'kurfurst', 'tosa', 'lorraine', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'vanguard', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'cdg', 'kuznetsov', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'ranger', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**
