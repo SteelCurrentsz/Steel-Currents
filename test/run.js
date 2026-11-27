@@ -5038,6 +5038,89 @@ check('the Frithjof carries 28.3 cm guns, the Scharnhorst\'s 15 cm and the Hilde
   assert.equal(F.datasheet.displacement, 39000);
 });
 
+// ---- the Gato, the Akizuki, the Arkhangelsk, the Fiji and the Lion ---------
+// Each off the owner's model of her by build/prepare-<ship>-hull.mjs, put
+// together by krissShip.js, and armed as she was.
+const LATE_NOVEMBER_FIVE = [
+  { id: 'gato', type: 'SS', nation: 'usa', order: 'WWII_ORDER', link: 'https://skfb.ly/6WYUF', title: 'Gato Sub', by: 'AcesWild1965' },
+  { id: 'akizuki', type: 'DD', nation: 'jpn', order: 'WWII_ORDER', link: 'https://skfb.ly/pLHuN', title: 'IJN Akizuki (War Thunder)', by: 'KojfDiscord' },
+  { id: 'arkhangelsk', type: 'BB', nation: 'sov', order: 'WWII_ORDER', link: 'https://skfb.ly/pLH9n', title: 'Arkhangelsk (War Thunder)', by: 'KojfDiscord' },
+  { id: 'fiji', type: 'CL', nation: 'gbr', order: 'WWII_ORDER', link: 'https://skfb.ly/pEsIV', title: 'HMS Fiji (War Thunder) Line Of Contact', by: 'KojfDiscord' },
+  { id: 'lion', type: 'BB', nation: 'gbr', order: 'WWII_ORDER', link: 'https://skfb.ly/pOtYP', title: 'HMS Lion (War Thunder) Sky Odyssey', by: 'KojfDiscord' },
+];
+check('the Gato, the Akizuki, the Arkhangelsk, the Fiji and the Lion come in their yards, are credited, and build with every mounting their datasheets list', () => {
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  const screen = html.slice(html.indexOf('id="screen-credits"'));
+  const ORDERS = { WWII_ORDER, MODERN_ORDER };
+  for (const m of LATE_NOVEMBER_FIVE) {
+    const cls = SHIP_CLASSES[m.id];
+    assert.equal(cls.nation, m.nation, `${m.id}: her nation`);
+    assert.equal(cls.type, m.type, `${m.id}: her type`);
+    assert.ok(SHIP_ORDER.includes(m.id) && ORDERS[m.order].includes(m.id), `${m.id} is not in her yard`);
+    const at = screen.indexOf(`>${m.title}</a>`);
+    assert.ok(at >= 0, `${m.title} is not credited`);
+    const credit = screen.slice(screen.lastIndexOf('<p class="credit">', at), screen.indexOf('</p>', at));
+    assert.ok(credit.includes(m.link) && credit.includes(m.by)
+      && credit.includes('http://creativecommons.org/licenses/by/4.0/'), `${m.title}'s credit is not as its licence asks`);
+    const built = buildShip(m.id);
+    assert.equal(built.group.userData.classId, m.id);
+    assert.equal(built.turrets.length, cls.turrets.length, `${m.id}: turrets`);
+    assert.equal((built.secMounts || []).length, cls.secondary ? cls.secondary.mounts.length : 0, `${m.id}: secondaries`);
+    assert.equal(built.aaMounts.length, lightMounts(cls).length, `${m.id}: light guns`);
+    assert.equal(built.torpMounts.length, cls.torpedoes ? cls.torpedoes.mounts.length : 0, `${m.id}: tubes`);
+  }
+});
+
+check('the Gato carries ten tubes, twenty-four torpedoes, a 5-inch on her deck and two Oerlikons', () => {
+  const G = SHIP_CLASSES.gato;
+  assert.equal(G.torpedoes.mounts.reduce((n, m) => n + m.tubes, 0), 10);
+  assert.deepEqual(G.torpedoes.mounts.map((m) => m.tubes), [6, 4]);
+  assert.equal(G.datasheet.torpedoesCarried, 24);
+  assert.equal(G.secondary.caliber, 127);
+  assert.equal(G.secondary.mounts.length, 1);
+  assert.equal(lightMounts(G).length, 2);
+  assert.ok(G.dive.max < SHIP_CLASSES.balao.dive.max, 'a Gato dives as deep as a Balao');
+});
+
+check('the Akizuki carries eight 10 cm/65 in four twins, one bank of four Long Lances and her 25 mm', () => {
+  const A = SHIP_CLASSES.akizuki;
+  assert.equal(A.gun.caliber, 100);
+  assert.deepEqual(A.turrets.map((t) => t.guns), [2, 2, 2, 2]);
+  assert.deepEqual(A.torpedoes.mounts.map((m) => m.tubes), [4]);
+  assert.equal(A.torpedoes.caliber, 610);
+  assert.equal(A.datasheet.torpedoesCarried, 8);
+  assert.ok(A.aa.guns.every((g) => g.caliber === 25));
+});
+
+check('the Arkhangelsk is the Royal Sovereign: the Revenge\'s fifteen-inch, eight 6-inch, her 4-inch HA and her pom-poms', () => {
+  const A = SHIP_CLASSES.arkhangelsk, R = SHIP_CLASSES.revenge;
+  assert.equal(A.gun.name, R.gun.name);
+  assert.deepEqual(A.gun.shells, R.gun.shells);
+  assert.deepEqual(A.turrets.map((t) => t.guns), [2, 2, 2, 2]);
+  assert.equal(A.secondary.caliber, 152);
+  assert.equal(A.secondary.mounts.length, 8);
+  assert.deepEqual(A.aa.guns.map((g) => g.caliber), [102, 40, 12.7]);
+});
+
+check('the Fiji carries twelve 6-inch in four triples, eight 4-inch HA, two pom-poms and six tubes', () => {
+  const F = SHIP_CLASSES.fiji;
+  assert.equal(F.gun.caliber, 152);
+  assert.deepEqual(F.turrets.map((t) => t.guns), [3, 3, 3, 3]);
+  assert.equal(F.secondary.mounts.reduce((n, m) => n + m.guns, 0), 8);
+  assert.deepEqual(F.torpedoes.mounts.map((m) => m.tubes), [3, 3]);
+  assert.equal(lightMounts(F).filter((m) => m.guns === 8).length, 2);
+});
+
+check('the Lion carries nine 16-inch in three triples, the King George V\'s 5.25-inch in eight twins and six pom-poms', () => {
+  const L = SHIP_CLASSES.lion, K = SHIP_CLASSES.kgv;
+  assert.equal(L.gun.caliber, 406);
+  assert.deepEqual(L.turrets.map((t) => t.guns), [3, 3, 3]);
+  assert.equal(L.secondary.name, K.secondary.name);
+  assert.deepEqual(L.secondary.shells, K.secondary.shells);
+  assert.equal(L.secondary.mounts.reduce((n, m) => n + m.guns, 0), 16);
+  assert.equal(lightMounts(L).filter((m) => m.guns === 8).length, 6);
+});
+
 check('the Kumotori model sails as the B-65', () => {
   assert.equal(SHIP_CLASSES.b65.fullName, 'IJN B-65');
   for (const c of Object.values(SHIP_CLASSES)) assert.ok(!/kumotori/i.test(`${c.id} ${c.name} ${c.fullName || ''}`), `${c.id} is still called Kumotori`);
@@ -7322,6 +7405,54 @@ function shootTank(st, bat, { brg, dy = 1.4, range = 500, spec, cal = 75, down =
   for (let i = 0; i < 6; i++) ev.push(...step(st, 1 / 30));
   return ev.find((e) => e.e === 'hit' && e.victim === bat.id);
 }
+
+check('the Tiger I is a tank: chosen from the tank list, credited, built off her model, and too heavy for a Higgins boat', () => {
+  assert.ok(isTank('tiger') && TANK_ORDER.includes('tiger') && !BATTERY_ORDER.includes('tiger'));
+  assert.ok(!Object.keys(BATTERIES).includes('tiger'), 'the Tiger is walked with the coast batteries');
+  assert.equal(BATTERIES.tiger, TANKS.tiger);
+  const T = TANKS.tiger;
+  assert.equal(T.caliber, 88);
+  assert.equal(T.calibers, 56);
+  assert.match(T.piece, /8\.8 cm KwK 36/);
+  assert.ok(T.tank.tons > TANKS.sherman.tank.tons, 'a Tiger is no heavier than a Sherman');
+  const html = readFileSync(new URL('../client/index.html', import.meta.url), 'utf8');
+  assert.match(html, /href="https:\/\/skfb\.ly\/pqLs9"[^>]*>Tiger I<\/a>"\s*by JUSTGAME is licensed under\s*<a href="http:\/\/creativecommons\.org\/licenses\/by\/4\.0\/"/);
+  // Built off her model, her turret on its own ring to train.
+  const parts = batteryParts('tiger');
+  let hi = 0, lo = Infinity;
+  for (const p of parts) { hi = Math.max(hi, p.max[1]); lo = Math.min(lo, p.min[1]); }
+  assert.ok(lo < 0.15 && Math.abs(hi - lo - T.tank.height) < 0.3, `she stands ${(hi - lo).toFixed(2)} m tall`);
+  // Fifty-seven tons: too heavy for a Higgins boat, light enough for the LCT.
+  assert.equal(tankRoom(SHIP_CLASSES.higgins, 'tiger'), 0);
+  const craft = Object.values(SHIP_CLASSES).find((c) => c.cargo?.vehicles?.tons >= 57);
+  assert.ok(craft && tankRoom(craft, 'tiger') > 0, 'nothing can carry a Tiger ashore');
+});
+
+check("the Tiger's hundred millimetres turn a Sherman's round at a thousand metres, and her 8.8 cm goes through a Sherman's glacis", () => {
+  const range = (id) => {
+    const st = createState(generateWorld(4242, 'open_ocean'), { mode: 'deathmatch' });
+    const bat = addBattery(st, { batteryId: id, team: 0, x: 0, z: 0, heading: 0 });
+    bat.y = 20;
+    commandBattery(st, bat, 99);
+    return { st, bat };
+  };
+  const m4 = batteryGun('sherman').shells.ap;
+  const kwk = batteryGun('tiger').shells.ap;
+  assert.equal(TANK_ARMOUR.tiger.hull.glacis.t, 100);
+  let through = 0, kills = 0;
+  for (let k = 0; k < 6; k++) {
+    const a = range('tiger');
+    const h = shootTank(a.st, a.bat, { brg: 0, range: 1000, spec: m4, dy: 1.5 });
+    assert.ok(h, 'the round into her front never arrived');
+    if (h.kind === 'pen' || h.kind === 'overpen') through++;
+    const b = range('sherman');
+    const f = shootTank(b.st, b.bat, { brg: 0, range: 1000, spec: kwk, cal: 88, dy: 1.5 });
+    assert.ok(f, 'the 8.8 cm round never arrived');
+    if (f.kind === 'pen' || f.kind === 'overpen') kills++;
+  }
+  assert.equal(through, 0, `a Sherman's 75 mm went through a Tiger's front ${through} times in six`);
+  assert.ok(kills >= 5, `the 8.8 cm went through a Sherman's front only ${kills} times in six`);
+});
 
 check("a tank's armour is met where a round reaches it, at the angle it really meets it", () => {
   const A = TANK_ARMOUR.sherman;

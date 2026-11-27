@@ -14,6 +14,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import {
   SHERMAN_HULL, SHERMAN_TURRET, SHERMAN_RING, SHERMAN_MUZZLE, LCM_HULL, LCM_RAMP, LCM_HINGE,
 } from './vehicles.data.js';
+import { TIGER_HULL, TIGER_TURRET, TIGER_RING, TIGER_TRUNNIONS, TIGER_MUZZLE } from './tiger.data.js';
 import { SHIP_CLASSES } from '../../../shared/ships.js';
 import { mergeStatic } from './merge.js';
 import { bySection } from './interior.js';
@@ -69,6 +70,12 @@ function materials() {
       // is olive drab and not a black cut-out.
       emissive: 0x161a10,
     }),
+    // The Tiger's model is drawn in grey: she is painted the Dunkelgelb the
+    // Panzerwaffe's tanks left the factory in from 1943.
+    tiger: new THREE.MeshPhongMaterial({
+      vertexColors: true, color: 0xf0d79a, specular: 0x14130f, shininess: 8, side: THREE.DoubleSide,
+      emissive: 0x1c180e,
+    }),
     // The model is one flat light grey; she is painted the Navy's haze grey.
     craft: new THREE.MeshPhongMaterial({
       vertexColors: true, color: 0x9aa3aa, specular: 0x1c2024, shininess: 12, side: THREE.DoubleSide,
@@ -108,6 +115,34 @@ export function buildSherman(g) {
   g.add(turret);
   (g.userData.turn || (g.userData.turn = [])).push(turret);
   g.userData.guns.push({ node: gun, muzzleZ: SHERMAN_MUZZLE - 0.4, bore: 0.075, stroke: 0.12 });
+  g.userData.tank = true;
+}
+
+/**
+ * The Tiger I, built as the Sherman is: off the owner's model, "Tiger I"
+ * (https://skfb.ly/pqLs9) by JUSTGAME, under Creative Commons Attribution
+ * 4.0 and credited on the Credits screen. Her turret is the model's turret
+ * and its 8.8 cm together, cut free to train about her ring.
+ */
+export function buildTiger(g) {
+  const m = materials();
+  const hull = new THREE.Mesh(geo('tiger-hull', TIGER_HULL), m.tiger);
+  hull.castShadow = true;
+  g.add(hull);
+  const turret = new THREE.Group();
+  turret.position.set(...TIGER_RING);
+  turret.userData.dynamic = true;
+  turret.userData.tankTurret = true;
+  const t = new THREE.Mesh(geo('tiger-turret', TIGER_TURRET), m.tiger);
+  t.castShadow = true;
+  turret.add(t);
+  const gun = new THREE.Group();
+  gun.userData.dynamic = true;
+  gun.position.set(0, TIGER_TRUNNIONS[1], TIGER_TRUNNIONS[2]);
+  turret.add(gun);
+  g.add(turret);
+  (g.userData.turn || (g.userData.turn = [])).push(turret);
+  g.userData.guns.push({ node: gun, muzzleZ: TIGER_MUZZLE - TIGER_TRUNNIONS[2], bore: 0.088, stroke: 0.58 });
   g.userData.tank = true;
 }
 

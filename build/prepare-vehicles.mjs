@@ -124,7 +124,7 @@ async function flatten(file) {
     return [s(r * p.f[0]), s(g * p.f[1]), s(b * p.f[2])];
   };
 
-  const P = [], C = [], T = [], TM = [], TC = [];
+  const P = [], C = [], T = [], TM = [], TC = [], TN = [];
   const walk = (ni, parent) => {
     const n = j.nodes[ni];
     const w = mul(parent, compose(n));
@@ -161,6 +161,7 @@ async function flatten(file) {
           if (det < 0) T.push(base + idx[t], base + idx[t + 2], base + idx[t + 1]);
           else T.push(base + idx[t], base + idx[t + 1], base + idx[t + 2]);
           TM.push(mi);
+          TN.push(ni);
         }
       }
     }
@@ -168,7 +169,7 @@ async function flatten(file) {
   };
   const I = Float64Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   for (const r of j.scenes[j.scene || 0].nodes) walk(r, I);
-  return { P, C, T, TM, TC, mats: (j.materials || []).map((m) => m.name) };
+  return { P, C, T, TM, TC, TN, names: j.nodes.map((n) => n.name || ''), mats: (j.materials || []).map((m) => m.name) };
 }
 
 function bounds(P, T) {
@@ -270,7 +271,9 @@ const out = [
 ];
 
 // ---- the Sherman -------------------------------------------------------------------
-{
+// ONLY=tiger builds the Tiger alone, into its own module, and leaves these be.
+const ONLY = process.env.ONLY || '';
+if (!ONLY || ONLY === 'sherman') {
   const m = await flatten(path.join(ROOT, 'assets/models/m4a2_sherman-maximum-compressed.glb'));
   console.log('sherman:', m.T.length / 3, 'faces; materials', m.mats.join(', '));
   const all = Array.from({ length: m.T.length / 3 }, (_, i) => i);
@@ -348,7 +351,7 @@ const out = [
 }
 
 // ---- the landing craft -------------------------------------------------------------
-{
+if (!ONLY || ONLY === 'sherman') {
   const m = await flatten(path.join(ROOT, 'assets/models/LandingCraftTank.glb'));
   console.log('landing craft:', m.T.length / 3, 'faces');
   const all = Array.from({ length: m.T.length / 3 }, (_, i) => i);
@@ -403,5 +406,86 @@ const out = [
   out.push(`export const LCM_HINGE = [${HINGE.join(', ')}];`);
 }
 
-writeFileSync(OUT, out.join('\n') + '\n');
-console.log('wrote', path.relative(ROOT, OUT));
+if (!ONLY || ONLY === 'sherman') {
+  writeFileSync(OUT, out.join('\n') + '\n');
+  console.log('wrote', path.relative(ROOT, OUT));
+}
+
+// ---- the Tiger ---------------------------------------------------------------------
+// "Tiger I" (https://skfb.ly/pqLs9) by JUSTGAME, under Creative Commons
+// Attribution 4.0. The model is drawn a part to a node -- chassis, wheels,
+// tracks, turret, gun -- so her turret is the turret and the gun together,
+// and everything else is her hull. She is put at her real size by her hull's
+// length, 6.316 m without the gun.
+if (!ONLY || ONLY === 'tiger') {
+  const m = await flatten(path.join(ROOT, 'assets/models/tiger_i-maximum-compressed.glb'));
+  console.log('tiger:', m.T.length / 3, 'faces; nodes', [...new Set(m.TN)].map((n) => m.names[n]).join(', '));
+  const all = Array.from({ length: m.T.length / 3 }, (_, i) => i);
+  const isTurret = (t) => /^(turret|gun)/.test(m.names[m.TN[t]]);
+  const hullTris = all.filter((t) => !isTurret(t));
+  const turTris = all.filter(isTurret);
+  const gunTris = all.filter((t) => /^gun/.test(m.names[m.TN[t]]));
+  const vs = (tris) => tris.flatMap((t) => [m.T[t * 3], m.T[t * 3 + 1], m.T[t * 3 + 2]]);
+  const hb = bounds(m.P, vs(hullTris));
+  const tb = bounds(m.P, vs(turTris.filter((t) => !/^gun/.test(m.names[m.TN[t]]))));
+  const gb = bounds(m.P, vs(gunTris));
+  console.log('  hull box', hb.lo.map((v) => v.toFixed(2)), hb.hi.map((v) => v.toFixed(2)));
+  console.log('  turret box', tb.lo.map((v) => v.toFixed(2)), tb.hi.map((v) => v.toFixed(2)));
+  console.log('  gun box', gb.lo.map((v) => v.toFixed(2)), gb.hi.map((v) => v.toFixed(2)));
+  const ext = [hb.hi[0] - hb.lo[0], hb.hi[1] - hb.lo[1], hb.hi[2] - hb.lo[2]];
+  const along = ext[0] > ext[2] ? 0 : 2;
+  const across = along === 0 ? 2 : 0;
+  const scale = 6.316 / ext[along];
+  // Her bow is the way her gun reaches out past her hull.
+  const gunFwd = (gb.hi[along] - hb.hi[along]) > (hb.lo[along] - gb.lo[along]) ? 1 : -1;
+  const xc = (hb.lo[across] + hb.hi[across]) / 2;
+  const zc = (hb.lo[along] + hb.hi[along]) / 2;
+  const y0 = hb.lo[1];
+  // The ring: under the middle of the turret's own casting, without its gun.
+  const ringX = (tb.lo[across] + tb.hi[across]) / 2;
+  const ringZ = (tb.lo[along] + tb.hi[along]) / 2;
+  const ringY = tb.lo[1];
+  const frame = (ox, oy, oz) => (x, y, z) => {
+    const p = [x, y, z];
+    const sx = across === 0 ? 1 : -1;
+    return [
+      (p[across] - ox) * scale * gunFwd * sx * (along === 2 ? 1 : -1),
+      (p[1] - oy) * scale,
+      (p[along] - oz) * scale * gunFwd,
+    ];
+  };
+  const hullPart = part(m, hullTris, 9000, frame(xc, y0, zc));
+  const turPart = part(m, turTris, 4500, frame(ringX, ringY, ringZ));
+  const ringAt = (() => {
+    const p = [0, 0, 0];
+    p[across] = ringX; p[1] = ringY; p[along] = ringZ;
+    return frame(xc, y0, zc)(...p);
+  })();
+  // The gun's trunnions: the back of the gun node, at the height of its bore.
+  const trun = (() => {
+    const p = [0, 0, 0];
+    p[across] = (gb.lo[across] + gb.hi[across]) / 2;
+    p[1] = (gb.lo[1] + gb.hi[1]) / 2;
+    p[along] = gunFwd > 0 ? gb.lo[along] : gb.hi[along];
+    return frame(ringX, ringY, ringZ)(...p);
+  })();
+  const tp = turPart.P;
+  let mz = -Infinity;
+  for (let i = 2; i < tp.length; i += 3) mz = Math.max(mz, tp[i]);
+  console.log('  scale', scale.toFixed(4), 'width', (ext[across] * scale).toFixed(2),
+    'height', ((Math.max(hb.hi[1], tb.hi[1]) - y0) * scale).toFixed(2), 'ring', ringAt.map((v) => v.toFixed(2)),
+    'trunnions', trun.map((v) => v.toFixed(2)), 'muzzle', mz.toFixed(2));
+  const o = [
+    '// Generated by build/prepare-vehicles.mjs (ONLY=tiger) from the owner\'s model:',
+    '// "Tiger I" (https://skfb.ly/pqLs9) by JUSTGAME, CC BY 4.0.',
+    '// Do not hand-edit -- regenerate from the source asset instead.',
+  ];
+  console.log('  hull'); o.push(`export const TIGER_HULL = "${pack(hullPart)}";`);
+  console.log('  turret'); o.push(`export const TIGER_TURRET = "${pack(turPart)}";`);
+  o.push(`export const TIGER_RING = [${ringAt.map((v) => +v.toFixed(3)).join(', ')}];`);
+  o.push(`export const TIGER_TRUNNIONS = [${trun.map((v) => +v.toFixed(3)).join(', ')}];`);
+  o.push(`export const TIGER_MUZZLE = ${+mz.toFixed(3)};`);
+  const TOUT = path.join(ROOT, 'client/js/render/tiger.data.js');
+  writeFileSync(TOUT, o.join('\n') + '\n');
+  console.log('wrote', path.relative(ROOT, TOUT));
+}

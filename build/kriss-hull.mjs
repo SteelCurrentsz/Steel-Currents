@@ -797,6 +797,21 @@ export async function prepare(cfg) {
   };
   const taken = new Set();
   const faceTaken = new Set();
+  // `removeFaces`: every face lying wholly in a box, whatever run it is part
+  // of -- an aerial the model drew joined on to her hull, which the rigging
+  // pass cannot take as a wire of its own.
+  for (const box of cfg.removeFaces || []) {
+    const P = model.P, T = model.T;
+    let n = 0;
+    for (let t = 0; t < T.length / 3; t++) {
+      const v = [0, 1, 2].map((k) => T[t * 3 + k] * 3);
+      if (!v.every((i) => inBox(box, P[i], P[i + 1], P[i + 2]))) continue;
+      // `minLen`: only faces at least that long, a wire's and not a plate's.
+      if (box.minLen && Math.max(...[[0, 1], [1, 2], [2, 0]].map(([a, b]) => Math.hypot(P[v[a]] - P[v[b]], P[v[a] + 1] - P[v[b] + 1], P[v[a] + 2] - P[v[b] + 2]))) < box.minLen) continue;
+      NOT_HERS.add(t); n++;
+    }
+    console.log(`removeFaces: ${n} faces taken off her`);
+  }
   for (const box of cfg.remove || []) {
     for (const p of parts) if (!taken.has(p) && !kept(p) && claim(box, p, { hullToo: box.hullToo })) { for (const t of p.tris) NOT_HERS.add(t); taken.add(p); }
     // `wires`: and whatever thin runs in it the rigging pass took for wires --
