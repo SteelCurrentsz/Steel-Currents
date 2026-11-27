@@ -31905,6 +31905,31 @@ function atomicRun(classId = 'iowa', seed = 3301) {
   return { st, ship, far, bm };
 }
 
+check('an island between an atomic burst and a ship takes the worst of the blast off her', () => {
+  const seed = 11;
+  const isle0 = generateWorld(seed, 'archipelago').islands.find((i) => i.height > 40);
+  assert.ok(isle0, 'no island tall enough to hide behind');
+  const run = (withIsle) => {
+    const w = generateWorld(seed, 'archipelago');
+    if (!withIsle) w.islands = [];
+    const st = createState(w, { mode: 'deathmatch' });
+    const s = addShip(st, { name: 'T', classId: 'iowa', team: 0, index: 0 });
+    const a = 0.7, d = (isle0.rmax || isle0.r) + 250;
+    s.x = isle0.x + Math.sin(a) * d; s.z = isle0.z + Math.cos(a) * d; s.speed = 0;
+    const hp0 = s.hp;
+    nukeBlast(st, isle0.x - Math.sin(a) * d, 2, isle0.z - Math.cos(a) * d, null, 16);
+    for (let t = 0; t < 8; t += 0.1) step(st, 0.1);
+    return hp0 - s.hp;
+  };
+  const open = run(false), lee = run(true);
+  assert.ok(open > 0, 'the burst never reached her in the open');
+  assert.ok(lee < open * 0.5, `behind the island she lost ${lee.toFixed(0)} against ${open.toFixed(0)} in the open`);
+  // And a beam or a line of sight run across the island meets it.
+  const hill = NUKE_MOD.groundAcross((x, z) => groundHeight(generateWorld(seed, 'archipelago'), x, z),
+    isle0.x - 2000, 20, isle0.z, isle0.x + 2000, 6, isle0.z);
+  assert.ok(hill && hill.x < isle0.x, 'a line straight across the island did not meet it');
+});
+
 check('an atomic burst lights the sea without bringing a light into the battle', () => {
   // A light added to a scene, or taken out of it, recompiles every lit shader
   // in it -- the whole fleet -- in the frame it happens. The flash borrows one

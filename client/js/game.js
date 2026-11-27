@@ -1600,7 +1600,9 @@ export class Battle {
     if (!s.a) view.monsterDie = (view.monsterDie || 0) + dt;
     view.group.updateMatrixWorld(true);
     const toLocal = (wx, wy, wz) => view.group.worldToLocal(new THREE.Vector3(wx, wy, wz));
-    const beamTo = w.beam && !w.beam.up ? toLocal(w.beam.x, 6, w.beam.z) : null;
+    // Into the hillside, where an island stopped it short (see stepCharge).
+    const beamTo = w.beam && !w.beam.up
+      ? toLocal(w.beam.x, Math.max(6, world ? groundHeight(world, w.beam.x, w.beam.z) : 0), w.beam.z) : null;
     // What she looks at: where her breath is going, or the nearest enemy
     // ship in sight of her.
     let look = beamTo;

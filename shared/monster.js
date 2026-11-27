@@ -50,6 +50,7 @@
 //     she is left alone long enough. But she can be killed.
 import { clamp, dist, headingTo, angleDelta } from './math.js';
 import { getClass, CIVIL_SHIPS } from './ships.js';
+import { groundAcross } from './nuke.js';
 
 const shipClass = (ship) => getClass(ship.classId);
 
@@ -69,6 +70,9 @@ export const MONSTER = {
     min: 450,
     // Ten kilotons: a little under the B-29's sixteen.
     kt: 10,
+    // How high over the water her jaws are, standing, where the beam leaves
+    // her: what it has to clear to get over an island to what is behind it.
+    mouth: 85,
   },
   // Her breath from below (see stepUnder): how far off a ship can be for
   // her to go for her, how close under her keel she has to be -- a share of
@@ -851,6 +855,14 @@ function stepCharge(state, ship, m, dt, hooks) {
       const lead = 0.15 + d / B.speed;
       aim = { x: t.x + Math.sin(t.heading) * t.speed * lead, z: t.z + Math.cos(t.heading) * t.speed * lead };
     }
+    // It goes in a straight line, and a hill in the way of it is where it
+    // strikes: the beam does not go through an island to what is behind it.
+    if (hooks.ground) {
+      const ground = (x, z) => hooks.ground(state, x, z);
+      const mouth = Math.max(0, ground(ship.x, ship.z)) + B.mouth;
+      const hill = groundAcross(ground, ship.x, mouth, ship.z, aim.x, 6, aim.z, 60, 20);
+      if (hill) aim = { x: hill.x, z: hill.z };
+    }
     m.beam = { x: aim.x, z: aim.z, hitT: 0.15 + dist(ship.x, ship.z, aim.x, aim.z) / B.speed, hit: false };
     startAct(m, 'fire');
     m.cool = B.cooldown;
@@ -881,7 +893,8 @@ function stepFire(state, ship, m, dt, hooks) {
       }
     }
     // Where it strikes: ten kilotons.
-    hooks.nukeBlast(state, m.beam.x, 0, m.beam.z, { team: ship.team, bomber: 0, monster: ship.id }, B.kt);
+    const gy = hooks.ground ? Math.max(0, hooks.ground(state, m.beam.x, m.beam.z)) : 0;
+    hooks.nukeBlast(state, m.beam.x, gy, m.beam.z, { team: ship.team, bomber: 0, monster: ship.id }, B.kt);
   }
   if (m.actT >= B.fire) {
     m.act = '';

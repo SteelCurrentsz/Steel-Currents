@@ -11,7 +11,7 @@ import { freshLamps } from './searchlights.js';
 import { armourScheme, layersFor, walkLayers, mountRoof } from './armor.js';
 import { BOMBERS } from './bombers.js';
 import { slotAt, vicAt, formPoses, formDone, formRunwayTime } from './formation.js';
-import { NUKE, MAX_BURSTS, nukeFront, nukeBite, nukeWave, waveHeight, nukeScale } from './nuke.js';
+import { NUKE, MAX_BURSTS, nukeFront, nukeBite, nukeWave, waveHeight, nukeScale, groundAcross } from './nuke.js';
 import { stepVector, wingTarget, wingLeader, heavyWingTarget, VECTOR_REACHED } from './groups.js';
 import {
   airframeOf, sustainBank, turnFor, rollRate, rollTau, HEAVY_AERO, AERO,
@@ -8384,7 +8384,9 @@ function stepNukes(state, dt) {
       // A boat deep under is spared a little of it by the water over her;
       // not much, because a shock in water is worse than one in air.
       const deep = (s.depth || 0) > 8 ? 0.7 : 1;
-      const bite = nukeBite(d, n.land, k) * deep;
+      // An island between her and it takes the worst of it.
+      const lee = nukeLee(state, n, s.x, 8, s.z, d);
+      const bite = nukeBite(d, n.land, k) * deep * lee;
       if (bite <= 0) continue;
       damageShip(state, s, src, cls.hp * bite, 'nuke');
       if (s.alive) blastMounts(state, s, cls, n, bite);
@@ -8397,7 +8399,7 @@ function stepNukes(state, dt) {
       }
       // The shock is a blow, not a wave: it jolts her and that is all. The
       // water comes later (see the wave, below).
-      nukeShove(s, cls, n, 0.45 * Math.max(0, 1 - d / (NUKE.reach * k * (n.land ? NUKE.landReach : 1))));
+      nukeShove(s, cls, n, 0.45 * lee * Math.max(0, 1 - d / (NUKE.reach * k * (n.land ? NUKE.landReach : 1))));
       // Close in, she is not left a burnt-out hull: the shock takes her apart
       // where she lies, and what comes down into the sea is pieces of her.
       const shatter = bite >= NUKE_SHATTER && !(cls.dive && (s.depth || 0) > 8);
@@ -8435,7 +8437,7 @@ function stepNukes(state, dt) {
       if (!bat.alive) continue;
       const d = Math.hypot(bat.x - n.x, bat.z - n.z);
       if (!crossed(d)) continue;
-      const bite = nukeBite(d, n.land, k);
+      const bite = nukeBite(d, n.land, k) * nukeLee(state, n, bat.x, (bat.y || 0) + 4, bat.z, d);
       if (bite > 0) hurtBattery(state, bat, batteryHp(BATTERIES[bat.batteryId]) * bite * 1.2);
     }
     // What is in the water near it does not survive the shock in the water.
@@ -8572,6 +8574,29 @@ function waveRoll(state, s, cls, n, h) {
  * through a roof is (see bombOnMount): every screen shows it canted over,
  * guns down, burnt out.
  */
+/**
+ * How much of burst `n`'s shock gets to something standing at (x, y, z), `d`
+ * from it: all of it in the open, NUKE.lee of it with high ground between
+ * them -- a ship behind an island, or a gun on the far side of the hill. The
+ * line is run from the burst, a little over the ground it went off on, to
+ * the thing, and anything of the land that stands up across it is a lee.
+ * Close in there is none: the fireball and the air it throws out go over
+ * any hill there is.
+ */
+function nukeLee(state, n, x, y, z, d) {
+  const k = n.k || 1;
+  const w = state.world;
+  if (!w || d <= NUKE.lethal * k) return 1;
+  const top = landCeiling(w);
+  if (top <= 0) return 1;
+  const by = Math.max(n.y || 0, groundHeight(w, n.x, n.z), 0) + NUKE.leeHeight * k;
+  // Clear over the highest ground anywhere: nothing can be in the way.
+  if (Math.min(by, y) > top) return 1;
+  const hill = groundAcross((gx, gz) => groundHeight(w, gx, gz), n.x, by, n.z, x, y, z,
+    n.land ? NUKE.craterR * k * 1.6 : 0);
+  return hill ? NUKE.lee : 1;
+}
+
 /**
  * How hard an atomic burst has to hit a ship, as nukeBite has it, to take her
  * apart rather than wreck her: inside the lethal radius, the fireball and the
