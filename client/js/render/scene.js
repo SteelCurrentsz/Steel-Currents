@@ -3296,9 +3296,12 @@ export class BattleScene {
     this.bombs.update(dt, this.camera);
     this.nukes.update(dt, this.camera, this.ocean?.clock);
     // The shaders compiled ahead of time and not yet drawn with, finished a
-    // little at a time while the sky is clear, not in the frame they are
-    // first wanted (see linkwarm.js).
-    if (!this.nukes.live.length) linkPending(this.renderer);
+    // little at a time while nothing much is happening, not in the frame they
+    // are first wanted (see linkwarm.js). Not while a burst is in its first
+    // violent seconds; but once it is only a cloud hanging there -- which is
+    // minutes -- the work goes on, or a second warhead found everything
+    // compiled since the first still to be linked as its shock got there.
+    if (!this.nukes.busy) linkPending(this.renderer);
     this.torpedoes.update(dt, this.torpsNow || []);
     this.missiles.update(this.missilesNow || [], dt);
     this.charges.update(dt, this.chargesNow || []);

@@ -88,7 +88,7 @@ import { Nukes } from '../client/js/render/nuke.js';
 import { enterDogfight, stepDogfight } from '../shared/dogfight.js';
 import { cleanScript, previewAt, unitKey } from '../shared/stage.js';
 import { ReplayNet } from '../client/js/replaynet.js';
-import { cutMaterial, cutUniforms } from '../client/js/render/sever.js';
+import { cutMaterial, cutUniforms, cutTree, disposeCut, trimQueue, trimSome } from '../client/js/render/sever.js';
 // The Japanese aircraft are fetched rather than imported (see loadShips), and
 // everything below that flies or builds one wants them in.
 await loadShips([]);
@@ -31954,6 +31954,83 @@ check('an atomic burst on the sea is Baker: no fireball disc, a column, the whit
   const l = nukes.live[nukes.live.length - 1];
   for (let t = 0; t < 4; t += 0.25) nukes.update(0.25);
   assert.ok(l.cloud.mesh.visible && !l.dome.mesh.visible);
+});
+
+check('mist hidden under mist drawn over it is left out, and the rest drawn as it was', () => {
+  // Close to a burst the eye is down in hundreds of billows of mist, each a
+  // screenful; what cannot be seen through what is drawn over it is not drawn.
+  const scene = new THREE.Scene();
+  const nukes = new Nukes(scene, null);
+  nukes.add(0, 0, 0, false, null, 1);
+  const n = nukes.live[0];
+  const cam = new THREE.PerspectiveCamera(60, 16 / 9, 1, 50000);
+  cam.position.set(0, 50, 2000);
+  cam.lookAt(0, 50, 0);
+  cam.updateMatrixWorld();
+  const m = n.mist, A = m.at.array, T = m.tint.array;
+  const put = (i, z, r) => {
+    A.set([0, 50, z, r], i * 4);
+    T.set([1, 0, 0, i], i * 4);
+  };
+  // Far off and drawn first, so under the wall; a thick wall close to the
+  // eye; and far off again but drawn last, so over it.
+  put(0, -500, 300);
+  for (let i = 1; i <= 30; i++) put(i, 1500, 600);
+  put(31, -500, 300);
+  m.n = 32;
+  nukes.cullMist(n, cam);
+  const seeds = [];
+  for (let i = 0; i < m.n; i++) seeds.push(T[i * 4 + 3]);
+  assert.ok(!seeds.includes(0), 'mist under a wall of mist drawn over it was drawn');
+  assert.ok(seeds.includes(31), 'mist drawn over the wall was left out');
+  assert.deepEqual(seeds, [...Array(31)].map((_, i) => i + 1), 'what is drawn is not drawn in the order it was');
+  // None of it made any thinner or thicker: none of it is faint.
+  for (let i = 0; i < m.n; i++) assert.equal(T[i * 4 + 2], 0);
+});
+
+check('a piece of a ship blown apart draws only its own length of her, on her own vertices', () => {
+  // Every piece of a ship an atomic burst takes apart is a copy of all of
+  // her, the rest of her thrown away pixel by pixel; its triangles are cut
+  // down to those that can be on it, a little a frame after she goes.
+  const scene = new THREE.Scene();
+  const root = new THREE.Group();
+  scene.add(root);
+  const geo = new THREE.BoxGeometry(10, 8, 200, 1, 1, 200);
+  // One material, drawn whole, as her plating is.
+  geo.clearGroups();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshPhongMaterial());
+  mesh.position.z = 5;
+  root.add(mesh);
+  root.updateMatrixWorld(true);
+  const jag = 4;
+  const U = cutUniforms(-20, 0, jag, { seed: 1, z2: 30, seed2: 2, band: true });
+  const trim = trimQueue();
+  cutTree(root, U, (z) => z >= -20 && z <= 30, null, trim);
+  assert.equal(mesh.geometry, geo, 'cut down in the very frame she was blown apart');
+  while (trimSome(trim, 1e9));
+  const g = mesh.geometry;
+  assert.notEqual(g, geo, 'never cut down');
+  for (const k of Object.keys(geo.attributes)) assert.equal(g.attributes[k], geo.attributes[k], `her ${k} was copied`);
+  const kept = new Set();
+  for (let i = 0; i < g.index.count; i += 3) kept.add(`${g.index.getX(i)},${g.index.getX(i + 1)},${g.index.getX(i + 2)}`);
+  const z = (v) => geo.attributes.position.getZ(v) + 5;
+  let lost = 0, spare = 0;
+  for (let i = 0; i < geo.index.count; i += 3) {
+    const a = geo.index.getX(i), b = geo.index.getX(i + 1), c = geo.index.getX(i + 2);
+    const lo = Math.min(z(a), z(b), z(c)), hi = Math.max(z(a), z(b), z(c));
+    const has = kept.has(`${a},${b},${c}`);
+    // Anything the wandering tear can leave on the piece is kept.
+    if (hi >= -20 - jag && lo <= 30 + jag && !has) lost++;
+    if ((hi < -20 - jag - 1 || lo > 30 + jag + 1) && has) spare++;
+  }
+  assert.equal(lost, 0, `${lost} triangles that can be on the piece are not drawn`);
+  assert.equal(spare, 0, `${spare} triangles that cannot be on the piece are still drawn`);
+  // Giving the piece back gives back only its own list of triangles.
+  let gave = null;
+  g.addEventListener('dispose', () => { gave = Object.keys(g.attributes); });
+  disposeCut(root);
+  assert.deepEqual(gave, [], 'her vertices were given back with the piece');
+  assert.ok(!mesh.userData.trimGeo);
 });
 
 check('a Silverplate opens her doors, lets go of her one bomb and it goes off on the target', () => pinned(() => {

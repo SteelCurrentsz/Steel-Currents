@@ -167,6 +167,9 @@ varying vec3 vUp;
 void main() {
   vec2 p = vUv * 1.15;
   float r2 = dot(p, p);
+  // Outside the furthest its rim ever reaches (1.12, below): nothing to
+  // draw, and no reason to read the noise to find that out.
+  if (r2 > 1.12) discard;
   // More lumps on a bigger billow: a cauliflower is lumpy at every size.
   vec2 nuv = p * 0.3 * clamp(sqrt(vRad / 110.0), 0.8, 2.6) + vTint.w * vec2(3.17, 7.31)
     + vec2(uTime * 0.003, -uTime * 0.002);
@@ -317,29 +320,33 @@ vec4 prof(float fi, float row) {
     texture2D(uProf, vec2((i1 + 0.5) / uNP, row)), fi - i0);
 }
 float lumpAt;
-vec3 place(float fi, float a) {
-  vec4 p = prof(fi, 0.25);
+// The outline at fi, and which way is out from it there.
+vec2 outAt(float fi) {
   vec4 b = prof(fi - 0.5, 0.25), c = prof(fi + 0.5, 0.25);
-  vec2 o = normalize(vec2(-(c.y - b.y), c.x - b.x) + vec2(1e-5, 0.0));
+  return normalize(vec2(-(c.y - b.y), c.x - b.x) + vec2(1e-5, 0.0));
+}
+vec3 placeOn(vec4 p, vec2 o, float a) {
   float ca = cos(a), sa = sin(a);
   vec3 q = vec3(ca * max(p.x, 1.0), sa * max(p.x, 1.0), p.z + uDrift) / uL;
   lumpAt = billow(q);
   return vec3(ca * (p.x + o.x * (lumpAt - 0.3) * p.w), p.y + o.y * (lumpAt - 0.3) * p.w,
     sa * (p.x + o.x * (lumpAt - 0.3) * p.w));
 }
+vec3 place(float fi, float a) { return placeOn(prof(fi, 0.25), outAt(fi), a); }
 void main() {
   float fi = ia.x, a = ia.y;
-  vec3 p0 = place(fi, a);
-  float l0 = lumpAt;
+  // The outline here is read once, for this point and the one beside it
+  // round the stem, and for which way is out.
   vec4 p = prof(fi, 0.25);
+  vec2 o = outAt(fi);
+  vec3 p0 = placeOn(p, o, a);
+  float l0 = lumpAt;
   // Across the lumps, for which way the surface faces.
   float da = clamp(uL * 0.12 / max(p.x, 1.0), 0.002, 0.08);
-  vec3 p1 = place(fi, a + da);
+  vec3 p1 = placeOn(p, o, a + da);
   vec3 p2 = place(fi + 0.35, a);
   vec3 p3 = place(fi - 0.35, a);
   vec3 n = normalize(cross(p2 - p3, p1 - p0));
-  vec2 o = normalize(vec2(-(prof(fi + 0.5, 0.25).y - prof(fi - 0.5, 0.25).y),
-    prof(fi + 0.5, 0.25).x - prof(fi - 0.5, 0.25).x) + vec2(1e-5, 0.0));
   vec3 out3 = vec3(cos(a) * o.x, o.y, sin(a) * o.x);
   if (dot(n, out3) < 0.0) n = -n;
   vec4 h = prof(fi, 0.75);
@@ -560,6 +567,10 @@ void main() {
   // through the most of it, which is along its rim.
   float rim = 1.0 - face;
   float band = pow(rim, 6.0);
+  // Past the first seconds there is no skin, and where it does not bend the
+  // light either there is nothing to draw: said before the noise is read,
+  // since from inside the shock this is the whole screen.
+  if (band < 0.003 && uSkin < 0.01) discard;
   // The skin of condensation that flashes on it in the first instants:
   // ragged, thickest low down and at its rim, never a clean bubble.
   float h = clamp(vP.y, 0.0, 1.0);
@@ -602,6 +613,22 @@ const smooth = (e0, e1, x) => {
 const MISTS = 520;
 
 /**
+ * The grid over the screen the mist is reckoned in (see cullMist), and how
+ * thick it has to be in a cell -- as an optical depth: e^-4.6 is 1% -- to hide
+ * what is behind it.
+ */
+const CULL_X = 24, CULL_Y = 14, CULL_Z = 28, CULL_THICK = 4.6;
+
+/**
+ * How many screenfuls of faint mist a burst is shaded over at most (see
+ * cullMist), and how much of the screen a billow has to cover to be counted
+ * against it.
+ */
+const MIST_SCREENS = 12, MIST_BIG = 0.06;
+/** And how thick one billow may be made for the others it stands for. */
+const MIST_THIN = 0.2;
+
+/**
  * Bursts kept made up and compiled for the next one: a burst takes its parts
  * from here and gives them back, so nothing is allocated, uploaded or
  * compiled in the frame a bomb goes off -- and twenty warheads off a B-52 are
@@ -622,6 +649,9 @@ const MAX_LIVE = 6;
  * the sim's clock for the burst (NUKE.life) is not this.
  */
 const MUSHROOM_LIFE = 330;
+
+/** How long a burst is counted as still going off (see Nukes.busy), seconds. */
+const BUSY_FOR = 25;
 
 /**
  * The billows, as one instanced batch: solid (see BILLOW_FRAG), or `soft` --
@@ -936,6 +966,16 @@ export class Nukes {
     this.screen = null;
   }
 
+  /**
+   * Whether a burst is still in its first violent seconds -- the flash, the
+   * shock going out, ships being taken apart -- rather than only a cloud
+   * hanging in the sky.
+   */
+  get busy() {
+    for (const n of this.live) if (n.t < BUSY_FOR) return true;
+    return false;
+  }
+
   /** How bright the whole sky is, 0..1, for whatever is drawing a white-out over the screen. */
   get whiteOut() { return this.flash || 0; }
 
@@ -1077,6 +1117,7 @@ export class Nukes {
         this.dome(n, t);
       }
       this.surge(n, t);
+      if (camera) this.cullMist(n, camera);
       m.mesh.geometry.instanceCount = m.n;
       if (m.n) {
         m.at.addUpdateRange(0, m.n * 4);
@@ -1085,6 +1126,180 @@ export class Nukes {
         m.tint.needsUpdate = true;
       }
     }
+  }
+
+  /**
+   * The mist, cut down to what it costs to see.
+   *
+   * Close to a burst the eye is down inside its mist: the base surge rolling
+   * out round the foot of it and the wall of spray the shock throws up are
+   * hundreds of billows, every one of them a screenful from where the eye
+   * is, and every pixel was shaded hundreds of times over -- the frame
+   * several times its usual length for as long as the eye was in it, which
+   * was the lag right by a burst. Two things are done about it here, and
+   * neither changes the picture: where there are too many screenfuls of
+   * faint mist, fewer and thicker layers stand for them; and what is hidden
+   * behind mist drawn over it is not drawn. The rest is drawn as it was, in
+   * the order it was.
+   */
+  cullMist(n, camera) {
+    const m = n.mist;
+    const N = m.n;
+    if (N < 2 || !camera.isPerspectiveCamera) return;
+    const A = m.at.array, T = m.tint.array;
+    const S = this.mistScratch || (this.mistScratch = {
+      a: new Float32Array(MISTS * 4), t: new Float32Array(MISTS * 4),
+      // Where each is on the screen: its middle, how many of the screen's
+      // half-widths a metre of it is across and up there, how far off, and
+      // how much of the screen it covers.
+      cx: new Float32Array(MISTS), cy: new Float32Array(MISTS),
+      sx: new Float32Array(MISTS), sy: new Float32Array(MISTS),
+      z: new Float32Array(MISTS), cov: new Float32Array(MISTS),
+      keep: new Uint8Array(MISTS),
+      grid: new Float32Array(CULL_X * CULL_Y * CULL_Z),
+    });
+    S.a.set(A.subarray(0, N * 4));
+    S.t.set(T.subarray(0, N * 4));
+    const V = camera.matrixWorldInverse.elements;
+    const P = camera.projectionMatrix.elements;
+    const near = camera.near;
+    const { z: Z, keep, grid, cx: CX, cy: CY, sx: SX, sy: SY, cov: COV } = S;
+    // Where each one is on the screen, and how much of it it covers.
+    let live = 0, big = 0;
+    for (let i = 0; i < N; i++) {
+      const o = i * 4;
+      const x = S.a[o] + n.x, y = S.a[o + 1], z = S.a[o + 2] + n.z, R = S.a[o + 3];
+      const w = -(V[2] * x + V[6] * y + V[10] * z + V[14]);
+      keep[i] = 0;
+      // A card is square to the eye, so all of it is as far off as its middle:
+      // nearer than the near plane, none of it is drawn.
+      if (!(w > near)) continue;
+      const vx = V[0] * x + V[4] * y + V[8] * z + V[12];
+      const vy = V[1] * x + V[5] * y + V[9] * z + V[13];
+      const cx = (P[0] * vx - P[8] * w) / w, cy = (P[5] * vy - P[9] * w) / w;
+      const sx = P[0] / w, sy = P[5] / w;
+      // The whole card (see BILLOW_VERT): off the screen, nothing of it shows.
+      const ex = 1.15 * R * sx, ey = 1.15 * R * sy;
+      if (cx + ex < -1 || cx - ex > 1 || cy + ey < -1 || cy - ey > 1) continue;
+      Z[i] = w; CX[i] = cx; CY[i] = cy; SX[i] = sx; SY[i] = sy;
+      // How much of the screen it is shaded over: the part of its square on
+      // the screen, and of that the round of it that is drawn at all.
+      const c = (Math.min(1, cx + ex) - Math.max(-1, cx - ex)) * (Math.min(1, cy + ey) - Math.max(-1, cy - ey)) * 0.25 * 0.665;
+      COV[i] = c;
+      big += c * smooth(MIST_BIG * 0.4, MIST_BIG, c);
+      keep[i] = 1;
+      live++;
+    }
+    if (!live) { m.n = 0; return; }
+    // Too many screenfuls of it: close in, the base surge or the wall of the
+    // shock is hundreds of billows each the size of the screen, and as they
+    // come or go, all but clear -- a faint haze that is the sum of a hundred
+    // layers and more, each shaded over the whole screen. So of those that
+    // big and that faint, only so many are drawn -- the same ones from one
+    // frame to the next, by their seed, faded in and out at the edge of the
+    // choice so none of them pops -- each as much thicker as makes the haze
+    // through all of them what it was: what a stack of thin mist lets through
+    // is the sum of how thick each layer is, however many layers it is in.
+    // Never past MIST_THIN, though: a few thick ones are not a lot of thin
+    // ones, they show the lumps of each.
+    if (big > MIST_SCREENS) {
+      const f = MIST_SCREENS / big;
+      const lim = -Math.log(1 - MIST_THIN);
+      for (let i = 0; i < N; i++) {
+        if (!keep[i]) continue;
+        const o = i * 4;
+        // Only the big ones; one small on the screen costs next to nothing.
+        const b = smooth(MIST_BIG * 0.4, MIST_BIG, COV[i]);
+        if (b <= 0) continue;
+        // How thick it is (the shader's own fall-off across a billow taken
+        // at three quarters), and so how many of its fellows it can stand
+        // for and still be thin.
+        const a = 0.75 * (1 - S.t[o + 2]);
+        if (a <= 0) continue;
+        const da = -Math.log(1 - Math.min(0.999, a));
+        const fi = Math.max(1 + (f - 1) * b, Math.min(1, da / lim));
+        if (fi >= 1) continue;
+        const h = hash((S.t[o + 3] | 0) + 911, 5);
+        const q = Math.min(1, Math.max(0, (fi + 0.1 - h) / 0.1));
+        if (q <= 0) { keep[i] = 0; continue; }
+        const a2 = 1 - Math.exp(-da * q / Math.min(1, fi + 0.05));
+        S.t[o + 2] = 1 - Math.min(1, a2 / 0.75);
+      }
+    }
+    // And what cannot be seen at all. Later in the batch is drawn over
+    // earlier, whatever is nearer, so one is hidden only by mist that is both
+    // drawn after it and nearer than it -- nearer, so that whatever solid is
+    // in front of that mist is in front of it too. So from the last drawn
+    // back, each is put into a grid over the screen -- each cell kept by how
+    // far off, CULL_Z steps of it, each step the thickness of all of it that
+    // far off or nearer -- over its solid middle; and one whose whole square
+    // on the screen is behind mist enough to hide it (1% of it showing, at
+    // most) is left out.
+    grid.fill(0);
+    let kept = 0;
+    for (let i = N - 1; i >= 0; i--) {
+      if (!keep[i]) continue;
+      const o = i * 4;
+      const R = S.a[o + 3];
+      const cx = CX[i], cy = CY[i], sx = SX[i], sy = SY[i];
+      const zb = Math.min(CULL_Z - 1, Math.max(0, Math.floor(Math.log2(Z[i] / 8) * 3)));
+      if (zb > 0) {
+        const ex = 1.15 * R * sx, ey = 1.15 * R * sy;
+        const x0 = Math.max(0, Math.floor((cx - ex + 1) * 0.5 * CULL_X));
+        const x1 = Math.min(CULL_X - 1, Math.floor((cx + ex + 1) * 0.5 * CULL_X));
+        const y0 = Math.max(0, Math.floor((cy - ey + 1) * 0.5 * CULL_Y));
+        const y1 = Math.min(CULL_Y - 1, Math.floor((cy + ey + 1) * 0.5 * CULL_Y));
+        let seen = false;
+        for (let ty = y0; ty <= y1 && !seen; ty++) {
+          for (let tx = x0; tx <= x1; tx++) {
+            // What is in the steps nearer than its own.
+            if (grid[(ty * CULL_X + tx) * CULL_Z + zb - 1] < CULL_THICK) { seen = true; break; }
+          }
+        }
+        if (!seen) { keep[i] = 0; continue; }
+      }
+      kept++;
+      // How much it hides, at the least, over its solid middle: inside
+      // r2 < rim * 0.35 the mist is its full thickness (BILLOW_FRAG, SOFT),
+      // and the rim is never in closer than 0.62 -- so out to 0.466 of its
+      // radius -- and there it is never thinner than 0.55 of what is left
+      // of it.
+      const a = (1 - S.t[o + 2]) * 0.55;
+      if (a < 0.02) continue;
+      const d = -Math.log(1 - a);
+      const ix = 0.466 * R * sx, iy = 0.466 * R * sy;
+      const ix2 = 1 / (ix * ix), iy2 = 1 / (iy * iy);
+      const u0 = Math.max(0, Math.floor((cx - ix + 1) * 0.5 * CULL_X));
+      const u1 = Math.min(CULL_X - 1, Math.floor((cx + ix + 1) * 0.5 * CULL_X));
+      const v0 = Math.max(0, Math.floor((cy - iy + 1) * 0.5 * CULL_Y));
+      const v1 = Math.min(CULL_Y - 1, Math.floor((cy + iy + 1) * 0.5 * CULL_Y));
+      for (let ty = v0; ty <= v1; ty++) {
+        const ya = (ty / CULL_Y) * 2 - 1 - cy, yb = ((ty + 1) / CULL_Y) * 2 - 1 - cy;
+        const dy = Math.max(ya * ya, yb * yb) * iy2;
+        if (dy >= 1) continue;
+        for (let tx = u0; tx <= u1; tx++) {
+          const xa = (tx / CULL_X) * 2 - 1 - cx, xb = ((tx + 1) / CULL_X) * 2 - 1 - cx;
+          // Only a cell it covers to every corner.
+          if (Math.max(xa * xa, xb * xb) * ix2 + dy >= 1) continue;
+          const g = (ty * CULL_X + tx) * CULL_Z;
+          for (let k = zb; k < CULL_Z; k++) grid[g + k] += d;
+        }
+      }
+    }
+    // Back into the batch, in the order they were in.
+    let j = 0;
+    for (let i = 0; i < N; i++) {
+      if (!keep[i]) continue;
+      if (j !== i) {
+        const o = i * 4, q = j * 4;
+        A[q] = S.a[o]; A[q + 1] = S.a[o + 1]; A[q + 2] = S.a[o + 2]; A[q + 3] = S.a[o + 3];
+        T[q] = S.t[o]; T[q + 1] = S.t[o + 1]; T[q + 2] = S.t[o + 2]; T[q + 3] = S.t[o + 3];
+      } else {
+        T[j * 4 + 2] = S.t[i * 4 + 2];
+      }
+      j++;
+    }
+    m.n = kept;
   }
 
   /**
@@ -1343,6 +1558,11 @@ export class Nukes {
     const m = n.mist;
     const age = t - 0.5;
     if (age <= 0) return;
+    // Each part's billows have seeds of their own, the same from one frame to
+    // the next whatever the others are doing: the seed is the lumps on a
+    // billow and whether it is one of those drawn (see putBillow, cullMist),
+    // and counted on from the last part, they all changed every frame the
+    // wall of the shock grew by one.
     let k = 0;
     const land = n.land;
     const life = land ? MUSHROOM_LIFE : NUKE.life;
@@ -1367,6 +1587,7 @@ export class Nukes {
     // The wall of dust or spray racing out with the shock along the ground
     // or the sea: the shock's foot, the thing that shows where it is.
     const front = nukeFront(t, land);
+    k = 90;
     if (t < 14) {
       // A ring, packed close all the way round so it is one wall and not a
       // string of puffs, as tall as the shock is strong where it has got to.
@@ -1393,6 +1614,7 @@ export class Nukes {
     // The base surge: low, rolling out from the foot of the stem and hanging
     // there -- dust over the land, a ring of white mist over the sea, where
     // it comes as the column falls back.
+    k = 330;
     const s = Math.max(0, age - (land ? 0 : 9));
     if (s > 0) {
       const Rb = Math.min(front * 0.8, (land ? 2600 : 3200) * (1 - Math.exp(-s / (land ? 22 : 35))));
