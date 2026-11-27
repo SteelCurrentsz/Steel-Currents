@@ -23904,12 +23904,14 @@ Object.assign(SHIP_CLASSES, {
       range: 3600, dps: 30,
       guns: [
         // Her two eight-barrelled 2-pounders, on platforms either side of her
-        // bridge abreast her fore funnel.
+        // bridge abreast her fore funnel: each looks out over its own beam,
+        // from twenty degrees off her bow round to her quarter, and her
+        // bridge masks it ahead.
         { name: '2-pdr Mk VIII octuple', caliber: 40, role: 'aa', reload: 0.35, range: 3600, piece: 'pom',
           elev: { min: -0.17, max: 1.40 },
           mounts: [
-            { x: 6.335, z: 12.251, angle: 1.57, arc: 2.6, rest: 1.1519, guns: 8, my: 16.34 },
-            { x: -6.337, z: 12.187, angle: -1.57, arc: 2.6, rest: -1.9199, guns: 8, my: 16.3 },
+            { x: 6.335, z: 12.251, angle: 1.75, arc: 1.4, rest: 1.1519, guns: 8, my: 16.34 },
+            { x: -6.337, z: 12.187, angle: -1.75, arc: 1.4, rest: -1.9199, guns: 8, my: 16.3 },
           ] },
       ],
     },
@@ -24008,15 +24010,17 @@ Object.assign(SHIP_CLASSES, {
       guns: [
         // Her six eight-barrelled 2-pounders: a pair abreast her bridge, a
         // pair abreast her fore funnel, and a pair on her after superstructure.
+        // Each looks out over its own beam: her bridge and B turret mask the
+        // forward four ahead, and her after superstructure the after pair.
         { name: '2-pdr Mk VIII octuple', caliber: 40, role: 'aa', reload: 0.35, range: 3600, piece: 'pom',
           elev: { min: -0.17, max: 1.40 },
           mounts: [
-            { x: 7.358, z: 7.849, angle: 1.57, arc: 2.6, rest: -0.2618, guns: 8, my: 14.22 },
-            { x: -7.413, z: 7.849, angle: -1.57, arc: 2.6, rest: -0.2618, guns: 8, my: 15.32 },
-            { x: 7.36, z: 0.004, angle: 1.57, arc: 2.6, rest: -0.2618, guns: 8, my: 17.48 },
-            { x: -7.412, z: 0.003, angle: -1.57, arc: 2.6, rest: -0.2443, guns: 8, my: 17.48 },
-            { x: 2.953, z: -50.539, angle: 2.2, arc: 2.2, rest: 2.81, guns: 8, my: 16.12 },
-            { x: -2.904, z: -50.537, angle: -2.2, arc: 2.2, rest: 2.9147, guns: 8, my: 16.12 },
+            { x: 7.358, z: 7.849, angle: 1.65, arc: 1.3, rest: -0.2618, guns: 8, my: 14.22 },
+            { x: -7.413, z: 7.849, angle: -1.65, arc: 1.3, rest: -0.2618, guns: 8, my: 15.32 },
+            { x: 7.36, z: 0.004, angle: 1.65, arc: 1.3, rest: -0.2618, guns: 8, my: 17.48 },
+            { x: -7.412, z: 0.003, angle: -1.65, arc: 1.3, rest: -0.2443, guns: 8, my: 17.48 },
+            { x: 2.953, z: -50.539, angle: 2.3, arc: 1.5, rest: 2.81, guns: 8, my: 16.12 },
+            { x: -2.904, z: -50.537, angle: -2.3, arc: 1.5, rest: 2.9147, guns: 8, my: 16.12 },
           ] },
       ],
     },
@@ -24187,7 +24191,7 @@ export const HULL_TOUGHNESS = 2.3;
 for (const c of Object.values(SHIP_CLASSES)) if (!c.dive) c.hp = Math.round(c.hp * HULL_TOUGHNESS);
 
 export const SHIP_ORDER = ['fletcher', 'evarts', 'hclass', 'tribal', 'z1', 'z57', 'soldati', 'matsu', 'yukikaze', 'fubuki', 'shimakaze', 'yugumo', 'akizuki', 'guangzhou', 'sovremenny', 'slava', 'burke', 'nakhimov', 'cleveland', 'brooklyn', 'ajax', 'fiji', 'fargo', 'atlanta', 'dido', 'sanmartin', 'county', 'pensacola', 'neworleans', 'wichita', 'indianapolis', 'borgia', 'hipper', 'spee', 'scheer', 'hildebrand', 'beowulf', 'frithjof', 'trento', 'napoli', 'algerie', 'conde', 'kirov', 'chapayev', 'suzuya', 'yodo', 'agano', 'aoba', 'furutaka', 'tenryu', 'yubari', 'kitakami', 'oyodo', 'mogami', 'tone', 'takao', 'maya', 'baltimore', 'alaska', 'puertorico', 'sevastopol', 'stalingrad', 'b65', 'ticonderoga', 'desmoines', 'leviathan', 'u48',
-  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'gato', 'balao', 'kurfurst', 'tosa', 'lorraine', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'lion', 'rodney', 'warspite', 'revenge', 'arkhangelsk', 'vanguard', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'cdg', 'kuznetsov', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
+  'type7c', 'type7c41', 'uclass3', 'surcouf', 'sboat', 'gato', 'balao', 'kurfurst', 'tosa', 'lorraine', 'doria', 'roma', 'morosini', 'dunkerque', 'richelieu', 'scharnhorst', 'hagen', 'bismarck', 'tirpitz', 'soyuz', 'hood', 'renown', 'repulse', 'kgv', 'rodney', 'warspite', 'revenge', 'arkhangelsk', 'lion', 'vanguard', 'tennessee', 'texas', 'newmexico', 'maryland', 'pennsylvania', 'northcarolina', 'massachusetts', 'maine', 'iowa', 'louisiana', 'missouri', 'nimitz', 'ford', 'cdg', 'kuznetsov', 'kongo', 'amagi', 'fuso', 'ise', 'mutsu', 'yamato', 'musashi',
   'grafzeppelin', 'implacable', 'illustrious', 'lexington', 'hornet', 'enterprise', 'essex', 'ranger', 'hosho', 'soryu', 'shokaku', 'akagi', 'taiho', 'shinano', 'agincourt', 'liberty', 'victory', 'higgins', 'lcm'];
 
 /**

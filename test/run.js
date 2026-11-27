@@ -6732,8 +6732,10 @@ check("the Ticonderoga's Phalanx fires on what comes at her", () => {
 check('the CNS Guangzhou is commissioned after the IJN Yukikaze and before the RF Sovremenny, armed as the owner asked', () => {
   const i = SHIP_ORDER.indexOf('guangzhou');
   assert.ok(i >= 0, 'the Guangzhou is not in the yard');
-  // After the Yukikaze and the three Japanese destroyers that follow her.
-  assert.equal(SHIP_ORDER[i - 1], 'yugumo', `before the Guangzhou comes ${SHIP_ORDER[i - 1]}`);
+  // After the Yukikaze, the three Japanese destroyers that follow her, and
+  // the Akizuki, commissioned the summer after the Yugumo.
+  assert.equal(SHIP_ORDER[i - 1], 'akizuki', `before the Guangzhou comes ${SHIP_ORDER[i - 1]}`);
+  assert.equal(SHIP_ORDER[i - 2], 'yugumo', `before the Akizuki comes ${SHIP_ORDER[i - 2]}`);
   assert.equal(SHIP_ORDER[i + 1], 'sovremenny', `after the Guangzhou comes ${SHIP_ORDER[i + 1]}`);
   const cls = SHIP_CLASSES.guangzhou;
   assert.equal(cls.fullName, 'CNS Guangzhou');
