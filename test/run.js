@@ -29444,6 +29444,9 @@ check('a dive bomber rolls over onto her back, pulls through and rolls upright a
     const p = id ? state.planes.find((q) => q.id === id) : state.planes.find((q) => q.role === 'dive' && q.dv === 'roll');
     if (!p) { if (id) break; continue; }
     if (p.dv !== 'roll') { if (id) { path = Math.atan2(p.vy || 0, Math.max(1, p.speed || 0)); break; } continue; }
+    // She starts from the bank she was already drawn at on her run in --
+    // see diveStage -- so a smooth start is one off that, not off level.
+    if (id === null) prev = p.dvB0 || 0;
     id = p.id;
     const bank = p.show || 0;
     const d = bank - prev;

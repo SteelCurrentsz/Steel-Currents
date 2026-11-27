@@ -969,6 +969,11 @@ export class Battle {
     this.planeTurn = new Map();
     // And how far her nose is up, eased the same way. See syncEntities.
     this.planePitch = new Map();
+    // How hard each flight's wing is working, eased (see the pitch below), and
+    // when each one last went over from being drawn off her turn to being
+    // drawn off her real attitude.
+    this.planeLoad = new Map();
+    this.planeFlownAt = new Map();
     // And what each has lost -- a wing panel, a tail -- which stays lost.
     this.planeCut = new Map();
     // How far each flight's bomb bay is open and how far her weapon has
@@ -9991,10 +9996,18 @@ export class Battle {
       const flown = pl.bk !== undefined;
       const want = flown ? pl.bk : clamp(Math.atan2(gs * (pl.b || 0), 9.81), -1.15, 1.15);
       const held = this.planeTurn.get(pl.i);
+      // The moment she goes over from being drawn off her turn to being drawn
+      // off her real attitude -- a dive bomber starting her roll-in -- the
+      // two need not agree, and she snapped from one to the other. Both her
+      // bank and her pitch are eased across the first half second of it.
+      if (flown && !this.planeFlownAt.has(pl.i)) this.planeFlownAt.set(pl.i, this.time);
+      else if (!flown) this.planeFlownAt.delete(pl.i);
+      const since = flown ? this.time - this.planeFlownAt.get(pl.i) : Infinity;
+      const settling = flown && since < 0.6;
       // A pilot's own bank is drawn as it comes: eased, she would never get
       // round a roll before the next one started.
-      const bank = held === undefined || flown ? want
-        : held + (want - held) * (1 - Math.pow(0.02, dt));
+      const bank = held === undefined || (flown && !settling) ? want
+        : held + angleDelta(held, want) * (1 - Math.pow(settling ? 0.002 : 0.02, dt));
       this.planeTurn.set(pl.i, bank);
       // Her attitude, which is not the direction she is travelling.
       //
@@ -10023,8 +10036,14 @@ export class Battle {
         const V = Math.hypot(gs, pl.vy || 0);
         const cb = Math.cos(bank);
         const bend = Math.cos(pl.pt || 0) + (V * (pl.ptr || 0)) / 9.81;
-        load = Math.abs(cb) > 0.3 ? clamp(bend / cb, 0, 6) : 1 / Math.max(0.3, Math.abs(cb));
-      }
+        const raw = Math.abs(cb) > 0.3 ? clamp(bend / cb, 0, 6) : 1 / Math.max(0.3, Math.abs(cb));
+        // Her path's turn rate comes off the wire one snapshot at a time, a
+        // step every fifth of a second, and the angle her nose sits above
+        // her path went with each step: she nodded her way down the dive.
+        const lw = this.planeLoad.get(pl.i);
+        load = lw === undefined ? raw : lw + (raw - lw) * (1 - Math.pow(0.002, dt));
+        this.planeLoad.set(pl.i, load);
+      } else this.planeLoad.delete(pl.i);
       // A helicopter's nose is not on her path: she hangs level in the hover,
       // going straight up or down, and dips it a few degrees going ahead.
       // Flown by a player, she hangs level the same way whenever she is down
@@ -10038,8 +10057,8 @@ export class Battle {
       // wire a tenth of a metre a second at a time, and her nose nodded with
       // every step of it.
       const pitchWas = this.planePitch.get(pl.i);
-      const pitch = pitchWas === undefined || flown ? pitchWant
-        : pitchWas + (pitchWant - pitchWas) * (1 - Math.pow(0.01, dt));
+      const pitch = pitchWas === undefined || (flown && !settling) ? pitchWant
+        : pitchWas + (pitchWant - pitchWas) * (1 - Math.pow(settling ? 0.002 : 0.01, dt));
       this.planePitch.set(pl.i, pitch);
       // The one aeroplane a carrier put in the air is drawn by the deck
       // handover instead -- she is the model that went down the deck -- so her
@@ -10214,6 +10233,8 @@ export class Battle {
         this.planeTrim.delete(id);
         this.planeTurn.delete(id);
         this.planePitch.delete(id);
+        this.planeLoad.delete(id);
+        this.planeFlownAt.delete(id);
         this.planeCut.delete(id);
         this.planeSmoke.delete(id);
       }

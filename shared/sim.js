@@ -13703,7 +13703,7 @@ const RUN_IN_ALT = { torpedo: 42, dive: 1150, fighter: 300, scout: 260, level: 1
  */
 const DIVE_PERCH = 1500;       // the height she pushes over from
 const DIVE_PUSH = 700;         // and the ground range she does it at
-const DIVE_DROP = 450;         // her height when the bomb leaves her
+const DIVE_DROP = 600;         // her height when the bomb leaves her
 const DIVE_AT = 170;           // and the range -- just inside the release
 /**
  * How she gets from the perch into the dive: not by pushing the stick
@@ -13736,7 +13736,7 @@ const DIVE_OUT_AT = 0.2;       // she starts back upright this far short of her 
  * at two hundred and fifty knots and pointing at the sea.
  */
 const DIVE_PULL_IN = 3.4;
-const DIVE_PULL_OUT = 5.2;
+const DIVE_PULL_OUT = 6;
 /** The climb she zooms up at out of the bottom of the dive, and for how long. */
 const DIVE_ZOOM = 0.45;
 const DIVE_ZOOM_FOR = 5;
@@ -13872,7 +13872,12 @@ function diveStage(state, p, dt) {
     p.dv = 'roll';
     p.dvS = 'over';
     p.dvT = 0;
-    p.show = 0;
+    // From the bank she is in already -- coordinated to the turn she is
+    // making, which is how she is drawn up to now -- and not from wings
+    // level: she used to flick level in one frame out of whatever turn she
+    // was in on the run in, and then start over.
+    p.dvB0 = clamp(Math.atan2((p.speed || 0) * (p.turn || 0), G), -1.15, 1.15);
+    p.show = p.dvB0;
     // What she is diving on. Should that change under her -- it sinks, or
     // she is given another -- this dive is over: see below.
     p.dvMark = mark.id;
@@ -13882,6 +13887,8 @@ function diveStage(state, p, dt) {
     p.perch = Math.max((mark.y || 0) + p.dropY + 60, p.y);
     const off = angleDelta(p.heading, headingTo(p.x, p.z, mark.x, mark.z));
     p.dvSide = off >= 0 ? 1 : -1;
+    // Already well over one way, she goes on over that way.
+    if (Math.abs(p.dvB0) > 0.35) p.dvSide = Math.sign(p.dvB0);
   }
   p.brkWant = 1;
   // How steep she wants to be: down her line of sight to the ship, which is
@@ -13898,7 +13905,11 @@ function diveStage(state, p, dt) {
     const ease = (u) => { const c = clamp(u, 0, 1); return c * c * c * (c * (c * 6 - 15) + 10); };
     if (p.dvS !== 'out') {
       // Over onto her back.
-      const bank = DIVE_OVER * ease(p.dvT / DIVE_OVER_TIME);
+      // At her ordinary rate of roll, however far she has to go: from a bank
+      // the other way it is further round, and takes longer.
+      const b0 = (p.dvB0 || 0) * p.dvSide;
+      const overFor = DIVE_OVER_TIME * Math.max(1, (DIVE_OVER - b0) / DIVE_OVER);
+      const bank = b0 + (DIVE_OVER - b0) * ease(p.dvT / overFor);
       p.show = p.dvSide * bank;
       // And down through the horizon, as hard as the wing is pointed at the
       // sea: nothing while it is still on the level side of the vertical,
@@ -13983,7 +13994,27 @@ function diveAirspeed(p, cruise, dt) {
  * which is as low as anybody pulled out of a dive and lived.
  */
 function releaseFor(above) {
-  return clamp(above * 0.42, 120, DIVE_DROP);
+  return clamp(above * 0.5, DIVE_FLOOR, DIVE_DROP);
+}
+
+/** The lowest a dive bomber lets go from: anything less and she meets the sea on the pull-out. */
+const DIVE_FLOOR = 250;
+
+/**
+ * How much height she gives up hauling out of the dive she is in now, with a
+ * margin: the radius of a pull at her pull-out g, at her airspeed, from her
+ * path angle round to the level. A dive that has run down to this lets the
+ * bomb go and pulls, wherever the release height was meant to be -- she used
+ * to hold on to it to a hundred and twenty metres and arrive at the sea still
+ * pointing at it, sliding along the top of the water nose down.
+ */
+function pullOutLoss(p) {
+  const V = Math.max(30, p.as ?? Math.hypot(p.speed || 0, p.vy || 0));
+  const path = Math.atan2(-(p.vy || 0), Math.max(1, p.speed || 0));
+  if (path <= 0) return 0;
+  const R = (V * V) / (G * (DIVE_PULL_OUT - 1));
+  // Plus the second or so it takes for the pull to come on.
+  return R * (1 - Math.cos(path)) + Math.max(0, -(p.vy || 0)) * 0.6 + 60;
 }
 
 /** Her release height on this dive, or a full one when she has not begun it. */
@@ -16879,7 +16910,12 @@ function stepPlanes(state, dt) {
       const air = p.role === 'dive' && (p.dv || p.brkWant || (p.brk ?? 0) > 0)
         ? diveAirspeed(p, cruiseOf(P, p) * wear.speed, dt) : null;
       if (air !== null) p.vy = clamp(p.vy, -0.985 * air, 0.9 * air);
-      p.y = Math.max(p.phase === 'ram' && !p.ramOut ? 4 : 14, p.y + p.vy * dt);
+      const floor = p.phase === 'ram' && !p.ramOut ? 4 : 14;
+      p.y = Math.max(floor, p.y + p.vy * dt);
+      // On the floor she is flying along it, not still going down into it:
+      // left with her sink on her, she was drawn sliding over the water
+      // pointing at it.
+      if (p.y <= floor && p.vy < 0) p.vy = 0;
 
       // And height is speed. Going down she gains it and going up she pays
       // for it, which is why a dive bomber is fast in the dive and a loaded
@@ -17148,12 +17184,15 @@ function stepPlanes(state, dt) {
       const passed = !!best && loaded && p.dv !== 'roll' && p.runOn === best.id
         && p.runMin < (p.torp > 0 ? 700 : 450) && bestD > p.runMin + 180;
       const low = p.role === 'dive' && p.dv === 'dive' && best
-        && (p.y ?? 0) < (best.y || 0) + dropHeight(p, best) + 20 && bestD < DIVE_AT + 260;
+        && (((p.y ?? 0) < (best.y || 0) + dropHeight(p, best) + 20 && bestD < DIVE_AT + 260)
+          // Or she is down to the height her pull-out needs, wherever her
+          // mark is: she lets go and comes out, rather than flying on down.
+          || (p.y ?? 0) - 14 < pullOutLoss(p));
       // And not before she is in her dive. One with the height for one that
       // has not yet rolled in holds on to it -- she is on her way over the top
       // -- and only one too low ever to dive lets go on the level.
       const holding = p.role === 'dive' && (p.dv === 'roll'
-        || (p.dv !== 'dive' && (p.y ?? 0) > (best ? best.y || 0 : 0) + releaseFor(0) + 110));
+        || (p.dv !== 'dive' && (p.y ?? 0) > (best ? best.y || 0 : 0) + 230));
       // In the dive she holds on to it until she is down to her release
       // height, and lets go then -- or over the top of her, whichever is first.
       const go = p.role === 'dive' && p.dv === 'dive' ? (low || bestD < 70) : (bestD < RELEASE || low);
@@ -17165,7 +17204,7 @@ function stepPlanes(state, dt) {
         && Math.abs(wrapAngle(headingTo(p.x, p.z, best.x, best.z) - (p.heading || 0))) < 0.35) {
         fireRockets(state, p, P, best);
         p.dropped = true;
-        if (p.role === 'dive') { p.dv = 'pull'; p.show = undefined; }
+        if (p.role === 'dive') { p.dv = 'pull'; p.show = 0; }
         p.runOn = 0;
         p.phase = 'return';
       } else if (best && !rocketing && ((!holding && go) || passed)) {
