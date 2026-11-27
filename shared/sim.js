@@ -13800,6 +13800,15 @@ const RUN_IN_BY = { torpedo: 1400, dive: 900, fighter: 600, scout: 800, level: 1
  */
 function diveStage(state, p, dt) {
   const V = Math.max(30, p.as ?? Math.hypot(p.speed || 0, p.vy || 0));
+  if (p.dv === 'late') {
+    // The bomb is gone and she is still going down after it, wings level,
+    // brakes out, watching it fall: until she is down to what is left of
+    // the height her pull-out needs, and then she hauls -- too late for
+    // some of them. See DIVE_LATE.
+    p.show = 0;
+    if ((p.y ?? 0) - 14 >= pullOutLoss(p) * (p.dvPress || 1)) return { vy: p.vy || 0, g: 1.6 };
+    p.dv = 'pull';
+  }
   if (p.dv === 'pull' || p.dv === 'zoom') {
     // Out of it: brakes in, as hard as she will stand until the nose is
     // above the horizon -- and then on up, a real zoom climb on the speed
@@ -13816,7 +13825,7 @@ function diveStage(state, p, dt) {
     p.show = was + clamp((p.bank || 0) - was, -2.2 * dt, 2.2 * dt);
     if (p.dv === 'pull') {
       if ((p.vy || 0) > 2) { p.dv = 'zoom'; p.dvT = 0; }
-      return { vy: V * Math.sin(DIVE_ZOOM), g: DIVE_PULL_OUT };
+      return { vy: V * Math.sin(DIVE_ZOOM), g: pullOutG(p) };
     }
     p.dvT = (p.dvT || 0) + dt;
     // Up through her zoom angle and held there while the speed lasts, then
@@ -13825,7 +13834,7 @@ function diveStage(state, p, dt) {
       p.dv = undefined; p.dvS = undefined; p.show = undefined;
       return null;
     }
-    return { vy: V * Math.sin(DIVE_ZOOM), g: p.dvT < 1.5 ? DIVE_PULL_OUT * 0.7 : 1.6 };
+    return { vy: V * Math.sin(DIVE_ZOOM), g: p.dvT < 1.5 ? pullOutG(p) * 0.7 : 1.6 };
   }
   if (p.phase !== 'outbound' || !(p.bomb > 0) || p.dropped) {
     p.dv = undefined; p.show = undefined; p.brkWant = 0;
@@ -13881,6 +13890,15 @@ function diveStage(state, p, dt) {
     // What she is diving on. Should that change under her -- it sinks, or
     // she is given another -- this dive is over: see below.
     p.dvMark = mark.id;
+    // Whether this is the dive she holds on too long. Set now, before she is
+    // in it, so nothing about the dive itself decides it.
+    const turn = p.wear && p.wear.turn !== undefined ? p.wear.turn : 1;
+    // Off dice of her own, so that whether one pilot fixes on his target does
+    // not shift every other roll in the battle after it. `state.diveLate`
+    // overrides the odds: nought is a squadron that never gets it wrong.
+    const late = (state.diveLate ?? DIVE_LATE) + (state.diveLate === 0 ? 0 : 0.15 * clamp(1 - turn, 0, 1));
+    const die = (k) => { const v = Math.sin((p.id || 0) * 12.9898 + state.tick * 78.233 + k * 37.719) * 43758.5453; return v - Math.floor(v); };
+    p.dvPress = die(1) < late ? DIVE_LATE_LEFT[0] + (DIVE_LATE_LEFT[1] - DIVE_LATE_LEFT[0]) * die(2) : 0;
     // Where the bomb leaves her, fixed for this dive at the height she has
     // to start it from.
     p.dropY = releaseFor((p.y ?? 0) - (mark.y || 0));
@@ -14001,6 +14019,30 @@ function releaseFor(above) {
 const DIVE_FLOOR = 250;
 
 /**
+ * And how often she gets it wrong. A pilot with the ship growing in his sight
+ * holds on for one more second to make sure of her, and some of them held on
+ * one second too many: target fixation killed dive bomber crews in every navy
+ * that flew them. A machine that has been shot about is likelier to -- her
+ * pilot is fighting her the whole way down -- and once she is late she pulls
+ * out on what is left of her wing, which is not all of it.
+ */
+const DIVE_LATE = 0.05;
+/**
+ * How much of the height her pull-out needs a late one still has when she
+ * finally hauls, least and most. She lets her bomb go where she meant to and
+ * then follows it down, watching it fall: the top end of this she gets away
+ * with, skimming the water; the bottom she does not, and goes in a couple of
+ * hundred metres past the ship.
+ */
+const DIVE_LATE_LEFT = [0.2, 0.46];
+
+/** What she pulls out at, on the wing she has left. */
+function pullOutG(p) {
+  const turn = p.wear && p.wear.turn !== undefined ? p.wear.turn : 1;
+  return DIVE_PULL_OUT * clamp(turn, 0.45, 1);
+}
+
+/**
  * How much height she gives up hauling out of the dive she is in now, with a
  * margin: the radius of a pull at her pull-out g, at her airspeed, from her
  * path angle round to the level. A dive that has run down to this lets the
@@ -14012,6 +14054,8 @@ function pullOutLoss(p) {
   const V = Math.max(30, p.as ?? Math.hypot(p.speed || 0, p.vy || 0));
   const path = Math.atan2(-(p.vy || 0), Math.max(1, p.speed || 0));
   if (path <= 0) return 0;
+  // On the wing she has left: her pilot has been fighting her all the way
+  // down and knows what she will give him.
   const R = (V * V) / (G * (DIVE_PULL_OUT - 1));
   // Plus the second or so it takes for the pull to come on.
   return R * (1 - Math.cos(path)) + Math.max(0, -(p.vy || 0)) * 0.6 + 60;
@@ -15281,6 +15325,10 @@ function stepRam(state, p) {
       const fs = flightState(p.machines);
       p.wear = fs;
       p.count = fs.count;
+      // The one that went in is gone; the rest of her, a little higher or a
+      // little further out, come through it. Left under the sea she lost one
+      // more every tick until there was nothing of her.
+      if (!solid && p.role === 'dive') { p.y = Math.max(p.y ?? 0, 2); p.vy = Math.max(p.vy || 0, 0); }
     }
     return true;
   }
@@ -16799,7 +16847,7 @@ function stepPlanes(state, dt) {
       // And one hauling herself out of the bottom of a dive pulls straight
       // ahead, more or less, and only rolls into her turn for home once she
       // is climbing.
-      const most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1) * (p.dv === 'pull' ? 0.3 : 1);
+      const most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1) * (p.dv === 'pull' ? 0.3 : p.dv === 'late' ? 0.05 : 1);
       // What she asks for is a rate, and the bank is what it takes to get it.
       //
       // This is the right way round and the other way round does not work. A
@@ -16910,7 +16958,11 @@ function stepPlanes(state, dt) {
       const air = p.role === 'dive' && (p.dv || p.brkWant || (p.brk ?? 0) > 0)
         ? diveAirspeed(p, cruiseOf(P, p) * wear.speed, dt) : null;
       if (air !== null) p.vy = clamp(p.vy, -0.985 * air, 0.9 * air);
-      const floor = p.phase === 'ram' && !p.ramOut ? 4 : 14;
+      // A dive bomber hauling out of her dive with her bomb gone has nothing
+      // under her but the sea: one that leaves it too late goes into it. See
+      // DIVE_LATE, and stepRam for what happens when she does.
+      const floor = p.phase === 'ram' && !p.ramOut ? 4
+        : p.role === 'dive' && p.dropped && (p.dv === 'late' || p.dv === 'pull') ? -1 : 14;
       p.y = Math.max(floor, p.y + p.vy * dt);
       // On the floor she is flying along it, not still going down into it:
       // left with her sink on her, she was drawn sliding over the water
@@ -17216,8 +17268,9 @@ function stepPlanes(state, dt) {
             ft: Math.round(p.fishAt.t * 100) / 100 });
         } else state.events.push({ e: 'airDrop', x: p.x, z: p.z, r: p.role });
         p.dropped = true;
-        // And out of it. See diveStage.
-        if (p.role === 'dive') { p.dv = 'pull'; p.show = 0; }
+        // And out of it -- or, on the dive she holds on too long, on down
+        // after her bomb for a moment yet. See diveStage.
+        if (p.role === 'dive') { p.dv = p.dvPress ? 'late' : 'pull'; p.show = 0; }
         p.runOn = 0;
         // A fighter that has dropped her bombs still has her guns and her
         // missiles, and stays to use them: see the fighter's attack above.

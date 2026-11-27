@@ -18120,6 +18120,45 @@ check('a dive bomber over her target without her full height dives from what she
   assert.ok(drop.y < rolled.y - 120, `she let go at ${drop.y.toFixed(0)} m, not down the dive`);
 });
 
+check('a dive bomber that holds her dive too long goes into the sea, and one that does not comes out', () => {
+  // Target fixation: one more second to make sure of her, and the pull-out
+  // has not the height left in it. She used to be held off the water by a
+  // floor fourteen metres up whatever she did, and slid along it nose down.
+  const run = (left) => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const st = createState(world, { mode: 'deathmatch' });
+    const cv = addShip(st, { name: 'CV', classId: 'enterprise', team: 0, index: 0,
+      airGroup: { fighters: 0, dive: 4, torpedo: 0 } });
+    const foe = addShip(st, { name: 'DD', classId: 'fletcher', team: 1, index: 0 });
+    cv.x = 0; cv.z = -9000; foe.x = 0; foe.z = 0; foe.speed = 0; foe.throttle = 0;
+    cv.aimX = foe.x; cv.aimZ = foe.z;
+    launchStrike(st, cv);
+    for (let i = 0; i < Math.ceil((DECK_RUN + 0.5) / DT) && !st.planes.length; i++) step(st, DT);
+    const p = st.planes.find((q) => q.role === 'dive');
+    p.phase = 'outbound'; p.lead = p.id; p.targetId = foe.id;
+    p.x = 0; p.z = -3000; p.y = 1500; p.vy = 0; p.heading = 0;
+    let rolled = false, crash = null, lowest = Infinity;
+    for (let i = 0; i < 30 * 90 && !p.dead; i++) {
+      for (const q of st.ships) q.spottedBy = [true, true];
+      for (const e of step(st, DT)) if (e.e === 'planeCrash' && e.i === p.id) crash = e;
+      if (p.dv === 'roll' && !rolled) { rolled = true; p.dvPress = left; }
+      if (!p.dead) lowest = Math.min(lowest, p.y);
+      if (p.dropped && !p.dv) break;
+    }
+    assert.ok(rolled, 'she never rolled in');
+    return { p, crash, lowest, foe };
+  };
+  const late = run(0.25);
+  assert.ok(late.p.dead && late.crash, 'one that held on too long came out of it');
+  assert.ok(Math.hypot(late.crash.x - late.foe.x, late.crash.z - late.foe.z) > 60,
+    'she went into the ship, not the sea past her');
+  assert.ok(late.p.dropped, 'she went in with her bomb still on: it goes at the usual height, and only her pull-out is late');
+  const sound = run(0);
+  assert.ok(!sound.p.dead, 'one that pulled out in time was lost');
+  assert.ok(sound.lowest > 250, `one that pulled out in time got down to ${sound.lowest.toFixed(0)} m`);
+});
+
 check('a strike goes straight for a spotted enemy the moment it is off the deck', () => {
   // A deckload goes off one aeroplane at a time, twenty-odd seconds apart. It
   // used to form up over the ship until the last of it was up, which had the
@@ -29325,8 +29364,10 @@ check('her engine is started on the deck: it turns over, coughs, catches, and he
 check('a dive bomber climbs to her perch, rolls over into a steep dive and pulls out', () => {
   // The attack is a shape: up to the perch on the way in, over on her back at
   // the push-over, seventy-odd degrees down to the release, and out of it hard
-  // at the bottom with height in hand, climbing away.
+  // at the bottom with height in hand, climbing away. A pilot who gets it
+  // wrong is a check of his own: this one does not.
   const state = createState(generateWorld(7717, 'open_ocean'), { mode: 'deathmatch' });
+  state.diveLate = 0;
   const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
   const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
   foe.x = ship.x + 9000; foe.z = ship.z + 3000;
@@ -29516,6 +29557,7 @@ check('a dive bomber\'s bomb comes down on the ship, where she will be when it l
   let landed = 0, hits = 0;
   for (const seed of [11, 29, 47, 63]) {
     const state = createState(generateWorld(seed, 'open_ocean'), { mode: 'deathmatch' });
+    state.diveLate = 0;
     const ship = addShip(state, { name: 'Shinano', classId: 'shinano', team: 0, index: 0, airGroup: SMALL_S });
     const foe = addShip(state, { name: 'Target', classId: 'fletcher', team: 1, index: 0 });
     foe.x = ship.x + 9000; foe.z = ship.z + 3000;
@@ -29523,12 +29565,13 @@ check('a dive bomber\'s bomb comes down on the ship, where she will be when it l
     ship.airGroup = { fighters: 0, dive: 4, torpedo: 0 };
     assert.ok(launchStrike(state, ship), 'she would not launch at all');
     const falling = [];
-    let t = 0, way = 0;
+    let t = 0, way = 0, rammed = false;
     for (let i = 0; i < 400 / DT; i++) {
       foe.notch = 4;
       foe.rudderCmd = 0.2;
       for (const s of state.ships) s.spottedBy = [true, true];
       for (const ev of step(state, DT)) {
+        if (ev.e === 'goingIn') rammed = true;
         if (ev.e !== 'bomb') continue;
         const p = state.planes.find((q) => q.id === ev.i);
         const h = p.y - 12, down = Math.max(0, -p.vy);
@@ -29552,7 +29595,9 @@ check('a dive bomber\'s bomb comes down on the ship, where she will be when it l
         }
       }
     }
-    assert.ok(way > 8, 'the target was not under way when the bombs came down');
+    // Unless one of them, shot to pieces, flew into her and stopped her:
+    // which of them is hit is the flak's dice, and not what this is about.
+    assert.ok(way > 8 || rammed, 'the target was not under way when the bombs came down');
   }
   assert.ok(landed >= 4, `only ${landed} bombs came down`);
   assert.ok(hits > 0, 'not one bomb hit her');
