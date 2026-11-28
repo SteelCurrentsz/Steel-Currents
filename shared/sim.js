@@ -15227,10 +15227,16 @@ const ALIGHT_RESERVE = 600;
 export const HOIST_REACH = 45;
 /** The fastest her ship can be going for the crane to take her. */
 export const HOIST_SPEED = 8;
-/** How long the crane takes to hook on and swing her in, seconds. */
 /** How long a seaplane lies settled after she alights before she takes off again, seconds. */
 const SETTLE_DOWN = 6;
+/** How long the crane takes to hook on and swing her in, seconds. */
 export const HOIST_TIME = 20;
+/**
+ * How long she has to lie alongside, inside the crane's reach, before the
+ * crane is swung out to her and the hook goes on: a pass that only brushes
+ * the spot is not a pick-up.
+ */
+export const HOIST_WAIT = 5;
 /** The fastest she taxis on the water without getting up to fly. */
 const TAXI_MAX = 9;
 /** Further than this from the ship she is making for, she flies to her again. */
@@ -15413,29 +15419,35 @@ function stepAfloatPlane(state, p, dt) {
   }
   p.y = 0; p.vy = 0; p.pitch = 0; p.bank = 0; p.roll = 0; p.turn = 0;
   const crane = craneFor(state, p);
-  if (crane && !p.flown) {
-    const side = sideOf(crane, p.x, p.z);
+  // Whether she is lying where the crane can take her this second: inside
+  // its reach off the ship's side, her ship slow enough, the hook free -- and,
+  // under a pilot, stopped. She has to stay there HOIST_WAIT seconds on end
+  // before the crane is swung out to her; drifting out of reach starts the
+  // count again.
+  let side = 0;
+  if (crane && (!p.flown || (p.speed || 0) < 4)) {
+    side = sideOf(crane, p.x, p.z);
     const spot = craneSpot(crane, side);
-    const d = dist(p.x, p.z, spot.x, spot.z);
-    if (d < HOIST_REACH && (crane.speed || 0) <= HOIST_SPEED && !craneBusy(state, crane, p)) {
-      p.hoist = { ship: crane.id, t: 0, side };
-      state.events.push({ e: 'hoisting', i: p.id, ship: crane.id, team: p.team, x: r(p.x), z: r(p.z), tk: state.tick });
-      return;
-    }
-  } else if (crane && p.flown && (p.speed || 0) < 4) {
-    // A pilot who has taxied her in alongside, and stopped: the crane takes
-    // her whoever is flying her.
-    const side = sideOf(crane, p.x, p.z);
-    const spot = craneSpot(crane, side);
-    if (dist(p.x, p.z, spot.x, spot.z) < HOIST_REACH && (crane.speed || 0) <= HOIST_SPEED
-      && !craneBusy(state, crane, p)) {
-      p.hoist = { ship: crane.id, t: 0, side };
-      p.flown = false;
-      p.pilot = 0;
-      state.events.push({ e: 'hoisting', i: p.id, ship: crane.id, team: p.team, x: r(p.x), z: r(p.z), tk: state.tick });
-      return;
-    }
+    if (!(dist(p.x, p.z, spot.x, spot.z) < HOIST_REACH && (crane.speed || 0) <= HOIST_SPEED
+      && !craneBusy(state, crane, p))) side = 0;
   }
+  if (side && p.craneWait && p.craneWait.ship !== crane.id) p.craneWait = null;
+  if (side) {
+    p.craneWait ||= { ship: crane.id, t: 0 };
+    p.craneWait.t += dt;
+    if (p.craneWait.t >= HOIST_WAIT) {
+      p.craneWait = null;
+      p.hoist = { ship: crane.id, t: 0, side };
+      if (p.flown) {
+        // A pilot who has taxied her in alongside, and stopped: the crane
+        // takes her whoever is flying her.
+        p.flown = false;
+        p.pilot = 0;
+      }
+      state.events.push({ e: 'hoisting', i: p.id, ship: crane.id, team: p.team, x: r(p.x), z: r(p.z), tk: state.tick });
+      return;
+    }
+  } else p.craneWait = null;
   if (!p.flown) {
     const s = { v: p.speed || 0, heading: p.heading || 0 };
     let throttle = 0, rudder = 0, off = false;
@@ -15445,6 +15457,11 @@ function stepAfloatPlane(state, p, dt) {
       if (d > TAXI_FAR) {
         // Too far to taxi: up, and over to her, and down again alongside.
         off = true; throttle = 1;
+      } else if (d < HOIST_REACH * 0.6) {
+        // Alongside under the crane: lie there, keeping station on her while
+        // the crane makes ready, rather than running on past the spot.
+        rudder = clamp(angleDelta(s.heading, crane.heading) * 2, -1, 1);
+        throttle = clamp(((crane.speed || 0) - s.v) * 0.25 + ((crane.speed || 0) > 0.5 ? 0.08 : 0), 0, 1);
       } else {
         // In alongside her, matching her way as she gets there.
         const want = headingTo(p.x, p.z, spot.x, spot.z);

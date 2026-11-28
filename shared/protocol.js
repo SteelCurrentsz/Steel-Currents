@@ -6,7 +6,7 @@ import { getClass } from './ships.js';
 import {
   torpedoVisible, SECTIONS, sectionVolume, gunState, sonarContact, dpMounts, lightGunState,
   slotMask, machineSlot, MISSILE_CODE, vlsKinds, samKinds, planeRack, CHAFF_LOAD,
-  canCallEscort, escortStrength, dockState, fieldReport, integrityCategories,
+  canCallEscort, escortStrength, dockState, fieldReport, integrityCategories, HOIST_WAIT,
 } from './sim.js';
 import { PARTS } from './airframe.js';
 import { lampWire } from './searchlights.js';
@@ -650,6 +650,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // Down on the water, and on a crane's hook being swung aboard.
       af: p.afloat ? 1 : undefined,
       hk: p.hoist ? p.hoist.ship : undefined,
+      // Lying alongside under a crane, to her own side: the seconds left
+      // before the crane is swung out to her (see HOIST_WAIT).
+      cw: p.team === team && p.afloat && !p.hoist && p.craneWait ? Math.max(0, Math.ceil(HOIST_WAIT - p.craneWait.t)) : undefined,
       // How she has been knocked about: how many of her machines are trailing
       // smoke, and how much aeroplane the flight has left. A formation coming
       // out of the flak with one of its number burning is the whole of what a

@@ -7629,7 +7629,7 @@ export class Battle {
     // Down on the water, or off it again: the pilot is told what he can do.
     if (!f.heavy && p.afloat !== !!f.wasAfloat) {
       if (p.afloat) {
-        this.hud.alert('Down on the water — taxi alongside a ship with a crane and stop to be hoisted in, or open up and pull back to take off');
+        this.hud.alert('Down on the water — taxi alongside a ship with a crane and stop there for 5 seconds to be hoisted in, or open up and pull back to take off');
         this.hud.ribbon('ON THE WATER — STOP ALONGSIDE A CRANE SHIP');
         this.hud.ribbon('OPEN UP AND PULL BACK TO TAKE OFF', 'miss');
       } else if (f.wasAfloat !== undefined) {
@@ -7637,6 +7637,12 @@ export class Battle {
         this.hud.ribbon('AIRBORNE');
       }
       f.wasAfloat = p.afloat;
+    }
+    // Stopped alongside under a crane: how long until it is swung out to her.
+    const cw = !f.heavy && p.afloat && pl && Number.isFinite(pl.cw) ? pl.cw : null;
+    if (cw !== f.craneWait) {
+      if (cw !== null && cw > 0) this.hud.ribbon(`ALONGSIDE — HOLD HER THERE, CRANE IN ${cw}s`);
+      f.craneWait = cw;
     }
     f.sent -= dt;
     if (f.sent <= 0) {

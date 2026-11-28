@@ -75,7 +75,7 @@ import {
   landingFouled, touchdownOf, GROOVE, LANDING_CUT, torpedoKind, useSmoke, smokeBetween, SMOKE_LIFE,
 } from '../shared/sim.js';
 import { callEscort, canCallEscort, escortStrength } from '../shared/sim.js';
-import { craneSpot, HOIST_TIME, HOIST_SPEED, aloftFoe, shipClass as seaClass } from '../shared/sim.js';
+import { craneSpot, HOIST_TIME, HOIST_SPEED, HOIST_REACH, HOIST_WAIT, aloftFoe, shipClass as seaClass } from '../shared/sim.js';
 import { alightFault, vStallOf, unstickSpeed, SEAPLANES, waterTrim } from '../shared/alight.js';
 import { SEAPLANE_FITS } from '../client/js/render/seaplaneFits.js';
 import { cutModel } from '../client/js/render/seaplaneFit.js';
@@ -34824,6 +34824,28 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     let off = null;
     for (let t = 0; t < 60 && !off; t += DT) { step(state, DT); off = state.planes.find((q) => !q.dead && q.owner === bis.id); }
     assert.ok(off && off.type === 'kingfisher', `what went off the Bismarck was ${off && off.type}, not the Kingfisher she took in`);
+  });
+
+  check('the crane only swings out to a seaplane that has lain alongside it for five seconds on end', () => {
+    // Under a pilot, stopped beside her own ship's crane.
+    const { state, a, p } = seaField();
+    a.notch = 0; a.speed = 0;
+    const spot = craneSpot(a, 1);
+    putDown(state, p, spot.x + 5, spot.z);
+    p.flown = true; p.flownAt = state.t; p.pilot = a.id;
+    let ev = run(state, HOIST_WAIT - 0.5);
+    assert.ok(!ev.some((e) => e.e === 'hoisting'), 'the crane took her before she had lain alongside five seconds');
+    const near = buildSnapshot(state, 0, a.id).planes.find((q) => q.i === p.id);
+    assert.ok(near && near.cw >= 1, 'her pilot is not told how long the crane will be');
+    // Moved out of reach just before it: the count starts again.
+    p.x = spot.x + HOIST_REACH + 30;
+    run(state, 0.5);
+    p.x = spot.x + 5; p.z = spot.z;
+    ev = run(state, HOIST_WAIT - 0.5);
+    assert.ok(!ev.some((e) => e.e === 'hoisting'), 'drifting off and back in did not start the crane\'s count again');
+    ev = run(state, 1.5);
+    const hk = ev.find((e) => e.e === 'hoisting' && e.i === p.id);
+    assert.ok(hk && hk.ship === a.id, 'five seconds alongside and the crane never took her');
   });
 
   check('a crane ship can only hoist at a crane\'s speed, and a crane with nowhere to put her leaves her', () => {
