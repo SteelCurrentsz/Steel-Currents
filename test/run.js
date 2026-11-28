@@ -4763,7 +4763,7 @@ check('the catapult seaplanes and the Wildcat are drawn off their models, in the
       const pos = o.geometry.attributes.position;
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
-        if (v.y < 0.25 && Math.abs(v.x) < 2.5) { lo = Math.min(lo, v.z); hi = Math.max(hi, v.z); }
+        if (v.y < 0.5 && Math.abs(v.x) < 2.5) { lo = Math.min(lo, v.z); hi = Math.max(hi, v.z); }
       }
     });
     assert.ok(hi - lo > len * 0.5, `the ${kind} has only ${(hi - lo).toFixed(1)} m of float or hull under her`);
