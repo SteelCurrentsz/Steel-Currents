@@ -699,7 +699,7 @@ class HudBase {
     if (what) {
       what.textContent = n
         ? `${n} ${noun} picked${nb ? ` (${nb} heavy)` : ''} · ${pick.kind === 'plane' ? 'squadron' : 'fleet'}`
-        : 'Tap your own ships, flights or bombers';
+        : 'Tap ships, flights or bombers, yours or the enemy\'s';
     }
     const form = document.getElementById('group-form');
     const split = document.getElementById('group-split');
@@ -3453,8 +3453,9 @@ class HudBase {
         ctx.restore();
       }
       // Her fleet, beside her, so a captain can see which ships go together.
-      if (s.fg && s.tm === this.team) {
-        ctx.fillStyle = '#6fd3a0';
+      // The enemy's fleets too, in red, once any have been formed.
+      if (s.fg) {
+        ctx.fillStyle = s.tm === this.team ? '#6fd3a0' : '#e0786a';
         ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -3510,8 +3511,8 @@ class HudBase {
       }
       ctx.restore();
       // Her squadron, and where it has been sent.
-      if (pl.wg && pl.tm === this.team) {
-        ctx.fillStyle = '#6fd3a0';
+      if (pl.wg) {
+        ctx.fillStyle = pl.tm === this.team ? '#6fd3a0' : '#e0786a';
         ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -3605,8 +3606,8 @@ class HudBase {
       }
       // Her squadron, where it has been sent, and whether she is picked for
       // one -- the same three marks a carrier flight gets.
-      if (bm.wg && bm.tm === this.team) {
-        ctx.fillStyle = '#6fd3a0';
+      if (bm.wg) {
+        ctx.fillStyle = bm.tm === this.team ? '#6fd3a0' : '#e0786a';
         ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';

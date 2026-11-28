@@ -3599,9 +3599,9 @@ export class Battle {
         this.hud.alert(`${who}: broken in two`);
       } else if (t.kind === 'blast') {
         // The fire got to what was left of her ammunition.
+        this.scene.holdLinks?.(4);
         fx.magazine(wx, 8, wz, t.size || 1);
-        this.scene.magazineBurst(wx, 10, wz, t.size || 1);
-        this.scene.debris.burst(wx, 14, wz, 9 + (t.size || 1) * 8, 1);
+        this.scene.debris.burst(wx, 14, wz, 9 + (t.size || 1) * 8, 1, 0);
         fx.splash(wx, wz, 800);
         // Heard everywhere, like any magazine.
         audio.magazine({ x: wx, y: 8, z: wz });
@@ -4735,9 +4735,9 @@ export class Battle {
           }
           // From big to enormous, by what was in her.
           const size = 0.6 + power * 1.6;
+          this.scene.holdLinks?.(4);
           fx.magazine(wx, 8, wz, size);
-          this.scene.magazineBurst(wx, 10, wz, size);
-          this.scene.debris.burst(wx, 14, wz, 6 + 22 * power, 1 + power * 0.4);
+          this.scene.debris.burst(wx, 14, wz, 6 + 22 * power, 1 + power * 0.4, 0);
           fx.splash(wx, wz, 500 + 700 * power);
           this.shake = Math.max(this.shake, ev.ship === this.shipId ? 1.6 : 0.9);
           // Heard everywhere: the loudest thing in the action carries the
@@ -5579,10 +5579,12 @@ export class Battle {
       const snap = this.snapshots[this.snapshots.length - 1];
       const heavy = this.watching.kind === 'bomber';
       const pl = snap && ((heavy ? snap.bombers : snap.planes) || []).find((q) => q.i === this.watching.id);
-      if (pl && pl.tm === this.team && this.flight?.id !== pl.i) {
+      // The enemy's too, once formed into a squadron off the plot, the way
+      // the enemy's fleets can be steered.
+      if (pl && (pl.tm === this.team || pl.wg) && this.flight?.id !== pl.i) {
         this.net.send({
           t: 'vector', i: pl.i, x: Math.round(at.x), z: Math.round(at.z),
-          k: heavy ? 'bomber' : undefined,
+          k: heavy ? 'bomber' : undefined, tm: pl.tm,
         });
         this.hud.alert(pl.wg ? 'Squadron sent' : 'Flight sent');
         audio.click();
@@ -5630,8 +5632,8 @@ export class Battle {
    */
   pickForGroup(hit) {
     const P = this.groupPick;
-    if (!hit || !['ship', 'plane', 'bomber'].includes(hit.kind) || hit.team !== this.team) {
-      this.hud.alert('Pick your own ships, flights or bombers');
+    if (!hit || !['ship', 'plane', 'bomber'].includes(hit.kind)) {
+      this.hud.alert('Pick ships, flights or bombers');
       return;
     }
     // Both kinds of aircraft go in a squadron.
@@ -5640,11 +5642,18 @@ export class Battle {
       this.hud.alert(P.kind === 'ship' ? 'A fleet is ships only' : 'A squadron is aircraft only');
       return;
     }
+    // Either side's, the enemy's as well as our own -- but one side to a
+    // group: a fleet of ours and theirs together is no fleet at all.
+    if (P.kind && P.team != null && P.team !== hit.team) {
+      this.hud.alert('A fleet or squadron is all one side');
+      return;
+    }
     const list = hit.kind === 'bomber' ? P.bids : P.ids;
     const at = list.indexOf(hit.id);
     if (at >= 0) list.splice(at, 1);
     else if (P.ids.length + P.bids.length < 8) list.push(hit.id);
     P.kind = P.ids.length + P.bids.length ? kind : null;
+    P.team = P.kind ? hit.team : null;
     this.hud.setGrouping(P);
     audio.click();
   }
@@ -5766,7 +5775,10 @@ export class Battle {
   sendGroup(split) {
     const P = this.groupPick;
     if (!P || !P.kind || !(P.ids.length + P.bids.length)) { this.hud.alert('Nothing picked'); return; }
-    this.net.send({ t: 'group', k: P.kind, ids: [...P.ids], bids: [...P.bids], split: split ? 1 : 0 });
+    this.net.send({
+      t: 'group', k: P.kind, ids: [...P.ids], bids: [...P.bids], split: split ? 1 : 0,
+      tm: P.team ?? this.team,
+    });
     this.toggleGrouping(false);
   }
 

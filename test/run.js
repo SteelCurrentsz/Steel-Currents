@@ -30984,6 +30984,36 @@ check('ships formed into a fleet off the plot steam together on a course given t
   room.close();
 });
 
+check('the enemy line can be formed into a fleet off the plot as well, and steams together', () => {
+  const room = new Room({ name: 'Test', mode: 'deathmatch', autoStart: false, seed: 7 });
+  const sent = [];
+  const player = { id: 'p1', name: 'You', send: (m) => sent.push(m) };
+  room.join(player, { name: 'You', classId: 'fletcher', team: 0 });
+  const mine = room.state.ships.find((s) => s.id === player.shipId);
+  const f1 = addShip(room.state, { name: 'F1', classId: 'cleveland', team: 1, index: 0 });
+  const f2 = addShip(room.state, { name: 'F2', classId: 'cleveland', team: 1, index: 1 });
+  f1.x = 0; f1.z = 0; f1.heading = 0;
+  f2.x = 0; f2.z = -1000; f2.heading = 0;
+  mine.x = 3000; mine.z = 0;
+
+  // Their ships with one of ours: one side to a fleet, so only theirs count.
+  room.command(player, { t: 'group', k: 'ship', ids: [f1.id, mine.id], tm: 1 });
+  assert.ok(!f1.fleet && !mine.fleet, 'a fleet was formed across the two sides');
+
+  room.command(player, { t: 'group', k: 'ship', ids: [f1.id, f2.id], tm: 1 });
+  assert.ok(f1.fleet && f1.fleet === f2.fleet, 'the enemy fleet was not formed');
+  assert.ok(sent.at(-1).g > 0, 'the room did not say the fleet was formed');
+
+  room.command(player, { t: 'goto', ship: f1.id, x: 5000, z: 0 });
+  assert.ok(Math.abs(f2.wayX - 4000) < 1 && Math.abs(f2.wayZ) < 1,
+    `F2 was sent to ${f2.wayX}, ${f2.wayZ} rather than astern of F1 on the new course`);
+
+  // And the plot shows which fleet, on our side's chart too.
+  const theirs = buildSnapshot(room.state, 0, mine.id, 0, true).ships.find((s) => s.i === f1.id);
+  if (theirs) assert.equal(theirs.fg, f1.fleet);
+  room.close();
+});
+
 check('the stations of a fleet turn with the course it is given', () => {
   const state = { ships: [], planes: [], world: { half: 20000 } };
   const lead = { id: 1, alive: true, team: 0, x: 0, z: 0, heading: 0 };
@@ -31029,7 +31059,12 @@ check('flights formed into a squadron fly as one, go where they are sent and str
   const snap = buildSnapshot(st, 0, cv.id).planes.find((p) => p.i === lead.id);
   if (snap) assert.equal(snap.wg, gid, 'the snapshot does not say which squadron');
   const theirs = buildSnapshot(st, 1, foe.id).planes.find((p) => p.i === lead.id);
-  if (theirs) assert.equal(theirs.wg, undefined, 'the enemy was told which squadron');
+  // Either side's chart shows the squadron (the enemy's can be formed off
+  // the plot too), but only her own side is told where it was sent.
+  if (theirs) {
+    assert.equal(theirs.wg, gid, 'the other side\'s chart does not show the squadron');
+    assert.equal(theirs.vx, undefined, 'the enemy was told where the squadron was sent');
+  }
 }));
 
 // ---------------------------------------------------------------------------

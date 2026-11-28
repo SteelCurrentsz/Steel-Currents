@@ -612,7 +612,10 @@ export class Room {
       const ids = Array.isArray(msg.ids) ? msg.ids.slice(0, 16) : [];
       // A squadron's heavies, named apart from its carrier flights.
       const bids = Array.isArray(msg.bids) ? msg.bids.slice(0, 16) : [];
-      const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split, bids);
+      // Either side's: the plot is a director's table, and the enemy's line
+      // may be formed into fleets and squadrons as well as his own.
+      const team = (msg.tm === 0 || msg.tm === 1) ? msg.tm : ship.team;
+      const gid = setGroup(this.state, team, msg.k, ids, !!msg.split, bids);
       player.send({ t: 'grouped', k: msg.k, g: gid, split: msg.split ? 1 : 0 });
       return;
     }
@@ -628,7 +631,7 @@ export class Room {
       return;
     }
     if (msg.t === 'vector') {
-      vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z),
+      vectorFlight(this.state, (msg.tm === 0 || msg.tm === 1) ? msg.tm : ship.team, msg.i, Number(msg.x), Number(msg.z),
         msg.k === 'bomber' ? 'bomber' : 'plane');
       return;
     }
@@ -724,7 +727,7 @@ export class Room {
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
         if (!target || !target.alive) break;
         // A ship of a fleet takes the rest of it with her. See fleetCourse.
-        const fleet = target.fleet && target.team === ship.team;
+        const fleet = !!target.fleet;
         // No point given is the order cancelled: she holds what she is on.
         if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) {
           for (const s of fleet ? membersOf(this.state, 'ship', target.fleet) : [target]) {
@@ -758,7 +761,7 @@ export class Room {
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
         if (!target || !target.alive) break;
         // A fleet rings up the same revolutions together.
-        const all = target.fleet && target.team === ship.team
+        const all = target.fleet
           ? membersOf(this.state, 'ship', target.fleet) : [target];
         for (const s of all) {
           applyInput(s, { notch: msg.notch });

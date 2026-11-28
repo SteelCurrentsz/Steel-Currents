@@ -191,11 +191,13 @@ export function shipSnapshot(ship, full, state = null) {
     s.mnl = ship.mnLeft;
     s.mnc = Math.max(0, Math.round((ship.mnCool || 0) * 10) / 10);
   }
+  // The fleet she is in, if any: either side's, since the enemy's line can
+  // be formed into fleets off the plot as well as one's own.
+  if (ship.fleet) s.fg = ship.fleet;
   if (full) {
     s.notch = ship.notch;
-    // The fleet she is in, if any, and how many orders it has given her: a
-    // captain whose helm was put over by an order to his fleet takes it up.
-    if (ship.fleet) s.fg = ship.fleet;
+    // How many orders her fleet has given her: a captain whose helm was put
+    // over by an order to his fleet takes it up.
     if (ship.fleetSeq) s.fq = ship.fleetSeq;
     // Which of her mountings her captain has put on which ship by name.
     if (ship.assign && Object.keys(ship.assign).length) s.as = { ...ship.assign };
@@ -582,9 +584,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
     .map((p) => ({
       i: p.id, x: r1(p.x), z: r1(p.z), h: r3(p.heading), n: p.count, tm: p.team,
       o: p.owner, a: r1(p.life), sl: gaps(p),
-      // The squadron she was formed into off the plot, to her own side only,
-      // and where it has been sent.
-      wg: p.wing && p.team === team ? p.wing : undefined,
+      // The squadron she was formed into off the plot (either side's: the
+      // enemy's can be formed too), and, to her own side, where it was sent.
+      wg: p.wing || undefined,
       vx: p.vec && p.team === team ? Math.round(p.vec.x) : undefined,
       vz: p.vec && p.team === team ? Math.round(p.vec.z) : undefined,
       // What she has been ordered to attack off the plot, to her own side.
@@ -708,7 +710,7 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       // stays off the wire (see above); a player's own order is his to see.
       ot: b.order && b.team === team ? b.order.id : undefined,
       // Which squadron she is in, and where it has been sent, to her own side.
-      wg: b.wing && b.team === team ? b.wing : undefined,
+      wg: b.wing || undefined,
       // Her fighter escort, to her own side: whether she has called for one,
       // how many fighters are with her, and whether her side has a carrier
       // that could send one at all.
