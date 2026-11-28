@@ -15228,6 +15228,8 @@ export const HOIST_REACH = 45;
 /** The fastest her ship can be going for the crane to take her. */
 export const HOIST_SPEED = 8;
 /** How long the crane takes to hook on and swing her in, seconds. */
+/** How long a seaplane lies settled after she alights before she takes off again, seconds. */
+const SETTLE_DOWN = 6;
 export const HOIST_TIME = 20;
 /** The fastest she taxis on the water without getting up to fly. */
 const TAXI_MAX = 9;
@@ -15324,6 +15326,9 @@ export function alightPlane(state, p) {
   p.df = null;
   p.targetAir = 0;
   p.seaOff = false;
+  // How long she has been down: she settles off her landing run before she
+  // is opened up and flown off again, rather than bouncing straight back up.
+  p.afloatFor = 0;
   state.events.push({ e: 'alighted', i: p.id, team: p.team, x: r(p.x), z: r(p.z), k: p.type || undefined });
 }
 
@@ -15451,6 +15456,8 @@ function stepAfloatPlane(state, p, dt) {
       // Nobody left to take her in: off again.
       off = true; throttle = 1;
     }
+    p.afloatFor = (p.afloatFor || 0) + dt;
+    if (off && p.afloatFor < SETTLE_DOWN) { off = false; throttle = 0.15; }
     const up = stepAfloat(p.type, s, { throttle, rudder, off, dt });
     p.speed = s.v;
     p.heading = s.heading;

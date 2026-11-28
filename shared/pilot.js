@@ -14,7 +14,7 @@ import {
   G, rollRate, rollTau, pitchTau, pitchRate, stallSpeed,
   thrust, drag, brakeDrag, clFor, alphaFor, wrapAngle, hovers,
 } from './aero.js';
-import { isSeaplane, alightFault, stepAfloat } from './alight.js';
+import { isSeaplane, alightFault, stepAfloat, waterTrim } from './alight.js';
 
 /** How much livelier a player's aeroplane is than her book figures. */
 export const AGILITY = 2.0;
@@ -237,8 +237,10 @@ export class Pilot {
 
   /** The angle her nose stands off her flight path, toward her lift. */
   attitudeAlpha() {
-    // Sitting on her floats with her tail down a little.
-    if (this.afloat) return 0.04;
+    // On her floats: tail down a little lying still, bows up ploughing over
+    // the hump, nearly level planing on the step, and lifted onto the heels
+    // of her floats as her pilot eases her off (see waterTrim).
+    if (this.afloat) return waterTrim(this.kind, this.v, this.stickPitch / 0.2);
     const g = this.gSeen ?? this.g;
     const a = alphaFor(this.a, this.v, Math.max(0.2, Math.abs(g)));
     // Past the stall the wing has let go, and she stops flying at an angle of
@@ -292,10 +294,15 @@ export class Pilot {
       return;
     }
     if (up) {
-      // Unstuck: off the step and climbing, clear of the water.
+      // Unstuck: off the heels of her floats and climbing. Her path starts
+      // up at the angle she was rotated to less what her wing now holds, so
+      // her nose does not jump as the water lets go of her -- and she is put
+      // a hand clear of the wave tops, which the picture eases her up through
+      // rather than drawing as a step.
+      const trim = waterTrim(this.kind, this.v, 1);
       this.afloat = false;
       this.y = seaAt + 0.6;
-      this.pitch = 0.07;
+      this.pitch = Math.max(0, trim - alphaFor(this.a, this.v, 1));
     }
     this.F = null;
     this.frame();

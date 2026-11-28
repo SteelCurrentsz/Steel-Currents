@@ -17,7 +17,7 @@
 // off by these rules, and the cockpit a player flies one from uses the same
 // ones, so what the pilot sees happen is what the simulation says happened.
 
-import { AERO, stallSpeed, thrust } from './aero.js';
+import { AERO, stallSpeed, thrust, alphaFor } from './aero.js';
 
 /** Every machine in the game built to come down on the water. */
 export const SEAPLANES = new Set(['arado', 'kingfisher', 'besson', 'loire', 'walrus', 'kor1', 'ro43', 'jake']);
@@ -66,6 +66,48 @@ export function alightFault(type, { v, vy, pitch = 0, bank = 0 }) {
 export function unstickSpeed(type) { return vStallOf(type) * 1.15; }
 
 /**
+ * How her nose sits on the water, radians up, at speed `v`.
+ *
+ * Lying still she sits a little tail-down on her floats. Opened up, she
+ * ploughs: her bows climb as she pushes her own bow wave up to the hump,
+ * nose well up and her tail dragging; over it she gets up on the step and
+ * planes, and her nose comes down to nearly level; and at the last
+ * -- her pilot easing the stick back, `rotating` as a share of the pull that
+ * flies her off -- she is lifted onto the after end of her floats, nose up
+ * at the angle she will fly away at, and off. Shared, so
+ * a seaplane drawn running across the water off the simulation and one flown
+ * off it by a player sit at the same angles at the same speeds.
+ */
+export function waterTrim(type, v, rotating = 1) {
+  const x = Math.max(0, v || 0) / unstickSpeed(type);
+  if (x <= HUMP) return 0.035 + 0.075 * Math.sin((x / HUMP) * Math.PI / 2);
+  if (x <= 0.75) return 0.11 - 0.065 * smooth((x - HUMP) / (0.75 - HUMP));
+  // How far back her pilot has the stick, as a share of what lifts her off.
+  const r = rotating === true ? 1 : rotating === false ? 0 : Math.max(0, Math.min(1, rotating));
+  const top = 0.065 + (liftOff(type) - 0.065) * r;
+  return 0.045 + (top - 0.045) * smooth((x - 0.75) / 0.25);
+}
+
+/**
+ * The angle she is lifted to as she comes off: what her wing works at to hold
+ * her up at the speed she unsticks at, so the nose she flies away with is
+ * the nose she had on the water.
+ */
+const LIFT_OFF = {};
+function liftOff(type) {
+  if (LIFT_OFF[type] === undefined) {
+    const a = AERO[type];
+    LIFT_OFF[type] = a ? Math.max(0.1, alphaFor(a, unstickSpeed(type), 1)) : 0.15;
+  }
+  return LIFT_OFF[type];
+}
+
+function smooth(u) {
+  const c = Math.max(0, Math.min(1, u));
+  return c * c * (3 - 2 * c);
+}
+
+/**
  * The water's hold on her, as a share of what her engine gives standing
  * still: her floats plough harder and harder up to the hump, a little under
  * half her flying speed, and then she gets up on the step and planes, and the
@@ -85,6 +127,9 @@ function waterHold(x) {
 /** The slowest she will drift with the engine off before she lies still. */
 const DRIFT = 0.2;
 
+/** How hard she slows coming down off the step, metres a second squared. */
+const SETTLE = 3.5;
+
 /** The hardest her water rudder will turn her, radians a second. */
 const RUDDER = 0.4;
 
@@ -98,7 +143,11 @@ export function stepAfloat(type, s, { throttle = 0, rudder = 0, off = false, dt 
   const a = AERO[type] || AERO.kingfisher;
   const v = Math.max(0, s.v || 0);
   const push = thrust(a, v, Math.max(0, Math.min(1, throttle))) / a.mass;
-  const hold = (thrust(a, 0, 1) / a.mass) * waterHold(v / unstickSpeed(type)) + (v > DRIFT ? 0.05 : 0);
+  let hold = (thrust(a, 0, 1) / a.mass) * waterHold(v / unstickSpeed(type)) + (v > DRIFT ? 0.05 : 0);
+  // Just put down with her throttle back: she comes down off the step as
+  // her wing lets go of her and digs her floats in, and runs off her landing
+  // speed in a few lengths. Opened up, she stays on the step and goes.
+  if (!off && throttle < 0.5 && v > unstickSpeed(type) * 0.7) hold += SETTLE;
   s.v = Math.max(0, v + (push - hold) * dt);
   if (s.v < DRIFT && throttle < 0.02) s.v = 0;
   // She turns on her water rudder and the slipstream over her own rudder:
