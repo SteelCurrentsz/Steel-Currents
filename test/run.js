@@ -34369,6 +34369,20 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.ok(!p.dead && !p.afloat && p.y > 25, `she is at ${p.y.toFixed(0)} m, not climbing away`);
   });
 
+  check('a seaplane put down at her landing speed settles before she is flown off again, and then makes a run', () => {
+    const { state, a, p } = seaField();
+    a.alive = false;
+    // Down at her landing speed, as she comes off a real alighting.
+    putDown(state, p, 2000, 2000);
+    p.afloatFor = 0;
+    p.speed = unstickSpeed(p.type) * 1.1;
+    let t = 0, slowest = Infinity;
+    for (; t < 90 && p.afloat; t += DT) { step(state, DT); if (p.afloat) slowest = Math.min(slowest, p.speed); }
+    assert.ok(!p.afloat, 'she never got off');
+    assert.ok(t > 8, `she was off again ${t.toFixed(1)} s after she touched`);
+    assert.ok(slowest < unstickSpeed(p.type) * 0.72, `she never came down off the step (slowest ${slowest.toFixed(1)} m/s)`);
+  });
+
   check('a crane ship\'s captain eases down to take his scouts in, and sends them out again', () => {
     const world = generateWorld(4242, 'open_ocean');
     world.islands = [];

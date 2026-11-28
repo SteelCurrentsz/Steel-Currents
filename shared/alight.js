@@ -127,6 +127,9 @@ function waterHold(x) {
 /** The slowest she will drift with the engine off before she lies still. */
 const DRIFT = 0.2;
 
+/** How hard she slows coming down off the step, metres a second squared. */
+const SETTLE = 3.5;
+
 /** The hardest her water rudder will turn her, radians a second. */
 const RUDDER = 0.4;
 
@@ -140,7 +143,11 @@ export function stepAfloat(type, s, { throttle = 0, rudder = 0, off = false, dt 
   const a = AERO[type] || AERO.kingfisher;
   const v = Math.max(0, s.v || 0);
   const push = thrust(a, v, Math.max(0, Math.min(1, throttle))) / a.mass;
-  const hold = (thrust(a, 0, 1) / a.mass) * waterHold(v / unstickSpeed(type)) + (v > DRIFT ? 0.05 : 0);
+  let hold = (thrust(a, 0, 1) / a.mass) * waterHold(v / unstickSpeed(type)) + (v > DRIFT ? 0.05 : 0);
+  // Just put down with her throttle back: she comes down off the step as
+  // her wing lets go of her and digs her floats in, and runs off her landing
+  // speed in a few lengths. Opened up, she stays on the step and goes.
+  if (!off && throttle < 0.5 && v > unstickSpeed(type) * 0.7) hold += SETTLE;
   s.v = Math.max(0, v + (push - hold) * dt);
   if (s.v < DRIFT && throttle < 0.02) s.v = 0;
   // She turns on her water rudder and the slipstream over her own rudder:
