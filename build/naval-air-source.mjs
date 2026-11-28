@@ -60,6 +60,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { packPieceCompact } from './sculpt.mjs';
+import { MESHY_KINDS } from './meshy-air-kinds.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(process.env.SCULPT_TOOLS ? path.join(process.env.SCULPT_TOOLS, 'index.js') : import.meta.url);
@@ -619,6 +620,7 @@ const KINDS = {
     spins: [{ name: 'prop', hub: [0, -0.015, 0.63], axis: 'z' }],
   },
 };
+Object.assign(KINDS, MESHY_KINDS);
 const KIND = process.argv[2];
 const K = KINDS[KIND];
 if (!K) throw new Error(`which aircraft? ${Object.keys(KINDS).join(', ')}`);
@@ -725,6 +727,9 @@ function flatten(buf) {
   return { P, UV, T, M, L, NY, j, views };
 }
 const model = flatten(readFileSync(SRC));
+// `rework`: the model's own faces changed before anything else reads them --
+// a float cut away and others put in its place (see meshy-air-kinds.mjs).
+if (K.rework) K.rework(model);
 const { j, P, UV } = model;
 // A model drawn nose along +x is turned to put it along +z, about her
 // vertical, and stays a right-handed aeroplane.
@@ -903,7 +908,9 @@ const [llo, lhi] = K.lengthOf ? box((t) => PIECE[t] === K.lengthOf) : [alo, ahi]
 const S = K.span ? K.span / (ahi[0] - alo[0]) : K.length / (lhi[2] - llo[2]);
 // Centred on her length and across her; her wheels (her lowest point) on y = 0.
 const ORIGIN = [(alo[0] + ahi[0]) / 2, alo[1], (llo[2] + lhi[2]) / 2];
-const toHer = (x, y, z) => [(x - ORIGIN[0]) * S, (y - ORIGIN[1]) * S, (z - ORIGIN[2]) * S];
+// `spanTo`: put to her real span as well as her real length, across her only.
+const SX = K.spanTo ? K.spanTo / (ahi[0] - alo[0]) : S;
+const toHer = (x, y, z, sx = SX) => [(x - ORIGIN[0]) * sx, (y - ORIGIN[1]) * S, (z - ORIGIN[2]) * S];
 console.log(`${KIND}: ${nt} faces, x${S.toFixed(5)}, ${((ahi[0] - alo[0]) * S).toFixed(2)} m across, ${((ahi[1] - alo[1]) * S).toFixed(2)} m high`);
 
 // ---- her paint ------------------------------------------------------------
@@ -986,7 +993,9 @@ async function piece(which, keep, about = [0, 0, 0]) {
       const v = model.T[t * 3 + k];
       const uv = !tx ? null : ATLAS ? ATLAS.uvOf(t, v) : [UV[v * 2], UV[v * 2 + 1]];
       const c = await colourOf(v, model.M[t], t);
-      const p = toHer(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+      // What turns keeps its own proportions: a disc squeezed across her
+      // would breathe as it went round.
+      const p = toHer(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], which.startsWith('spin') ? S : SX);
       // A repainted model keeps its upper and lower skins' points apart where
       // they meet, so the two colours are not run together along the edge.
       const id = p.map((x) => Math.round(x * 1e4)).join(',') + (K.recolour ? (model.NY[v] > 0 ? '+' : '-') : '')

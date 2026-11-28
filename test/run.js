@@ -309,6 +309,7 @@ import * as AKAGI_SHIP from '../client/js/render/akagi.js';
 import * as TAIHO_SHIP from '../client/js/render/taiho.js';
 import * as ILLUSTRIOUS_SHIP from '../client/js/render/illustrious.js';
 import { b4y as planekitB4y } from '../client/js/render/planekit.js';
+import { NAVAL_AIR } from '../client/js/render/navalAirModel.js';
 import { val as planekitVal } from '../client/js/render/planekit.js';
 import {
   buildHornet, stepLifts as hornetLifts, FD_FWD as HN_FD_FWD, FD_AFT as HN_FD_AFT, LIFTS as HN_LIFTS,
@@ -336,8 +337,15 @@ import {
   flightState, partHit,
 } from '../shared/airframe.js';
 import {
-  arado, kingfisher, walrus, kor1, ro43, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
-  b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
+  // The sculpts the catapult seaplanes and the Wildcat were drawn as, which
+  // the damage board still reads her parts off: what is built piece by piece
+  // is checked piece by piece below. The models she is drawn as now are
+  // checked on their own (see 'the catapult seaplanes and the Wildcat').
+  aradoKit as arado, kingfisherKit as kingfisher, walrusKit as walrus, kor1Kit as kor1, ro43Kit as ro43,
+  wildcatKit as pkWildcat, zero as pkZero, suisei as pkSuisei,
+  b5n as pkB5n, jakeKit as pkJake, dauntless as pkDauntless,
+  wildcat as mWildcat, arado as mArado, kingfisher as mKingfisher, besson as mBesson, loire as mLoire,
+  walrus as mWalrus, kor1 as mKor1, ro43 as mRo43, jake as mJake,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
   bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d, hellcat as pkHellcat, sbd as pkSbd, tbf as pkTbf,
 } from '../client/js/render/planekit.js';
@@ -3567,7 +3575,7 @@ check('the Fuso trains her catapults out over her quarters and shoots on the sim
       `a girder stowed reaches ${Math.abs(end[0]).toFixed(1)} m out, over her side at ${fusoHalfBeam(end[1]).toFixed(1)}`);
   }
   assert.ok(cats[0].group.position.x < 0 && cats[1].group.position.x > 0, 'her starboard catapult is not the first');
-  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane));
+  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane, true));
   assert.ok(!boxes[0].intersectsBox(boxes[1]), 'her two Jakes stand in each other');
   const shots = [];
   for (let n = 0; n < 2; n++) {
@@ -4703,6 +4711,62 @@ check('nothing struck below in the Sōryū or the Akagi stands up through her fl
       }
     });
     assert.equal(through, 0, `${through} points of the ${id}'s insides stand up through her flight deck`);
+  }
+});
+
+check('the catapult seaplanes and the Wildcat are drawn off their models, in their own paint, at their own size', () => {
+  // Made with Meshy for the game and painted in build/meshy-air-kinds.mjs:
+  // each her own texture, put to her real span and length, her airscrew
+  // turning about her hub, and on what she floats on.
+  const KINDS = {
+    wildcat: [mWildcat, 11.58, 8.76], arado: [mArado, 12.44, 11.0], kingfisher: [mKingfisher, 10.95, 10.31],
+    besson: [mBesson, 12.19, 8.37], loire: [mLoire, 16.0, 11.3], walrus: [mWalrus, 14.0, 11.45],
+    kor1: [mKor1, 11.0, 8.67], ro43: [mRo43, 11.57, 9.71], jake: [mJake, 14.5, 10.0],
+  };
+  for (const [kind, [build, span, len]] of Object.entries(KINDS)) {
+    const src = readFileSync(new URL(`../client/js/render/${kind}Model.data.js`, import.meta.url), 'utf8');
+    assert.ok(src.includes(`${kind.toUpperCase()}_TEXTURE = "data:image/jpeg;base64,`), `the ${kind} has no paint`);
+    assert.ok(/"bodyUV":"u16:/.test(src), `the ${kind}'s airframe has no place on her texture`);
+    const g = new THREE.Group();
+    const p = ['wildcat', 'arado', 'jake'].includes(kind) ? build(g, 0, 0, 0, 0, false, {}) : build(g, 0, 0, 0, 0, {});
+    g.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(g, true);
+    assert.ok(Math.abs((b.max.x - b.min.x) - span) < 0.3, `the ${kind} spans ${(b.max.x - b.min.x).toFixed(2)} m, not ${span}`);
+    assert.ok(Math.abs((b.max.z - b.min.z) - len) < 0.6, `the ${kind} is ${(b.max.z - b.min.z).toFixed(2)} m long, not ${len}`);
+    assert.ok(Math.abs(b.min.y) < 0.05, `the ${kind} stands ${b.min.y.toFixed(2)} m off what she stands on`);
+    // Her airscrew, turning about her hub and no bigger than an airscrew is.
+    assert.ok(p.userData.prop, `the ${kind} has no airscrew`);
+    const r = NAVAL_AIR[kind].spins[0].r;
+    assert.ok(r > 0.8 && r < 2.0, `the ${kind}'s airscrew is ${r} m from hub to tip`);
+    const before = p.userData.prop.rotation.z;
+    p.userData.turn(0.5);
+    assert.ok(p.userData.prop.rotation.z !== before, `the ${kind}'s airscrew does not turn`);
+  }
+  // The Wildcat's legs fold up into her and are gone once they are.
+  const g = new THREE.Group();
+  const w = mWildcat(g, 0, 0, 0, 0, false, {});
+  const legs = w.userData.parts.find((q) => q.gear);
+  assert.ok(legs, 'the Wildcat has no legs to raise');
+  w.userData.gear(1);
+  assert.ok(!legs.node.visible, 'the Wildcat flies with her wheels down');
+  // And every seaplane has something long and low under her: her floats, or
+  // the hull she is.
+  for (const kind of ['arado', 'kingfisher', 'besson', 'loire', 'walrus', 'kor1', 'ro43', 'jake']) {
+    const [build, , len] = KINDS[kind];
+    const h = new THREE.Group();
+    ['arado', 'jake'].includes(kind) ? build(h, 0, 0, 0, 0, false, {}) : build(h, 0, 0, 0, 0, {});
+    h.updateMatrixWorld(true);
+    let lo = Infinity, hi = -Infinity;
+    const v = new THREE.Vector3();
+    h.traverse((o) => {
+      if (!o.isMesh) return;
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        if (v.y < 0.25 && Math.abs(v.x) < 2.5) { lo = Math.min(lo, v.z); hi = Math.max(hi, v.z); }
+      }
+    });
+    assert.ok(hi - lo > len * 0.5, `the ${kind} has only ${(hi - lo).toFixed(1)} m of float or hull under her`);
   }
 });
 
@@ -8341,7 +8405,7 @@ check("the King George V throws a Walrus off either beam from her cross-deck cat
   // and nothing of the Walrus the sculpt sat on the girder is left standing
   // in them.
   g.updateMatrixWorld(true);
-  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane));
+  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane, true));
   assert.ok(!boxes[0].intersectsBox(boxes[1]), 'her two Walruses stand in each other');
   for (const x of [-4, -2, 2, 4]) {
     for (const z of [KGV_CAT_Z - 5, KGV_CAT_Z + 5]) {
@@ -9128,7 +9192,7 @@ function bismarckThrowsArados(id) {
   }
   // The two Arados tail to tail, clear of each other over her centreline.
   g.updateMatrixWorld(true);
-  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane));
+  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane, true));
   assert.ok(!boxes[0].intersectsBox(boxes[1]), 'her two Arados stand in each other');
   const shots = [];
   for (let n = 0; n < 2; n++) {
@@ -13800,7 +13864,10 @@ check('the Iowa and the aeroplane on her catapult are drawn to one scale', () =>
       + 'not the 10.9 m an OS2U does');
   }
   // And she is in proportion to the ship: about a quarter of her beam.
-  const box = new THREE.Box3().setFromObject(cats[0].plane);
+  // Measured off her points, not off her pieces' boxes turned with her: she
+  // is one piece, and a box turned with the catapult is a box far bigger
+  // than she is.
+  const box = new THREE.Box3().setFromObject(cats[0].plane, true);
   const across = (box.max.x - box.min.x) / IOWA_BEAM;
   assert.ok(across > 0.15 && across < 0.35,
     `the scout is ${(across * 100).toFixed(0)}% of her beam across`);

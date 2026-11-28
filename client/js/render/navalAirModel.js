@@ -44,6 +44,18 @@ const SOURCES = {
   tenzan: () => import('./tenzanModel.data.js').then((m) => [m.TENZAN_PIECES, m.TENZAN_META, m.TENZAN_TEXTURE]),
   // And the Illustrious's Corsair, in the texture her paint is drawn on.
   corsair: () => import('./corsairModel.data.js').then((m) => [m.CORSAIR_PIECES, m.CORSAIR_META, m.CORSAIR_TEXTURE]),
+  // And the catapult seaplanes and the Wildcat, off the models made with
+  // Meshy for the game, each in the texture her paint is drawn on (see
+  // build/meshy-air-kinds.mjs).
+  wildcat: () => import('./wildcatModel.data.js').then((m) => [m.WILDCAT_PIECES, m.WILDCAT_META, m.WILDCAT_TEXTURE]),
+  arado: () => import('./aradoModel.data.js').then((m) => [m.ARADO_PIECES, m.ARADO_META, m.ARADO_TEXTURE]),
+  kingfisher: () => import('./kingfisherModel.data.js').then((m) => [m.KINGFISHER_PIECES, m.KINGFISHER_META, m.KINGFISHER_TEXTURE]),
+  besson: () => import('./bessonModel.data.js').then((m) => [m.BESSON_PIECES, m.BESSON_META, m.BESSON_TEXTURE]),
+  loire: () => import('./loireModel.data.js').then((m) => [m.LOIRE_PIECES, m.LOIRE_META, m.LOIRE_TEXTURE]),
+  walrus: () => import('./walrusModel.data.js').then((m) => [m.WALRUS_PIECES, m.WALRUS_META, m.WALRUS_TEXTURE]),
+  kor1: () => import('./kor1Model.data.js').then((m) => [m.KOR1_PIECES, m.KOR1_META, m.KOR1_TEXTURE]),
+  ro43: () => import('./ro43Model.data.js').then((m) => [m.RO43_PIECES, m.RO43_META, m.RO43_TEXTURE]),
+  jake: () => import('./jakeModel.data.js').then((m) => [m.JAKE_PIECES, m.JAKE_META, m.JAKE_TEXTURE]),
 };
 const PIECES = {};
 /**
@@ -148,7 +160,7 @@ function texturedMaterials(kind) {
 const RATE = { dome: 0.012, rotor: 0.22, tail: 1.1, lower: -0.22, prop: 1 };
 
 /** How far each kind's legs rise into her as they come up. */
-const GEAR_UP = { f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2, tenzan: 1.3, corsair: 1.2, rafale: 1.3, nh90: 0.6 };
+const GEAR_UP = { wildcat: 1.1, f18: 1.2, e2d: 1.4, seafire: 1.3, firefly: 1.45, f35: 1.2, tenzan: 1.3, corsair: 1.2, rafale: 1.3, nh90: 0.6 };
 // (The A5M's and the B4Y's legs are fixed, in their spats: they have no `gear`.)
 
 /**
