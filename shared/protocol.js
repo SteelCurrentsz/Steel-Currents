@@ -645,6 +645,9 @@ export function buildSnapshot(state, team, viewerShipId, watchId = 0, all = fals
       cf: p.team === team && CHAFF_LOAD[p.type] ? (p.chaff ?? CHAFF_LOAD[p.type]) : undefined,
       // Her wheels down and her hook out: in the groove coming in to land.
       gd: p.land && (p.land.leg === 'final' || p.land.leg === 'base') ? 1 : undefined,
+      // Down on the water, and on a crane's hook being swung aboard.
+      af: p.afloat ? 1 : undefined,
+      hk: p.hoist ? p.hoist.ship : undefined,
       // How she has been knocked about: how many of her machines are trailing
       // smoke, and how much aeroplane the flight has left. A formation coming
       // out of the flak with one of its number burning is the whole of what a

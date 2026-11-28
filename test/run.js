@@ -75,6 +75,9 @@ import {
   landingFouled, touchdownOf, GROOVE, LANDING_CUT, torpedoKind, useSmoke, smokeBetween, SMOKE_LIFE,
 } from '../shared/sim.js';
 import { callEscort, canCallEscort, escortStrength } from '../shared/sim.js';
+import { craneSpot, HOIST_TIME, HOIST_SPEED, aloftFoe, shipClass as seaClass } from '../shared/sim.js';
+import { alightFault, vStallOf, unstickSpeed, SEAPLANES } from '../shared/alight.js';
+import { Pilot as SeaPilot, instruct as seaInstruct } from '../shared/pilot.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
   Pilot, AERO, HEAVY_AERO, alphaFor, flightAttitude, weathercock,
@@ -310,6 +313,7 @@ import * as AKAGI_SHIP from '../client/js/render/akagi.js';
 import * as TAIHO_SHIP from '../client/js/render/taiho.js';
 import * as ILLUSTRIOUS_SHIP from '../client/js/render/illustrious.js';
 import { b4y as planekitB4y } from '../client/js/render/planekit.js';
+import { NAVAL_AIR } from '../client/js/render/navalAirModel.js';
 import { val as planekitVal } from '../client/js/render/planekit.js';
 import {
   buildHornet, stepLifts as hornetLifts, FD_FWD as HN_FD_FWD, FD_AFT as HN_FD_AFT, LIFTS as HN_LIFTS,
@@ -337,8 +341,15 @@ import {
   flightState, partHit,
 } from '../shared/airframe.js';
 import {
-  arado, kingfisher, walrus, kor1, ro43, wildcat as pkWildcat, zero as pkZero, suisei as pkSuisei,
-  b5n as pkB5n, jake as pkJake, dauntless as pkDauntless,
+  // The sculpts the catapult seaplanes and the Wildcat were drawn as, which
+  // the damage board still reads her parts off: what is built piece by piece
+  // is checked piece by piece below. The models she is drawn as now are
+  // checked on their own (see 'the catapult seaplanes and the Wildcat').
+  aradoKit as arado, kingfisherKit as kingfisher, walrusKit as walrus, kor1Kit as kor1, ro43Kit as ro43,
+  wildcatKit as pkWildcat, zero as pkZero, suisei as pkSuisei,
+  b5n as pkB5n, jakeKit as pkJake, dauntless as pkDauntless,
+  wildcat as mWildcat, arado as mArado, kingfisher as mKingfisher, besson as mBesson, loire as mLoire,
+  walrus as mWalrus, kor1 as mKor1, ro43 as mRo43, jake as mJake,
   avenger as pkAvenger, heavyBomber, HEAVY, HEAVY_KINDS, layTurret,
   bf109 as pkBf109, ju87c as pkJu87c, ju87d as pkJu87d, hellcat as pkHellcat, sbd as pkSbd, tbf as pkTbf,
 } from '../client/js/render/planekit.js';
@@ -3568,7 +3579,7 @@ check('the Fuso trains her catapults out over her quarters and shoots on the sim
       `a girder stowed reaches ${Math.abs(end[0]).toFixed(1)} m out, over her side at ${fusoHalfBeam(end[1]).toFixed(1)}`);
   }
   assert.ok(cats[0].group.position.x < 0 && cats[1].group.position.x > 0, 'her starboard catapult is not the first');
-  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane));
+  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane, true));
   assert.ok(!boxes[0].intersectsBox(boxes[1]), 'her two Jakes stand in each other');
   const shots = [];
   for (let n = 0; n < 2; n++) {
@@ -4704,6 +4715,62 @@ check('nothing struck below in the Sōryū or the Akagi stands up through her fl
       }
     });
     assert.equal(through, 0, `${through} points of the ${id}'s insides stand up through her flight deck`);
+  }
+});
+
+check('the catapult seaplanes and the Wildcat are drawn off their models, in their own paint, at their own size', () => {
+  // Made with Meshy for the game and painted in build/meshy-air-kinds.mjs:
+  // each her own texture, put to her real span and length, her airscrew
+  // turning about her hub, and on what she floats on.
+  const KINDS = {
+    wildcat: [mWildcat, 11.58, 8.76], arado: [mArado, 12.44, 11.0], kingfisher: [mKingfisher, 10.95, 10.31],
+    besson: [mBesson, 12.19, 8.37], loire: [mLoire, 16.0, 11.3], walrus: [mWalrus, 14.0, 11.45],
+    kor1: [mKor1, 11.0, 8.67], ro43: [mRo43, 11.57, 9.71], jake: [mJake, 14.5, 10.0],
+  };
+  for (const [kind, [build, span, len]] of Object.entries(KINDS)) {
+    const src = readFileSync(new URL(`../client/js/render/${kind}Model.data.js`, import.meta.url), 'utf8');
+    assert.ok(src.includes(`${kind.toUpperCase()}_TEXTURE = "data:image/jpeg;base64,`), `the ${kind} has no paint`);
+    assert.ok(/"bodyUV":"u16:/.test(src), `the ${kind}'s airframe has no place on her texture`);
+    const g = new THREE.Group();
+    const p = ['wildcat', 'arado', 'jake'].includes(kind) ? build(g, 0, 0, 0, 0, false, {}) : build(g, 0, 0, 0, 0, {});
+    g.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(g, true);
+    assert.ok(Math.abs((b.max.x - b.min.x) - span) < 0.3, `the ${kind} spans ${(b.max.x - b.min.x).toFixed(2)} m, not ${span}`);
+    assert.ok(Math.abs((b.max.z - b.min.z) - len) < 0.6, `the ${kind} is ${(b.max.z - b.min.z).toFixed(2)} m long, not ${len}`);
+    assert.ok(Math.abs(b.min.y) < 0.05, `the ${kind} stands ${b.min.y.toFixed(2)} m off what she stands on`);
+    // Her airscrew, turning about her hub and no bigger than an airscrew is.
+    assert.ok(p.userData.prop, `the ${kind} has no airscrew`);
+    const r = NAVAL_AIR[kind].spins[0].r;
+    assert.ok(r > 0.8 && r < 2.0, `the ${kind}'s airscrew is ${r} m from hub to tip`);
+    const before = p.userData.prop.rotation.z;
+    p.userData.turn(0.5);
+    assert.ok(p.userData.prop.rotation.z !== before, `the ${kind}'s airscrew does not turn`);
+  }
+  // The Wildcat's legs fold up into her and are gone once they are.
+  const g = new THREE.Group();
+  const w = mWildcat(g, 0, 0, 0, 0, false, {});
+  const legs = w.userData.parts.find((q) => q.gear);
+  assert.ok(legs, 'the Wildcat has no legs to raise');
+  w.userData.gear(1);
+  assert.ok(!legs.node.visible, 'the Wildcat flies with her wheels down');
+  // And every seaplane has something long and low under her: her floats, or
+  // the hull she is.
+  for (const kind of ['arado', 'kingfisher', 'besson', 'loire', 'walrus', 'kor1', 'ro43', 'jake']) {
+    const [build, , len] = KINDS[kind];
+    const h = new THREE.Group();
+    ['arado', 'jake'].includes(kind) ? build(h, 0, 0, 0, 0, false, {}) : build(h, 0, 0, 0, 0, {});
+    h.updateMatrixWorld(true);
+    let lo = Infinity, hi = -Infinity;
+    const v = new THREE.Vector3();
+    h.traverse((o) => {
+      if (!o.isMesh) return;
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        if (v.y < 0.5 && Math.abs(v.x) < 2.5) { lo = Math.min(lo, v.z); hi = Math.max(hi, v.z); }
+      }
+    });
+    assert.ok(hi - lo > len * 0.5, `the ${kind} has only ${(hi - lo).toFixed(1)} m of float or hull under her`);
   }
 });
 
@@ -8543,7 +8610,7 @@ check("the King George V throws a Walrus off either beam from her cross-deck cat
   // and nothing of the Walrus the sculpt sat on the girder is left standing
   // in them.
   g.updateMatrixWorld(true);
-  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane));
+  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane, true));
   assert.ok(!boxes[0].intersectsBox(boxes[1]), 'her two Walruses stand in each other');
   for (const x of [-4, -2, 2, 4]) {
     for (const z of [KGV_CAT_Z - 5, KGV_CAT_Z + 5]) {
@@ -9330,7 +9397,7 @@ function bismarckThrowsArados(id) {
   }
   // The two Arados tail to tail, clear of each other over her centreline.
   g.updateMatrixWorld(true);
-  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane));
+  const boxes = cats.map((c) => new THREE.Box3().setFromObject(c.plane, true));
   assert.ok(!boxes[0].intersectsBox(boxes[1]), 'her two Arados stand in each other');
   const shots = [];
   for (let n = 0; n < 2; n++) {
@@ -14002,7 +14069,10 @@ check('the Iowa and the aeroplane on her catapult are drawn to one scale', () =>
       + 'not the 10.9 m an OS2U does');
   }
   // And she is in proportion to the ship: about a quarter of her beam.
-  const box = new THREE.Box3().setFromObject(cats[0].plane);
+  // Measured off her points, not off her pieces' boxes turned with her: she
+  // is one piece, and a box turned with the catapult is a box far bigger
+  // than she is.
+  const box = new THREE.Box3().setFromObject(cats[0].plane, true);
   const across = (box.max.x - box.min.x) / IOWA_BEAM;
   assert.ok(across > 0.15 && across < 0.35,
     `the scout is ${(across * 100).toFixed(0)}% of her beam across`);
@@ -29271,7 +29341,11 @@ check('a bot fighter shoots only when her guns bear', () => {
   assert.ok(fired, 'she held her fire with him sitting in her sight');
 });
 
-check('a float plane is not coming back: she goes into an enemy ship when her work is done', () => {
+check('a float plane with no crane left to take her in goes into an enemy ship when her work is done', () => {
+  // A scout with a ship of her own side to come home to puts down alongside
+  // it and is craned in (see the seaplane checks). With none -- her own ship
+  // sunk under her and nobody else with a crane -- she does what she always
+  // did.
   const world = generateWorld(6102, 'open_ocean');
   world.islands = [];
   const st = createState(world, { mode: 'deathmatch' });
@@ -29282,6 +29356,9 @@ check('a float plane is not coming back: she goes into an enemy ship when her wo
   assert.ok(oneWay(SHIP_CLASSES.cleveland.planes), 'a catapult scout is not one-way');
   assert.ok(!oneWay(SHIP_CLASSES.enterprise.planes), 'a carrier\'s aircraft are one-way');
   launchStrike(st, cl);
+  // Off the catapult, and then her ship is gone.
+  for (let i = 0; i < 40 / DT && !st.planes.some((p) => p.owner === cl.id); i++) step(st, DT);
+  cl.alive = false;
   let goingIn = 0;
   let ram = 0;
   let home = false;
@@ -34598,6 +34675,247 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     assert.ok(ev.some((e) => e.e === 'moTail' && e.land), 'her tail did not come down on the land');
     assert.ok(Object.values(world.ruin.b).filter((r) => r.d >= 0.5).length > ruins, 'it knocked nothing down');
     assert.notEqual(JSON.stringify(world.ruin), was);
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// Seaplanes on the water, and craned back aboard
+// ---------------------------------------------------------------------------
+{
+  /** An Iowa with her Kingfisher in the air, and a Fletcher a long way off. */
+  const seaField = (opts = {}) => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const state = createState(world, { mode: 'deathmatch' });
+    const a = addShip(state, { name: 'A', classId: 'iowa', team: 0, index: 0 });
+    const b = addShip(state, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+    a.x = 0; a.z = 0; a.heading = 0; a.notch = opts.notch ?? 1;
+    b.x = 0; b.z = 14000; b.heading = Math.PI / 2; b.notch = 1;
+    assert.ok(launchStrike(state, a), 'the Iowa would not fly off her scout');
+    let p = null;
+    for (let t = 0; t < 60 && !p; t += DT) { step(state, DT); p = state.planes.find((q) => !q.dead && q.team === 0); }
+    assert.ok(p, 'nothing came off her catapult');
+    return { state, a, b, p };
+  };
+  const run = (state, sec, until = null) => {
+    const ev = [];
+    for (let t = 0; t < sec; t += DT) { ev.push(...step(state, DT)); if (until && until(ev)) break; }
+    return ev;
+  };
+  /** Put her on the water where she is, as if she had just alighted. */
+  const putDown = (state, p, x, z, heading = 0) => {
+    p.x = x; p.z = z; p.heading = heading; p.speed = 0;
+    p.afloat = true; p.y = 0; p.vy = 0; p.bank = 0; p.pitch = 0;
+  };
+
+  check('a seaplane settled on gently alights, and one dropped in, too fast, wing down or nose in breaks up', () => {
+    for (const k of SEAPLANES) {
+      const vs = vStallOf(k);
+      assert.equal(alightFault(k, { v: vs * 1.2, vy: -1.5, pitch: -0.03, bank: 0.05 }), null, `a ${k} settled on gently did not alight`);
+      assert.equal(alightFault(k, { v: vs * 1.2, vy: -8, pitch: -0.2, bank: 0 }), 'dropped in');
+      assert.equal(alightFault(k, { v: vs * 2.2, vy: -1, pitch: -0.02, bank: 0 }), 'too fast');
+      assert.equal(alightFault(k, { v: vs * 1.2, vy: -1.5, pitch: -0.03, bank: 0.6 }), 'wing in');
+    }
+    // Something that is not a seaplane does not alight however it is put down.
+    assert.ok(alightFault('wildcat', { v: 30, vy: -1, pitch: 0, bank: 0 }));
+    // In the simulation, under a pilot: the same rules decide it.
+    for (const [vy, ok] of [[-1.5, true], [-9, false]]) {
+      const { state, p } = seaField();
+      const vs = vStallOf(p.type);
+      p.flown = true; p.flownAt = state.t; p.pilot = 1;
+      p.y = -0.2; p.seaVy = vy; p.speed = vs * 1.2; p.pitch = ok ? -0.03 : -0.3; p.bank = 0;
+      const ev = run(state, 0.2);
+      if (ok) {
+        assert.ok(p.afloat && !p.dead, 'a Kingfisher settled on gently did not alight');
+        assert.ok(ev.some((e) => e.e === 'alighted' && e.i === p.id), 'nobody was told she was down');
+        assert.ok(!ev.some((e) => e.e === 'planeCrash'), 'she alighted and crashed');
+      } else {
+        assert.ok(p.dead && !p.afloat, 'a Kingfisher dropped in at nine metres a second sat on the water');
+        const c = ev.find((e) => e.e === 'planeCrash' && e.i === p.id);
+        assert.ok(c && c.why === 'dropped in', 'the crash does not say what she did wrong');
+      }
+    }
+  });
+
+  check('a scout whose work is done comes down beside her ship, is craned aboard, and goes out again rearmed', () => {
+    const { state, a, p } = seaField({ notch: 3 });
+    const sq = a.squadrons.find((q) => q.id === p.sqId);
+    const ev = run(state, 900, (e) => e.some((x) => x.e === 'hoisted'));
+    const down = ev.find((e) => e.e === 'alighted' && e.i === p.id);
+    assert.ok(down, 'she never came down on the water');
+    assert.ok(!ev.some((e) => e.e === 'goingIn' && e.i === p.id), 'she went into a ship instead of coming home');
+    assert.ok(Math.hypot(down.x - a.x, down.z - a.z) < 2600, `she put down ${Math.hypot(down.x - a.x, down.z - a.z).toFixed(0)} m from her ship`);
+    const hk = ev.find((e) => e.e === 'hoisting' && e.i === p.id);
+    const up = ev.find((e) => e.e === 'hoisted' && e.i === p.id);
+    assert.ok(hk && up, 'the crane never took her');
+    assert.equal(up.ship, a.id);
+    assert.ok(up.tk - hk.tk >= Math.floor(HOIST_TIME / DT) - 2, 'she was swung in in no time at all');
+    assert.ok(p.dead && !state.planes.some((q) => q.id === p.id && !q.dead), 'she is still on the plot after she was aboard');
+    // Back on her cradle, rearmed, and off again.
+    run(state, 1);
+    assert.equal(sq.state, 'deck', `her squadron is ${sq.state}, not back on the catapult`);
+    run(state, (seaClass(a).planes.rearm ?? 90) + 2);
+    assert.ok(launchStrike(state, a), 'she could not fly her off again');
+    let again = null;
+    for (let t = 0; t < 60 && !again; t += DT) { step(state, DT); again = state.planes.find((q) => !q.dead && q.team === 0 && q.id !== p.id); }
+    assert.ok(again && again.type === 'kingfisher', 'nothing went off the catapult a second time');
+  });
+
+  check('a ship with a crane takes in another ship\'s seaplane as her own and flies her off as what she is', () => {
+    const { state, a, p } = seaField();
+    // The Kingfisher's own ship is gone; a Bismarck of the same side, with her
+    // own Arados spent, is the only crane left.
+    a.alive = false;
+    const bis = addShip(state, { name: 'C', classId: 'bismarck', team: 0, index: 1 });
+    bis.x = 3000; bis.z = 0; bis.heading = 0; bis.notch = 1; bis.speed = 0;
+    for (const sq of bis.squadrons) sq.state = 'spent';
+    const spot = craneSpot(bis, -1);
+    putDown(state, p, spot.x - 8, spot.z);
+    const ev = run(state, HOIST_TIME + 10, (e) => e.some((x) => x.e === 'hoisted'));
+    const up = ev.find((e) => e.e === 'hoisted' && e.i === p.id);
+    assert.ok(up && up.ship === bis.id && !up.own, 'the Bismarck never took her in');
+    const sq = bis.squadrons.find((q) => q.type === 'kingfisher');
+    assert.ok(sq && sq.state === 'deck', 'she is not on the Bismarck\'s catapult');
+    run(state, (seaClass(bis).planes.rearm ?? 90) + 2);
+    for (const q of bis.squadrons) if (q !== sq) q.state = 'spent';
+    assert.ok(launchStrike(state, bis), 'the Bismarck would not fly her off');
+    let off = null;
+    for (let t = 0; t < 60 && !off; t += DT) { step(state, DT); off = state.planes.find((q) => !q.dead && q.owner === bis.id); }
+    assert.ok(off && off.type === 'kingfisher', `what went off the Bismarck was ${off && off.type}, not the Kingfisher she took in`);
+  });
+
+  check('a crane ship can only hoist at a crane\'s speed, and a crane with nowhere to put her leaves her', () => {
+    const { state, a, p } = seaField();
+    a.notch = 5; a.speed = HOIST_SPEED + 6;
+    const spot = craneSpot(a, 1);
+    putDown(state, p, spot.x + 5, spot.z);
+    p.flown = true; p.flownAt = state.t; p.pilot = a.id;
+    const ev = run(state, 1);
+    assert.ok(!ev.some((e) => e.e === 'hoisting'), 'she was hooked on by a ship doing twenty-eight knots');
+  });
+
+  check('run down by an enemy ship, a seaplane on the water is lost -- with no explosion -- and her own side steers round her', () => {
+    for (const ff of [false, true]) {
+      const { state, b, p } = seaField();
+      state.friendlyFire = ff;
+      // Lying right in the Fletcher's way.
+      putDown(state, p, b.x, b.z);
+      p.flown = true; p.flownAt = state.t; p.pilot = 1;
+      const ev = run(state, 0.3);
+      const sunk = ev.find((e) => e.e === 'planeSunk' && e.i === p.id);
+      assert.ok(sunk && sunk.why === 'rammed', 'a seaplane lying under an enemy destroyer\'s bow survived');
+      assert.ok(!ev.some((e) => e.e === 'planeCrash' && e.i === p.id), 'running her down blew something up');
+      assert.ok(!ev.some((e) => e.e === 'planeDown' && e.i === p.id && (e.f || e.burst)), 'something fell out of the sky');
+    }
+    // One of her own side runs over her only if they are shooting at each other.
+    for (const ff of [false, true]) {
+      const { state, a, p } = seaField();
+      state.friendlyFire = ff;
+      putDown(state, p, a.x, a.z + 60);
+      p.flown = true; p.flownAt = state.t; p.pilot = 1;
+      const ev = run(state, 0.3);
+      const sunk = ev.some((e) => e.e === 'planeSunk' && e.i === p.id);
+      assert.equal(sunk, ff, ff ? 'friendly fire on, and her own battleship ran her down without harm'
+        : 'friendly fire off, and her own battleship sank her');
+    }
+  });
+
+  check('a shell or a bomb alongside wrecks a seaplane on the water, and her own side\'s only under friendly fire', () => {
+    for (const [by, ff, lost] of [[1, false, true], [0, false, false], [0, true, true], [null, false, true]]) {
+      const { state, p } = seaField();
+      state.friendlyFire = ff;
+      putDown(state, p, 0, 5000);
+      p.flown = true; p.flownAt = state.t; p.pilot = 1;
+      waterBlow(state, 4, 5000, 152, 0, by);
+      const ev = run(state, 0.1);
+      assert.equal(!!ev.find((e) => e.e === 'planeSunk' && e.i === p.id) || p.dead, lost,
+        `a 6-inch shell from side ${by} (friendly fire ${ff}) ${lost ? 'did not wreck' : 'wrecked'} her`);
+    }
+    // And the guns that can bear: on the water she is still a target for flak.
+    const { state, b, p } = seaField();
+    putDown(state, p, b.x + 600, b.z);
+    p.flown = true; p.flownAt = state.t; p.pilot = 1;
+    const hp = p.hp;
+    run(state, 3);
+    assert.ok(p.dead || p.hp < hp, 'a destroyer\'s close-range guns had nothing to say to a seaplane lying six hundred metres off');
+  });
+
+  check('no fighter goes after a seaplane sitting on the water', () => {
+    const { state, p } = seaField();
+    putDown(state, p, 0, 5000);
+    assert.ok(!aloftFoe(state, 1, p), 'a seaplane on the water is a fighter\'s target');
+    p.afloat = false;
+    assert.ok(aloftFoe(state, 1, p), 'a seaplane in the air is not');
+  });
+
+  check('with nobody left to take her in, a seaplane on the water opens up and gets off again', () => {
+    const { state, a, p } = seaField();
+    a.alive = false;
+    putDown(state, p, 2000, 2000);
+    const ev = run(state, 90, (e) => e.some((x) => x.e === 'seaTakeoff'));
+    assert.ok(ev.some((e) => e.e === 'seaTakeoff' && e.i === p.id), 'she sat there');
+    run(state, 15);
+    assert.ok(!p.dead && !p.afloat && p.y > 25, `she is at ${p.y.toFixed(0)} m, not climbing away`);
+  });
+
+  check('a crane ship\'s captain eases down to take his scouts in, and sends them out again', () => {
+    const world = generateWorld(4242, 'open_ocean');
+    world.islands = [];
+    const state = createState(world, { mode: 'deathmatch' });
+    const a = addShip(state, { name: 'A', classId: 'iowa', team: 0, index: 0 });
+    const b = addShip(state, { name: 'B', classId: 'fletcher', team: 1, index: 0 });
+    a.x = 0; a.z = 0; a.heading = 0; a.notch = 5;
+    b.x = 0; b.z = 16000; b.heading = Math.PI / 2; b.notch = 1;
+    const brain = createBotBrain('regular');
+    const ev = [];
+    let slowest = Infinity;
+    for (let t = 0; t < 800; t += DT) {
+      stepBot(state, a, brain, DT, false, null);
+      const e = step(state, DT);
+      ev.push(...e);
+      if (e.some((x) => x.e === 'hoisting')) slowest = Math.min(slowest, a.speed);
+    }
+    const launches = ev.filter((e) => e.e === 'launch' && e.ship === a.id).length;
+    const hoists = ev.filter((e) => e.e === 'hoisted' && e.ship === a.id).length;
+    assert.ok(hoists >= 2, `she took in ${hoists} of her scouts`);
+    assert.ok(slowest <= HOIST_SPEED, `she was doing ${slowest.toFixed(1)} m/s when the crane hooked on`);
+    assert.ok(launches > 2, `she flew ${launches} sorties off, and none after taking them in`);
+    assert.ok(!ev.some((e) => e.e === 'goingIn'), 'a scout with her ship waiting went into the enemy');
+  });
+
+  check('a pilot can put a seaplane down on the water, taxi her, and fly her off it again; anything else goes in', () => {
+    for (const k of SEAPLANES) {
+      // Settled on: a shallow glide at a quarter over her stall.
+      const vs = vStallOf(k);
+      const pl = new SeaPilot(AERO[k], { x: 0, y: 12, z: 0, heading: 0, speed: vs * 1.25, kind: k });
+      pl.pitch = -0.05; pl.F = null; pl.throttle = 0.15;
+      for (let t = 0; t < 30 && pl.alive && !pl.afloat; t += 1 / 60) { pl.stickPitch = 0; pl.stickRoll = 0; pl.step(1 / 60, 0); }
+      assert.ok(pl.alive && pl.afloat, `a ${k} glided onto the water ${pl.fault || 'never got there'}`);
+      // Taxied round on her water rudder.
+      pl.throttle = 0.25;
+      const h0 = pl.heading;
+      for (let t = 0; t < 10; t += 1 / 30) { pl.stickRoll = 1; pl.stickPitch = 0; pl.step(1 / 30, 0); }
+      assert.ok(pl.afloat && Math.abs(pl.heading - h0) > 0.5, `a ${k} would not turn on the water`);
+      // Opened up and flown off, under the same instructor a player has.
+      pl.throttle = 1;
+      const aim = { x: Math.sin(pl.heading) * Math.cos(0.14), y: Math.sin(0.14), z: Math.cos(pl.heading) * Math.cos(0.14) };
+      let t = 0;
+      for (; t < 90 && pl.alive && pl.afloat; t += 1 / 30) { seaInstruct(pl, aim); pl.step(1 / 30, 0); }
+      assert.ok(pl.alive && !pl.afloat, `a ${k} never got off the water`);
+      for (let i = 0; i < 300; i++) { seaInstruct(pl, aim); pl.step(1 / 30, 0); }
+      assert.ok(pl.alive && pl.y > 20, `a ${k} got off and went back in`);
+      // Dived in, she is lost.
+      const bad = new SeaPilot(AERO[k], { x: 0, y: 60, z: 0, heading: 0, speed: vs * 1.9, kind: k });
+      bad.pitch = -0.45; bad.F = null;
+      for (let s2 = 0; s2 < 30 && bad.alive && !bad.afloat; s2 += 1 / 60) { bad.stickPitch = 0; bad.step(1 / 60, 0); }
+      assert.ok(!bad.alive && bad.fault, `a ${k} dived into the sea and sat on it`);
+    }
+    // A landplane meeting the sea the same gentle way still goes in.
+    const w = new SeaPilot(AERO.wildcat, { x: 0, y: 12, z: 0, heading: 0, speed: 40, kind: 'wildcat' });
+    w.pitch = -0.05; w.F = null;
+    for (let t = 0; t < 30 && w.alive && !w.afloat; t += 1 / 60) w.step(1 / 60, 0);
+    assert.ok(!w.alive && !w.afloat, 'a Wildcat alighted on the sea');
   });
 }
 

@@ -24,8 +24,9 @@ import * as THREE from '../../../vendor/three.module.js';
 import { BoardRenderer } from './boardgl.js';
 import { PARTS } from '../../../shared/airframe.js';
 import {
-  wildcat, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43,
-  zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, heavyBomber, HEAVY_KINDS,
+  wildcatKit as wildcat, avenger, aradoKit as arado, kingfisherKit as kingfisher, bessonKit as besson,
+  loireKit as loire, walrusKit as walrus, kor1Kit as kor1, ro43Kit as ro43, jakeKit as jake,
+  zero, suisei, b5n, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, heavyBomber, HEAVY_KINDS,
 } from './planekit.js';
 
 const BUILD = {

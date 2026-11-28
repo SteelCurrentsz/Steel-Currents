@@ -25,6 +25,7 @@ import {
   airframeHp, PARTS as AIR_PARTS,
 } from './airframe.js';
 import { stepInfantry, blastInfantry, gunAtMan } from './infantry.js';
+import { isSeaplane, alightFault, stepAfloat, vStallOf } from './alight.js';
 import {
   monsterHurt, stepMonster, stepMonsterDead, stepHeld, monsterTopSpeed, monsterOrder, monsterBody, MONSTER, monsterHelmHeld,
 } from './monster.js';
@@ -594,6 +595,16 @@ export function mayHurt(state, team, target) {
   return !target || target.team !== team || !!state.friendlyFire;
 }
 
+/**
+ * An aeroplane of theirs a fighter can go after: in the air. A seaplane sat on
+ * the water is a boat while she is there -- fought by guns and by anybody who
+ * runs her down, not by a fighter pilot in a turning fight down to the wave
+ * tops (see alightPlane).
+ */
+export function aloftFoe(state, team, q) {
+  return mayHurt(state, team, q) && !(q && q.afloat);
+}
+
 /** Whether she is under enough of the sea to matter. */
 export function submerged(ship) { return ship.depth > 0.6; }
 
@@ -745,8 +756,12 @@ export function surgeReach(size) {
  * lands. `delay` is for a weapon that lands a while after it is accounted for:
  * a bomb is settled the moment it leaves the rack.
  */
-export function waterBlow(state, x, z, size, delay = 0) {
+export function waterBlow(state, x, z, size, delay = 0, by = null) {
   if (!Number.isFinite(x) || !Number.isFinite(z) || !(size > 0)) return;
+  // A seaplane lying on the water beside it. `by` is whose it was, so a
+  // shell of her own side's leaves her alone unless they are shooting at each
+  // other; `false` for what does not go off (a torpedo going in off a drop).
+  if (by !== false && state.planes) seaplanesNearBlow(state, x, z, size, by);
   const reach = surgeReach(size);
   const push = Math.pow(Math.max(0.35, size / 127), 2.2);
   for (const s of state.ships) {
@@ -3413,7 +3428,7 @@ function deliverOrdnance(state, p, best, P) {
     if (!hit) {
       // Into the sea beside her, a couple of seconds after it left the rack,
       // which is how long it takes to get there (see the drop in ordnance.js).
-      waterBlow(state, tx, tz, 320, 2.2);
+      waterBlow(state, tx, tz, 320, 2.2, p.team);
       // And close alongside, it springs her plating as surely as a hit.
       seaNearMiss(state, tx, tz, P.bombBore ?? 0.36, true, p.team);
       continue;
@@ -3561,6 +3576,8 @@ export function flyPlane(state, ship, msg) {
   if (!ship || !ship.alive) return false;
   const p = state.planes.find((q) => q.id === msg.i);
   if (!p || p.dead) return false;
+  // On the crane's hook she is the ship's, not the pilot's.
+  if (p.hoist) return false;
   if (!mayFly(state, ship, p)) return false;
   if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z) || !Number.isFinite(msg.h)) return false;
   // No further than she could have flown since the last word from her, with a
@@ -3597,6 +3614,23 @@ export function flyPlane(state, ship, msg) {
     const climb = 140 * since + 60;
     p.y = clamp(msg.y, Math.max(-4, (p.y ?? 220) - climb), Math.min(9000, (p.y ?? 220) + climb));
   }
+  // How fast she was coming down, which is half of whether she has just put
+  // down on the water or flown into it (see stepRam).
+  p.seaVy = ((p.y ?? 0) - was.y) / since;
+  // On the water, by the pilot's own account. A seaplane the cockpit says has
+  // put down is let down onto it, and the tick decides on the simulation's
+  // own rules whether that was alighting or crashing; one already down stays
+  // down until she is going fast enough to fly, which is the only way off.
+  if (isSeaplane(p.type)) {
+    if (msg.fl && !p.afloat) p.y = Math.min(p.y ?? 0, 0);
+    else if (p.afloat && msg.fl) { p.y = 0; p.speed = clamp(msg.v ?? p.speed ?? 0, 0, 60); }
+    else if (p.afloat && !msg.fl) {
+      if ((msg.v ?? 0) >= vStallOf(p.type) * 0.95) takeOffWater(state, p);
+      else p.y = 0;
+    }
+  }
+  // A pilot whose cockpit has broken her up on the water: no second opinion.
+  if (msg.cr) p.crashNow = true;
   // A pilot diving on a ship covers fifteen or twenty metres between one word
   // from him and the next, and a destroyer is ten metres across: the line she
   // flew is walked, not just the point she got to, so she cannot pass through
@@ -4355,7 +4389,7 @@ export function dropOrdnance(state, ship, id) {
     const at = p.fishAt || { x: p.x, z: p.z, t: 0 };
     state.events.push({ e: 'airDrop', x: at.x, z: at.z, r: p.role, i: p.id, fish: torp, ft: Math.round(at.t * 100) / 100 });
     // A ton of torpedo going into the sea off a low run, when it gets there.
-    waterBlow(state, at.x, at.z, 200, at.t);
+    waterBlow(state, at.x, at.z, 200, at.t, false);
   }
   p.phase = 'return';
   return true;
@@ -7883,7 +7917,7 @@ function stepShells(state, dt) {
           e: ashore ? 'landhit' : 'splash', x: sh.x, z: sh.z, cal: sh.caliber,
           bomb: sh.bomb ? 1 : 0,
         });
-        if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber);
+        if (!ashore) waterBlow(state, sh.x, sh.z, sh.caliber, 0, sh.team ?? null);
         // Close enough alongside a ship, a miss is still a hole in her.
         if (!ashore && !sh.asw && !sh.fuse) {
           seaNearMiss(state, sh.x, sh.z,
@@ -12780,6 +12814,8 @@ export function launchStrike(state, ship, escortFor = 0) {
     : cls.planes.slots ? slotOrder(cls, group, fighters, bomb, torp, {
       fighters: before('fighters'), dive: before('dive'), torpedo: before('torpedo'),
     }) : launchOrder(fighters, bomb, torp);
+  // A seaplane she craned aboard off another ship goes out as what she is.
+  if (sq.type) for (const f of queue) f.type = sq.type;
   if (escortee) {
     // Only what flies as a fighter: a slot carrier's `fighters` type may have
     // been loaded for something else, and that is no escort.
@@ -14285,7 +14321,7 @@ export function pickAirTarget(state, p) {
       let air = null;
       let best = Infinity;
       for (const q of state.planes) {
-        if (q.dead || q.team === p.team || !mayHurt(state, p.team, q)) continue;
+        if (q.dead || q.team === p.team || !aloftFoe(state, p.team, q)) continue;
         const d = dist(esc.x, esc.z, q.x, q.z);
         if (d > ESCORT_REACH) continue;
         const off = Math.abs(angleDelta(q.heading || 0, headingTo(q.x, q.z, esc.x, esc.z)));
@@ -14308,7 +14344,7 @@ export function pickAirTarget(state, p) {
     let air = null;
     let airD = guard ? 6000 : 7000;
     for (const q of state.planes) {
-      if (q.dead || q.team === p.team || q.id === p.id || !mayHurt(state, p.team, q)) continue;
+      if (q.dead || q.team === p.team || q.id === p.id || !aloftFoe(state, p.team, q)) continue;
       // The machines carrying the bombs and the fish before their escort:
       // stopping those is what she is up there for.
       const d = dist(from.x, from.z, q.x, q.z) - (q.role === 'fighter' ? 0 : 900);
@@ -14448,7 +14484,7 @@ function nearestAir(state, p, reach) {
   let best = null;
   let bestD = reach;
   for (const q of state.planes) {
-    if (q.dead || q.team === p.team || q.id === p.id || !mayHurt(state, p.team, q)) continue;
+    if (q.dead || q.team === p.team || q.id === p.id || !aloftFoe(state, p.team, q)) continue;
     const d = dist(p.x, p.z, q.x, q.z);
     if (d < bestD) { best = q; bestD = d; }
   }
@@ -15168,6 +15204,281 @@ export function oneWay(P) {
   return !!(P && (P.catapult || P.launcher === 'derrick'));
 }
 
+// ---------------------------------------------------------------------------
+// Seaplanes on the water
+// ---------------------------------------------------------------------------
+//
+// A float plane or a flying boat can come down on the sea, sit on it, taxi
+// about on it and get off it again -- if she is put down the way a seaplane
+// has to be (see shared/alight.js). And a ship with a crane for her own
+// seaplanes can hoist one aboard: hers, or any of her own side's she has room
+// for, which she then flies as her own, fuelled and armed again.
+//
+// On the water she is a boat with wings: no fighter goes after her (see
+// aloftFoe), but every gun that can bear still can, a shell or a bomb close
+// alongside wrecks her, and a ship that runs her down rolls her under. None of
+// that is an explosion -- she breaks up and goes, and that is all.
+
+/** The fuel a seaplane keeps for coming down alongside a crane, seconds aloft. */
+const ALIGHT_RESERVE = 600;
+/** How near the crane's hook she has to come, in metres. */
+export const HOIST_REACH = 45;
+/** The fastest her ship can be going for the crane to take her. */
+export const HOIST_SPEED = 8;
+/** How long the crane takes to hook on and swing her in, seconds. */
+export const HOIST_TIME = 20;
+/** The fastest she taxis on the water without getting up to fly. */
+const TAXI_MAX = 9;
+/** Further than this from the ship she is making for, she flies to her again. */
+const TAXI_FAR = 2500;
+
+/** Whether she can hoist a seaplane in: a ship that flies them off, up and afloat. */
+export function hasCrane(ship, cls = shipClass(ship)) {
+  return !!(ship && ship.alive && cls.planes && oneWay(cls.planes) && !submerged(ship));
+}
+
+/**
+ * Whether she has somewhere to put this one: her own aeroplane always comes
+ * back to her own cradle; somebody else's needs an empty one.
+ */
+export function craneRoom(ship, p) {
+  if (p.owner === ship.id) return true;
+  return (ship.squadrons || []).some((sq) => sq.state === 'spent');
+}
+
+/** The nearest ship of her own side that can take her aboard, or null. */
+export function craneFor(state, p) {
+  let best = null, bd = Infinity;
+  for (const s of state.ships) {
+    if (s.team !== p.team || !hasCrane(s) || !craneRoom(s, p)) continue;
+    // Her own ship first, at any reasonable distance: it is her cradle.
+    const d = dist(p.x, p.z, s.x, s.z) * (s.id === p.owner ? 0.6 : 1);
+    if (d < bd) { bd = d; best = s; }
+  }
+  return best;
+}
+
+/**
+ * Where she lies to be hooked on: abreast the ship's crane, a few metres off
+ * her side, on whichever side `side` says (1 starboard, -1 port).
+ */
+export function craneSpot(ship, side = 1) {
+  const cls = shipClass(ship);
+  const off = cls.hull.beam * 0.5 + 6;
+  const h = ship.heading;
+  // Her crane stands abaft amidships, by the catapults.
+  const aft = -cls.hull.length * 0.18;
+  return {
+    x: ship.x + Math.sin(h) * aft + Math.cos(h) * off * side,
+    z: ship.z + Math.cos(h) * aft - Math.sin(h) * off * side,
+  };
+}
+
+/** The side of the ship she is on. */
+function sideOf(ship, x, z) {
+  const h = ship.heading;
+  return ((x - ship.x) * Math.cos(h) - (z - ship.z) * Math.sin(h)) >= 0 ? 1 : -1;
+}
+
+/** Whether the crane already has somebody on the hook. */
+function craneBusy(state, ship, p) {
+  return state.planes.some((q) => q !== p && !q.dead && q.hoist && q.hoist.ship === ship.id);
+}
+
+/**
+ * Where a seaplane coming in to be craned aboard is flying to, how high she
+ * wants to be, and how fast: down a long shallow slope onto the water off the
+ * crane ship's side, a few hundred metres short of the crane, and slowed to a
+ * quarter over her stall for the last of it. Null if her ship is gone.
+ */
+function alightPoint(state, p) {
+  const ship = state.ships.find((q) => q.id === p.craneId);
+  if (!ship || !hasCrane(ship)) return null;
+  const side = sideOf(ship, p.x, p.z);
+  const at = craneSpot(ship, side);
+  // Off her side and a little ahead, where she will be by the time this one
+  // has run out her way on the water.
+  const lead = (ship.speed || 0) * 25;
+  const x = at.x + Math.sin(ship.heading) * lead + Math.cos(ship.heading) * side * 60;
+  const z = at.z + Math.cos(ship.heading) * lead - Math.sin(ship.heading) * side * 60;
+  const d = dist(p.x, p.z, x, z);
+  const vs = vStallOf(p.type);
+  return {
+    x, z,
+    // Down a long slope to the water, touching a kilometre or so short of the
+    // point: close in she keeps coming down whichever way she is pointing,
+    // and taxis the rest. Going round for a perfect line-up is how she runs
+    // out of fuel over her own ship.
+    y: clamp((d - 1200) * 0.06, -3, 160),
+    speed: Math.max(vs * 1.22, vs * 1.22 + (d - 600) * 0.02),
+  };
+}
+
+/** Down on the water, and sitting on it. */
+export function alightPlane(state, p) {
+  p.afloat = true;
+  p.y = 0; p.vy = 0;
+  p.pitch = 0; p.bank = 0; p.roll = 0; p.turn = 0;
+  p.df = null;
+  p.targetAir = 0;
+  p.seaOff = false;
+  state.events.push({ e: 'alighted', i: p.id, team: p.team, x: r(p.x), z: r(p.z), k: p.type || undefined });
+}
+
+/** Off the water and flying again. */
+export function takeOffWater(state, p) {
+  p.afloat = false;
+  p.hoist = null;
+  p.y = 1;
+  p.vy = 3;
+  // Clear of the wave tops before she is held to the autopilot's floor.
+  p.seaOff = true;
+  if (p.phase === 'alight') p.phase = 'return';
+  state.events.push({ e: 'seaTakeoff', i: p.id, team: p.team, x: r(p.x), z: r(p.z) });
+}
+
+/**
+ * Wrecked where she lies: run down, or a shell or a bomb close enough
+ * alongside to tear her floats off. No explosion -- she goes over and under,
+ * and that is all there is to see.
+ */
+export function sinkAfloat(state, p, why, by = 0) {
+  if (p.dead) return;
+  state.events.push({ e: 'planeSunk', i: p.id, team: p.team, x: r(p.x), z: r(p.z), why, by: by || undefined });
+  killFlight(state, p, 'sunk');
+}
+
+/** On the hook and swung in: she is the ship's own now, to be flown off again. */
+function hoistAboard(state, p, ship) {
+  const cls = shipClass(ship);
+  let sq = null;
+  if (p.owner === ship.id) sq = ship.squadrons.find((q) => q.id === p.sqId) || null;
+  if (!sq) sq = ship.squadrons.find((q) => q.state === 'spent') || null;
+  if (sq) {
+    if (p.owner === ship.id && sq.id === p.sqId) {
+      // Her own cradle: rearmed and refuelled when the sweep finds her squadron
+      // has nothing left in the air (see sweepSquadrons).
+      sq.hoisted = true;
+    } else {
+      // Somebody else's, taken on as her own -- the same machine, flown off
+      // her catapult next time.
+      sq.state = 'deck';
+      sq.cooldown = cls.planes.rearm ?? 90;
+      sq.type = p.type || null;
+    }
+  }
+  state.events.push({
+    e: 'hoisted', i: p.id, ship: ship.id, team: p.team, r: p.role, k: p.type || undefined,
+    x: r(p.x), z: r(p.z), tk: state.tick, own: p.owner === ship.id ? 1 : 0,
+  });
+  p.hoist = null;
+  p.dead = true;
+}
+
+/**
+ * A second on the water: on the crane's hook, taxiing in to be hooked on, or
+ * -- with nobody to take her -- opening up and getting off again. Under a
+ * pilot she goes wherever he taxis her (see flyPlane) and only the crane and
+ * the ships round her are any business of this.
+ */
+function stepAfloatPlane(state, p, dt) {
+  if (p.hoist) {
+    const ship = state.ships.find((q) => q.id === p.hoist.ship);
+    if (!ship || !hasCrane(ship)) {
+      // Her ship gone from under the crane: back in the water.
+      p.hoist = null;
+      p.y = 0;
+    } else {
+      p.hoist.t += dt;
+      const at = craneSpot(ship, p.hoist.side);
+      const u = Math.min(1, p.hoist.t / HOIST_TIME);
+      // Hooked on alongside, lifted, and swung in over her side.
+      const inboard = Math.max(0, (u - 0.55) / 0.45);
+      p.x = at.x + (ship.x - at.x) * inboard * 0.6;
+      p.z = at.z + (ship.z - at.z) * inboard * 0.6;
+      p.y = 9 * Math.min(1, u / 0.55);
+      p.heading = ship.heading;
+      p.speed = ship.speed || 0;
+      p.vy = 0;
+      if (p.hoist.t >= HOIST_TIME) hoistAboard(state, p, ship);
+      return;
+    }
+  }
+  p.y = 0; p.vy = 0; p.pitch = 0; p.bank = 0; p.roll = 0; p.turn = 0;
+  const crane = craneFor(state, p);
+  if (crane && !p.flown) {
+    const side = sideOf(crane, p.x, p.z);
+    const spot = craneSpot(crane, side);
+    const d = dist(p.x, p.z, spot.x, spot.z);
+    if (d < HOIST_REACH && (crane.speed || 0) <= HOIST_SPEED && !craneBusy(state, crane, p)) {
+      p.hoist = { ship: crane.id, t: 0, side };
+      state.events.push({ e: 'hoisting', i: p.id, ship: crane.id, team: p.team, x: r(p.x), z: r(p.z), tk: state.tick });
+      return;
+    }
+  } else if (crane && p.flown && (p.speed || 0) < 4) {
+    // A pilot who has taxied her in alongside, and stopped: the crane takes
+    // her whoever is flying her.
+    const side = sideOf(crane, p.x, p.z);
+    const spot = craneSpot(crane, side);
+    if (dist(p.x, p.z, spot.x, spot.z) < HOIST_REACH && (crane.speed || 0) <= HOIST_SPEED
+      && !craneBusy(state, crane, p)) {
+      p.hoist = { ship: crane.id, t: 0, side };
+      p.flown = false;
+      p.pilot = 0;
+      state.events.push({ e: 'hoisting', i: p.id, ship: crane.id, team: p.team, x: r(p.x), z: r(p.z), tk: state.tick });
+      return;
+    }
+  }
+  if (!p.flown) {
+    const s = { v: p.speed || 0, heading: p.heading || 0 };
+    let throttle = 0, rudder = 0, off = false;
+    if (crane) {
+      const spot = craneSpot(crane, sideOf(crane, p.x, p.z));
+      const d = dist(p.x, p.z, spot.x, spot.z);
+      if (d > TAXI_FAR) {
+        // Too far to taxi: up, and over to her, and down again alongside.
+        off = true; throttle = 1;
+      } else {
+        // In alongside her, matching her way as she gets there.
+        const want = headingTo(p.x, p.z, spot.x, spot.z);
+        rudder = clamp(angleDelta(s.heading, want) * 2, -1, 1);
+        const wantV = Math.min(TAXI_MAX, (crane.speed || 0) + clamp(d * 0.04, 0.5, 6));
+        throttle = clamp((wantV - s.v) * 0.25 + 0.08, 0, 1);
+      }
+    } else {
+      // Nobody left to take her in: off again.
+      off = true; throttle = 1;
+    }
+    const up = stepAfloat(p.type, s, { throttle, rudder, off, dt });
+    p.speed = s.v;
+    p.heading = s.heading;
+    p.x += Math.sin(p.heading) * p.speed * dt;
+    p.z += Math.cos(p.heading) * p.speed * dt;
+    if (up) { takeOffWater(state, p); return; }
+  }
+  // Run down by a ship: an enemy's, or one of her own side's if they are
+  // shooting at each other.
+  for (const sh of state.ships) {
+    if (!sh.alive || !mayHurt(state, p.team, sh)) continue;
+    if (planeInShip({ x: p.x, y: 0.5, z: p.z }, sh, shipClass(sh))) { sinkAfloat(state, p, 'rammed', sh.id); return; }
+  }
+}
+
+/**
+ * Something big gone into the sea beside a seaplane lying on it. `by` is the
+ * side that fired it, or null for anything that hurts everybody alike.
+ */
+function seaplanesNearBlow(state, x, z, size, by) {
+  const lethal = Math.max(5, size * 0.07);
+  for (const p of state.planes) {
+    if (p.dead || !p.afloat || p.hoist) continue;
+    if (by != null && !mayHurt(state, by, p)) continue;
+    const d = dist(p.x, p.z, x, z);
+    if (d < lethal) sinkAfloat(state, p, 'shelled');
+    else if (d < lethal * 2) hurtFlight(state, p, Math.max(0, p.hp) * 0.6 * (1 - (d - lethal) / lethal), 'flak');
+  }
+}
+
 /** Put her into a ship: the last thing a pilot does with his aeroplane. */
 function goIn(state, p, mark) {
   p.phase = 'ram';
@@ -15310,12 +15621,26 @@ function stepRam(state, p) {
   const solid = solidAt(state.world, p.x, y, p.z);
   const hb = solid?.b ? { x: p.x, z: p.z, b: solid.b } : null;
   const g = hb ? y : solid ? solidGround(state.world, p.x, p.z) : 0;
+  // On the water already, she is not flying into it.
+  if (p.afloat && !solid) return false;
+  // A seaplane meeting the sea the way a seaplane should is down on it, not
+  // in it: see shared/alight.js. Any other way, she goes in like anything
+  // else -- and the pilot is told what he did wrong.
+  let fault = null;
+  if (y <= 0 && !solid && isSeaplane(p.type) && !p.crashNow) {
+    const vy = p.flown ? (p.seaVy ?? 0) : (p.vy ?? 0);
+    const pitch = p.flown ? (p.pitch ?? 0) : Math.atan2(vy, Math.max(1, p.speed || 0));
+    fault = alightFault(p.type, { v: Math.hypot(p.speed || 0, vy), vy, pitch, bank: p.bank || 0 });
+    if (!fault) { alightPlane(state, p); return false; }
+  }
   if (y <= 0 || solid) {
     const hit = { mass: RAM_MASS[p.role] || RAM_MASS.scout, speed: p.speed, load: crashLoad(state, p) };
     if (hb) crashInto(state, hb.x, hb.z, hit, hb.b);
     else crashInto(state, p.x, p.z, hit);
     state.events.push({
       e: 'planeCrash', i: p.id, team: p.team, x: r(p.x), z: r(p.z), y: r(Math.max(0, g)),
+      // A seaplane that could have put down here, and was put down wrong.
+      why: fault || undefined,
       tk: state.tick, h: Math.round((p.heading || 0) * 100) / 100, v: Math.round(p.speed || 100),
       armed: crashLoad(state, p) > 0 ? 1 : 0,
     });
@@ -15348,7 +15673,7 @@ function fightFor(state, p, dt) {
   // straight and level with somebody on her tail either: she turns and deals
   // with him, and goes on home when he is gone.
   if (p.phase === 'return') {
-    const t = threatOn(state, p, mayHurt);
+    const t = threatOn(state, p, aloftFoe);
     if (t) { p.targetAir = t.q.id; p.homeFight = 4; }
     p.homeFight = Math.max(0, (p.homeFight ?? 0) - dt);
     if (p.homeFight <= 0) return null;
@@ -15357,7 +15682,7 @@ function fightFor(state, p, dt) {
     p.df.pick = (p.df.pick ?? 0) - dt;
     if (p.df.pick <= 0) {
       p.df.pick = 0.5;
-      const q = pickFoe(state, p, mayHurt);
+      const q = pickFoe(state, p, aloftFoe);
       if (q) p.targetAir = q.id;
     }
   } else if (p.role === 'fighter' && p.phase !== 'return') {
@@ -15368,7 +15693,7 @@ function fightFor(state, p, dt) {
     p.reflex = (p.reflex ?? 0) - dt;
     if (p.reflex <= 0) {
       p.reflex = 0.3;
-      const q = pickFoe(state, p, mayHurt);
+      const q = pickFoe(state, p, aloftFoe);
       if (q && q.id !== p.targetAir) {
         p.targetAir = q.id;
         p.targetHeavy = 0; p.targetId = 0; p.targetBat = 0; p.shieldFor = 0;
@@ -15424,7 +15749,7 @@ function stepRearGunners(state, dt) {
     const sp = Math.hypot(v.x, v.y, v.z) || 1;
     let best = null, bestR = REAR_REACH;
     for (const q of state.planes) {
-      if (q.dead || q.team === p.team || !mayHurt(state, p.team, q)) continue;
+      if (q.dead || q.team === p.team || !aloftFoe(state, p.team, q)) continue;
       const dx = q.x - p.x, dy = (q.y ?? 220) - py, dz = q.z - p.z;
       const R = Math.hypot(dx, dy, dz);
       if (R >= bestR || R < 8) continue;
@@ -16513,6 +16838,13 @@ function stepPlanes(state, dt) {
       continue;
     }
 
+    // On the water: a boat, until she is hooked on or gets off again.
+    if (p.afloat) {
+      stepAfloatPlane(state, p, dt);
+      if (!p.dead) out.push(p);
+      continue;
+    }
+
     // The last thing a pilot who is not getting home does with his aeroplane.
     //
     // Empty, shot to pieces and going down anyway: there is nothing left to
@@ -16558,10 +16890,20 @@ function stepPlanes(state, dt) {
         continue;
       }
     }
-    if (!p.flown && p.phase === 'return' && oneWay(P)) {
-      const mark = nearestEnemyMark(state, p, Infinity);
-      if (mark) goIn(state, p, mark);
-      else { p.phase = 'outbound'; p.hunt = 0; }
+    // Unless she is a seaplane and there is a ship of her own side with a
+    // crane and room for her: then she goes and puts down alongside it, to
+    // be hoisted in and flown off again (see stepAfloatPlane).
+    if (!p.flown && (p.phase === 'return' || p.phase === 'alight') && oneWay(P)) {
+      const crane = isSeaplane(p.type) ? craneFor(state, p) : null;
+      if (crane) {
+        p.phase = 'alight';
+        p.craneId = crane.id;
+      } else {
+        if (p.phase === 'alight') p.phase = 'return';
+        const mark = nearestEnemyMark(state, p, Infinity);
+        if (mark) goIn(state, p, mark);
+        else { p.phase = 'outbound'; p.hunt = 0; }
+      }
     }
     // A fighter going in looks up on the way, and if there is anything of
     // theirs in the air she goes after that instead.
@@ -16752,7 +17094,7 @@ function stepPlanes(state, dt) {
     // A Hawkeye on her station, a Seahawk after a boat, and anything with
     // missiles to fire from a distance: see stepAirJobs.
     stepAirMissiles(state, p, dt);
-    if (!p.flown && p.phase !== 'landing') stepAirJobs(state, p, carrier);
+    if (!p.flown && p.phase !== 'landing' && p.phase !== 'alight') stepAirJobs(state, p, carrier);
 
     // Whether anybody is sitting on her tail, which is what starts her
     // jinking (see jinkFor) when she is not in a fight to do anything better
@@ -16761,7 +17103,7 @@ function stepPlanes(state, dt) {
       p.lookT = (p.lookT ?? 0) - dt;
       if (p.lookT <= 0) {
         p.lookT = 0.4;
-        if (threatOn(state, p, mayHurt)) p.threatAt = state.t;
+        if (threatOn(state, p, aloftFoe)) p.threatAt = state.t;
       }
     }
 
@@ -16790,7 +17132,12 @@ function stepPlanes(state, dt) {
       if (heloHover(state, p, carrier, dt) === 'trap') continue;
     } else if (!p.flown) {
       let goalX = p.tx, goalZ = p.tz;
-      if (guide) { goalX = guide.x; goalZ = guide.z; }
+      // Coming down alongside a ship with a crane: at a point off her side
+      // and a little ahead of her, where she will have come up to her by the
+      // time she has run out her way on the water.
+      const settle = p.phase === 'alight' ? alightPoint(state, p) : null;
+      if (settle) { goalX = settle.x; goalZ = settle.z; }
+      else if (guide) { goalX = guide.x; goalZ = guide.z; }
       else if (p.phase === 'return' && carrier && !p.away && p.divert == null) { goalX = carrier.x; goalZ = carrier.z; }
       // In company: she flies her station on the leader rather than at the
       // target, and only breaks off when the strike is close enough to attack.
@@ -16847,7 +17194,10 @@ function stepPlanes(state, dt) {
       // And one hauling herself out of the bottom of a dive pulls straight
       // ahead, more or less, and only rolls into her turn for home once she
       // is climbing.
-      const most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1) * (p.dv === 'pull' ? 0.3 : p.dv === 'late' ? 0.05 : 1);
+      let most = sustainBank(frm, tas) * clamp(wear.turn, 0.2, 1) * (p.dv === 'pull' ? 0.3 : p.dv === 'late' ? 0.05 : 1);
+      // Wings level as she comes down to the water: a float that touches
+      // first digs in and throws her over.
+      if (settle && (p.y ?? 0) < 80) most = Math.min(most, 0.16);
       // What she asks for is a rate, and the bank is what it takes to get it.
       //
       // This is the right way round and the other way round does not work. A
@@ -16910,7 +17260,8 @@ function stepPlanes(state, dt) {
       // change is held to about a third of a gravity, which is what a pilot
       // would pull.
       const frame = AIRFRAME[p.role] || AIRFRAME.scout;
-      const wantY = guide ? guide.y + jink.height + clear.height
+      const wantY = settle ? settle.y
+        : guide ? guide.y + jink.height + clear.height
         // Never under thirty metres -- except going in, whose whole profile
         // is the last of a dive down onto the thing she is going to hit.
         : Math.max(p.phase === 'ram' && !p.ramOut ? 0 : 30, wantedHeight(state, p, carrier, !!station) + jink.height + clear.height);
@@ -16951,6 +17302,9 @@ function stepPlanes(state, dt) {
       if (guide && guide.vy !== undefined) {
         askVy = clamp(guide.vy + (wantY - p.y) * 0.7, -frame.dive, rise);
       }
+      // Settled onto the water, not flown into it: a gentle descent the last
+      // of the way, well inside what her floats will take (see ALIGHT).
+      if (settle) askVy = Math.max(askVy, p.y < 40 ? -2 : -10);
       p.vy = (p.vy || 0) + clamp(askVy - (p.vy || 0), -pull, pull);
       // A dive bomber from the moment her brakes start out until they are
       // in again is flown on an airspeed of her own -- see diveAirspeed --
@@ -16960,14 +17314,18 @@ function stepPlanes(state, dt) {
       if (air !== null) p.vy = clamp(p.vy, -0.985 * air, 0.9 * air);
       // A dive bomber hauling out of her dive with her bomb gone has nothing
       // under her but the sea: one that leaves it too late goes into it. See
-      // DIVE_LATE, and stepRam for what happens when she does.
-      const floor = p.phase === 'ram' && !p.ramOut ? 4
+      // DIVE_LATE, and stepRam for what happens when she does. A seaplane
+      // coming down onto the water, or getting off it, is let down to it;
+      // everything else is held clear of the wave tops.
+      if (p.seaOff && p.y > 30) p.seaOff = false;
+      const floor = settle ? -1 : p.seaOff ? Math.min(14, p.y)
+        : p.phase === 'ram' && !p.ramOut ? 4
         : p.role === 'dive' && p.dropped && (p.dv === 'late' || p.dv === 'pull') ? -1 : 14;
       p.y = Math.max(floor, p.y + p.vy * dt);
       // On the floor she is flying along it, not still going down into it:
       // left with her sink on her, she was drawn sliding over the water
       // pointing at it.
-      if (p.y <= floor && p.vy < 0) p.vy = 0;
+      if (p.y <= floor && p.vy < 0 && !settle) p.vy = 0;
 
       // And height is speed. Going down she gains it and going up she pays
       // for it, which is why a dive bomber is fast in the dive and a loaded
@@ -16995,6 +17353,9 @@ function stepPlanes(state, dt) {
           else speed = was + clamp(speed - was, -3 * dt, 2.5 * dt);
         }
       }
+
+      // Slowed to her approach speed as she comes in to put down.
+      if (settle) speed = Math.min(speed, settle.speed);
 
       // Fresh off the deck she has not got her cruise yet, and builds it at
       // what her engine has to spare once the flaps are up.
@@ -17355,7 +17716,16 @@ function stepPlanes(state, dt) {
       // She came home with what she needed to get there, and a reserve for
       // going round: past that she goes in the water near her ship.
       if (aloft(p) > 300 + LANDING_RESERVE) { killFlight(state, p, 'fuel'); continue; }
-    } else if (p.phase === 'ram' ? aloft(p) > 600 : p.away ? aloft(p) > 900 : (!carrier || aloft(p) > 300)) {
+    } else if (p.phase !== 'alight' && aloft(p) > 300 && carrier && oneWay(P) && isSeaplane(p.type)
+      && craneFor(state, p)) {
+      // A seaplane at the end of her fuel does not go into the sea: she goes
+      // down onto it, alongside whoever can hoist her in (see alightPoint).
+      p.phase = 'alight';
+      p.craneId = craneFor(state, p).id;
+    } else if (p.phase === 'ram' ? aloft(p) > 600 : p.away ? aloft(p) > 900
+      // Coming in to put down, she has the reserve she kept for it.
+      : p.phase === 'alight' ? aloft(p) > 300 + ALIGHT_RESERVE
+        : (!carrier || aloft(p) > 300)) {
       // Out of fuel, or her ship is gone from under her. One going in has
       // nowhere to come back to and no reserve to keep for it, so she gets
       // the whole of her tanks, and her own ship sunk is nothing to her.
@@ -17467,7 +17837,7 @@ function losePlane(state, p, a, why) {
   // What is left of her, falling. Not when she has gone into something
   // already -- that is the end of her -- and not when she has blown up in the
   // air, which leaves nothing big enough to matter.
-  if (why !== 'rammed' && why !== 'crashed') {
+  if (why !== 'rammed' && why !== 'crashed' && why !== 'sunk') {
     if (why === 'shot' && state.rng() < 0.4) ev.burst = 1;
     else {
       const f = fallFrom(state, p, x, y, z, why);
@@ -17600,7 +17970,7 @@ function killFlight(state, p, why) {
   // and nothing is made up on the screen to fill a count.
   const live = (p.machines || []).filter((a) => a.alive && !a.gone);
   for (let i = live.length - 1; i >= 0; i--) losePlane(state, p, live[i], why);
-  if (!(p.machines && p.machines.length) && why !== 'rammed' && why !== 'crashed') {
+  if (!(p.machines && p.machines.length) && why !== 'rammed' && why !== 'crashed' && why !== 'sunk') {
     const n = Math.min(3, Math.max(1, p.count || 1));
     for (let i = n - 1; i >= 0; i--) {
       const at = slotAt(i, p.heading || 0);
@@ -17650,7 +18020,12 @@ function sweepSquadrons(state) {
       if ((ship.turnaround || []).some((e) => e.sqId === sq.id)) continue;
       // A float plane does not come back (see oneWay): her place on the
       // catapult is empty for the rest of the action.
-      if (oneWay(cls.planes)) { sq.state = 'spent'; continue; }
+      // Unless she has been craned back aboard (see hoistAboard): then she is
+      // struck down onto her cradle, fuelled and armed, and goes again.
+      if (oneWay(cls.planes)) {
+        if (sq.hoisted) { sq.hoisted = false; sq.state = 'deck'; sq.cooldown = cls.planes.rearm ?? 90; } else sq.state = 'spent';
+        continue;
+      }
       // Nor does a deckload, once the last of it is off her deck. Any of it
       // still on it is still there to go.
       if (sq.deckload) { sq.state = ship.deckload > 0 ? 'deck' : 'spent'; continue; }

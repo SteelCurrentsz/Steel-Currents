@@ -2137,7 +2137,7 @@ const sitline = (f, k) => (z) => f + k * z;
  * The signature matches the other two: `folded` says which set of wings is
  * showing, and `opts` carries the rest of her trim.
  */
-function wildcat(g, x, y, z, ry, folded = true, opts = {}) {
+function wildcatKit(g, x, y, z, ry, folded = true, opts = {}) {
   const p = new THREE.Group();
   p.position.set(x, y, z);
   p.rotation.y = ry;
@@ -2529,7 +2529,7 @@ function avenger(g, x, y, z, ry, folded = true, spin = false, opts = {}) {
  * `folded` swings the wings back along her sides, which is how she is struck
  * into a hangar; `opts.floats: false` leaves them off.
  */
-function arado(g, x, y, z, ry, folded = false, opts = {}) {
+function aradoKit(g, x, y, z, ry, folded = false, opts = {}) {
   const [TOP, BOT] = paint('luftwaffe');
   const p = new THREE.Group();
   p.position.set(x, y, z);
@@ -2704,7 +2704,7 @@ function arado(g, x, y, z, ry, folded = false, opts = {}) {
  * does the actual work. She is a mid-wing monoplane with a deep centre
  * section, and the shape that gives her is unmistakable from abeam.
  */
-function kingfisher(g, x, y, z, ry, opts = {}) {
+function kingfisherKit(g, x, y, z, ry, opts = {}) {
   const [TOP, BOT] = paint('usn');
   const p = new THREE.Group();
   p.position.set(x, y, z);
@@ -2837,7 +2837,7 @@ function kingfisher(g, x, y, z, ry, opts = {}) {
  * under her belly, a little one under each tip, and a Salmson nine-cylinder in
  * a narrow-chord cowl that leaves the cylinder heads out in the air.
  */
-function besson(g, x, y, z, ry, opts = {}) {
+function bessonKit(g, x, y, z, ry, opts = {}) {
   const [TOP, BOT] = paint('france');
   const p = new THREE.Group();
   p.position.set(x, y, z);
@@ -2997,7 +2997,7 @@ function besson(g, x, y, z, ry, opts = {}) {
  * twenty kilometres an hour flat out -- a pair of eyes that could sit out a
  * swell alongside to be craned back aboard.
  */
-function loire(g, x, y, z, ry, opts = {}) {
+function loireKit(g, x, y, z, ry, opts = {}) {
   const [TOP, BOT] = paint('france');
   const p = new THREE.Group();
   p.position.set(x, y, z);
@@ -3144,7 +3144,7 @@ function loire(g, x, y, z, ry, opts = {}) {
  * tailplane braced to her fin, and fourteen metres of span: slow, stressed for
  * the catapult, and craned back aboard off the water.
  */
-function walrus(g, x, y, z, ry, opts = {}) {
+function walrusKit(g, x, y, z, ry, opts = {}) {
   const [TOP, BOT] = paint('faa');
   const p = new THREE.Group();
   p.position.set(x, y, z);
@@ -3294,7 +3294,7 @@ function walrus(g, x, y, z, ry, opts = {}) {
  * stout, wire-braced thing, made to be thrown off a catapult and craned back
  * aboard out of a swell.
  */
-function kor1(g, x, y, z, ry, opts = {}) {
+function kor1Kit(g, x, y, z, ry, opts = {}) {
   const [TOP, BOT] = paint('vvs');
   const p = new THREE.Group();
   p.position.set(x, y, z);
@@ -3437,7 +3437,7 @@ function kor1(g, x, y, z, ry, opts = {}) {
  * with a Breda-SAFAT on a pillar. Shot off the catapult on a battleship's
  * quarterdeck and craned back aboard after.
  */
-function ro43(g, x, y, z, ry, opts = {}) {
+function ro43Kit(g, x, y, z, ry, opts = {}) {
   const [TOP, BOT] = paint('rai');
   const p = new THREE.Group();
   p.position.set(x, y, z);
@@ -3831,7 +3831,7 @@ function b5n(g, x, y, z, ry, folded = false, opts = {}) {
  * Kingfisher and the Arado and a good deal larger than either -- fifteen hours
  * of endurance, which is what an ocean-going scout actually needs.
  */
-function jake(g, x, y, z, ry, folded = false, opts = {}) {
+function jakeKit(g, x, y, z, ry, folded = false, opts = {}) {
   paint('ijn');
   const p = new THREE.Group();
   p.position.set(x, y, z);
@@ -4125,6 +4125,34 @@ const firefly = (g, x, y, z, ry, folded, opts = {}) => fireflyStores(navalAir('f
 // The Illustrious's Corsair, off the owner's model of her: drawn spread, as
 // the model draws her; `folded` is taken and ignored.
 const corsair = (g, x, y, z, ry, folded, opts = {}) => navalAir('corsair', g, x, y, z, ry, opts);
+
+/**
+ * The catapult seaplanes and the Wildcat, off the models made with Meshy for
+ * the game and painted in build/meshy-air-kinds.mjs: each in the scheme of her
+ * navy, her airscrew turning, the Wildcat's legs folding up into her. None of
+ * them folds her wings here; `folded` is taken and ignored, and each keeps
+ * the call it was always built with. The sculpts they replace (the `Kit`
+ * builders above) are kept for the damage board, which reads her parts off
+ * them piece by piece.
+ */
+// Each sits as far forward on her origin as the sculpt she replaces did --
+// the middle of her length was not on it, and the catapults and the decks she
+// stands on were laid out round where it was.
+const SEAT = { wildcat: 0.13, arado: 0, jake: -0.49, kingfisher: -0.22, besson: 0.02, loire: -0.19, walrus: -0.24, kor1: -0.09, ro43: -0.26 };
+function seated(kind, g, x, y, z, ry, opts) {
+  const p = navalAir(kind, g, x, y, z, ry, opts);
+  p.translateZ(SEAT[kind]);
+  return p;
+}
+const wildcat = (g, x, y, z, ry, folded, opts = {}) => seated('wildcat', g, x, y, z, ry, opts);
+const arado = (g, x, y, z, ry, folded, opts = {}) => seated('arado', g, x, y, z, ry, opts);
+const jake = (g, x, y, z, ry, folded, opts = {}) => seated('jake', g, x, y, z, ry, opts);
+const kingfisher = (g, x, y, z, ry, opts = {}) => seated('kingfisher', g, x, y, z, ry, opts);
+const besson = (g, x, y, z, ry, opts = {}) => seated('besson', g, x, y, z, ry, opts);
+const loire = (g, x, y, z, ry, opts = {}) => seated('loire', g, x, y, z, ry, opts);
+const walrus = (g, x, y, z, ry, opts = {}) => seated('walrus', g, x, y, z, ry, opts);
+const kor1 = (g, x, y, z, ry, opts = {}) => seated('kor1', g, x, y, z, ry, opts);
+const ro43 = (g, x, y, z, ry, opts = {}) => seated('ro43', g, x, y, z, ry, opts);
 
 /**
  * The Hosho's two, off the owner's models of them, each in her own texture:
@@ -5869,6 +5897,9 @@ function b52Bomber() {
 // The nine machines, so they can be looked at and measured without a ship
 // round them.
 export { wildcat, dauntless, avenger, arado, kingfisher, besson, loire, walrus, kor1, ro43 };
+// And the sculpts the catapult seaplanes and the Wildcat were drawn as before,
+// which the damage board still reads her parts off.
+export { wildcatKit, aradoKit, kingfisherKit, bessonKit, loireKit, walrusKit, kor1Kit, ro43Kit, jakeKit };
 export { zero, suisei, b5n, jake, bf109, ju87c, ju87d, hellcat, sbd, tbf, tbd, mitchell, f18, e2d, sh60, ka27, seafire, firefly, f35, rafale, nh90, su33, mig29k, su25, ka52, a5m, b4y, val, tenzan, corsair };
 export { airframe, wing, radial, inline, greenhouse, empennage, insignia,
   hinomaru, seaFloat };

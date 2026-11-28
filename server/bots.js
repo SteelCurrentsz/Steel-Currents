@@ -27,7 +27,7 @@ import {
   fireGuns, fireTorpedoes, fireMissile, launchStrike, leadPoint, solveBallistic, useRepair,
   useSmoke, canFire, steerToward, sonarContact, assignedReady, submerged, layMine,
   torpedoVisible, assignMount, mountBears, manGun, layGun, lightMounts, aaBattery,
-  applyInput, gunsDrowned, directParties, shipClass,
+  applyInput, gunsDrowned, directParties, shipClass, hasCrane, craneFor, HOIST_SPEED, oneWay,
 } from '../shared/sim.js';
 import { stationPoint } from './command.js';
 import { setLamp } from '../shared/searchlights.js';
@@ -228,6 +228,30 @@ function fireAssigned(state, ship, brain, cls, what) {
 }
 
 export function stepBot(state, ship, brain, dt, conned = false, staff = null) {
+  stepCaptain(state, ship, brain, dt, conned, staff);
+  if (!conned) easeForCrane(state, ship);
+}
+
+/** How near one of her side's seaplanes has to be for her to ease down for it, metres. */
+const CRANE_EASE = 3500;
+
+/**
+ * A ship with a crane, and one of her own side's seaplanes down on the water
+ * beside her or coming down to be picked up: she rings down to a speed the
+ * crane can work at, and holds it until the seaplane is aboard. Whatever else
+ * her captain wanted, he gets his scout back first.
+ */
+function easeForCrane(state, ship) {
+  if (!ship.alive || !hasCrane(ship)) return;
+  const waiting = state.planes.some((p) => !p.dead && p.team === ship.team
+    && (p.afloat || (p.phase === 'alight' && p.craneId === ship.id))
+    && Math.hypot(p.x - ship.x, p.z - ship.z) < CRANE_EASE
+    && (p.hoist ? p.hoist.ship === ship.id : craneFor(state, p) === ship));
+  if (!waiting) return;
+  ship.notch = Math.min(ship.notch ?? 5, (ship.speed || 0) > HOIST_SPEED * 0.8 ? 1 : 2);
+}
+
+function stepCaptain(state, ship, brain, dt, conned = false, staff = null) {
   if (!ship.alive) return;
   const cls = shipClass(ship);
   // Monster One has a mind of her own, and it is not a ship captain's.
@@ -460,7 +484,21 @@ function flyOff(state, ship, cls, staff, conned) {
       if (d < bestD) { bestD = d; mark = q; }
     }
   }
-  if (!mark || dist(ship.x, ship.z, mark.x, mark.z) >= reach) return;
+  if (!mark || dist(ship.x, ship.z, mark.x, mark.z) >= reach) {
+    // Nothing of theirs in sight, and a scout fuelled and on her catapult:
+    // she goes out ahead of the ship to look. That is what she is for, and
+    // now that she comes back to be craned in (see stepAfloatPlane) she can
+    // be sent again and again.
+    if (oneWay(cls.planes) && (ship.squadrons || []).some((sq) => sq.state === 'deck' && !(sq.cooldown > 0))) {
+      const out = cls.planes.strikeRange * 0.6;
+      const saveAimX = ship.aimX, saveAimZ = ship.aimZ;
+      ship.aimX = ship.x + Math.sin(ship.heading) * out;
+      ship.aimZ = ship.z + Math.cos(ship.heading) * out;
+      launchStrike(state, ship);
+      ship.aimX = saveAimX; ship.aimZ = saveAimZ;
+    }
+    return;
+  }
   const p = leadPoint(ship.x, ship.z, mark, cls.planes.cruiseSpeed);
   // Inside what launchStrike will accept.
   const d = dist(ship.x, ship.z, p.x, p.z);

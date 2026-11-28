@@ -14,6 +14,7 @@ import {
   G, rollRate, rollTau, pitchTau, pitchRate, stallSpeed,
   thrust, drag, brakeDrag, clFor, alphaFor, wrapAngle, hovers,
 } from './aero.js';
+import { isSeaplane, alightFault, stepAfloat } from './alight.js';
 
 /** How much livelier a player's aeroplane is than her book figures. */
 export const AGILITY = 2.0;
@@ -66,9 +67,19 @@ export function holdG(cb) {
  */
 export class Pilot {
   constructor(aero, {
-    x = 0, y = 300, z = 0, heading = 0, speed = null, agility = AGILITY,
+    x = 0, y = 300, z = 0, heading = 0, speed = null, agility = AGILITY, kind = null, afloat = false,
   } = {}) {
     this.a = aero;
+    // Which machine she is, and whether she can come down on the water: a
+    // seaplane meeting the sea the right way alights on it rather than going
+    // into it (see shared/alight.js), and sits on it, taxis on it and gets
+    // off it again under the same stick and throttle.
+    this.kind = kind;
+    this.floats = isSeaplane(kind);
+    this.afloat = this.floats && !!afloat;
+    // What she did wrong, if she went into the sea when she could have put
+    // down on it: the pilot is told.
+    this.fault = null;
     // How much livelier than her book figures she is under a player's hands.
     // A dogfight on a touch screen is fought at arm's length through an
     // instructor, and an aeroplane that answers at exactly her real roll and
@@ -226,6 +237,8 @@ export class Pilot {
 
   /** The angle her nose stands off her flight path, toward her lift. */
   attitudeAlpha() {
+    // Sitting on her floats with her tail down a little.
+    if (this.afloat) return 0.04;
     const g = this.gSeen ?? this.g;
     const a = alphaFor(this.a, this.v, Math.max(0.2, Math.abs(g)));
     // Past the stall the wing has let go, and she stops flying at an angle of
@@ -241,6 +254,51 @@ export class Pilot {
     // wherever she is putting it, not hanging off her path.
     if (this.rotorBorne()) return 0;
     return a * (1 - 0.7 * this.stall) * sign;
+  }
+
+  /** Down on the water and sitting on it, level, on her heading. */
+  settle(seaAt) {
+    this.afloat = true;
+    this.y = seaAt - 0.1;
+    this.pitch = 0; this.bank = 0; this.roll = 0;
+    this.g = 1; this.gSeen = 1; this.stall = 0;
+    this.F = null;
+    this.frame();
+  }
+
+  /**
+   * A moment on the water: she taxis on her throttle and turns on her water
+   * rudder -- the stick's turn, rolled or trodden -- and with enough way on
+   * her and her nose pulled up she flies off it.
+   */
+  waterStep(s, seaAt, solid) {
+    const st = { v: this.v, heading: this.heading };
+    const rudder = Math.max(-1, Math.min(1, this.stickYaw + this.stickRoll));
+    const up = stepAfloat(this.kind, st, { throttle: this.throttle, rudder, off: this.stickPitch > 0.2, dt: s });
+    const x0 = this.x, y0 = this.y, z0 = this.z;
+    this.v = st.v;
+    this.heading = st.heading;
+    this.x += Math.sin(this.heading) * this.v * s;
+    this.z += Math.cos(this.heading) * this.v * s;
+    this.y = seaAt - 0.1;
+    this.pitch = 0; this.bank = 0; this.roll = 0;
+    this.g = 1; this.gSeen = 1; this.stall = 0;
+    // Taxied up a beach or into a harbour wall.
+    const hit = solid ? solid(x0, y0 + 0.5, z0, this.x, this.y + 0.5, this.z) : null;
+    if (hit) {
+      this.x = hit.x; this.z = hit.z;
+      this.alive = false;
+      this.struck = hit;
+      return;
+    }
+    if (up) {
+      // Unstuck: off the step and climbing, clear of the water.
+      this.afloat = false;
+      this.y = seaAt + 0.6;
+      this.pitch = 0.07;
+    }
+    this.F = null;
+    this.frame();
   }
 
   /**
@@ -266,6 +324,7 @@ export class Pilot {
    */
   substep(s, seaAt, solid = null) {
     const a = this.a;
+    if (this.afloat) { this.waterStep(s, seaAt, solid); return; }
     if (this.rotorBorne()) { this.rotorStep(s, seaAt, solid); return; }
     this.frame();
     const F = this.F, U = this.U;
@@ -402,9 +461,19 @@ export class Pilot {
       this.angles();
       return;
     }
+    // A seaplane meeting it the way a seaplane should is down on it: see
+    // shared/alight.js. Her floats are her lowest point, so she meets it
+    // with them and not with a couple of metres of air under her.
+    if (this.floats && this.y < seaAt + 0.3) {
+      const vy = F.y * this.v + gy;
+      this.angles();
+      const fault = alightFault(this.kind, { v: this.v, vy, pitch: this.pitch, bank: this.bank });
+      if (!fault) { this.settle(seaAt); return; }
+      this.fault = fault;
+    }
     // The sea is hard.
-    if (this.y < seaAt + 2) {
-      this.y = seaAt + 2;
+    if (this.y < seaAt + (this.floats ? 0.3 : 2)) {
+      this.y = seaAt + (this.floats ? 0.3 : 2);
       if (F.y < 0) { F.y = 0; orthonormal(F, U); }
       this.alive = false;
     }

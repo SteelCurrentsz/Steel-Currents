@@ -84,6 +84,13 @@ const LATE_EVENTS = new Set([
   // in the air a hundred metres short of her, with the shell still on its way.
   'hit',
 ]);
+// What a pilot did wrong putting a seaplane down (see shared/alight.js).
+const SEA_FAULT = {
+  'dropped in': 'Crashed — came down too hard: settle her on gently',
+  'too fast': 'Crashed — too fast onto the water: slow her nearly to the stall',
+  'wing in': 'Crashed — a wing down: put her on wings level',
+  'nose in': 'Crashed — nose in: hold her nose up as she touches',
+};
 // What the batsman saw, for a captain watching one of his own go round.
 const WAVE_OFF = {
   launch: 'Aircraft waved off — launch on deck',
@@ -4899,6 +4906,47 @@ export class Battle {
           v.group.userData.launch?.(this.deckClock(v), ev.r, ev.d, ev.k, ev.n, ev.ld);
           break;
         }
+        case 'alighted':
+          // Down on the water: a little spray off her floats as she settles.
+          fx.splash(ev.x, ev.z, 60, { kind: 'bow' });
+          if (ev.team === this.team && !(this.flight && this.flight.id === ev.i)) this.hud.ribbon('SEAPLANE DOWN ON THE WATER');
+          break;
+        case 'seaTakeoff':
+          fx.splash(ev.x, ev.z, 50, { kind: 'bow' });
+          break;
+        case 'hoisting':
+          if (ev.ship === this.shipId) { this.hud.alert('Seaplane alongside — crane hooked on'); this.hud.ribbon('SEAPLANE ALONGSIDE — CRANE HOOKED ON'); }
+          else if (this.flight && this.flight.id === ev.i) {
+            // The crane has her: the pilot is back on his bridge, and she is
+            // drawn going up the ship's side off the plot.
+            this.hud.alert('Hooked on — she is being hoisted in');
+            this.hud.ribbon('HOOKED ON — HOISTING IN');
+            this.leaveFlight();
+          }
+          break;
+        case 'hoisted': {
+          // Swung in and on her cradle: the crane ship's catapult has her again.
+          const v = this.scene.shipViews.get(ev.ship);
+          if (v && v.group.userData.recover) {
+            this.recallDeckPlane(v);
+            v.group.userData.recover(this.deckClock(v), ev.r, ev.k);
+          }
+          if (this.flight && this.flight.id === ev.i) this.leaveFlight(true);
+          if (ev.ship === this.shipId) {
+            this.hud.alert(ev.own ? 'Seaplane hoisted in — refuelling and rearming' : 'Seaplane hoisted in — she is ours now, refuelling and rearming');
+            this.hud.ribbon(ev.own ? 'SEAPLANE ABOARD — REARMING' : 'SEAPLANE TAKEN ABOARD AS OURS — REARMING');
+          }
+          break;
+        }
+        case 'planeSunk':
+          // Run down or swamped where she lay: no fire, no explosion -- she
+          // goes over and under in a burst of spray.
+          fx.splash(ev.x, ev.z, 140, { kind: 'bow' });
+          if (ev.team === this.team) {
+            this.hud.alert(ev.why === 'rammed' ? 'Seaplane run down on the water' : 'Seaplane wrecked on the water');
+            this.hud.ribbon(ev.why === 'rammed' ? 'SEAPLANE RUN DOWN' : 'SEAPLANE WRECKED ON THE WATER', 'cit');
+          }
+          break;
         case 'trap': {
           // One of hers down on the deck. The flight the simulation flew up
           // the wake and onto the round-down is gone from the plot this
@@ -6528,7 +6576,10 @@ export class Battle {
       load: flightLoad(pl, role),
       pilot: new Pilot(aero, {
         x: pl.x, y: this.planeHeight(pl), z: pl.z, heading: pl.h,
-        speed: aero.vMax * 0.72,
+        // A seaplane taken over where she lies on the water starts there,
+        // with the way she has on her.
+        speed: pl.af ? (pl.s || 0) : aero.vMax * 0.72,
+        kind, afloat: !!pl.af,
       }),
       // Which ship she came off, for the pilot's own corner: a captain may be
       // flying one of another ship's aircraft now.
@@ -7451,7 +7502,15 @@ export class Battle {
           x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10, h: Math.round(p.heading * 1000) / 1000,
           y: into ? Math.round((p.y - 0.5) * 10) / 10 : -1,
           p: Math.round((p.pitch || 0) * 1000) / 1000, v: Math.round(p.v),
+          // Broken up on the water: the simulation does not get to decide
+          // she alighted after all.
+          cr: 1,
         });
+      }
+      // A seaplane that could have put down here, and was put down wrong.
+      if (p.fault) {
+        this.hud.alert(SEA_FAULT[p.fault] || 'Crashed on alighting');
+        this.hud.ribbon((SEA_FAULT[p.fault] || 'Crashed on alighting').toUpperCase(), 'cit');
       }
       this.leaveFlight(true, true);
       return;
@@ -7524,6 +7583,18 @@ export class Battle {
       this.hud.setFlyMissiles(true, rackLabel(f.rack));
     }
 
+    // Down on the water, or off it again: the pilot is told what he can do.
+    if (!f.heavy && p.afloat !== !!f.wasAfloat) {
+      if (p.afloat) {
+        this.hud.alert('Down on the water — taxi alongside a ship with a crane and stop to be hoisted in, or open up and pull back to take off');
+        this.hud.ribbon('ON THE WATER — STOP ALONGSIDE A CRANE SHIP');
+        this.hud.ribbon('OPEN UP AND PULL BACK TO TAKE OFF', 'miss');
+      } else if (f.wasAfloat !== undefined) {
+        this.hud.alert('Off the water');
+        this.hud.ribbon('AIRBORNE');
+      }
+      f.wasAfloat = p.afloat;
+    }
     f.sent -= dt;
     if (f.sent <= 0) {
       f.sent = 0.1;
@@ -7554,6 +7625,8 @@ export class Battle {
         // And how far her dive brakes are out, which the simulation steadies
         // her aim by and everybody else's screen draws on her wings.
         br: p.brakes > 0 ? Math.round(p.brakes * 100) / 100 : undefined,
+        // Sitting on the water, by her own cockpit's account (see flyPlane).
+        fl: p.afloat ? 1 : undefined,
       });
     }
     this.hud.paintCockpit({ v: p.v, y: p.y, g: p.g, stall: p.stall, armed: f.armed });
@@ -10639,6 +10712,9 @@ export class Battle {
    * the scene takes her over instead of dropping through twenty metres of air.
    */
   planeHeight(pl) {
+    // A seaplane down on the water rides the swell, whatever height the
+    // simulation keeps for her.
+    if (pl.af && !pl.hk && this.scene?.ocean?.heightAt) return this.scene.ocean.heightAt(pl.x, pl.z) - 0.1;
     // She has a height, and the simulation flies her to it. It used to be
     // worked out here from how long she had been up, which meant every
     // aeroplane in the game climbed at the same rate to the same altitude
