@@ -1085,66 +1085,59 @@ export class Effects {
    * bottom is almost incidental, and it is over in a second.
    */
   magazine(x, y, z, scale = 1) {
-    // A magazine is drawn the way every other blast now is, only bigger: a
-    // dull flash, a ragged mass of black soot spreading out low across the
-    // water, cold wreckage falling out of it, and the column.
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+    // The same grim burst as every other blast now (see explosion and
+    // burstRemains), only a ship's worth of it: a dull flash, a cluster of
+    // ragged heads gone to black soot almost at once, cold wreckage flung up
+    // out of it, and the column standing over the place afterwards. No
+    // glowing base surge, no burning trails, and nothing so big it fills the
+    // screen with overdraw for seconds on end -- which is where the lag was.
     const s = scale;
-    this.flash(x, y + 14 * s, z, 2 * s);
-    // The base of it, rolling out low across the water: the same ragged
-    // black soot as every other blast, not a wall of glowing fire. Thrown out
-    // on a sphere flattened by the sea, because the water will not let it
-    // expand downwards and it goes sideways instead. The ball proper is the
-    // scene's (see magazineBurst).
-    const N = Math.round(44 * Math.min(1.4, this.intensity));
-    for (let i = 0; i < N; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const up = Math.random();
-      const out = 26 + Math.random() * 74;
-      const rise = up * up * 22;
-      const g = 0.05 + Math.random() * 0.1;
+    const e = Math.min(9, 4 * s);
+    this.flash(x, y + 6 * s, z, Math.min(3, 1.2 * s));
+    if (this.bursts) {
+      this.bursts.blast(x, y + e, z, {
+        size: 4 + 5.5 * e,
+        duration: Math.min(1.8, 0.5 + 0.3 * e),
+        debris: 0, light: false, plume: false, ring: false,
+        linger: 1.15, power: 1, grim: 1,
+      });
+      // More heads round it and a beat behind, going off one after another
+      // up the length of what went: a cluster, not a ball.
+      for (let i = 0; i < 3; i++) {
+        const d = this.sphere(0.35);
+        const off = (2 + Math.random() * 2.5) * e;
+        const bx = x + d.x * off, by = y + e + Math.abs(d.y) * off, bz = z + d.z * off;
+        this.later(0.05 + i * 0.08 + Math.random() * 0.08, () => this.bursts?.blast(bx, by, bz, {
+          size: (2.4 + 3.4 * e) * (0.6 + Math.random() * 0.25),
+          duration: Math.min(1.5, 0.45 + 0.25 * e),
+          debris: 0, light: false, plume: false, ring: false, linger: 1.15,
+          power: 0.6, grim: 1,
+        }));
+      }
+    }
+    // Her plating and fittings thrown up out of it and falling cold, and the
+    // black smoke climbing off it.
+    this.burstRemains(x, y + 2 * s, z, Math.min(2.2, 1.6 * s));
+    // And the column, standing over the place long after the noise has gone:
+    // the part seen from the other end of the map. Few, large, slow sprites.
+    const W = this.wind || WIND;
+    const C = Math.round(14 * Math.min(1.2, this.intensity));
+    for (let i = 0; i < C; i++) {
+      const up = i / C;
+      const g = 0.06 + Math.random() * 0.08 + up * 0.06;
       this.spawn({
-        x: x + Math.cos(a) * out * 0.5 * s,
-        y: y + 4 + rise * 0.5 * s,
-        z: z + Math.sin(a) * out * 0.5 * s,
-        vx: Math.cos(a) * (18 + Math.random() * 30) * s,
-        vy: 5 + rise * 0.5 + Math.random() * 12,
-        vz: Math.sin(a) * (18 + Math.random() * 30) * s,
-        size: (13 + Math.random() * 17) * s,
-        grow: (22 + Math.random() * 28) * s,
-        ttl: 2 + Math.random() * 2.5,
-        billow: true, drag: 0.5, lift: 1.5,
+        x: x + (Math.random() - 0.5) * (14 + up * 40) * s,
+        y: y + 8 + up * 120 * s,
+        z: z + (Math.random() - 0.5) * (14 + up * 40) * s,
+        vy: 10 + (1 - up) * 16, vx: (Math.random() - 0.5) * 6 + W.x * 0.8,
+        vz: (Math.random() - 0.5) * 6 + W.z * 0.8,
+        size: (14 + up * 26) * s, grow: 14 * s,
+        ttl: 14 + up * 10, drag: 0.12, billow: true, lift: 2.4,
+        spin: (Math.random() - 0.5) * 0.15,
         color: TMP_COLOR.setRGB(g, g, g * 1.03).getHex(),
-        cool: TMP_COLOR.setRGB(g + 0.15, g + 0.15, g + 0.16).getHex(),
-        opacity: 0.85,
-      });
-    }
-    // Her plating and fittings, thrown up out of it and falling cold, and
-    // the black smoke climbing off it.
-    this.burstRemains(x, y + 4 * s, z, 2.2 * s);
-    // And the column, standing over the place afterwards. It goes up out of
-    // the middle of the fireball and keeps going long after the fire is out,
-    // which is the part you see from the other end of the map.
-    for (let i = 0; i < 34; i++) {
-      const up = i / 34;
-      this.spawn({
-        x: x + (Math.random() - 0.5) * (30 + up * 90) * s,
-        y: y + 10 + up * 230 * s,
-        z: z + (Math.random() - 0.5) * (30 + up * 90) * s,
-        vy: 20 + (1 - up) * 30, vx: (Math.random() - 0.5) * 10,
-        vz: (Math.random() - 0.5) * 10,
-        size: (30 + up * 54) * s, grow: 34 * s,
-        ttl: 22 + up * 18, drag: 0.12, billow: true, lift: 3.4,
-        color: up < 0.3 ? 0x151312 : 0x2c2724,
-        opacity: 0.9 - up * 0.25,
-      });
-    }
-    // Smoke lying on the water round her, from everything that came down.
-    for (let i = 0; i < 10; i++) {
-      this.spawn({
-        x: x + (Math.random() - 0.5) * 180 * s, y: 5 + Math.random() * 18,
-        z: z + (Math.random() - 0.5) * 180 * s,
-        vy: 3, size: 46 * s, grow: 34, ttl: 22, drag: 0.25, billow: true, lift: 0.8,
-        color: 0x231f1c, opacity: 0.62,
+        cool: TMP_COLOR.setRGB(g + 0.14, g + 0.14, g + 0.15).getHex(),
+        opacity: 0.82 - up * 0.2,
       });
     }
   }

@@ -10,7 +10,7 @@ import {
   commandBattery, pinBattery, layBattery, triggerBattery, trainBattery, orderAttack, driveTank, tankGround,
   callEscort, canCallEscort,
   fireMissile, retargetMissile, setAegisAuto, CODE_MISSILE, fireLocked, dropChaff,
- dockShip, undock, baseBomber,
+ dockShip, castOffShip, baseBomber,
 } from '../shared/sim.js';
 import { BATTERIES } from '../shared/batteries.js';
 import { generateWorld, MAP_PRESETS } from '../shared/world.js';
@@ -35,9 +35,10 @@ const LOBBY_COUNTDOWN = 12;     // seconds a public lobby holds open for others
 // How much faster than life a battle may be run. A battle with one captain in
 // it is his to hurry along; one with two is nobody's, so it runs at one.
 export const MAX_TIME_SCALE = 5;
-// And how much slower: a director filming a staged battle may run it at a
-// quarter of life, or stop it dead, to line a shot up.
-export const SLOW_TIME_SCALES = [0, 0.25, 0.5];
+// And how much slower: a captain alone in his battle may watch it at three
+// quarters, half or a quarter of life, and a director filming a staged battle
+// may also stop it dead, to line a shot up.
+export const SLOW_TIME_SCALES = [0, 0.25, 0.5, 0.75];
 
 let roomSeq = 1;
 
@@ -588,9 +589,9 @@ export class Room {
     // with two aboard, one cannot hurry the other's battle along.
     if (msg.t === 'warp') {
       const asked = Number(msg.s);
-      // Below one is a director's, for slow motion and for stopping the action
-      // while a shot is lined up; anyone else is offered whole multiples.
-      const slow = player.director && SLOW_TIME_SCALES.includes(asked);
+      // Below one is slow motion, anyone's; stopping the action dead while a
+      // shot is lined up is a director's alone. Faster is whole multiples.
+      const slow = SLOW_TIME_SCALES.includes(asked) && (asked > 0 || !!player.director);
       const want = slow ? asked : Math.round(asked);
       const s = this.players.size <= 1 && Number.isFinite(want)
         ? (slow ? want : Math.max(1, Math.min(MAX_TIME_SCALE, want))) : 1;
@@ -611,7 +612,10 @@ export class Room {
       const ids = Array.isArray(msg.ids) ? msg.ids.slice(0, 16) : [];
       // A squadron's heavies, named apart from its carrier flights.
       const bids = Array.isArray(msg.bids) ? msg.bids.slice(0, 16) : [];
-      const gid = setGroup(this.state, ship.team, msg.k, ids, !!msg.split, bids);
+      // Either side's: the plot is a director's table, and the enemy's line
+      // may be formed into fleets and squadrons as well as his own.
+      const team = (msg.tm === 0 || msg.tm === 1) ? msg.tm : ship.team;
+      const gid = setGroup(this.state, team, msg.k, ids, !!msg.split, bids);
       player.send({ t: 'grouped', k: msg.k, g: gid, split: msg.split ? 1 : 0 });
       return;
     }
@@ -627,7 +631,7 @@ export class Room {
       return;
     }
     if (msg.t === 'vector') {
-      vectorFlight(this.state, ship.team, msg.i, Number(msg.x), Number(msg.z),
+      vectorFlight(this.state, (msg.tm === 0 || msg.tm === 1) ? msg.tm : ship.team, msg.i, Number(msg.x), Number(msg.z),
         msg.k === 'bomber' ? 'bomber' : 'plane');
       return;
     }
@@ -723,7 +727,7 @@ export class Room {
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
         if (!target || !target.alive) break;
         // A ship of a fleet takes the rest of it with her. See fleetCourse.
-        const fleet = target.fleet && target.team === ship.team;
+        const fleet = !!target.fleet;
         // No point given is the order cancelled: she holds what she is on.
         if (!Number.isFinite(msg.x) || !Number.isFinite(msg.z)) {
           for (const s of fleet ? membersOf(this.state, 'ship', target.fleet) : [target]) {
@@ -757,7 +761,7 @@ export class Room {
           ? this.state.ships.find((s) => s.id === msg.ship) : ship;
         if (!target || !target.alive) break;
         // A fleet rings up the same revolutions together.
-        const all = target.fleet && target.team === ship.team
+        const all = target.fleet
           ? membersOf(this.state, 'ship', target.fleet) : [target];
         for (const s of all) {
           applyInput(s, { notch: msg.notch });
@@ -875,7 +879,8 @@ export class Room {
       }
       case 'undock': {
         const to = this.conned(ship, msg);
-        if (to && undock(this.state, to) && to.notch === 1) to.notch = 2;
+        // Alongside, the tugs take her off first (see castOffShip).
+        if (to && castOffShip(this.state, to) && to.notch === 1) to.notch = 2;
         break;
       }
       // One of her damage control parties sent to a job, or stood down.

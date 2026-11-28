@@ -22,14 +22,20 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { packDataFile } from './pack-data.mjs';
+import { packData, packDataFile } from './pack-data.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPLIT = process.argv.includes('--split');
 const out = (...p) => path.join(ROOT, 'build', ...p);
 const HULLS = path.join(ROOT, 'client/js/render');
 // A data file bigger than this, unpacked, is packed tighter (see below).
-const SHUFFLE_OVER = Number(process.env.SHUFFLE_OVER || 12e6);
+const SHUFFLE_OVER = Number(process.env.SHUFFLE_OVER || 4e6);
+// A data file whose packed strings come to less than this keeps them in its
+// own module, base64, rather than in a file beside it: the host holds a
+// version to so many files, and a few kilobytes is not worth one of them.
+// The small aeroplanes go inline too: with the seaplanes in, a file each
+// took the build past the five hundred and eleven its host will hold.
+const INLINE_UNDER = Number(process.env.INLINE_UNDER || 230e3);
 
 // Split, the ships fetched on demand (see loadShips in ships.js) are chunks of
 // their own beside the page, so the page does not wait on their hulls: the
@@ -168,7 +174,8 @@ if (!SPLIT) {
     const bin = f.replace(/\.js$/, '.wasm');
     // The biggest hulls packed tighter (pack-data.mjs, shuffled): what keeps
     // the whole build inside what its host will hold for one version.
-    const { module, bytes } = packDataFile(src, bin, { shuffle: src.length > SHUFFLE_OVER });
+    let { module, bytes } = packDataFile(src, bin, { shuffle: src.length > SHUFFLE_OVER });
+    if (bytes && bytes.length < INLINE_UNDER) { module = packData(src); bytes = null; }
     fs.writeFileSync(out('split', f), module);
     if (bytes) { fs.writeFileSync(out('split', bin), bytes); bins.set(f, bin); }
     const size = module.length + (bytes ? bytes.length : 0);

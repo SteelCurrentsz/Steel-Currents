@@ -71,9 +71,11 @@
   <div class="title-menus">
     <nav class="menu menu-left">
       <button class="menu-item" data-action="multiplayer">Multiplayer Battle</button>
+      <button class="menu-item" data-action="campaign">Campaign</button>
       <button class="menu-item" data-action="arcade">Arcade Battle</button>
       <button class="menu-item" data-action="pvp">Staged Battle</button>
       <button class="menu-item" data-action="custom">Custom Battle</button>
+      <button class="menu-item" data-action="tutorial">Tutorial</button>
     </nav>
     <nav class="menu menu-right">
       <button class="menu-item" data-action="premium">Premium Equipment</button>
@@ -640,6 +642,30 @@
       <p class="credit">"<a href="https://skfb.ly/pNoyx" target="_blank" rel="noopener">uss Ranger wows</a>"
         by zeek is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pBFBZ" target="_blank" rel="noopener">IJN Tosa Free Model (1920 Japanese Battleship)</a>"
+        by Mixmamo.studio: An effortless 3D collections. is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/oHuvz" target="_blank" rel="noopener">The Third Reich Navy large cruiser FRITHJOF</a>"
+        by 全斗焕 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pKArr" target="_blank" rel="noopener">Project 82 "Stalingrad" battlecruiser model</a>"
+        by Lanko Mykhailo is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/6WYUF" target="_blank" rel="noopener">Gato Sub</a>"
+        by AcesWild1965 is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pLHuN" target="_blank" rel="noopener">IJN Akizuki (War Thunder)</a>"
+        by KojfDiscord is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pLH9n" target="_blank" rel="noopener">Arkhangelsk (War Thunder)</a>"
+        by KojfDiscord is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pEsIV" target="_blank" rel="noopener">HMS Fiji (War Thunder) Line Of Contact</a>"
+        by KojfDiscord is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pOtYP" target="_blank" rel="noopener">HMS Lion (War Thunder) Sky Odyssey</a>"
+        by KojfDiscord is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/oP7AS" target="_blank" rel="noopener">USS California</a>"
         by HappySunpore is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
@@ -856,6 +882,9 @@
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/oAXAL" target="_blank" rel="noopener">M4A2 Sherman</a>"
         by barking_dogo is licensed under
+        <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
+      <p class="credit">"<a href="https://skfb.ly/pqLs9" target="_blank" rel="noopener">Tiger I</a>"
+        by JUSTGAME is licensed under
         <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution</a>.</p>
       <p class="credit">"<a href="https://skfb.ly/owIX6" target="_blank" rel="noopener">US Marine Landing Craft Utility</a>"
         by LM3D is licensed under
@@ -1287,6 +1316,12 @@
       <b class="warp-n" id="time-warp-n">1&times;</b>
       <span>SPEED</span>
     </button>
+    <!-- And slower: pressed round from three quarters to half to a quarter of
+         life, and back to life. The whole action, as with the speed key. -->
+    <button class="conn-key" id="time-slow" type="button" aria-label="Slow motion">
+      <b class="warp-n" id="time-slow-n">1&times;</b>
+      <span>SLOW</span>
+    </button>
   </div>
 
   <!-- The big plot: the chart table, in the middle of the screen where a
@@ -1360,6 +1395,54 @@
     <button class="gun-leave" id="sol-leave" type="button">Leave soldier</button>
   </div>
   <div class="sol-blood" id="sol-blood" aria-hidden="true"></div>
+  <!-- Down among it, with a soldier or a tank in hand: the dark at the
+       edges, being shot at, dirt thrown over the view, a bad wound, which way
+       a hit came from, and a word when one of his goes down. See immersion.js. -->
+  <div class="cc-fx" id="cc-fx" aria-hidden="true">
+    <div class="cc-vig"></div>
+    <div class="cc-supp"></div>
+    <div class="cc-dirt"></div>
+    <div class="cc-hurt"></div>
+    <div class="cc-dmg" id="cc-dmg"></div>
+    <div class="cc-pop" id="cc-pop"></div>
+  </div>
+  <!-- The tank gunner's sight: a German TZF's triangles or an American
+       telescope's mil scale, round the edge of the glass. -->
+  <div class="tank-optic" id="tank-optic" data-kind="m70" hidden aria-hidden="true">
+    <svg viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet">
+      <g class="tzf">
+        <path d="M0 0 L-6 11 L6 11 Z" />
+        <path d="M-18 0 L-22 7 L-14 7 Z M18 0 L14 7 L22 7 Z M-36 0 L-40 7 L-32 7 Z M36 0 L32 7 L40 7 Z M-54 0 L-58 7 L-50 7 Z M54 0 L50 7 L58 7 Z" />
+        <path class="thin" d="M-70 0 L-62 0 M62 0 L70 0 M0 22 L0 70" />
+        <path class="thin" d="M-40 -62 A 74 74 0 0 1 40 -62" fill="none" />
+        <g class="ticks">
+          <path class="thin" d="M-40 -62 l-2 -5 M-20 -69 l-1 -5 M0 -72 l0 -6 M20 -69 l1 -5 M40 -62 l2 -5" />
+          <text x="-44" y="-70">0</text><text x="-22" y="-77">4</text><text x="0" y="-80">8</text><text x="22" y="-77">12</text><text x="44" y="-70">16</text>
+        </g>
+      </g>
+      <g class="m70">
+        <path class="thin" d="M0 -70 L0 -3 M0 3 L0 70 M-70 0 L-3 0 M3 0 L70 0" />
+        <path class="thin" d="M-10 8 L10 8 M-6 16 L6 16 M-10 24 L10 24 M-6 32 L6 32 M-10 40 L10 40 M-6 48 L6 48" />
+        <path class="thin" d="M-16 -2 L-16 2 M-32 -3 L-32 3 M-48 -2 L-48 2 M16 -2 L16 2 M32 -3 L32 3 M48 -2 L48 2" />
+        <text x="14" y="10">4</text><text x="14" y="26">8</text><text x="14" y="42">12</text>
+      </g>
+    </svg>
+    <p class="tank-optic-range"><span id="tank-optic-range">0</span> m</p>
+  </div>
+  <!-- A tank's instruments: speed and gear, the hull under the turret, the loader. -->
+  <div class="tank-hud" id="tank-hud" hidden aria-hidden="true">
+    <svg class="tank-pose" viewBox="0 0 100 100">
+      <g id="tank-hull"><rect x="36" y="26" width="28" height="50" rx="3" /><rect class="tr" x="31" y="24" width="6" height="54" rx="2" /><rect class="tr" x="63" y="24" width="6" height="54" rx="2" /></g>
+      <g id="tank-turret"><circle cx="50" cy="52" r="10" /><rect x="48.2" y="12" width="3.6" height="32" rx="1" /></g>
+      <path class="fov" d="M50 52 L36 8 M50 52 L64 8" />
+    </svg>
+    <div class="tank-dials">
+      <p class="tank-spd"><b id="tank-speed">0</b><span>km/h</span></p>
+      <p class="tank-gear">Gear <b id="tank-gear">N</b></p>
+      <div class="tank-loadbar"><i id="tank-load"></i></div>
+      <p class="tank-load-lab" id="tank-load-lab">Ready</p>
+    </div>
+  </div>
   <!-- At the guns of a battery ashore. The view is the sight: drag it, and
        the guns are laid on whatever is under the crosshair -- a ship by name,
        anything else as a point -- and fired on the key. A ship, a town or a

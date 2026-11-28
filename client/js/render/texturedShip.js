@@ -37,11 +37,16 @@ export function faceProjected(g) {
   const col = g.attributes.color ? g.attributes.color.array : null;
   const idx = g.index.array;
   const nv = pos.length / 3;
-  const P = Array.from(pos), N = Array.from(nrm), C = col ? Array.from(col) : null;
-  const axis = new Int8Array(nv).fill(-1);
-  const twin = new Map();
-  const I = new Array(idx.length);
-  const A = [];
+  // In typed arrays throughout, not arrays pushed to a point at a time: the
+  // biggest hulls are a million points, and boxed into plain arrays and
+  // copied back out again they were the best part of a second of her build.
+  // Each point's projection (1 where none has claimed it), each twin made
+  // for a point under another projection, and which point each twin is of,
+  // in the order they were made -- the same order the arrays were pushed in.
+  const A = new Int8Array(nv).fill(-1);
+  const twin = new Int32Array(nv * 3).fill(-1);
+  let src = new Int32Array(1024), srcAx = new Int8Array(1024), extra = 0;
+  const I = new Uint32Array(idx.length);
   for (let t = 0; t < idx.length; t += 3) {
     const a = idx[t], b = idx[t + 1], c = idx[t + 2];
     const ux = pos[b * 3] - pos[a * 3], uy = pos[b * 3 + 1] - pos[a * 3 + 1], uz = pos[b * 3 + 2] - pos[a * 3 + 2];
@@ -51,34 +56,44 @@ export function faceProjected(g) {
     const ax = ny >= nx && ny >= nz ? 1 : nx >= nz ? 0 : 2;
     for (let k = 0; k < 3; k++) {
       const v = idx[t + k];
-      if (axis[v] < 0) { axis[v] = ax; A[v] = ax; I[t + k] = v; continue; }
-      if (axis[v] === ax) { I[t + k] = v; continue; }
+      if (A[v] < 0) { A[v] = ax; I[t + k] = v; continue; }
+      if (A[v] === ax) { I[t + k] = v; continue; }
       const key = v * 3 + ax;
-      let w = twin.get(key);
-      if (w === undefined) {
-        w = P.length / 3;
-        twin.set(key, w);
-        P.push(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]);
-        N.push(nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
-        if (C) C.push(col[v * 3], col[v * 3 + 1], col[v * 3 + 2]);
-        A[w] = ax;
+      let w = twin[key];
+      if (w < 0) {
+        if (extra === src.length) {
+          const s2 = new Int32Array(src.length * 2); s2.set(src); src = s2;
+          const a2 = new Int8Array(srcAx.length * 2); a2.set(srcAx); srcAx = a2;
+        }
+        w = nv + extra;
+        twin[key] = w;
+        src[extra] = v;
+        srcAx[extra++] = ax;
       }
       I[t + k] = w;
     }
   }
-  const n = P.length / 3;
+  const n = nv + extra;
+  const P = new Float32Array(n * 3), N = new Float32Array(n * 3), C = col ? new Uint8Array(n * 3) : null;
+  P.set(pos); N.set(nrm); if (C) C.set(col);
+  for (let e = 0; e < extra; e++) {
+    const v = src[e] * 3, w = (nv + e) * 3;
+    P[w] = pos[v]; P[w + 1] = pos[v + 1]; P[w + 2] = pos[v + 2];
+    N[w] = nrm[v]; N[w + 1] = nrm[v + 1]; N[w + 2] = nrm[v + 2];
+    if (C) { C[w] = col[v]; C[w + 1] = col[v + 1]; C[w + 2] = col[v + 2]; }
+  }
   const uv = new Float32Array(n * 2);
   for (let i = 0; i < n; i++) {
     const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
-    const ax = A[i] ?? 1;
+    const ax = i < nv ? (A[i] < 0 ? 1 : A[i]) : srcAx[i - nv];
     if (ax === 1) { uv[i * 2] = x; uv[i * 2 + 1] = z; } else if (ax === 0) { uv[i * 2] = z; uv[i * 2 + 1] = y; } else { uv[i * 2] = x; uv[i * 2 + 1] = y; }
   }
   const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(P), 3));
-  out.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(N), 3));
-  if (C) out.setAttribute('color', new THREE.BufferAttribute(Uint8Array.from(C), 3, true));
+  out.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  if (C) out.setAttribute('color', new THREE.BufferAttribute(C, 3, true));
   out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  out.setIndex(new THREE.BufferAttribute(n > 65535 ? Uint32Array.from(I) : Uint16Array.from(I), 1));
+  out.setIndex(new THREE.BufferAttribute(n > 65535 ? I : Uint16Array.from(I), 1));
   out.userData = { ...g.userData, faceUv: true };
   g.dispose();
   return out;

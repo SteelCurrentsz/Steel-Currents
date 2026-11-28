@@ -663,6 +663,9 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
       // The custom briefing, under arcade rules: see Briefing.setMode.
       case 'arcade': briefing.setMode('arcade'); show('custom'); briefing.show(); break;
       case 'custom': briefing.setMode('custom'); show('custom'); briefing.show(); break;
+      // Placeholders on the title menu: neither is in the game yet.
+      case 'campaign': toast('Campaign is coming soon.'); break;
+      case 'tutorial': toast('Tutorial is coming soon.'); break;
       case 'options': show('options'); break;
       case 'credits': show('credits'); break;
       case 'premium': show('premium'); break;

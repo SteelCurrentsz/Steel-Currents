@@ -380,6 +380,7 @@ class HudBase {
       shellCam: $('shell-cam'),
       timeWarp: $('time-warp'),
       timeWarpN: $('time-warp-n'),
+      timeSlow: $('time-slow'), timeSlowN: $('time-slow-n'),
       targetLine: $('target-line'),
       connKeys: $('conn-keys'), connPanel: $('conn-panel'),
       connTitle: $('conn-panel-title'), connSub: $('conn-panel-sub'),
@@ -698,7 +699,7 @@ class HudBase {
     if (what) {
       what.textContent = n
         ? `${n} ${noun} picked${nb ? ` (${nb} heavy)` : ''} · ${pick.kind === 'plane' ? 'squadron' : 'fleet'}`
-        : 'Tap your own ships, flights or bombers';
+        : 'Tap ships, flights or bombers, yours or the enemy\'s';
     }
     const form = document.getElementById('group-form');
     const split = document.getElementById('group-split');
@@ -1248,7 +1249,7 @@ class HudBase {
     if (rep) rep.textContent = DC_ORDER[stage];
     set('smoke', `×${own.smk ?? 0}`,
       own.sm === 1 ? 'active' : (own.smk ?? 0) > 0 ? 'ready' : 'spent');
-    set('dock', own.dk === 2 ? 'FAST' : own.dk === 3 ? 'OFF' : own.dk === 1 ? 'IN' : 'GO', own.dk ? 'active' : 'ready');
+    set('dock', own.dk === 2 ? 'FAST' : own.dk === 3 ? 'OFF' : own.dk === 1 || own.dk === 4 ? 'IN' : 'GO', own.dk ? 'active' : 'ready');
     const dsp = this.acts.dock && this.acts.dock.querySelector('span');
     if (dsp) dsp.textContent = own.dk ? 'Cast off (K)' : 'Dock (K)';
     this.paintParties(own);
@@ -2899,14 +2900,28 @@ class HudBase {
   setTimeWarp(scale) {
     const el = this.el.timeWarp;
     if (!el) return;
-    if (this.el.timeWarpN) this.el.timeWarpN.textContent = `${scale}\u00d7`;
+    const fast = scale >= 1 ? scale : 1;
+    if (this.el.timeWarpN) this.el.timeWarpN.textContent = `${fast}\u00d7`;
     el.classList.toggle('on', scale > 1);
     el.title = scale > 1 ? `Running at ${scale}\u00d7 speed` : 'Speed up time';
+    // The slow key shows the slow motion, and one when there is none.
+    const slow = this.el.timeSlow;
+    if (slow) {
+      const k = scale < 1 ? scale : 1;
+      if (this.el.timeSlowN) this.el.timeSlowN.textContent = `${k}\u00d7`;
+      slow.classList.toggle('on', scale < 1);
+      slow.title = scale < 1 ? `Slow motion: ${scale}\u00d7 speed` : 'Slow motion';
+    }
   }
 
   /** What the speed key does when it is pressed. */
   bindTimeWarp(fn) {
     if (this.el.timeWarp) this.el.timeWarp.onclick = () => fn();
+  }
+
+  /** What the slow key does when it is pressed. */
+  bindTimeSlow(fn) {
+    if (this.el.timeSlow) this.el.timeSlow.onclick = () => fn();
   }
 
   setTarget(t) {
@@ -3438,8 +3453,9 @@ class HudBase {
         ctx.restore();
       }
       // Her fleet, beside her, so a captain can see which ships go together.
-      if (s.fg && s.tm === this.team) {
-        ctx.fillStyle = '#6fd3a0';
+      // The enemy's fleets too, in red, once any have been formed.
+      if (s.fg) {
+        ctx.fillStyle = s.tm === this.team ? '#6fd3a0' : '#e0786a';
         ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -3495,8 +3511,8 @@ class HudBase {
       }
       ctx.restore();
       // Her squadron, and where it has been sent.
-      if (pl.wg && pl.tm === this.team) {
-        ctx.fillStyle = '#6fd3a0';
+      if (pl.wg) {
+        ctx.fillStyle = pl.tm === this.team ? '#6fd3a0' : '#e0786a';
         ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -3590,8 +3606,8 @@ class HudBase {
       }
       // Her squadron, where it has been sent, and whether she is picked for
       // one -- the same three marks a carrier flight gets.
-      if (bm.wg && bm.tm === this.team) {
-        ctx.fillStyle = '#6fd3a0';
+      if (bm.wg) {
+        ctx.fillStyle = bm.tm === this.team ? '#6fd3a0' : '#e0786a';
         ctx.font = `${Math.round(9 * k)}px ui-monospace, monospace`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -3757,7 +3773,7 @@ export class Hud extends HudBase {
     // buttons over.
     const el = this.el || {};
     const own = [document.getElementById('btn-leave'), el.port, el.flyDrop, el.flyLeave,
-      el.flyArms, el.flyBombCam, el.flyTake, el.gunSeat, el.shellCam, el.timeWarp, ...Object.values(this.keys || {})];
+      el.flyArms, el.flyBombCam, el.flyTake, el.gunSeat, el.shellCam, el.timeWarp, el.timeSlow, ...Object.values(this.keys || {})];
     for (const n of own) if (n) n.onclick = null;
     clearTimeout(this.portTimer);
     if (el.port) { el.port.hidden = true; el.port.classList.remove('arm'); }

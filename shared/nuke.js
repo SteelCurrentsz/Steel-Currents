@@ -69,6 +69,15 @@ export const NUKE = {
   // high at the burst, and still ten or so three miles out.
   waveHigh: 45,
   waveFall: 3600,
+  /**
+   * In the lee of high ground: how much of the blast still gets to a ship or
+   * a gun with a hill between it and the burst. The shock bends over the top
+   * and comes down behind it, but a good deal weaker. Inside `lethal` there is
+   * no lee: the fireball and the air it throws out go over everything.
+   */
+  lee: 0.25,
+  /** How high over the ground the burst stands, for the lee: see stepNukes. */
+  leeHeight: 15,
 };
 
 /**
@@ -208,4 +217,26 @@ export function burstSea(bursts, x, z, time, out) {
     if (r > 1e-3) { out.gx += SW.dr * dx / r; out.gz += SW.dr * dz / r; }
   }
   return out;
+}
+
+/**
+ * Where the ground first stands up across the straight line from (ax, ay, az)
+ * to (bx, by, bz), or null if nothing does: the hill an island puts between a
+ * burst and a ship in its lee, or the hillside a beam runs into short of what
+ * it was sent at. `ground(x, z)` is the height of the ground there. `skip`
+ * leaves out that far of the line from its start -- the spoil round a
+ * burst's own crater is not a hill in the way of it.
+ */
+export function groundAcross(ground, ax, ay, az, bx, by, bz, skip = 0, step = 30) {
+  const d = Math.hypot(bx - ax, bz - az);
+  if (d <= skip) return null;
+  const n = Math.max(2, Math.ceil(d / step));
+  for (let i = 1; i < n; i++) {
+    const f = i / n;
+    if (f * d < skip) continue;
+    const x = ax + (bx - ax) * f, z = az + (bz - az) * f;
+    const g = ground(x, z);
+    if (g > ay + (by - ay) * f) return { x, z, y: g, f };
+  }
+  return null;
 }

@@ -112,10 +112,18 @@ export class Audio {
     comp.connect(this.master);
     this.sfx = ctx.createGain();
     this.sfx.gain.value = 0.85;
-    this.sfx.connect(comp);
+    // A shell bursting close by stuns the ear: everything goes dull and far
+    // away for a moment and comes back (see deafen). Wide open the rest of
+    // the time, and the ambience goes through it too.
+    this.muffle = ctx.createBiquadFilter();
+    this.muffle.type = 'lowpass';
+    this.muffle.frequency.value = 20000;
+    this.muffle.Q.value = 0.6;
+    this.muffle.connect(comp);
+    this.sfx.connect(this.muffle);
     this.amb = ctx.createGain();
     this.amb.gain.value = 1;
-    this.amb.connect(comp);
+    this.amb.connect(this.muffle);
     this.startBuilding();
     return ctx;
   }
@@ -652,6 +660,329 @@ export class Audio {
     g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
     osc.connect(g).connect(this.master);
     osc.start(when); osc.stop(when + dur + 0.05);
+  }
+
+  // ------------------------------------------------------- close quarters ----
+  //
+  // The noises of a man on the ground and a crew in a tank, made here as they
+  // are wanted: they are short, there are a great many of them, and each is
+  // a little different from the last, which a bank of takes cannot be.
+
+  /** A second of white noise, made once and shared by every burst below. */
+  noiseBuf() {
+    const ctx = this.ensure(); if (!ctx) return null;
+    if (this.noise) return this.noise;
+    const n = ctx.sampleRate;
+    const buf = ctx.createBuffer(1, n, n);
+    const d = buf.getChannelData(0);
+    let b = 0;
+    for (let i = 0; i < n; i++) {
+      // A little brown in it, so a low-passed burst still has a body.
+      const w = Math.random() * 2 - 1;
+      b = (b + 0.02 * w) / 1.02;
+      d[i] = w * 0.7 + b * 3.5;
+    }
+    this.noise = buf;
+    return buf;
+  }
+
+  /**
+   * A burst of filtered noise: `f` and `q` the band, `dur` how long it rings,
+   * `gain` how loud, `at` where (null at the ear). The building block of a
+   * footstep, a bullet's crack, a bolt going home.
+   */
+  burst({ f = 1000, q = 1, type = 'bandpass', dur = 0.08, gain = 0.3, at = null, ref = 20, after = 0, attack = 0.002, rate = 1 } = {}) {
+    const ctx = this.ensure(); if (!ctx) return;
+    const buf = this.noiseBuf(); if (!buf) return;
+    if (this.voices >= MAX_VOICES) return;
+    const h = this.hear(at, ref);
+    if (!h) return;
+    const g = span(gain * h.g, 0, 2, 0);
+    if (g < 0.002) return;
+    try {
+      const when = ctx.currentTime + 0.005 + h.delay + span(after, 0, 10, 0);
+      const d = span(dur, 0.005, 4, 0.08);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = span(rate, 0.1, 4, 1);
+      const bp = ctx.createBiquadFilter();
+      bp.type = type;
+      bp.frequency.value = span(Math.min(f, h.fc), 20, 20000, 1000);
+      bp.Q.value = span(q, 0.05, 40, 1);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, when);
+      env.gain.exponentialRampToValueAtTime(Math.max(0.0002, g), when + span(attack, 0.001, 1, 0.002));
+      env.gain.exponentialRampToValueAtTime(0.0001, when + d);
+      let tail = src.connect(bp).connect(env);
+      if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = h.pan; tail = tail.connect(p); }
+      tail.connect(this.sfx);
+      this.voices++;
+      src.onended = () => { this.voices--; try { src.disconnect(); bp.disconnect(); env.disconnect(); } catch { /* gone */ } };
+      src.start(when, Math.random() * 0.8);
+      src.stop(when + d + 0.05);
+    } catch { /* not heard */ }
+  }
+
+  /** A low thump at the ear or at `at`: the body of a footfall, a hatch, a gun. */
+  thump(f0, f1, dur, gain, at = null, ref = 20, after = 0) {
+    const ctx = this.ensure(); if (!ctx) return;
+    const h = this.hear(at, ref);
+    if (!h) return;
+    const g = span(gain * h.g, 0, 1, 0);
+    if (g < 0.002) return;
+    const when = ctx.currentTime + 0.005 + h.delay + span(after, 0, 10, 0);
+    dur = span(dur, 0.01, 4, 0.1);
+    try {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(span(f0, 15, 4000, 80), when);
+      osc.frequency.exponentialRampToValueAtTime(span(f1, 15, 4000, 40), when + dur);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, when);
+      env.gain.exponentialRampToValueAtTime(Math.max(0.0002, g), when + 0.006);
+      env.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      osc.connect(env).connect(this.sfx);
+      osc.start(when); osc.stop(when + dur + 0.05);
+    } catch { /* not heard */ }
+  }
+
+  /** One footfall of the man in hand: grit and a heel, heavier at the run. */
+  footstep(k = 1, wet = false) {
+    const v = span(k, 0.2, 1.6, 1);
+    this.burst({ f: wet ? 700 : 1500 + Math.random() * 900, q: 0.9, dur: 0.07 + 0.04 * v, gain: 0.09 * v, type: 'bandpass' });
+    this.burst({ f: 380, q: 0.7, dur: 0.05, gain: 0.07 * v, type: 'lowpass' });
+    this.thump(95, 50, 0.08, 0.12 * v);
+    // His kit: a canteen and webbing, now and then.
+    if (Math.random() < 0.3) this.burst({ f: 3200, q: 4, dur: 0.05, gain: 0.025 * v, after: 0.03 });
+  }
+
+  /** Coming down off a jump: boots and everything he carries landing at once. */
+  landing(k = 1) {
+    this.burst({ f: 900, q: 0.6, dur: 0.16, gain: 0.18 * k });
+    this.thump(80, 35, 0.16, 0.25 * k);
+    this.burst({ f: 3000, q: 3, dur: 0.08, gain: 0.04 * k, after: 0.04 });
+  }
+
+  /**
+   * A round going past the man in hand: a supersonic crack right at the
+   * ear, sharp as a whip and gone, and a thin whine after it for the near
+   * ones. `near` 0 (four metres off) to 1 (past his ear); `side` -1 left to 1 right.
+   */
+  crack(near = 0.5, side = 0) {
+    const ctx = this.ensure(); if (!ctx) return;
+    const k = span(near, 0, 1, 0.5);
+    const at = { x: this.ear.x + this.ear.rx * side * 3, y: this.ear.y, z: this.ear.z + this.ear.rz * side * 3 };
+    this.burst({ f: 3800, q: 0.7, type: 'highpass', dur: 0.025, gain: 0.35 + 0.45 * k, at, ref: 6 });
+    this.burst({ f: 1800, q: 2, dur: 0.05, gain: 0.12 + 0.2 * k, at, ref: 6, after: 0.004 });
+    if (k > 0.45) this.tone(ctx.currentTime + 0.01, 0.22, { f0: 2400 + Math.random() * 900, f1: 700, gain: 0.03 + 0.04 * k, type: 'sine' });
+  }
+
+  /** A round striking close to him: the snap of it into dirt or stone. */
+  impactNear(at, hard = false) {
+    this.burst({ f: hard ? 2600 : 1100, q: 1.4, dur: hard ? 0.06 : 0.09, gain: 0.25, at, ref: 6 });
+    if (hard && Math.random() < 0.5) this.tone((this.ctx?.currentTime || 0) + 0.02, 0.3, { f0: 3100, f1: 1400, gain: 0.025, type: 'triangle' });
+  }
+
+  /**
+   * Your own rifle, and the country answering it: the report off the hills
+   * and the houses a beat later, dull and long.
+   */
+  rifleEcho() {
+    this.play('rifle', null, { level: 0.16, rate: 0.7, dull: 9, after: 0.28 + Math.random() * 0.15 });
+    this.play('rifle', null, { level: 0.08, rate: 0.6, dull: 14, after: 0.7 + Math.random() * 0.3 });
+    // And the action working: the bolt carrier back and home.
+    this.burst({ f: 2600, q: 5, dur: 0.03, gain: 0.06, after: 0.07 });
+    this.burst({ f: 1900, q: 6, dur: 0.03, gain: 0.05, after: 0.11 });
+  }
+
+  /** The reload, as he does it: the clip into the magazine, his thumb clear, the bolt slamming home. */
+  reloadSounds() {
+    this.burst({ f: 1400, q: 3, dur: 0.05, gain: 0.08, after: 0.25 });
+    this.burst({ f: 2200, q: 6, dur: 0.04, gain: 0.1, after: 0.9 });
+    this.thump(220, 120, 0.05, 0.08, null, 20, 0.92);
+    this.burst({ f: 3000, q: 5, dur: 0.05, gain: 0.12, after: 1.45 });
+    this.thump(160, 90, 0.07, 0.12, null, 20, 1.47);
+  }
+
+  /** Cloth and kit as he gets up or goes down, or swings his rifle up. */
+  rustle(k = 1) {
+    this.burst({ f: 2400, q: 0.5, dur: 0.18, gain: 0.03 * k, attack: 0.05 });
+  }
+
+  /** His heart, when he is badly hurt. */
+  heartbeat(k = 1) {
+    const g = span(k, 0, 1, 0.5);
+    this.thump(62, 40, 0.13, 0.32 * g);
+    this.thump(55, 38, 0.12, 0.22 * g, null, 20, 0.2);
+  }
+
+  /**
+   * The ear stunned by a burst close by: `k` 0..1, how badly. Everything is
+   * dulled almost to nothing and comes back over a few seconds, with a
+   * ringing in it for the worst of them.
+   */
+  deafen(k = 0.5) {
+    const ctx = this.ensure(); if (!ctx || !this.muffle) return;
+    const s = span(k, 0, 1, 0.5);
+    if (s < 0.05) return;
+    const now = ctx.currentTime;
+    const f = this.muffle.frequency;
+    const low = 18000 * Math.pow(1 - s, 2.4) + 280;
+    try {
+      f.cancelScheduledValues(now);
+      f.setValueAtTime(Math.max(low, Math.min(20000, f.value)), now);
+      f.exponentialRampToValueAtTime(low, now + 0.03);
+      f.setTargetAtTime(20000, now + 0.4 + s * 1.2, 0.6 + s * 1.4);
+    } catch { /* left as it was */ }
+    if (s > 0.55 && (!this.ringUntil || now > this.ringUntil)) {
+      this.ringUntil = now + 2;
+      try {
+        const o = ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = 3600 + Math.random() * 900;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(0.05 * s, now + 0.08);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 2.5 + s * 2);
+        // The ringing is inside the head: it does not go through the muffle.
+        o.connect(g).connect(this.master);
+        o.start(now); o.stop(now + 5);
+      } catch { /* not heard */ }
+    }
+  }
+
+  /**
+   * The tank's own gun, heard from inside her turret: the slam of it through
+   * the whole hull, the breech coming back, and the shot rolling away over
+   * the country after it.
+   */
+  tankGunOwn(cal = 75) {
+    const big = span((cal - 50) / 60, 0, 1, 0.4);
+    this.play('gunMedium', null, { level: 0.95 + 0.3 * big, rate: 0.82 - 0.12 * big });
+    this.play('gunHeavy', null, { level: 0.5, rate: 1.1, dull: 3 });
+    this.thump(70 - 20 * big, 26, 0.5, 0.6);
+    this.burst({ f: 700, q: 0.5, type: 'lowpass', dur: 0.4, gain: 0.35 });
+    // The breech and the spent case on the turret floor.
+    this.burst({ f: 1800, q: 4, dur: 0.06, gain: 0.12, after: 0.18 });
+    this.tone((this.ctx?.currentTime || 0) + 0.55, 0.5, { f0: 1300, f1: 1100, gain: 0.04, type: 'triangle' });
+    // The echo off the land.
+    this.play('boomLarge', null, { level: 0.22, rate: 0.6, dull: 8, after: 0.6 + Math.random() * 0.3 });
+    this.play('boomSmall', null, { level: 0.14, rate: 0.55, dull: 12, after: 1.4 + Math.random() * 0.4 });
+  }
+
+  /** A round of the loader's going into the breech, and the block closing on it. */
+  tankLoaded() {
+    this.burst({ f: 900, q: 2, dur: 0.08, gain: 0.12 });
+    this.burst({ f: 2500, q: 6, dur: 0.05, gain: 0.14, after: 0.22 });
+    this.thump(180, 90, 0.08, 0.14, null, 20, 0.23);
+  }
+
+  /** A round striking your own tank: the clang of it through the plate, and the spall. */
+  tankStruck(pen = false) {
+    this.play('clang', null, { level: pen ? 1.1 : 0.9, rate: 0.8 });
+    this.thump(55, 30, 0.4, 0.5);
+    if (pen) this.play('boomInside', null, { level: 0.7, rate: 1.1 });
+    this.deafen(pen ? 0.9 : 0.6);
+  }
+
+  /**
+   * The tank in hand's engine and tracks, every frame while it is driven:
+   * `speed` m/s, `throttle` -1..1, `turn` -1..1, `traverse` how hard the
+   * turret is slewing (0..1), `big` 0 for a medium, 1 for a heavy. A
+   * diesel's or a V12's beat that rises with the revs, the tracks' clatter
+   * keeping time with the speed, the squeal of the idlers on a turn, and
+   * the whine of the turret drive.
+   */
+  tankEngine({ speed = 0, throttle = 0, turn = 0, traverse = 0, big = 0 } = {}) {
+    const ctx = this.ensure(); if (!ctx) return;
+    const buf = this.noiseBuf(); if (!buf) return;
+    let e = this.engine;
+    const now = ctx.currentTime;
+    try {
+      if (!e) {
+        e = this.engine = {};
+        e.out = ctx.createGain(); e.out.gain.value = 0;
+        e.out.connect(this.sfx);
+        // The engine: two saws a hair apart for the beat, shaped by a
+        // low-pass that opens as the throttle does.
+        e.lp = ctx.createBiquadFilter(); e.lp.type = 'lowpass'; e.lp.Q.value = 2.5; e.lp.frequency.value = 220;
+        e.lp.connect(e.out);
+        e.o1 = ctx.createOscillator(); e.o1.type = 'sawtooth';
+        e.o2 = ctx.createOscillator(); e.o2.type = 'sawtooth';
+        e.o3 = ctx.createOscillator(); e.o3.type = 'square';
+        e.g1 = ctx.createGain(); e.g1.gain.value = 0.22;
+        e.g2 = ctx.createGain(); e.g2.gain.value = 0.18;
+        e.g3 = ctx.createGain(); e.g3.gain.value = 0.08;
+        e.o1.connect(e.g1).connect(e.lp); e.o2.connect(e.g2).connect(e.lp); e.o3.connect(e.g3).connect(e.lp);
+        // A firing beat over it: the cylinders, not a smooth hum.
+        e.am = ctx.createGain(); e.am.gain.value = 0.5;
+        e.lfo = ctx.createOscillator(); e.lfo.type = 'square'; e.lfo.frequency.value = 9;
+        e.lfoG = ctx.createGain(); e.lfoG.gain.value = 0.25;
+        e.lfo.connect(e.lfoG).connect(e.am.gain);
+        e.lp.disconnect(); e.lp.connect(e.am).connect(e.out);
+        // The tracks: noise through a band, chopped by the links going over the sprocket.
+        e.trk = ctx.createBufferSource(); e.trk.buffer = buf; e.trk.loop = true;
+        e.tbp = ctx.createBiquadFilter(); e.tbp.type = 'bandpass'; e.tbp.frequency.value = 900; e.tbp.Q.value = 1.3;
+        e.tg = ctx.createGain(); e.tg.gain.value = 0;
+        e.tch = ctx.createGain(); e.tch.gain.value = 0.5;
+        e.tlfo = ctx.createOscillator(); e.tlfo.type = 'sawtooth'; e.tlfo.frequency.value = 4;
+        e.tlfoG = ctx.createGain(); e.tlfoG.gain.value = 0.5;
+        e.tlfo.connect(e.tlfoG).connect(e.tch.gain);
+        e.trk.connect(e.tbp).connect(e.tch).connect(e.tg).connect(e.out);
+        // The rumble of the hull over the ground.
+        e.rum = ctx.createBufferSource(); e.rum.buffer = buf; e.rum.loop = true; e.rum.playbackRate.value = 0.5;
+        e.rlp = ctx.createBiquadFilter(); e.rlp.type = 'lowpass'; e.rlp.frequency.value = 120;
+        e.rg = ctx.createGain(); e.rg.gain.value = 0;
+        e.rum.connect(e.rlp).connect(e.rg).connect(e.out);
+        // The turret drive.
+        e.wh = ctx.createOscillator(); e.wh.type = 'triangle'; e.wh.frequency.value = 320;
+        e.whg = ctx.createGain(); e.whg.gain.value = 0;
+        e.wh.connect(e.whg).connect(e.out);
+        // The idlers squealing on a turn.
+        e.sq = ctx.createBufferSource(); e.sq.buffer = buf; e.sq.loop = true;
+        e.sqbp = ctx.createBiquadFilter(); e.sqbp.type = 'bandpass'; e.sqbp.frequency.value = 3200; e.sqbp.Q.value = 9;
+        e.sqg = ctx.createGain(); e.sqg.gain.value = 0;
+        e.sq.connect(e.sqbp).connect(e.sqg).connect(e.out);
+        for (const n of [e.o1, e.o2, e.o3, e.lfo, e.trk, e.tlfo, e.rum, e.wh, e.sq]) n.start(now, 0);
+        glide(e.out.gain, 1, now, 0.4);
+      }
+      const v = Math.abs(num(speed, 0));
+      const thr = Math.abs(num(throttle, 0));
+      const b = span(big, 0, 1, 0);
+      // The revs: idle, up with the throttle, up again with the speed in
+      // each gear and dropping back at every change.
+      const gear = Math.min(4, Math.floor(v / 2.6));
+      const inGear = (v - gear * 2.6) / 2.6;
+      const rpm = 0.18 + 0.45 * thr + 0.37 * span(inGear, 0, 1, 0) * Math.min(1, v / 1.2);
+      const base = (b ? 22 : 30) + rpm * (b ? 48 : 62);
+      glide(e.o1.frequency, base, now, 0.12);
+      glide(e.o2.frequency, base * 1.012, now, 0.12);
+      glide(e.o3.frequency, base * 0.5, now, 0.12);
+      glide(e.lfo.frequency, base * 0.33, now, 0.12);
+      glide(e.lp.frequency, 160 + rpm * 900, now, 0.15);
+      glide(e.g1.gain, 0.16 + rpm * 0.16, now, 0.15);
+      const tr = span(v / 8, 0, 1.2, 0);
+      glide(e.tg.gain, 0.24 * tr, now, 0.15);
+      glide(e.tlfo.frequency, 2 + v * 3.2, now, 0.15);
+      glide(e.tbp.frequency, 600 + v * 90, now, 0.2);
+      glide(e.rg.gain, 0.5 * tr + 0.06, now, 0.2);
+      glide(e.whg.gain, 0.035 * span(traverse, 0, 1, 0), now, 0.06);
+      glide(e.wh.frequency, 260 + 160 * span(traverse, 0, 1, 0), now, 0.1);
+      glide(e.sqg.gain, 0.05 * span(Math.abs(num(turn, 0)), 0, 1, 0) * Math.min(1, v / 2 + 0.3), now, 0.1);
+    } catch { /* not heard */ }
+  }
+
+  /** The tank's engine stopped: out of the tank, or knocked out. */
+  tankEngineOff() {
+    const e = this.engine;
+    if (!e || !this.ctx) return;
+    this.engine = null;
+    const now = this.ctx.currentTime;
+    try {
+      glide(e.out.gain, 0, now, 0.25);
+      for (const n of [e.o1, e.o2, e.o3, e.lfo, e.trk, e.tlfo, e.rum, e.wh, e.sq]) n.stop(now + 1.5);
+      setTimeout(() => { try { e.out.disconnect(); } catch { /* gone */ } }, 1800);
+    } catch { /* gone */ }
   }
 
   // --------------------------------------------------------------- ships ----

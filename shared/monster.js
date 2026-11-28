@@ -50,6 +50,7 @@
 //     she is left alone long enough. But she can be killed.
 import { clamp, dist, headingTo, angleDelta } from './math.js';
 import { getClass, CIVIL_SHIPS } from './ships.js';
+import { groundAcross } from './nuke.js';
 
 const shipClass = (ship) => getClass(ship.classId);
 
@@ -69,6 +70,9 @@ export const MONSTER = {
     min: 450,
     // Ten kilotons: a little under the B-29's sixteen.
     kt: 10,
+    // How high over the water her jaws are, standing, where the beam leaves
+    // her: what it has to clear to get over an island to what is behind it.
+    mouth: 85,
   },
   // Her breath from below (see stepUnder): how far off a ship can be for
   // her to go for her, how close under her keel she has to be -- a share of
@@ -851,6 +855,14 @@ function stepCharge(state, ship, m, dt, hooks) {
       const lead = 0.15 + d / B.speed;
       aim = { x: t.x + Math.sin(t.heading) * t.speed * lead, z: t.z + Math.cos(t.heading) * t.speed * lead };
     }
+    // It goes in a straight line, and a hill in the way of it is where it
+    // strikes: the beam does not go through an island to what is behind it.
+    if (hooks.ground) {
+      const ground = (x, z) => hooks.ground(state, x, z);
+      const mouth = Math.max(0, ground(ship.x, ship.z)) + B.mouth;
+      const hill = groundAcross(ground, ship.x, mouth, ship.z, aim.x, 6, aim.z, 60, 20);
+      if (hill) aim = { x: hill.x, z: hill.z };
+    }
     m.beam = { x: aim.x, z: aim.z, hitT: 0.15 + dist(ship.x, ship.z, aim.x, aim.z) / B.speed, hit: false };
     startAct(m, 'fire');
     m.cool = B.cooldown;
@@ -863,9 +875,12 @@ function stepFire(state, ship, m, dt, hooks) {
   m.charge = 1;
   m.glow = 1;
   // Up through a ship: the beam stays on her until it has gone through.
-  if (m.beam && m.beam.up && !m.beam.hit) {
+  // And she stays up on end under her keel until it is done.
+  if (m.beam && m.beam.up) {
     const t = state.ships.find((s) => s.id === m.beam.id && s.alive);
-    if (t) { m.beam.x = t.x; m.beam.z = t.z; }
+    if (t && !m.beam.hit) { m.beam.x = t.x; m.beam.z = t.z; }
+    if (t && !t.flung) keepUnder(ship, t, dt);
+    else { ship.speed = 0; ship.rudderCmd = 0; }
   }
   if (m.beam && !m.beam.hit && m.actT >= m.beam.hitT) {
     m.beam.hit = true;
@@ -878,7 +893,8 @@ function stepFire(state, ship, m, dt, hooks) {
       }
     }
     // Where it strikes: ten kilotons.
-    hooks.nukeBlast(state, m.beam.x, 0, m.beam.z, { team: ship.team, bomber: 0, monster: ship.id }, B.kt);
+    const gy = hooks.ground ? Math.max(0, hooks.ground(state, m.beam.x, m.beam.z)) : 0;
+    hooks.nukeBlast(state, m.beam.x, gy, m.beam.z, { team: ship.team, bomber: 0, monster: ship.id }, B.kt);
   }
   if (m.actT >= B.fire) {
     m.act = '';
@@ -909,12 +925,32 @@ function stepUnder(state, ship, m, dt, hooks) {
     return;
   }
   keepUnder(ship, t, dt);
-  const keel = Math.max(12, shipClass(t).hull.length * U.keel);
+  // Right in under her middle, not somewhere along her length: the breath
+  // goes up through the middle of her.
+  const keel = underKeel(t);
   if (dist(ship.x, ship.z, t.x, t.z) <= keel && ship.depth > MONSTER.deep * 0.5) {
     startAct(m, 'upcharge');
     m.charge = 0;
     state.events.push({ e: 'moCharge', ship: ship.id, tm: ship.team, x: Math.round(t.x), z: Math.round(t.z), up: 1 });
   }
+}
+
+/** How close under the ship's middle she has to be to breathe up through her. */
+export function underKeel(t) {
+  const h = shipClass(t).hull;
+  return Math.max(12, Math.min(h.length * MONSTER.under.keel, h.beam * 0.75));
+}
+
+/**
+ * Whether her captain's helm and telegraph are hers just now: not while she
+ * is going in under a ship, gathering her breath under her keel or
+ * breathing up through her. She steers herself there, and holds herself
+ * there, and a wheel put over on her bridge would only pull her out from
+ * under.
+ */
+export function monsterHelmHeld(ship) {
+  const m = ship && ship.mo;
+  return !!m && (m.act === 'under' || m.act === 'upcharge' || (m.act === 'fire' && !!m.beam && !!m.beam.up));
 }
 
 /**

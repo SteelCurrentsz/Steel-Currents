@@ -132,10 +132,18 @@ const SCULPTED = {
   kurfurst: () => import('./kurfurst.js').then((m) => { KRISS.kurfurst = m.buildKurfurst; }),
   hildebrand: () => import('./hildebrand.js').then((m) => { KRISS.hildebrand = m.buildHildebrand; }),
   beowulf: () => import('./beowulf.js').then((m) => { KRISS.beowulf = m.buildBeowulf; }),
+  frithjof: () => import('./frithjof.js').then((m) => { KRISS.frithjof = m.buildFrithjof; }),
+  stalingrad: () => import('./stalingrad.js').then((m) => { KRISS.stalingrad = m.buildStalingrad; }),
+  tosa: () => import('./tosa.js').then((m) => { KRISS.tosa = m.buildTosa; }),
   aki: () => import('./aki.js').then((m) => { KRISS.aki = m.buildAki; }),
   dido: () => import('./dido.js').then((m) => { KRISS.dido = m.buildDido; }),
   puertorico: () => import('./puertorico.js').then((m) => { KRISS.puertorico = m.buildPuertoRico; }),
   balao: () => import('./balao.js').then((m) => { KRISS.balao = m.buildBalao; }),
+  akizuki: () => import('./akizuki.js').then((m) => { KRISS.akizuki = m.buildAkizuki; }),
+  arkhangelsk: () => import('./arkhangelsk.js').then((m) => { KRISS.arkhangelsk = m.buildArkhangelsk; }),
+  fiji: () => import('./fiji.js').then((m) => { KRISS.fiji = m.buildFiji; }),
+  lion: () => import('./lion.js').then((m) => { KRISS.lion = m.buildLion; }),
+  gato: () => import('./gato.js').then((m) => { KRISS.gato = m.buildGato; }),
   // The Iowa, off the owner's model of her sister the Missouri (see
   // iowaModel.js); iowa.js, her hull lofted through her lines, is what she
   // was drawn as before.

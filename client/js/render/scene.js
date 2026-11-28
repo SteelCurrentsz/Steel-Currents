@@ -20,6 +20,7 @@ import { Contrails, GunFlashes } from './airfx.js';
 import { SmokeScreens } from './smokescreen.js';
 import { Heavies } from './heavies.js';
 import { Nukes } from './nuke.js';
+import { linkPending } from './linkwarm.js';
 import { Wake, WakeField } from './wakefield.js';
 import { OilField } from './oil.js';
 import { layMount, muzzleWorld, muzzleAim, glide } from './mounts.js';
@@ -2921,9 +2922,6 @@ export class BattleScene {
     // And an atomic bomb going off, which is nothing like anything else here.
     // See nuke.js.
     this.nukes = new Nukes(this.scene, this.effects);
-    // Its shaders compiled now, in the background, rather than in the frame
-    // the bomb goes off.
-    this.nukes.warm(this.renderer, this.camera);
     // And whatever is made in the middle of the battle -- a hull's torn faces
     // and insides, the pieces torn out of her -- compiled as it is made and
     // shown once it is ready, not built in the frame it is first drawn.
@@ -2957,6 +2955,11 @@ export class BattleScene {
     this.wakes?.warm?.(this.renderer);
     // And the oil a wreck leaves, which a burst makes a great deal of at once.
     this.oil?.warm?.(this.renderer);
+    // And the bomb's own shaders, now, in the background, rather than in the
+    // frame it goes off -- after every light the battle starts with is in,
+    // Monster One's included, because the lights are part of every shader
+    // (and compiled again if they change: see Nukes.update).
+    this.nukes.warm(this.renderer, this.camera);
 
     // The ship itself, in the air, when something big lets go: plating, deck
     // beams and ready-use rounds thrown up and out and falling back into the
@@ -3075,6 +3078,12 @@ export class BattleScene {
     v.lampsDue = lampPlanAsync(v, this.renderer).then((plan) => {
       if (v.disposed) return;
       try { v.lamps = new ShipLamps(v, plan, haze); } catch { v.lamps = null; }
+      // Fitted after her cut shaders may already have been compiled (see
+      // warmCuts): the lamps' own are compiled now, or a magazine blowing her
+      // apart compiled three of them in the frame it went up.
+      if (v.lamps && this.cutWarm && typeof window !== 'undefined') {
+        try { this.warmCuts([v]); } catch { /* compiled when first drawn */ }
+      }
     }, () => {});
     return v;
   }
@@ -3228,22 +3237,16 @@ export class BattleScene {
     this.effects.burstRemains?.(x, y, z, scale);
   }
 
-  /**
-   * A magazine going up: the fireball proper, boiling out over her in heads
-   * of fire and soot, with the column standing over it and burning wreckage
-   * thrown out of it on trails. The base surge and the smoke on the water are
-   * Effects.magazine's.
-   */
-  magazineBurst(x, y, z, scale = 1) {
-    this.bursts.blast(x, y, z, {
-      size: 62 * scale,
-      duration: 3.2,
-      debris: Math.round(140 * Math.min(1.5, this.q.particles)),
-      light: false,
-      ring: false,
-      power: 1,
-    });
+  /** Put off finishing compiled shaders (see linkPending) for `sec` seconds. */
+  holdLinks(sec) {
+    this.linkHold = Math.max(this.linkHold || 0, sec);
   }
+
+  /**
+   * A magazine going up. Drawn whole by Effects.magazine now, in the same
+   * grim burst as every other blast; kept so older callers need no change.
+   */
+  magazineBurst() {}
 
   removeBatteryView(id) {
     const v = this.batteryViews.get(id);
@@ -3292,6 +3295,16 @@ export class BattleScene {
     this.flak.update(dt, this.camera);
     this.bombs.update(dt, this.camera);
     this.nukes.update(dt, this.camera, this.ocean?.clock);
+    // The shaders compiled ahead of time and not yet drawn with, finished a
+    // little at a time while nothing much is happening, not in the frame they
+    // are first wanted (see linkwarm.js). Not while a burst is in its first
+    // violent seconds; but once it is only a cloud hanging there -- which is
+    // minutes -- the work goes on, or a second warhead found everything
+    // compiled since the first still to be linked as its shock got there.
+    // The same for a magazine going up: its seconds of fire are the worst
+    // moment for one of these to land in (see holdLinks).
+    if (this.linkHold > 0) this.linkHold = Math.max(0, this.linkHold - dt);
+    if (!this.nukes.busy && !(this.linkHold > 0)) linkPending(this.renderer);
     this.torpedoes.update(dt, this.torpsNow || []);
     this.missiles.update(this.missilesNow || [], dt);
     this.charges.update(dt, this.chargesNow || []);

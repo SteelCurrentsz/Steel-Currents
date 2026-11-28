@@ -43,7 +43,11 @@ function stamped(res) {
   headers.set(STAMP, OFFLINE.version);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
-const isData = (key) => /\.data\.js$/.test(key);
+// The module and the packed bytes beside it (`.data.wasm`, see
+// build/pack-data.mjs) alike: the module is a few kilobytes and the bytes are
+// the hull, so a store that answered only for the module still sent every
+// ship's megabytes down the line again.
+const isData = (key) => /\.data\.(js|wasm)$/.test(key);
 
 async function keep(cache, f) {
   const ctl = new AbortController();

@@ -209,12 +209,129 @@ export function cutMaterial(src, U) {
   return m;
 }
 
+/** A mesh with fewer triangles than this is drawn whole: see trimToCut. */
+const TRIM_MIN = 400;
+
+/**
+ * Only the triangles of `o` that can be on the kept side of the tear, as a
+ * geometry of its own sharing her vertices -- so a piece of her is not her
+ * whole model drawn with all but a slice of it thrown away pixel by pixel.
+ *
+ * A ship blown into seven pieces by an atomic burst was seven of her, every
+ * piece drawing her whole hull and casting all but its own length of it
+ * aside in the fragment shader: six or seven times her triangles and her
+ * pixels, for every ship near enough to the burst to be taken apart, for as
+ * long as the pieces were afloat. The tear wanders at most `jag` either way
+ * of where it is laid (see cutLine), so a triangle wholly further than that
+ * from what is kept cannot have a pixel of it drawn: those are left out, and
+ * what is drawn is what was drawn.
+ *
+ * `rel` is the mesh's own frame in the piece's (her own frame, where the
+ * tear is laid); `cache` keeps each geometry's triangles' reach along her for
+ * the other pieces of the same ship. Only a piece of her that is let go
+ * should have this done: it is never moved about on itself again, which a
+ * ship still afloat with her guns training and her radars turning would be.
+ *
+ * Not done in the frame she is blown apart, which has enough in it: the
+ * meshes are put on a list (see cutTree) and worked a little a frame by
+ * trimSome, each piece drawn whole until its turn comes.
+ */
+function trimToCut(o, rel, U, cache) {
+  // Gone before its turn came: nothing to give it.
+  let top = o;
+  while (top.parent) top = top.parent;
+  if (!top.isScene) return;
+  if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh) return;
+  const g = o.geometry;
+  const pos = g && g.attributes.position;
+  if (!pos || g.groups.length || Object.keys(g.morphAttributes).length) return;
+  if (g.drawRange.start !== 0 || g.drawRange.count !== Infinity) return;
+  const idx = g.index;
+  const nTri = Math.floor((idx ? idx.count : pos.count) / 3);
+  if (nTri < TRIM_MIN) return;
+  // What is kept, along her: the tear laid at z, give or take its jag, and a
+  // little over for rounding.
+  const jag = U.uCutJag.value + 0.5;
+  let lo = -Infinity, hi = Infinity;
+  if (U.uCutBand.value > 0.5) { lo = U.uCutZ.value - jag; hi = U.uCutZ2.value + jag; }
+  else if (U.uCutSide.value > 0) lo = U.uCutZ.value - jag;
+  else hi = U.uCutZ.value + jag;
+  const e = rel.elements;
+  const key = `${e[2].toFixed(5)},${e[6].toFixed(5)},${e[10].toFixed(5)},${e[14].toFixed(3)}`;
+  let per = cache.get(g);
+  if (!per) cache.set(g, per = new Map());
+  let zr = per.get(key);
+  // Straight off the arrays where they are plain ones, which is nearly
+  // always: through the accessors it was a tenth of a second a ship.
+  const ia = idx && !idx.isInterleavedBufferAttribute ? idx.array : null;
+  const corner = ia ? (k) => ia[k] : idx ? (k) => idx.getX(k) : (k) => k;
+  if (!zr) {
+    const zv = new Float32Array(pos.count);
+    const r2 = e[2], r6 = e[6], r10 = e[10], r14 = e[14];
+    if (!pos.isInterleavedBufferAttribute && !pos.normalized && pos.itemSize === 3) {
+      const pa = pos.array;
+      for (let i = 0, q = 0; i < pos.count; i++, q += 3) zv[i] = r2 * pa[q] + r6 * pa[q + 1] + r10 * pa[q + 2] + r14;
+    } else {
+      for (let i = 0; i < pos.count; i++) zv[i] = r2 * pos.getX(i) + r6 * pos.getY(i) + r10 * pos.getZ(i) + r14;
+    }
+    zr = new Float32Array(nTri * 2);
+    for (let t = 0, k = 0; t < nTri; t++, k += 3) {
+      const za = zv[corner(k)], zb = zv[corner(k + 1)], zc = zv[corner(k + 2)];
+      zr[t * 2] = za < zb ? (za < zc ? za : zc) : (zb < zc ? zb : zc);
+      zr[t * 2 + 1] = za > zb ? (za > zc ? za : zc) : (zb > zc ? zb : zc);
+    }
+    per.set(key, zr);
+  }
+  let n = 0;
+  for (let t = 0; t < nTri; t++) if (zr[t * 2 + 1] >= lo && zr[t * 2] <= hi) n++;
+  // Nearly all of it: not worth a geometry of its own.
+  if (n > nTri * 0.85) return;
+  const out = new (pos.count > 65535 ? Uint32Array : Uint16Array)(n * 3);
+  let j = 0;
+  for (let t = 0, k = 0; t < nTri; t++, k += 3) {
+    if (!(zr[t * 2 + 1] >= lo && zr[t * 2] <= hi)) continue;
+    out[j++] = corner(k);
+    out[j++] = corner(k + 1);
+    out[j++] = corner(k + 2);
+  }
+  const t2 = new THREE.BufferGeometry();
+  for (const k of Object.keys(g.attributes)) t2.setAttribute(k, g.attributes[k]);
+  t2.setIndex(new THREE.BufferAttribute(out, 1));
+  if (!g.boundingSphere) g.computeBoundingSphere();
+  t2.boundingSphere = g.boundingSphere.clone();
+  if (g.boundingBox) t2.boundingBox = g.boundingBox.clone();
+  t2.name = g.name;
+  o.geometry = t2;
+  o.userData.trimGeo = true;
+}
+
+/** A list of meshes to be cut down to their piece (see trimToCut), for one ship. */
+export function trimQueue() {
+  return { cache: new Map(), queue: [] };
+}
+
+/** Work a ship's list for `budget` milliseconds; true while there is more. */
+export function trimSome(trim, budget) {
+  if (!trim || !trim.queue.length) return false;
+  const t0 = performance.now();
+  do {
+    const { o, rel, U } = trim.queue.shift();
+    trimToCut(o, rel, U, trim.cache);
+  } while (trim.queue.length && performance.now() - t0 < budget);
+  if (!trim.queue.length) trim.cache.clear();
+  return trim.queue.length > 0;
+}
+
 /**
  * Put every material under `root` behind the tear. Anything that cannot be
  * cut is kept whole if it stands on this side of the tear and hidden if it
  * does not -- a searchlight's beam, mostly.
+ *
+ * With `trim` (see trimQueue: one for every piece of the one ship), each
+ * piece's meshes are put on its list to be cut down to the triangles that
+ * can show on it: see trimToCut, and only for a piece let go.
  */
-export function cutTree(root, U, inside, skip) {
+export function cutTree(root, U, inside, skip, trim = null) {
   const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
   const at = new THREE.Vector3();
   root.traverse((o) => {
@@ -230,6 +347,13 @@ export function cutTree(root, U, inside, skip) {
       o.material = Array.isArray(o.material) ? cut : cut[0];
       o.userData.ownMat = true;
       o.userData.cutMat = true;
+      if (trim && o.isMesh && !o.isInstancedMesh && !Array.isArray(o.material)) {
+        // Its frame in the piece's, from its own and its parents' matrices
+        // rather than their world ones, which a copy just made has not got.
+        const rel = o.matrix.clone();
+        for (let p = o.parent; p && p !== root; p = p.parent) rel.premultiply(p.matrix);
+        trim.queue.push({ o, rel, U });
+      }
       return;
     }
     for (const q of cut) q && q.dispose();
@@ -260,6 +384,15 @@ export function cloneTree(o) {
 /** Every material under `root` that this file made. */
 export function disposeCut(root) {
   root.traverse((o) => {
+    // A piece's own cut-down copy of a geometry (see trimToCut): only its
+    // list of triangles is its own; the vertices are still the ship's, and
+    // three gives back every buffer a geometry lists when it is disposed.
+    if (o.userData.trimGeo && o.geometry) {
+      const g = o.geometry, attrs = g.attributes;
+      g.attributes = {};
+      try { g.dispose(); } finally { g.attributes = attrs; }
+      o.userData.trimGeo = false;
+    }
     if (!o.userData.cutMat || !o.material) return;
     for (const q of Array.isArray(o.material) ? o.material : [o.material]) q.dispose();
   });

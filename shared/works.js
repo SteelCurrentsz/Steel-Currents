@@ -2980,9 +2980,12 @@ export function worksFloor(world, x, z) {
   }
   // And the larger furniture: nobody walks through a fountain's basin or a
   // telephone kiosk.
-  for (const p of plan.props) {
+  // Only the solid pieces, picked out once per town: a town has a thousand
+  // lamps, trees and cars, and this is asked for every man every frame.
+  const solid = plan.solidProps || (plan.solidProps = plan.props.filter((p) => SOLID[p.t]));
+  for (const p of solid) {
     const r = SOLID[p.t];
-    if (!r || Math.abs(p.u - u) > r || Math.abs(p.v - v) > r) continue;
+    if (Math.abs(p.u - u) > r || Math.abs(p.v - v) > r) continue;
     if (Math.hypot(p.u - u, p.v - v) < r) return { rise, blocked: true };
   }
   return { rise, blocked: false };

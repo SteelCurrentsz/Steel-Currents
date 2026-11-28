@@ -21,7 +21,7 @@ import * as THREE from '../../../vendor/three.module.js';
 import { BATTERIES } from '../../../shared/batteries.js';
 import { mergeStatic, mergeMoving } from './merge.js';
 import { buildRocket, M13 } from './rockets.js';
-import { buildSherman } from './vehicles.js';
+import { buildSherman, buildTiger } from './vehicles.js';
 
 // ------------------------------------------------------------- materials --
 
@@ -1845,6 +1845,7 @@ function buildKatyusha(g, b) {
 const BUILDERS = {
   // The tanks, off the owner's model (see vehicles.js).
   sherman: buildSherman,
+  tiger: buildTiger,
   flak88: buildFlak88,
   merville: buildMerville,
   longues: buildLongues,

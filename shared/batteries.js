@@ -255,7 +255,7 @@ export const BATTERIES = {
 // as it is rather than stretched across the battlefield.
 
 /** The tanks, in the order they are stepped through. */
-export const TANK_ORDER = ['sherman'];
+export const TANK_ORDER = ['sherman', 'tiger'];
 
 /** @type {Record<string, Battery & { tank: object }>} */
 export const TANKS = {
@@ -305,6 +305,48 @@ export const TANKS = {
       // Muzzle velocities: 619 m/s for the M61, 463 for the M48 on its normal charge.
       ap: { pen: 91, fade: 4800, fuseArm: 13, velocity: 619 },
       he: { pen: 14, velocity: 463 },
+    },
+  },
+  // The Tiger I, Panzerkampfwagen VI Ausf. E: Henschel's heavy tank, the
+  // 8.8 cm KwK 36 L/56 -- the gun of the Flak 18 and 36, put in a turret --
+  // behind a hundred millimetres of upright plate, on fifty-seven tons and
+  // a Maybach V12. Two MG 34s, one coaxial and one in the bow, and five men.
+  // Some thirteen hundred and fifty were built, from Tunisia to Normandy.
+  tiger: {
+    name: 'Tiger I',
+    place: 'Schwere Panzer-Abteilung · Tunisia to Normandy, 1942-45',
+    piece: '8.8 cm KwK 36 L/56',
+    caliber: 88, bore: '88 mm', barrels: 1,
+    calibers: 56,
+    targets: 'ships',
+    // Hydraulic traverse off the engine: right round in a minute at speed.
+    traverse: 360,
+    mount: 'Heavy tank, Maybach HL 230 V12',
+    // The front of the turret and the hull, both a hundred millimetres.
+    armour: 100,
+    weight: 57, reload: 8, range: 10000,
+    reach: 10000,
+    crew: 5, span: 8,
+    tank: {
+      // 45 km/h on a road, about twenty across country.
+      speed: 9,
+      reverse: 3,
+      accel: 1.5,
+      // Her Olvar gearbox and regenerative steering let her turn on the spot.
+      turn: 0.5,
+      pivot: 0.35,
+      // Without her snorkel kit: 1.6 m of water, as the later Tigers did.
+      wade: 1.6,
+      tons: 57,
+      length: 6.32, width: 3.73, height: 3.0,
+    },
+    // The PzGr. 39 armour-piercing capped, ballistic-capped round with its
+    // bursting charge: 120 mm of plate laid back thirty degrees at a hundred
+    // metres, about a hundred at a thousand; and the Sprgr. 18 high explosive.
+    ammo: {
+      // 773 m/s for the PzGr. 39, 820 for the Sprgr.
+      ap: { pen: 138, fade: 6500, fuseArm: 15, velocity: 773 },
+      he: { pen: 18, velocity: 820 },
     },
   },
 };

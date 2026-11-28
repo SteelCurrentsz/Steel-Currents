@@ -28,11 +28,12 @@ import { b29Ready, b29Geometries, b29Materials } from './render/b29Model.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { installTroops } from './troops.js';
+import { installImmersion } from './immersion.js';
 import { footing } from '../../shared/infantry.js';
 import { getSettings, setSettings, qualityName } from './settings.js';
 import { Director } from './director.js';
 import { SHIP_CLASSES, getClass, AIR_MISSILES } from '../../shared/ships.js';
-import { readMonsterWire, readLump, MONSTER } from '../../shared/monster.js';
+import { readMonsterWire, readLump, MONSTER, monsterHelmHeld } from '../../shared/monster.js';
 import { MonsterBar } from './monsterhud.js';
 import { stepLock, nextLock, lockLabel, rackLabel, hasRack } from './lockon.js';
 import {
@@ -125,6 +126,8 @@ function planeMap(snap) {
 }
 /** The fastest the battle may be run, in times as fast as life. See Room.timeScale. */
 const MAX_WARP = 5;
+/** And the slow motion a captain may watch it in, slowest last. See Room.SLOW_TIME_SCALES. */
+const SLOW_WARPS = [0.75, 0.5, 0.25];
 // The rate a director's stopped battle is drawn at. See onWarp.
 const PAUSED = 1e-4;
 
@@ -975,6 +978,11 @@ export class Battle {
     this.planeTurn = new Map();
     // And how far her nose is up, eased the same way. See syncEntities.
     this.planePitch = new Map();
+    // How hard each flight's wing is working, eased (see the pitch below), and
+    // when each one last went over from being drawn off her turn to being
+    // drawn off her real attitude.
+    this.planeLoad = new Map();
+    this.planeFlownAt = new Map();
     // A seaplane's drawn height as she goes onto or off the water: see seaEase.
     this.seaLift = new Map();
     // And what each has lost -- a wing panel, a tail -- which stays lost.
@@ -1147,6 +1155,8 @@ export class Battle {
     this.timeScale = 1;
     this.hud.setTimeWarp?.(1);
     this.hud.bindTimeWarp?.(() => this.cycleWarp());
+    // And the slow key beside that: three quarters, half and a quarter of life.
+    this.hud.bindTimeSlow?.(() => this.cycleSlow());
     this.hud.onToggleMap = () => this.toggleMap();
     // Fleets and squadrons, formed off the plot.
     this.hud.bindGrouping?.({
@@ -1172,6 +1182,7 @@ export class Battle {
     this.commandBat = null;
     // And the soldier, if any: see troops.js.
     this.bindTroops(mine);
+    this.bindImmersion();
     document.getElementById('bat-leave')?.addEventListener('click', () => this.leaveBattery(), mine);
     document.getElementById('bat-fire')?.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -1325,7 +1336,18 @@ export class Battle {
 
   /** Press the speed key: one, two, three, four, five times as fast, and round again. */
   cycleWarp() {
-    const next = (this.timeScale || 1) >= MAX_WARP ? 1 : (this.timeScale || 1) + 1;
+    const k = this.timeScale || 1;
+    // Out of slow motion it goes back to life first.
+    const next = k < 1 ? 1 : k >= MAX_WARP ? 1 : k + 1;
+    this.net.send({ t: 'warp', s: next });
+    audio.click();
+  }
+
+  /** Press the slow key: three quarters, half, a quarter of life, and back to life. */
+  cycleSlow() {
+    const k = this.timeScale || 1;
+    const at = SLOW_WARPS.indexOf(k);
+    const next = at < 0 ? SLOW_WARPS[0] : at === SLOW_WARPS.length - 1 ? 1 : SLOW_WARPS[at + 1];
     this.net.send({ t: 'warp', s: next });
     audio.click();
   }
@@ -1337,12 +1359,14 @@ export class Battle {
    * and then thrown forward to catch up.
    */
   onWarp(s) {
-    // A director runs it slow and stops it; a captain only hurries it along.
+    // A director runs it slow and stops it; a captain hurries it along or
+    // watches it in slow motion, but never stops it.
     // Stopped is kept as a crawl rather than nought, because a great deal of
     // the clock divides by it and reads nought as "not set".
+    const asked = Number(s);
     const k = this.director
-      ? Math.max(PAUSED, clamp(Number(s) || 0, 0, MAX_WARP))
-      : clamp(Math.round(Number(s) || 1), 1, MAX_WARP);
+      ? Math.max(PAUSED, clamp(asked || 0, 0, MAX_WARP))
+      : SLOW_WARPS.includes(asked) ? asked : clamp(Math.round(asked || 1), 1, MAX_WARP);
     this.director?.heard(k > PAUSED ? k : 0);
     if (k === this.timeScale) return;
     this.timeScale = k;
@@ -1398,7 +1422,9 @@ export class Battle {
       const dk = own.dk || 0;
       if (dk === 2 && (ls.dockSt || 0) !== 2) { ls.notch = 1; this.hud.setNotch?.(1); }
       ls.dockSt = dk;
-      ls.dock = dk === 2 ? { st: 'moored' } : dk === 3 ? { st: 'off' } : dk === 1 ? { st: 'approach' } : null;
+      // (On the tugs, in or out, she lies still under her own prediction:
+      // they move her, not her engines.)
+      ls.dock = dk === 2 ? { st: 'moored' } : dk === 3 ? { st: 'off' } : dk === 4 ? { st: 'tugs' } : dk === 1 ? { st: 'approach' } : null;
       // An order given to her fleet from another ship of it: her helm and her
       // telegraph take it up, or her own prediction would steer against it.
       if ((own.fq || 0) !== (this.fleetSeq || 0)) {
@@ -1591,7 +1617,9 @@ export class Battle {
     if (!s.a) view.monsterDie = (view.monsterDie || 0) + dt;
     view.group.updateMatrixWorld(true);
     const toLocal = (wx, wy, wz) => view.group.worldToLocal(new THREE.Vector3(wx, wy, wz));
-    const beamTo = w.beam && !w.beam.up ? toLocal(w.beam.x, 6, w.beam.z) : null;
+    // Into the hillside, where an island stopped it short (see stepCharge).
+    const beamTo = w.beam && !w.beam.up
+      ? toLocal(w.beam.x, Math.max(6, world ? groundHeight(world, w.beam.x, w.beam.z) : 0), w.beam.z) : null;
     // What she looks at: where her breath is going, or the nearest enemy
     // ship in sight of her.
     let look = beamTo;
@@ -3574,9 +3602,9 @@ export class Battle {
         this.hud.alert(`${who}: broken in two`);
       } else if (t.kind === 'blast') {
         // The fire got to what was left of her ammunition.
+        this.scene.holdLinks?.(4);
         fx.magazine(wx, 8, wz, t.size || 1);
-        this.scene.magazineBurst(wx, 10, wz, t.size || 1);
-        this.scene.debris.burst(wx, 14, wz, 9 + (t.size || 1) * 8, 1);
+        this.scene.debris.burst(wx, 14, wz, 9 + (t.size || 1) * 8, 1, 0);
         fx.splash(wx, wz, 800);
         // Heard everywhere, like any magazine.
         audio.magazine({ x: wx, y: 8, z: wz });
@@ -3642,6 +3670,8 @@ export class Battle {
           .set(ev.si, { x: ev.x, y: ev.y ?? 8, z: ev.z, st: ev.tk * DT });
       }
       if (!late && this.holdBack(ev)) continue;
+      // Felt, close to the man or the tank in hand: see immersion.js.
+      if (!late) this.feelEvent(ev);
       const d = this.distanceFade(ev.x, ev.z);
       // The people in the towns hear it, and run -- or are caught by it.
       this.scene.worksView?.civilians?.event(ev);
@@ -3700,6 +3730,7 @@ export class Battle {
           } else if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
           audio.gun(ev.cal, heard || { x: ev.x, y: ev.y ?? 18, z: ev.z }, ev.b || 1);
           if (ev.ship === this.shipId && getSettings().recoil) this.kick(ev.cal);
+          if (this.commandBat && this.commandBat.tank && ev.battery === this.commandBat.id && !late) this.tankFired(ev);
           break;
         }
         case 'rocket': {
@@ -4330,6 +4361,7 @@ export class Battle {
             if (mine) this.hud.ribbon(`${label}${what}`, (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
             if (this.commandBat && ev.victim === this.commandBat.id) {
               this.shake = Math.max(this.shake, PENETRATING_KINDS.has(ev.kind) ? 0.8 : 0.4);
+              if (this.commandBat.tank) this.tankStruck(ev, PENETRATING_KINDS.has(ev.kind));
               this.hud.ribbon(`${TANK_TAKEN[ev.kind] || 'Hit'}${what}`, 'miss');
             }
             break;
@@ -4599,6 +4631,7 @@ export class Battle {
             if (ev.st === 2) this.hud.ribbon('MADE FAST ALONGSIDE');
             else if (ev.st === 1 && ev.tugs) this.hud.ribbon('TUGS ALONGSIDE');
             else if (ev.st === 1) this.hud.ribbon('STANDING IN TO HARBOUR');
+            else if (ev.st === 3) this.hud.ribbon('TUGS TAKING HER OFF');
             else this.hud.ribbon('CAST OFF');
           }
           break;
@@ -4705,9 +4738,9 @@ export class Battle {
           }
           // From big to enormous, by what was in her.
           const size = 0.6 + power * 1.6;
+          this.scene.holdLinks?.(4);
           fx.magazine(wx, 8, wz, size);
-          this.scene.magazineBurst(wx, 10, wz, size);
-          this.scene.debris.burst(wx, 14, wz, 6 + 22 * power, 1 + power * 0.4);
+          this.scene.debris.burst(wx, 14, wz, 6 + 22 * power, 1 + power * 0.4, 0);
           fx.splash(wx, wz, 500 + 700 * power);
           this.shake = Math.max(this.shake, ev.ship === this.shipId ? 1.6 : 0.9);
           // Heard everywhere: the loudest thing in the action carries the
@@ -5348,7 +5381,10 @@ export class Battle {
     this.off.push(this.input.on('key', (code) => this.onKey(code)));
     this.off.push(this.input.on('scope', (on) => { this.scoped = on; }));
     // A click with the pointer captured: the trigger of the soldier in hand.
-    this.off.push(this.input.on('press', () => { if (this.troop) this.troopFire(); }));
+    this.off.push(this.input.on('press', () => {
+      if (this.troop) this.troopFire();
+      else if (this.commandBat && this.commandBat.tank) this.fireBattery();
+    }));
     this.off.push(this.input.on('wheel', (dir) => {
       // At the guns of a battery it is the sight's glass.
       if (this.commandBat) {
@@ -5420,8 +5456,11 @@ export class Battle {
     if (this.commandBat) {
       if (code === 'Space') { this.fireBattery(); return; }
       if (code === 'Escape') { this.leaveBattery(); return; }
+      // The gunner's sight, in and out; and F for the gun as well.
+      if (this.commandBat.tank && code === 'KeyV' && this.tankFeel) { this.tankFeel.sight = !this.tankFeel.sight; audio.click(); return; }
+      if (this.commandBat.tank && code === 'KeyF') { this.fireBattery(); return; }
       // Driving a tank, the driving keys drive it and not her.
-      if (this.commandBat.tank && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(code)) return;
+      if (this.commandBat.tank && ['KeyQ', 'KeyE', 'KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(code)) return;
     }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
@@ -5543,10 +5582,12 @@ export class Battle {
       const snap = this.snapshots[this.snapshots.length - 1];
       const heavy = this.watching.kind === 'bomber';
       const pl = snap && ((heavy ? snap.bombers : snap.planes) || []).find((q) => q.i === this.watching.id);
-      if (pl && pl.tm === this.team && this.flight?.id !== pl.i) {
+      // The enemy's too, once formed into a squadron off the plot, the way
+      // the enemy's fleets can be steered.
+      if (pl && (pl.tm === this.team || pl.wg) && this.flight?.id !== pl.i) {
         this.net.send({
           t: 'vector', i: pl.i, x: Math.round(at.x), z: Math.round(at.z),
-          k: heavy ? 'bomber' : undefined,
+          k: heavy ? 'bomber' : undefined, tm: pl.tm,
         });
         this.hud.alert(pl.wg ? 'Squadron sent' : 'Flight sent');
         audio.click();
@@ -5594,8 +5635,8 @@ export class Battle {
    */
   pickForGroup(hit) {
     const P = this.groupPick;
-    if (!hit || !['ship', 'plane', 'bomber'].includes(hit.kind) || hit.team !== this.team) {
-      this.hud.alert('Pick your own ships, flights or bombers');
+    if (!hit || !['ship', 'plane', 'bomber'].includes(hit.kind)) {
+      this.hud.alert('Pick ships, flights or bombers');
       return;
     }
     // Both kinds of aircraft go in a squadron.
@@ -5604,11 +5645,18 @@ export class Battle {
       this.hud.alert(P.kind === 'ship' ? 'A fleet is ships only' : 'A squadron is aircraft only');
       return;
     }
+    // Either side's, the enemy's as well as our own -- but one side to a
+    // group: a fleet of ours and theirs together is no fleet at all.
+    if (P.kind && P.team != null && P.team !== hit.team) {
+      this.hud.alert('A fleet or squadron is all one side');
+      return;
+    }
     const list = hit.kind === 'bomber' ? P.bids : P.ids;
     const at = list.indexOf(hit.id);
     if (at >= 0) list.splice(at, 1);
     else if (P.ids.length + P.bids.length < 8) list.push(hit.id);
     P.kind = P.ids.length + P.bids.length ? kind : null;
+    P.team = P.kind ? hit.team : null;
     this.hud.setGrouping(P);
     audio.click();
   }
@@ -5730,7 +5778,10 @@ export class Battle {
   sendGroup(split) {
     const P = this.groupPick;
     if (!P || !P.kind || !(P.ids.length + P.bids.length)) { this.hud.alert('Nothing picked'); return; }
-    this.net.send({ t: 'group', k: P.kind, ids: [...P.ids], bids: [...P.bids], split: split ? 1 : 0 });
+    this.net.send({
+      t: 'group', k: P.kind, ids: [...P.ids], bids: [...P.bids], split: split ? 1 : 0,
+      tm: P.team ?? this.team,
+    });
     this.toggleGrouping(false);
   }
 
@@ -5901,6 +5952,28 @@ export class Battle {
     // A battery is laid on a bearing and then trained off it.
     return hit.kind === 'battery' ? wrapAngle(e.h + e.a) : e.h;
   }
+  /**
+   * How far above the sea the ground under (x, z) stands, eased, for the
+   * camera to centre on: nought afloat and on a beach, the height of the land
+   * ashore. Eased so a hull stepping up a slope or the camera crossing a
+   * cliff edge carries the view up smoothly, not in a jump. `which` keeps the
+   * own camera's and the watching camera's apart.
+   */
+  liftAt(which, x, z) {
+    const g = Math.max(0, groundHeight(this.scene.world, x, z));
+    const L = this.camLifts || (this.camLifts = {});
+    const now = performance.now();
+    const was = L[which];
+    if (!was || now - was.at > 1000) {
+      L[which] = { v: g, at: now };
+      return g;
+    }
+    const dt = Math.min(0.1, (now - was.at) / 1000);
+    was.v += (g - was.v) * (1 - Math.exp(-dt * 3));
+    was.at = now;
+    return was.v;
+  }
+
 
   /** Where whatever the camera is watching is now, or null if it has gone. */
   watchPoint() {
@@ -6028,7 +6101,7 @@ export class Battle {
     if (this.watching.id === this.shipId) {
       const ls = this.localShip;
       return {
-        x: ls.x, y: this.scene.ocean.heightAt(ls.x, ls.z) * 0.5, z: ls.z,
+        x: ls.x, y: this.scene.ocean.heightAt(ls.x, ls.z) * 0.5 + this.liftAt('watch', ls.x, ls.z), z: ls.z,
         span: this.cls.hull.length,
         eye: 14 + this.cls.hull.superstructure * 12,
         h: ls.heading,
@@ -6041,7 +6114,7 @@ export class Battle {
     if (!s) return null;
     const cls = getClass(s.c);
     return {
-      x: s.x, y: this.scene.ocean.heightAt(s.x, s.z) * 0.5, z: s.z,
+      x: s.x, y: this.scene.ocean.heightAt(s.x, s.z) * 0.5 + this.liftAt('watch', s.x, s.z), z: s.z,
       span: cls.hull.length,
       eye: 14 + cls.hull.superstructure * 12,
       // Which way she is heading, so anything standing off her knows which
@@ -6404,6 +6477,13 @@ export class Battle {
       grp.position.set(x, s.y, z);
       grp.quaternion.identity();
       grp.rotation.set(-s.p, h, s.r, 'YXZ');
+      // Our own gun going off rocks the hull back on its springs, about the
+      // line across the bore (see tankFired); and every tank moving on dry
+      // land throws up dust off its tracks.
+      if (mine && this.tankFeel && this.tankFeel.rockNow) {
+        grp.rotateOnAxis(new THREE.Vector3(Math.cos(ang), 0, -Math.sin(ang)), -this.tankFeel.rockNow * 0.6);
+      }
+      if (T) this.tankDust(view, g, T);
     }
     if (g.al) for (const m of view.spin) m.rotation.y = ang;
     // Burning and still fighting: smoke and flame off the engine deck. A
@@ -6660,8 +6740,11 @@ export class Battle {
     const leave = document.getElementById('bat-leave');
     if (leave) leave.textContent = b.tank ? 'Leave tank' : 'Leave battery';
     if (b.tank) {
-      this.hud.alert(g.ab ? 'Stick to drive · it goes ashore over the ramp when she beaches · drag to aim · FIRE'
-        : 'Stick or WASD to drive · drag the view to aim the turret · FIRE');
+      this.tankTaken(b);
+      this.hud.alert(this.input.touch
+        ? (g.ab ? 'Stick to drive · it goes ashore over the ramp when she beaches · drag to aim · FIRE'
+          : 'Stick to drive · drag to aim the turret · FIRE')
+        : 'Click to take the mouse · mouse to lay the turret · left click fire · right click or V gunner\'s sight · WASD drive · wheel zoom');
       audio.click();
       return;
     }
@@ -6682,6 +6765,7 @@ export class Battle {
     this.batAim = null;
     if (c.tank) {
       this.hud.setTankStick(false);
+      this.tankLeft();
       if (tell) this.net.send({ t: 'tdrive', i: c.id, th: 0, st: 0 });
     }
     if (tell) this.net.send({ t: 'lbat', i: c.id });
@@ -6802,7 +6886,7 @@ export class Battle {
     if (dir.y < -1e-4) sea = Math.min(look, Math.max(1, eye.y / -dir.y));
     // From clear of the works, or the line goes straight into the hill the
     // battery is dug into.
-    const s0 = Math.min(sea * 0.5, (c.span || 20) * 1.5 + 20);
+    const s0 = Math.min(sea * 0.5, c.tank ? 14 : (c.span || 20) * 1.5 + 20);
     const land = w ? solidHit(w, eye.x + dir.x * s0, eye.y + dir.y * s0, eye.z + dir.z * s0,
       eye.x + dir.x * sea, eye.y + dir.y * sea, eye.z + dir.z * sea, 6) : null;
     const landT = land ? s0 + land.f * (sea - s0) : Infinity;
@@ -6824,9 +6908,11 @@ export class Battle {
     for (const g of (snap && snap.batteries) || []) {
       if (g.tm === this.team || !g.al) continue;
       const d = Math.hypot(g.x - eye.x, g.z - eye.z);
-      if (d < 200 || d > look || d > bestD || d > landFlat + 120) continue;
-      const span = BATTERIES[g.b]?.span || 20;
-      if (off(g.x, g.z) > Math.atan2(span + 20, d) + 0.003) continue;
+      // A tank fights other tanks at a few hundred metres, and closer.
+      const tankT = BATTERIES[g.b]?.tank;
+      if (d < (c.tank ? 12 : 200) || d > look || d > bestD || d > landFlat + 120) continue;
+      const span = tankT ? tankT.length * 0.6 : (BATTERIES[g.b]?.span || 20) + 20;
+      if (off(g.x, g.z) > Math.atan2(span, d) + 0.003) continue;
       bestD = d;
       best = { kind: 'battery', id: g.i, x: g.x, z: g.z, name: BATTERIES[g.b]?.name };
     }
@@ -6842,7 +6928,7 @@ export class Battle {
     const from = (snap && (snap.batteries || []).find((q) => q.i === c.id)) || eye;
     const d = Math.hypot(p.x - from.x, p.z - from.z);
     p.out = d > reach;
-    const keep = clamp(d, 320, reach * 0.995);
+    const keep = clamp(d, c.tank ? 25 : 320, reach * 0.995);
     if (Math.abs(keep - d) > 1) {
       const k = keep / Math.max(1, d);
       p.x = from.x + (p.x - from.x) * k;
@@ -6880,6 +6966,9 @@ export class Battle {
   /** The camera at the guns of a battery: a sight, turned by the drag. */
   batteryCamera(cam, watch, m, dt) {
     const c = this.commandBat;
+    // A tank has a camera of its own: riding the hull, or through the
+    // gunner's sight. See immersion.js.
+    if (c.tank && this.tankFeel) { this.tankCamera(cam, watch, m, dt); return; }
     const fov = this.scoped ? Math.min(8, this.batFov || BAT_FOV) : (this.batFov || BAT_FOV);
     this.batFovNow = lerp(this.batFovNow || fov, fov, 1 - Math.pow(0.0009, dt));
     // Slower the narrower the glass, so a ship at twenty thousand yards can be
@@ -6942,7 +7031,7 @@ export class Battle {
     const c = this.commandBat;
     if (!c) return;
     this.net.send({ t: 'bfire', i: c.id });
-    audio.click();
+    if (!c.tank) audio.click();
   }
 
   /** What the battery in hand is doing, off the snapshot, and whether it is still ours. */
@@ -9057,7 +9146,19 @@ export class Battle {
     // Predict our own hull, then take up whatever is left of the difference
     // between her and the server's version of her. See correctOwn.
     const now = performance.now() / 1000;
+    // Monster One going in under a ship, or up through her from below, is
+    // steering herself and setting her own pace: her captain's helm and
+    // telegraph are not hers just now (monsterHelmHeld). Predicted on the
+    // server's helm and telegraph, not his, or she would be drawn swimming
+    // off where he was steering while the battle has her under the keel.
+    const held = monsterHelmHeld(ls) && this.ownSnap;
+    const myNotch = ls.notch;
+    if (held) {
+      if (typeof this.ownSnap.notch === 'number') ls.notch = this.ownSnap.notch;
+      if (Number.isFinite(this.ownSnap.rud)) ls.rudderCmd = this.ownSnap.rud;
+    }
     predictShip(this.local, ls, this.stepOwnClock(now, dt));
+    if (held) ls.notch = myNotch;
     this.takeUpFix(dt, now);
 
     if (now - this.lastInputSent > 1 / INPUT_HZ) {
@@ -9113,6 +9214,7 @@ export class Battle {
     }
     this.director?.beforeCamera();
     this.updateCamera(dt);
+    this.closeFrame(dt);
     this.director?.afterCamera();
     this.scene.camera.updateMatrixWorld();
     // The sights on the glass are worked out of the camera this frame has
@@ -10011,10 +10113,18 @@ export class Battle {
       const flown = pl.bk !== undefined;
       const want = flown ? pl.bk : clamp(Math.atan2(gs * (pl.b || 0), 9.81), -1.15, 1.15);
       const held = this.planeTurn.get(pl.i);
+      // The moment she goes over from being drawn off her turn to being drawn
+      // off her real attitude -- a dive bomber starting her roll-in -- the
+      // two need not agree, and she snapped from one to the other. Both her
+      // bank and her pitch are eased across the first half second of it.
+      if (flown && !this.planeFlownAt.has(pl.i)) this.planeFlownAt.set(pl.i, this.time);
+      else if (!flown) this.planeFlownAt.delete(pl.i);
+      const since = flown ? this.time - this.planeFlownAt.get(pl.i) : Infinity;
+      const settling = flown && since < 0.6;
       // A pilot's own bank is drawn as it comes: eased, she would never get
       // round a roll before the next one started.
-      let bank = held === undefined || flown ? want
-        : held + (want - held) * (1 - Math.pow(0.02, dt));
+      let bank = held === undefined || (flown && !settling) ? want
+        : held + angleDelta(held, want) * (1 - Math.pow(settling ? 0.002 : 0.02, dt));
       this.planeTurn.set(pl.i, bank);
       // Her attitude, which is not the direction she is travelling.
       //
@@ -10043,8 +10153,14 @@ export class Battle {
         const V = Math.hypot(gs, pl.vy || 0);
         const cb = Math.cos(bank);
         const bend = Math.cos(pl.pt || 0) + (V * (pl.ptr || 0)) / 9.81;
-        load = Math.abs(cb) > 0.3 ? clamp(bend / cb, 0, 6) : 1 / Math.max(0.3, Math.abs(cb));
-      }
+        const raw = Math.abs(cb) > 0.3 ? clamp(bend / cb, 0, 6) : 1 / Math.max(0.3, Math.abs(cb));
+        // Her path's turn rate comes off the wire one snapshot at a time, a
+        // step every fifth of a second, and the angle her nose sits above
+        // her path went with each step: she nodded her way down the dive.
+        const lw = this.planeLoad.get(pl.i);
+        load = lw === undefined ? raw : lw + (raw - lw) * (1 - Math.pow(0.002, dt));
+        this.planeLoad.set(pl.i, load);
+      } else this.planeLoad.delete(pl.i);
       // A helicopter's nose is not on her path: she hangs level in the hover,
       // going straight up or down, and dips it a few degrees going ahead.
       // Flown by a player, she hangs level the same way whenever she is down
@@ -10058,8 +10174,8 @@ export class Battle {
       // wire a tenth of a metre a second at a time, and her nose nodded with
       // every step of it.
       const pitchWas = this.planePitch.get(pl.i);
-      let pitch = pitchWas === undefined || flown ? pitchWant
-        : pitchWas + (pitchWant - pitchWas) * (1 - Math.pow(0.01, dt));
+      let pitch = pitchWas === undefined || (flown && !settling) ? pitchWant
+        : pitchWas + (pitchWant - pitchWas) * (1 - Math.pow(settling ? 0.002 : 0.01, dt));
       // On the water she is a boat: level across, and her nose wherever her
       // floats put it -- up over the hump, down on the step, lifted at the
       // last as she comes off (see waterTrim) -- eased, so the angle she
@@ -10249,6 +10365,8 @@ export class Battle {
         this.planeTrim.delete(id);
         this.planeTurn.delete(id);
         this.planePitch.delete(id);
+        this.planeLoad.delete(id);
+        this.planeFlownAt.delete(id);
         this.seaLift.delete(id);
         this.planeCut.delete(id);
         this.planeSmoke.delete(id);
@@ -11314,17 +11432,25 @@ export class Battle {
     // off her, in which case it is wherever it was left.
     const fx = this.roam ? this.roam.x : ls.x;
     const fz = this.roam ? this.roam.z : ls.z;
+    // On the water the sea is the floor; up a hill -- Monster One walked up
+    // out of the sea onto high ground, a landing craft up a beach, the camera
+    // walked off her onto a headland -- the ground is, and the orbit, the
+    // bridge and the view from overhead all stand on it, so what is watched
+    // stays in the middle of the screen rather than sinking off the bottom.
+    const lift = this.liftAt('own', fx, fz);
     const wave = this.scene.ocean.heightAt(fx, fz);
+    // What she stands on: half the swell under her afloat, the land ashore.
+    const base = wave * 0.5 + lift;
     if (this.camMode === 'tactical') {
-      const h = 2200;
+      const h = 2200 + lift;
       cam.position.set(fx - Math.sin(this.yaw) * 300, h, fz - Math.cos(this.yaw) * 300);
-      cam.lookAt(fx, 0, fz);
+      cam.lookAt(fx, lift, fz);
     } else if (this.camMode === 'bridge' && !this.roam) {
       const fwd = this.cls.hull.length * 0.16;
       const eye = 14 + this.cls.hull.superstructure * 12;
       cam.position.set(
         ls.x + Math.sin(ls.heading) * fwd,
-        wave * 0.5 + eye,
+        base + eye,
         ls.z + Math.cos(ls.heading) * fwd,
       );
       const dir = new THREE.Vector3(
@@ -11343,10 +11469,10 @@ export class Battle {
       const d = this.scoped ? this.camDistance * 0.55 : this.camDistance;
       const el = clamp(0.38 - this.pitch, -0.78, 1.25);
       const flat = Math.cos(el);
-      const aim = wave * 0.5 + (this.roam ? 0 : this.cls.hull.superstructure * 5 + 6);
+      const aim = base + (this.roam ? 0 : this.cls.hull.superstructure * 5 + 6);
       cam.position.set(
         fx - Math.sin(this.yaw) * d * flat,
-        wave * 0.5 + 6 + d * Math.sin(el),
+        base + 6 + d * Math.sin(el),
         fz - Math.cos(this.yaw) * d * flat,
       );
       cam.lookAt(fx, aim, fz);
@@ -11600,3 +11726,4 @@ Battle.prototype.groundAt = function groundAt(x, z) {
   return footing(this.scene.world || this.world, x, z);
 };
 installTroops(Battle);
+installImmersion(Battle);

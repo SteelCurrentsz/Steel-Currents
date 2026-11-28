@@ -226,15 +226,15 @@ const Troops = {
       case 'wd':
         if (inf) inf.wound(ev);
         if (this.troop && ev.i === this.troop.id) {
-          this.hud.alert('Hit!');
           this.flashBlood(0.5);
+          this.feelWound(ev);
         }
         break;
       case 'kia':
         if (inf) inf.kill(ev, this.team);
         if (this.troop && ev.by === this.troop.id && ev.i !== this.troop.id) {
           this.hitMarker(true);
-          this.hud.alert('Enemy down');
+          this.killPop(ev.p === 0);
         }
         if (this.troop && ev.i === this.troop.id) {
           this.flashBlood(1);
@@ -336,10 +336,14 @@ const Troops = {
     // mouse turns his head; the left button fires, the right brings the rifle
     // up to the eye.
     this.input.captureLook = !this.input.touch;
-    if (!this.feel) this.feel = new SoldierFeel(this.scene.scene);
+    if (!this.feel) {
+      this.feel = new SoldierFeel(this.scene.scene);
+      this.feel.onStep = (k) => audio.footstep(k);
+      this.feel.onLand = () => audio.landing(1);
+    }
     this.hud.alert(this.input.touch
       ? 'Stick to move · drag to aim · FIRE to shoot'
-      : 'Click to take the mouse · mouse to aim · left click fire · right click aim down sights · WASD move · Shift sprint · C crouch · Space jump · R reload · V over the shoulder');
+      : 'Click to take the mouse · left click fire · right click aim · WASD move · Shift sprint (hold breath aiming) · C crouch · Q/E lean · Space jump · R reload · V over the shoulder');
     audio.click();
   },
 
@@ -389,21 +393,42 @@ const Troops = {
       return;
     }
     c.lastShot = now;
-    if (this.feel) this.feel.fired();
+    if (this.feel) this.feel.fired(this.scene.camera);
     audio.rifleOwn();
+    audio.rifleEcho();
+    // The flash of it lights the ground round him for a moment.
+    const d = c.held && c.held.drawn;
+    if (d) this.scene.effects?.flash?.(d.x + Math.sin(c.yaw) * 0.8, d.y + 1.4, d.z + Math.cos(c.yaw) * 0.8, 0.12);
     this.net.send({ t: 'sfire', i: c.id, yaw: Math.round(c.aimYaw * 1000) / 1000, pitch: Math.round(c.aimPitch * 1000) / 1000 });
     this.scoped = this.scoped || false;
     // The kick of it, in the view: up, and a little to one side, and most of
     // it comes back down.
-    c.kick = Math.min(0.09, (c.kick || 0) + 0.042);
-    c.yaw = wrapAngle(c.yaw + (Math.random() - 0.5) * 0.012);
+    // A .30-06 out of a nine-and-a-half pound rifle: about two and a half
+    // degrees of muzzle climb from the hip and a little over one at the
+    // shoulder, and a sideways throw that goes mostly one way for a
+    // right-handed man. Most of it comes back down on its own (see
+    // soldierCamera); what is left is his to pull down.
+    const ads = this.feel ? this.feel.ads : 0;
+    const crouch = c.cr ? 0.75 : 1;
+    c.kick = Math.min(0.12, (c.kick || 0) + (0.045 - 0.022 * ads) * crouch);
+    c.pitch = clamp(c.pitch + (0.008 - 0.004 * ads) * crouch, -1.35, 1.3);
+    c.yaw = wrapAngle(c.yaw + ((Math.random() - 0.35) * 0.014 - 0.002) * (1 - 0.5 * ads) * crouch);
   },
 
   troopReload() {
     const c = this.troop;
     if (!c) return;
+    const p = this.troopRow(c.id);
     this.net.send({ t: 'sreload', i: c.id });
-    audio.click();
+    // The sound of him doing it, if there is anything to do.
+    if (p && !(p.f & 16) && p.clips > 0) {
+      const now = performance.now();
+      if (!c.reloadAt || now - c.reloadAt > 1800) {
+        c.reloadAt = now;
+        audio.reloadSounds();
+        audio.rustle(0.8);
+      }
+    } else audio.click();
   },
 
   /** The keys, while he is in hand. True if the key was his. */
@@ -415,6 +440,8 @@ const Troops = {
     if (code === 'KeyC' || code === 'ControlLeft') { c.cr = !c.cr; this.troopButtons(); return true; }
     if (code === 'KeyR') { this.troopReload(); return true; }
     if (code === 'KeyV') { c.fp = !c.fp; return true; }
+    // Leaning round a corner: held, not toggled (see soldierCamera).
+    if (code === 'KeyQ' || code === 'KeyE') return true;
     if (code === 'Escape') { this.leaveSoldier(); return true; }
     return ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight'].includes(code);
   },
@@ -436,12 +463,35 @@ const Troops = {
     c.pitch = clamp(c.pitch - m.y * slow, -1.35, 1.3);
     // The kick comes back down quickly, the way a rifle settles.
     c.kick = Math.max(0, (c.kick || 0) * Math.exp(-7 * dt) - dt * 0.02);
-    const pitch = c.pitch + c.kick;
+    // At the eye the rifle is never quite still: it wanders with his breath
+    // and his pulse, worse winded and hurt, and almost nothing for the few
+    // seconds he can hold his breath (Shift, aiming).
+    const k = this.input;
+    const t = performance.now() / 1000;
+    const holdKey = !!(k.down('ShiftLeft') || k.down('ShiftRight')) && ads > 0.5;
+    c.breath = c.breath ?? 1;
+    const holding = holdKey && c.breath > 0;
+    c.breath = clamp(c.breath + (holding ? -dt / 4.5 : dt / 3), 0, 1);
+    c.holding = holding;
+    const row0 = this.troopRow(c.id);
+    const hurt = row0 ? clamp((80 - row0.hp) / 80, 0, 1) : 0;
+    const wind = (holding ? 0.15 : 1) * (1 + hurt * 1.5 + (c.breath < 0.2 && !holding ? 1.2 : 0)) * (c.cr ? 0.7 : 1);
+    const sway = ads * 0.0032 * wind;
+    const swayX = (Math.sin(t * 0.73) + Math.sin(t * 1.61 + 0.7) * 0.5) * sway;
+    const swayY = (Math.sin(t * 1.12 + 2.1) + Math.sin(t * 2.3) * 0.4) * sway * 0.7;
+    // Leaning out round cover: Q left, E right, his head out a third of a
+    // metre and over at seven degrees.
+    const leanWant = (k.down('KeyE') ? 1 : 0) - (k.down('KeyQ') ? 1 : 0);
+    c.lean = lerp(c.lean || 0, leanWant, 1 - Math.exp(-10 * dt));
+    const yaw = wrapAngle(c.yaw + swayX);
+    const pitch = c.pitch + c.kick + swayY;
     const cp = Math.cos(pitch);
-    const dir = new THREE.Vector3(Math.sin(c.yaw) * cp, Math.sin(pitch), Math.cos(c.yaw) * cp);
+    const dir = new THREE.Vector3(Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp);
     const eye = new THREE.Vector3(watch.x, watch.y + watch.eye, watch.z);
     if (c.fp) {
-      cam.position.copy(eye).addScaledVector(dir, 0.12);
+      const right = new THREE.Vector3(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
+      cam.position.copy(eye).addScaledVector(dir, 0.12).addScaledVector(right, c.lean * 0.34);
+      cam.position.y -= Math.abs(c.lean) * 0.06;
     } else {
       // Over his right shoulder: back, up and out to the right of him.
       const right = new THREE.Vector3(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
@@ -453,6 +503,7 @@ const Troops = {
     cam.up.set(0, 1, 0);
     const far = cam.position.clone().addScaledVector(dir, 1000);
     cam.lookAt(far);
+    if (c.fp && c.lean) cam.rotateZ(-c.lean * 0.12);
     cam.updateMatrixWorld(true);
     // His stride, the rifle in front of him and what the crosshair does.
     const row = this.troopRow(c.id);
@@ -465,10 +516,14 @@ const Troops = {
       ads: !!this.scoped,
       reloading: !!(row && (row.f & 16)),
       look: m,
+      strafe: clamp((k.down('KeyD') ? 1 : 0) - (k.down('KeyA') ? 1 : 0) + (this.hud.stick?.x || 0), -1, 1),
+      hold: holding,
+      clip: row ? row.clip : 1,
     };
     let fov = this.scoped ? 26 : 62;
     if (this.feel) {
       const f = this.feel.update(cam, st, dt, c.fp && !this.mapBig);
+      this.closeShake(cam);
       fov = c.fp ? f.fov : (this.scoped ? 40 : 62);
       const sight = document.getElementById('sol-sight');
       if (sight) {

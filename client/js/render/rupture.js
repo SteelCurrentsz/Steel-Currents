@@ -26,7 +26,7 @@
 // and the same tonnage sizes the fireball, the column and the splash.
 
 import * as THREE from '../../../vendor/three.module.js';
-import { cutUniforms, cutTree, copyOf, disposeCut, cloneMaterial } from './sever.js';
+import { cutUniforms, cutTree, copyOf, disposeCut, cloneMaterial, trimQueue, trimSome } from './sever.js';
 import { inWater, pieceMaterial } from './toss.js';
 
 const G = 9.81;
@@ -590,6 +590,9 @@ export class Rupture {
 
     const isMountOf = (o) => isMount(o);
     const mounts = [];
+    // Each piece of her drawn with only its own length of her model (see
+    // trimToCut), worked out a little a frame from the next one on.
+    const trim = this.trim = trimQueue();
     for (let k = 0; k <= n; k++) {
       const lo = k === 0 ? null : cuts[k - 1];
       const hi = k === n ? null : cuts[k];
@@ -609,7 +612,7 @@ export class Rupture {
         // Each mounting is taken once, off the piece of her it stood on.
         if (inside(m.position.z) && m.visible && !m.userData.gone) mounts.push(m);
       }
-      cutTree(piece, U, inside, null);
+      cutTree(piece, U, inside, null, trim);
       group.add(piece);
       const zc = ((lo === null ? -half : lo) + (hi === null ? half : hi)) / 2;
       const pivot = new THREE.Object3D();
@@ -754,6 +757,7 @@ export class Rupture {
   step(dt) {
     this.t += dt;
     this.tearSome(6);
+    if (this.trim && !trimSome(this.trim, 1.5)) this.trim = null;
     const t = this.t;
     const splashes = [];
     // Her two ends, hinged at their broken ends: the broken end goes down
@@ -823,6 +827,7 @@ export class Rupture {
   }
 
   dispose() {
+    this.trim = null;
     for (const f of this.flyers) this.drop(f);
     this.flyers.length = 0;
     for (const part of [this.fore, this.aft]) {

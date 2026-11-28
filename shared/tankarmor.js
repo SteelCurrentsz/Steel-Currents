@@ -84,8 +84,66 @@ export const SHERMAN_ARMOUR = {
   ],
 };
 
+/**
+ * The Tiger I (Pz.Kpfw. VI Ausf. E). Her plates stand nearly upright and are
+ * thick: a hundred millimetres across her front, eighty down her upper sides
+ * and her back, sixty behind her interleaved road wheels, and a turret of
+ * eighty all round behind a hundred and more of front and mantlet.
+ */
+export const TIGER_ARMOUR = {
+  hull: {
+    // 6.32 m long, 3.73 m across her battle tracks, her deck 1.75 m up.
+    x: 1.86, y0: 0.47, y1: 1.75, z: 3.16,
+    // The driver's front plate over the nose plate under it.
+    glacisFrom: 1.05,
+    glacis: { t: 100, lay: 9 * D },
+    nose: { t: 100, lay: 25 * D },
+    side: { t: 80, lay: 0 },
+    // Below her sponsons the lower hull side, sixty millimetres, is behind
+    // her tracks and three rows of interleaved road wheels.
+    trackTo: 1.15, track: { t: 30, lay: 0 },
+    rear: { t: 80, lay: 8 * D },
+    roof: { t: 25, lay: 90 * D },
+    deck: { t: 25, lay: 90 * D },
+    belly: { t: 25, lay: 90 * D },
+  },
+  turret: {
+    // Her turret is a horseshoe of bent eighty-millimetre plate with a
+    // hundred-millimetre front, and the gun's mantlet over that.
+    pz: -0.12, r: 1.29, y0: 1.75, y1: 2.85,
+    mantlet: { t: 120, lay: 0, half: 20 * D },
+    front: { t: 100, lay: 8 * D, half: 40 * D },
+    side: { t: 80, lay: 0 },
+    rear: { t: 80, lay: 0, from: 140 * D },
+    roof: { t: 25, lay: 90 * D },
+  },
+  inside: [
+    // The driver forward on the left, the radio operator and bow gunner on
+    // the right; in the turret the gunner left of the gun, the commander
+    // behind him under the cupola, and the loader on the right.
+    { k: 'driver', crew: true, c: [0.65, 1.15, 2.1], h: [0.3, 0.4, 0.35] },
+    { k: 'codriver', crew: true, c: [-0.65, 1.15, 2.1], h: [0.3, 0.4, 0.35] },
+    { k: 'gunner', crew: true, t: true, c: [0.5, 1.95, 0.45], h: [0.26, 0.42, 0.3] },
+    { k: 'commander', crew: true, t: true, c: [0.55, 2.3, -0.4], h: [0.26, 0.42, 0.3] },
+    { k: 'loader', crew: true, t: true, c: [-0.6, 1.9, 0.0], h: [0.26, 0.42, 0.3] },
+    // The Maybach HL 230 aft, and her gearbox and steering between the
+    // driver and the radio operator.
+    { k: 'engine', c: [0, 1.15, -2.2], h: [0.8, 0.5, 0.75], solid: true, tough: 1.6 },
+    { k: 'transmission', c: [0, 0.95, 2.0], h: [0.35, 0.4, 0.6], solid: true, tough: 1.6 },
+    { k: 'fuelL', c: [1.1, 1.2, -2.2], h: [0.3, 0.45, 0.7] },
+    { k: 'fuelR', c: [-1.1, 1.2, -2.2], h: [0.3, 0.45, 0.7] },
+    // Ninety-two rounds, most in bins in her sponsons either side.
+    { k: 'ammoL', c: [1.2, 1.45, 0.4], h: [0.3, 0.25, 1.0] },
+    { k: 'ammoR', c: [-1.2, 1.45, 0.4], h: [0.3, 0.25, 1.0] },
+    { k: 'breech', t: true, c: [0, 2.15, 0.35], h: [0.25, 0.22, 0.55], solid: true, tough: 2 },
+    { k: 'ring', c: [0, 1.73, -0.12], h: [0.95, 0.08, 0.95], tough: 3 },
+    { k: 'trackL', c: [1.6, 0.6, 0], h: [0.26, 0.6, 3.1], outside: true },
+    { k: 'trackR', c: [-1.6, 0.6, 0], h: [0.26, 0.6, 3.1], outside: true },
+  ],
+};
+
 /** The tanks' layouts, by tank id. */
-export const TANK_ARMOUR = { sherman: SHERMAN_ARMOUR };
+export const TANK_ARMOUR = { sherman: SHERMAN_ARMOUR, tiger: TIGER_ARMOUR };
 
 /** What each part is called on the screen. */
 export const PART_NAMES = {

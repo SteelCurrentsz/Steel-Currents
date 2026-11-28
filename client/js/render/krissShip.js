@@ -444,6 +444,30 @@ export function krissShip({ id, data, paints = {}, main = 'main', tubes = 'tubes
       g.add(hinge);
       (s.z > 0 ? caps.bow : caps.stern).push({ node: hinge, hand: s.x > 0 ? -1 : 1 });
     });
+    // A model that draws no doors of its own (the Balao's, the Gato's): a
+    // plain door over the mouth of each tube her datasheet bores, hinged on
+    // its outboard edge as the model's own are.
+    if (!(D.MOUNTS.cap || []).length && CLS.torpedoes && CLS.torpedoes.inHull) {
+      const plate = new THREE.BoxGeometry(0.62, 0.62, 0.05);
+      for (const spec of CLS.torpedoes.mounts) {
+        const c = Math.cos(spec.angle), s = Math.sin(spec.angle);
+        for (const [bx, by, bz] of spec.bores || []) {
+          // Where the mouth is in her own frame; the door square across it
+          // and hinged on its outboard edge, the side of her the tube is on.
+          const x = spec.x + bx * c + bz * s;
+          const z = spec.z - bx * s + bz * c;
+          const side = x >= 0 ? 1 : -1;
+          const hinge = new THREE.Group();
+          hinge.position.set(x + side * 0.31, spec.my + by, z);
+          hinge.userData.dynamic = true;
+          const door = new THREE.Mesh(plate, M.steelDark);
+          door.position.x = -side * 0.31;
+          hinge.add(door);
+          g.add(hinge);
+          (spec.z > 0 ? caps.bow : caps.stern).push({ node: hinge, hand: side > 0 ? -1 : 1 });
+        }
+      }
+    }
     return caps;
   }
 

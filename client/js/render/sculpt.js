@@ -8,13 +8,26 @@
 // and takaoHull.js.
 import * as THREE from '../../../vendor/three.module.js';
 
+/**
+ * The bytes of a base64 string: the browser's own decoder where it has one
+ * (a hull is tens of megabytes of base64, and copied out of atob's string a
+ * character at a time it was a tenth of a second and more of every big ship's
+ * build), and by hand where it has not.
+ */
+export function bytesOf(b64) {
+  if (typeof Uint8Array.fromBase64 === 'function') {
+    try { return Uint8Array.fromBase64(b64); } catch { /* by hand */ }
+  }
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
 /** The bytes of a base64 string, as a DataView. */
 function viewOf(b64) {
-  const bin = atob(b64);
-  const dv = new DataView(new ArrayBuffer(bin.length));
-  const bytes = new Uint8Array(dv.buffer);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return dv;
+  const bytes = bytesOf(b64);
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 /**
@@ -197,10 +210,7 @@ export function surfaceOf(SURFACE) {
   let grid = null;
   const heights = () => {
     if (grid) return grid;
-    const bin = atob(SURFACE.b64);
-    const dv = new DataView(new ArrayBuffer(bin.length));
-    const bytes = new Uint8Array(dv.buffer);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const dv = viewOf(SURFACE.b64);
     const h = new Float32Array(SURFACE.nx * SURFACE.nz);
     for (let i = 0; i < h.length; i++) h[i] = dv.getInt16(i * 2, true) / 100;
     grid = h;

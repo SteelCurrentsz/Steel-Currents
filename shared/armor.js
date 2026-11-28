@@ -150,6 +150,17 @@ const TURRET_ROOF = {
   // gunhouses, the large cruisers', the Puerto Rico's (the Alaska's own), the
   // Dido's light ones and the Ranger's open 5"/25s.
   kurfurst: 240, aki: 270, hildebrand: 150, beowulf: 130, puertorico: 127, dido: 25, ranger: 3,
+  // The Frithjof's, the Scharnhorst's own triple; the Stalingrad's and the
+  // Tosa's.
+  frithjof: 150, stalingrad: 125, tosa: 230,
+  // The Akizuki's enclosed 10 cm gunhouses, splinter-proof; the Gato has none.
+  akizuki: 3, gato: 0,
+  // The Arkhangelsk's, the Royal Sovereign's fifteen-inch gunhouses as built.
+  arkhangelsk: 127,
+  // The Fiji's triple 6-inch gunhouses, an inch of plate; and her twin 4-inch.
+  fiji: 25,
+  // The Lion's triple 16-inch, the King George Vs' gunhouse roofs.
+  lion: 152,
   // A Liberty ship's 4-inch: an open gun behind a splinter shield.
   liberty: 6,
   // A Higgins boat's Brownings: a thin shield on the pintle, and the sky.
@@ -163,6 +174,9 @@ const SEC_ROOF = {
   revenge: 76, roma: 70, doria: 25, tennessee: 25, maine: 25, wichita: 3, pensacola: 3, neworleans: 3, fargo: 25, furutaka: 6, oyodo: 6, yubari: 3, kirov: 6, algerie: 10, trento: 6,
   hannover: 40, ushakov: 50, vanguard: 25, lorraine: 160, sevastopol: 50, b65: 6, napoli: 25, conde: 20, chapayev: 25,
   kurfurst: 40, hildebrand: 40, beowulf: 40, aki: 25, puertorico: 25,
+  frithjof: 50, stalingrad: 25, tosa: 25,
+  // The Gato's 5"/25: an open gun on her casing.
+  gato: 0, arkhangelsk: 76, fiji: 6, lion: 25,
   // The Mogamis' 127 mm behind splinter shields, their 100 mm and the Yodo's
   // 127 mm in light enclosed gunhouses.
   suzuya: 3, mogami: 6, yodo: 6,

@@ -590,6 +590,87 @@ function heapInto(buf, F, w, d, H, tint, seed) {
 }
 
 /**
+ * A building as it is seen from a long way off: a box of its own facade on
+ * its own footprint, the bays tiled across it, and its roof as a lid or a
+ * ridge. A dozen or two triangles where the building close to is hundreds
+ * or, for a modelled landmark, thousands -- and from half a mile no one can
+ * tell the difference. Ruins as a low heap, gone as nothing.
+ */
+function farInto(bufs, b, L, ruin) {
+  const st = stageOf(ruin?.d || 0, !!ruin?.c);
+  if (st === STAGE.cleared) return;
+  const F = frameOf(b, L);
+  const r = rngOf(b.seed);
+  const pal = WALLS[b.wall] || WALLS[0];
+  const d = ruin?.d || 0;
+  const scorch = Math.min(0.7, d * 0.7) + (ruin?.f ? 0.1 : 0);
+  // The same shade as the building drawn close to: the same dice, in the same order.
+  const own = 0.88 + r() * 0.2;
+  const warm = (r() - 0.5) * 0.06;
+  const base = col(pal.c).map((v, k) => clamp(v * own * (1 + (k === 0 ? warm : k === 2 ? -warm : 0)), 0, 1));
+  const tint = mixc(base, CHAR, scorch);
+  const hw = b.w / 2;
+  const hd = b.d / 2;
+  if (st === STAGE.rubble) {
+    boxInto(bufs.get('plain'), F, -hw - 1, hw + 1, 0, standingHeight(b, ruin) * 0.6, -hd - 1, hd + 1,
+      mixc(tint, [0.58, 0.55, 0.5], 0.5));
+    return;
+  }
+  const key = b.kind === 'warehouse' || b.kind === 'factory' ? 'warehouse' : pal.k;
+  const { bay, fh } = bayOf(b);
+  const top = st >= STAGE.falling ? b.h * 0.55 : b.h;
+  const face = (a0, c0, a1, c1) => {
+    const len = Math.hypot(a1 - a0, c1 - c0);
+    const n = Math.max(1, Math.round(len / bay));
+    const v = top / fh;
+    bufs.get(key).quad(F(a0, 0, c0), F(a1, 0, c1), F(a1, top, c1), F(a0, top, c0), [[0, 0], [n, 0], [n, -v], [0, -v]], tint);
+  };
+  face(-hw, hd, hw, hd);
+  face(hw, -hd, -hw, -hd);
+  face(hw, hd, hw, -hd);
+  face(-hw, -hd, -hw, hd);
+  if (st >= STAGE.gutted) {
+    bufs.get('plain').quad(F(-hw, top - 0.3, hd), F(hw, top - 0.3, hd), F(hw, top - 0.3, -hd), F(-hw, top - 0.3, -hd), null, CHAR);
+    return;
+  }
+  const rc = col(ROOFS[b.roofCol] ?? ROOFS[0], 1 - scorch * 0.6);
+  const pl = bufs.get('plain');
+  const rise = b.roof === 'flat' || !(b.roofH > 0.3) ? 0 : b.roofH;
+  if (!rise) {
+    pl.quad(F(-hw, top, hd), F(hw, top, hd), F(hw, top, -hd), F(-hw, top, -hd), null, b.roof === 'flat' ? col(0x5a5852, 1 - scorch * 0.5) : rc);
+  } else {
+    // A ridge along the longer side.
+    const along = b.w >= b.d;
+    if (along) {
+      pl.quad(F(-hw, top, hd), F(hw, top, hd), F(hw, top + rise, 0), F(-hw, top + rise, 0), null, rc);
+      pl.quad(F(hw, top, -hd), F(-hw, top, -hd), F(-hw, top + rise, 0), F(hw, top + rise, 0), null, rc);
+      pl.tri(F(hw, top, hd), F(hw, top, -hd), F(hw, top + rise, 0), null, null, null, tint);
+      pl.tri(F(-hw, top, -hd), F(-hw, top, hd), F(-hw, top + rise, 0), null, null, null, tint);
+    } else {
+      pl.quad(F(hw, top, hd), F(hw, top, -hd), F(0, top + rise, -hd), F(0, top + rise, hd), null, rc);
+      pl.quad(F(-hw, top, -hd), F(-hw, top, hd), F(0, top + rise, hd), F(0, top + rise, -hd), null, rc);
+      pl.tri(F(-hw, top, hd), F(hw, top, hd), F(0, top + rise, hd), null, null, null, tint);
+      pl.tri(F(hw, top, -hd), F(-hw, top, -hd), F(0, top + rise, -hd), null, null, null, tint);
+    }
+  }
+  // A spire or a tower above the roof line, as a plain block, so the
+  // skyline still reads from the sea.
+  const tall = Number.isFinite(b.top) ? b.top - b.level : 0;
+  if (tall > top + rise + 3) {
+    const t = Math.min(hw, hd) * 0.35;
+    boxInto(pl, F, -t, t, top, tall * 0.8, -t, t, tint);
+    cylInto(pl, F, 0, 0, t * 1.2, 0, tall * 0.8, tall, rc, 4, false);
+  }
+  if (b.tiers) {
+    for (const tr of b.tiers) {
+      const tw = (b.w * tr.k) / 2;
+      const td = (b.d * tr.k) / 2;
+      boxInto(bufs.get(key), F, -tw, tw, top, tr.h, -td, td, tint, 1 / fh);
+    }
+  }
+}
+
+/**
  * Everything one building is drawn with, as it stands now, into `bufs`.
  */
 function buildingInto(bufs, b, L, ruin) {
@@ -1337,6 +1418,21 @@ const CAR_COLOURS = [0x1c1c1e, 0x2a3b2e, 0x5a1e1a, 0x24304a, 0x7a7466, 0x3e2f24]
 // ---------------------------------------------------------------------------
 
 const CHUNK = 140;
+/** Inside this far (metres past a chunk's edge) a chunk of the town is drawn in full. */
+const LOD_NEAR = 480;
+/** Past this, not drawn at all. */
+const LOD_GONE = 14000;
+/** How far either side of a line the switch is held, so it does not flicker. */
+const LOD_SLACK = 40;
+/** Street furniture is drawn inside this far of the edge of its patch of town. */
+const PROPS_NEAR = 520;
+/** The patches the heavy furniture -- trees, vehicles, hedges, lamps -- is drawn in, metres. */
+const PROP_CELL = 400;
+const HEAVY_PROPS = new Set(['tree', 'bigtree', 'car', 'lorry', 'bus', 'hedge', 'lamp', 'ambulance', 'engine', 'crane', 'stall']);
+/** Past this far from the edge of its patch, a tree or a vehicle is drawn as a stand-in (lowProp). */
+const PROP_LOW = 150;
+/** Cars and buses on the move are drawn inside this far of the eye. */
+const TRAFFIC_NEAR = 700;
 const DEBRIS_MAX = 2000;
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
@@ -1344,6 +1440,37 @@ const tmpE = new THREE.Euler();
 const tmpV = new THREE.Vector3();
 const tmpS = new THREE.Vector3();
 const tmpC = new THREE.Color();
+
+/**
+ * A tree or a vehicle as it is drawn from a hundred and fifty metres and
+ * more: its own size, as a couple of boxes or a trunk and a lump of crown,
+ * a few dozen triangles where the model is eight or nine hundred.
+ */
+function lowProp(t, full) {
+  full.computeBoundingBox();
+  const bb = full.boundingBox;
+  const buf = new Buf();
+  const F = (a, y, c) => [a, y, c];
+  const [x0, y0, z0] = [bb.min.x, bb.min.y, bb.min.z];
+  const [x1, y1, z1] = [bb.max.x, bb.max.y, bb.max.z];
+  const H = y1 - y0;
+  if (t === 'tree' || t === 'bigtree') {
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    const rx = (x1 - x0) / 2, rz = (z1 - z0) / 2;
+    const tw = Math.max(0.15, Math.min(rx, rz) * 0.12);
+    boxInto(buf, F, cx - tw, cx + tw, y0, y0 + H * 0.45, cz - tw, cz + tw, [0.22, 0.16, 0.1]);
+    blobInto(buf, F, cx, y0 + H * 0.64, cz, rx * 0.95, H * 0.36, rz * 0.95, [0.16, 0.26, 0.1], 3);
+  } else {
+    // A body, and a cab or a glasshouse on it: white, so the instance's own
+    // paint comes through as it does on the model.
+    const long = (z1 - z0) >= (x1 - x0);
+    boxInto(buf, F, x0, x1, y0 + H * 0.12, y0 + H * 0.6, z0, z1, [0.85, 0.85, 0.85]);
+    if (long) boxInto(buf, F, x0 + (x1 - x0) * 0.08, x1 - (x1 - x0) * 0.08, y0 + H * 0.6, y1, z0 + (z1 - z0) * 0.25, z1 - (z1 - z0) * 0.3, [0.3, 0.32, 0.34]);
+    else boxInto(buf, F, x0 + (x1 - x0) * 0.25, x1 - (x1 - x0) * 0.3, y0 + H * 0.6, y1, z0 + (z1 - z0) * 0.08, z1 - (z1 - z0) * 0.08, [0.3, 0.32, 0.34]);
+    boxInto(buf, F, x0 + 0.05, x1 - 0.05, y0, y0 + H * 0.14, z0 + 0.1, z1 - 0.1, [0.06, 0.06, 0.06]);
+  }
+  return buf.geometry();
+}
 
 export class WorksView {
   /**
@@ -1381,7 +1508,19 @@ export class WorksView {
           this.chunks.get(k).list.push(b);
         }
       }
-      for (const k of this.chunks.keys()) this.buildChunk(k);
+      for (const [k, ch] of this.chunks) {
+        // Its middle and its reach, for how far off it is.
+        let x = 0, z = 0;
+        for (const b of ch.list) { x += b.x; z += b.z; }
+        ch.cx = x / ch.list.length;
+        ch.cz = z / ch.list.length;
+        ch.cy = ch.list[0].level;
+        ch.r = Math.max(...ch.list.map((b) => Math.hypot(b.x - ch.cx, b.z - ch.cz) + Math.hypot(b.w, b.d) / 2));
+        ch.near = true;
+        this.buildChunk(k);
+      }
+      // Each town's middle and reach, for its furniture and its traffic.
+      this.sites = this.plans.map((plan) => { const o = cityToWorld(plan.city, 0, 0); return { plan, x: o.x, z: o.z, r: Math.hypot(plan.W, plan.D) / 2 }; });
       this.props();
       this.traffic();
       // The people in its streets. See civilians.js.
@@ -1449,7 +1588,65 @@ export class WorksView {
     LIT = this.night;
     for (const b of ch.list) buildingInto(bufs, b, b.level, ruinOf(this.world, b.id));
     ch.group = bufs.meshes(this.mats);
+    ch.group.visible = ch.near !== false;
     this.group.add(ch.group);
+    // The far one is made again from what is standing now, when it is next wanted.
+    this.dropFar(ch);
+    if (!ch.group.visible) this.buildFar(ch);
+  }
+
+  /** The chunk as it is seen from far off: see farInto. */
+  buildFar(ch) {
+    this.dropFar(ch);
+    const bufs = new Bufs();
+    for (const b of ch.list) farInto(bufs, b, b.level, ruinOf(this.world, b.id));
+    ch.far = bufs.meshes(this.mats);
+    this.group.add(ch.far);
+  }
+
+  dropFar(ch) {
+    if (!ch.far) return;
+    this.group.remove(ch.far);
+    ch.far.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    ch.far = null;
+  }
+
+  /**
+   * Detail by distance. A chunk of the town inside a few hundred metres of
+   * the eye is drawn as it is; further off it is drawn as boxes (farInto),
+   * and past the edge of the world nobody can see, not at all. A town's
+   * street furniture and its traffic are only drawn near it: a car is a
+   * pixel at a kilometre, and a town's worth of them are a quarter of a
+   * million triangles.
+   */
+  lod(camera) {
+    const eye = camera?.position;
+    if (!eye) return;
+    for (const ch of this.chunks.values()) {
+      if (!ch.group) continue;
+      const d = Math.max(0, Math.hypot(ch.cx - eye.x, ch.cz - eye.z, (ch.cy - eye.y) * 0.5) - ch.r);
+      const near = ch.near ? d < LOD_NEAR + LOD_SLACK : d < LOD_NEAR - LOD_SLACK;
+      const gone = d > LOD_GONE;
+      if (near !== ch.near) ch.near = near;
+      ch.group.visible = near && !gone;
+      if (!near && !gone && !ch.far) this.buildFar(ch);
+      if (ch.far) ch.far.visible = !near && !gone;
+    }
+    for (const s of this.propLods || []) {
+      const d = Math.max(0, Math.hypot(s.x - eye.x, s.z - eye.z, (eye.y - (s.y ?? eye.y)) * 0.5) - s.r);
+      s.near = s.near ? d < PROPS_NEAR + LOD_SLACK : d < PROPS_NEAR - LOD_SLACK;
+      for (const m of s.meshes) {
+        m.visible = s.near;
+        // Close to, the model; further off, its stand-in.
+        const want = d > PROP_LOW && m.userData.low ? m.userData.low : m.userData.full;
+        if (want && m.geometry !== want) m.geometry = want;
+      }
+    }
+    // The traffic: on while any town is near enough for any of it to be seen.
+    const anyNear = (this.sites || []).some((s) => Math.hypot(s.x - eye.x, s.z - eye.z) - s.r < TRAFFIC_NEAR);
+    for (const m of this.carMeshes || []) m.visible = anyNear;
+    this.trafficOn = anyNear;
+    this.eye = eye;
   }
 
   // ---- the ground: streets, pavements and kerbs, lawns and paving
@@ -1530,24 +1727,39 @@ export class WorksView {
     this.prop = [];
     // Every town's furniture together, one instanced mesh to a kind of it,
     // each piece with the town it stands in.
+    // One instanced mesh to a kind of it in each town, so a town off the
+    // screen or far away is not drawn at all (see lod).
     const types = {};
+    const all = {};
     for (const plan of this.plans) {
       for (const p of plan.props) {
         const t = p.t === 'tree' && p.big ? 'bigtree' : p.t;
-        (types[t] || (types[t] = [])).push({ p, plan });
+        const cell = HEAVY_PROPS.has(t) ? `${Math.floor(p.u / PROP_CELL)},${Math.floor(p.v / PROP_CELL)}` : 'all';
+        const key = `${t}|${this.plans.indexOf(plan)}|${cell}`;
+        (types[key] || (types[key] = [])).push({ p, plan });
+        (all[t] || (all[t] = [])).push({ p, plan });
       }
     }
+    const geos = {};
+    const mats = {};
+    const vehMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3 });
+    const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
     this.inst = {};
-    for (const [t, list] of Object.entries(types)) {
-      const buf = propModel(t);
+    this.lampMeshes = [];
+    for (const [key, list] of Object.entries(types)) {
+      const t = key.split('|')[0];
+      const site = Number(key.split('|')[1]);
+      const geo = geos[t] || (geos[t] = propModel(t).geometry());
+      const low = HEAVY_PROPS.has(t) && t !== 'lamp' && t !== 'hedge' && t !== 'stall'
+        ? (geos[`low:${t}`] || (geos[`low:${t}`] = lowProp(t, geo))) : null;
       // The modelled trees' crowns are leaves on single sheets, seen from
       // both sides or half of each crown is missing.
       const leafy = (t === 'tree' || t === 'bigtree') && townModel('tree');
-      const mat = VEHICLES.has(t)
-        ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3 })
-        : leafy ? new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide })
-          : this.mats.plain;
-      const mesh = new THREE.InstancedMesh(buf.geometry(), mat, list.length);
+      const mat = mats[t] || (mats[t] = VEHICLES.has(t) ? vehMat : leafy ? leafMat : this.mats.plain);
+      const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+      mesh.userData.site = site;
+      mesh.userData.full = geo;
+      mesh.userData.low = low;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       const entries = list.map(({ p, plan }, k) => {
         const rise = SURF_RISE[plan.surfAt(p.u, p.v)] || 0;
@@ -1559,7 +1771,8 @@ export class WorksView {
         return e;
       });
       mesh.userData.entries = entries;
-      this.inst[t] = mesh;
+      this.inst[key] = mesh;
+      if (t === 'lamp') this.lampMeshes.push(mesh);
       // The ones painted one at a time: each car and lorry its own colour,
       // each poster and awning its own. The rest of the vehicles are painted
       // in their model, and start white so a fire can blacken them.
@@ -1578,18 +1791,34 @@ export class WorksView {
       this.group.add(mesh);
     }
     // The lamps' glass: lit at dusk and through the night.
-    const lamps = types.lamp || [];
-    if (lamps.length) {
-      const glass = new THREE.InstancedMesh(propModel('lampglass').geometry(), new THREE.MeshBasicMaterial({
-        color: this.night ? 0xffd890 : 0xb8c2c8,
-      }), lamps.length);
-      this.glass = glass;
-      this.inst.lamp.userData.glass = glass;
-      this.inst.lamp.userData.entries.forEach((e) => this.place(e));
-      glass.instanceMatrix.needsUpdate = true;
-      glass.computeBoundingSphere();
-      this.group.add(glass);
+    if (this.lampMeshes.length) {
+      const gGeo = propModel('lampglass').geometry();
+      const gMat = new THREE.MeshBasicMaterial({ color: this.night ? 0xffd890 : 0xb8c2c8 });
+      for (const lm of this.lampMeshes) {
+        const glass = new THREE.InstancedMesh(gGeo, gMat, lm.count);
+        glass.userData.site = lm.userData.site;
+        lm.userData.glass = glass;
+        lm.userData.entries.forEach((e) => this.place(e));
+        glass.instanceMatrix.needsUpdate = true;
+        glass.computeBoundingSphere();
+        this.group.add(glass);
+      }
     }
+    // Where each patch of furniture is, and how far it reaches, for drawing
+    // it only near the eye (see lod).
+    this.propLods = [];
+    for (const m of this.group.children) {
+      const entries = m.isInstancedMesh && m.userData.entries;
+      if (!entries?.length) continue;
+      let x = 0, z = 0;
+      for (const e of entries) { x += e.x; z += e.z; }
+      x /= entries.length; z /= entries.length;
+      let r = 0;
+      for (const e of entries) r = Math.max(r, Math.hypot(e.x - x, e.z - z));
+      const meshes = m.userData.glass ? [m, m.userData.glass] : [m];
+      this.propLods.push({ meshes, x, z, r: r + 6, near: true });
+    }
+    void all;
     this.moving = new Set();
     // Anything standing where a building has already been cleared, or one is
     // already down, goes as it would have.
@@ -1647,6 +1876,7 @@ export class WorksView {
       });
       mesh.frustumCulled = false;
       this.group.add(mesh);
+      (this.carMeshes || (this.carMeshes = [])).push(mesh);
       return mesh;
     };
     mk('car', this.cars.filter((c) => !c.bus));
@@ -1657,6 +1887,11 @@ export class WorksView {
   stepTraffic(dt) {
     if (!this.cars?.length) return;
     const touched = new Set();
+    // Only the cars near the eye are drawn, packed into the front of their
+    // mesh: the rest cost nothing at all, not even a vertex.
+    const eye = this.eye;
+    const slot = new Map();
+    for (const m of this.carMeshes || []) slot.set(m, 0);
     for (const car of this.cars) {
       const L = car.lane;
       if (!car.gone) {
@@ -1678,13 +1913,27 @@ export class WorksView {
         tmpE.set(0, yaw, 0);
         tmpQ.setFromEuler(tmpE);
         tmpM.compose(tmpV.set(w.x, plan.level + 0.04, w.z), tmpQ, tmpS.set(1, 1, 1));
-      } else {
-        tmpM.makeScale(0, 0, 0);
       }
-      car.mesh.setMatrixAt(car.k, tmpM);
       touched.add(car.mesh);
+      if (!on || (eye && Math.hypot(car.x - eye.x, car.z - eye.z) > TRAFFIC_NEAR)) continue;
+      const k = slot.get(car.mesh);
+      slot.set(car.mesh, k + 1);
+      car.mesh.setMatrixAt(k, tmpM);
+      // Its own colour in the slot, if somebody else's was there last.
+      const owner = car.mesh.userData.owner || (car.mesh.userData.owner = []);
+      if (owner[k] !== car) {
+        owner[k] = car;
+        if (car.mesh.instanceColor) {
+          if (!car.bus) tmpC.setHex(CAR_COLOURS[car.c]); else tmpC.setRGB(1, 1, 1);
+          car.mesh.setColorAt(k, tmpC);
+          car.mesh.instanceColor.needsUpdate = true;
+        }
+      }
     }
-    for (const m of touched) m.instanceMatrix.needsUpdate = true;
+    for (const m of touched) {
+      m.count = slot.get(m) ?? m.count;
+      m.instanceMatrix.needsUpdate = true;
+    }
   }
 
   /** Whether a heap of rubble lies across the street at a point of a town. */
@@ -2690,9 +2939,13 @@ export class WorksView {
       for (const k of this.dirty) this.buildChunk(k);
       this.dirty.clear();
     }
+    // Detail by distance, a few times a second: see lod.
+    this.lodT = (this.lodT || 0) - dt;
+    if (this.lodT <= 0) { this.lodT = 0.2; this.lod(camera); }
     this.stepFalling(dt);
     this.stepProps(dt);
-    this.stepTraffic(dt);
+    // The traffic only drives where there is anybody near enough to see it.
+    if (this.trafficOn !== false) this.stepTraffic(dt);
     this.stepDebris(dt);
     this.civilians?.update(dt, camera);
     if (!this.plans.length) return;
