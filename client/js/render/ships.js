@@ -29,6 +29,8 @@ import { loadDevastator } from './devastatorModel.js';
 import { loadB25 } from './b25Model.js';
 import { loadNavalAir } from './navalAirModel.js';
 import { loadDauntless } from './dauntlessModel.js';
+import { fitSeaplanes } from './seaplaneFit.js';
+import { SEAPLANE_FITS } from './seaplaneFits.js';
 
 /**
  * The ships built off the owner's sculpts, fetched when they are wanted.
@@ -217,7 +219,7 @@ function sculptOf(classId) {
  *  Shokaku carry the aircraft on their decks and in their hangars. */
 function needs(classId) {
   const k = sculptOf(classId);
-  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'cdg', 'kuznetsov', 'essex', 'lexington', 'ranger', 'illustrious', 'aki'].includes(classId) ? ['planes'] : [])];
+  return [...(k ? [k] : []), ...(['shinano', 'shokaku', 'hosho', 'soryu', 'akagi', 'taiho', 'hornet', 'nimitz', 'ford', 'cdg', 'kuznetsov', 'essex', 'lexington', 'ranger', 'illustrious', 'aki'].includes(classId) || SEAPLANE_FITS[classId] ? ['planes'] : [])];
 }
 
 /** Whether a class can be built now, without waiting for anything. */
@@ -775,7 +777,27 @@ export function buildStandIn(classId) {
 export function buildShipModel(classId) {
   const built = buildModel(classId);
   armTubes(built, SHIP_CLASSES[classId] || SHIP_CLASSES.fletcher);
+  armCatapults(built, classId);
   return built;
+}
+
+/**
+ * Give a ship whose model drew a catapult -- with her scout sat on it, or
+ * bare -- one that works: the model's own scout cut away, a car and a scout
+ * on the girder, and the launch played on the simulation's clock like every
+ * other catapult's (see seaplaneFit.js). Only her own sculpt: the stand-in a
+ * battle draws before it lands has no girder to put her on.
+ */
+function armCatapults(built, classId) {
+  const g = built.group;
+  const fit = SEAPLANE_FITS[classId];
+  const cls = SHIP_CLASSES[classId];
+  if (!fit || g.userData.deck || !cls || !cls.planes || !shipReady(classId)) return;
+  const before = g.userData.step;
+  fitSeaplanes(g, fit, cls.planes.deckRun);
+  const cats = g.userData.step;
+  if (before) g.userData.step = (t) => { before(t); cats(t); };
+  built.deckPlane = g.userData.deckPlane;
 }
 
 /**

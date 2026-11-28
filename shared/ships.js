@@ -23252,6 +23252,73 @@ Object.assign(SHIP_CLASSES, {
 });
 
 /**
+ * The scouts of the ships whose models carry a catapult -- a girder amidships
+ * with a Jake on it, two Kingfishers on the fantail -- and which flew nothing
+ * off it until it was fitted to work (client/js/render/seaplaneFits.js). Each
+ * flies the scouts of her own navy, worked as the ships that already had
+ * theirs work them, off her own girder.
+ *
+ * `run` is where the shot leaves her, measured off the integrated launch the
+ * model on her catapult flies, as each of the others' is: how far out and on
+ * what bearing off her bow, the heading down the girder, and how high -- and,
+ * for a ship with one catapult that only shoots over one side, that side.
+ */
+const SCOUT_TYPES = {
+  kingfisher: SHIP_CLASSES.cleveland.planes,
+  jake: SHIP_CLASSES.kongo.planes,
+  walrus: SHIP_CLASSES.kgv.planes,
+  loire: SHIP_CLASSES.richelieu.planes,
+  ro43: SHIP_CLASSES.morosini.planes,
+  kor1: SHIP_CLASSES.soyuz.planes,
+  arado: SHIP_CLASSES.bismarck.planes,
+};
+export const FITTED_SCOUTS = {
+  repulse: { type: 'walrus', squadrons: 1, per: 2, run: [190.7, 1.726, 1.571, 18.3] },
+  warspite: { type: 'walrus', squadrons: 1, per: 2, run: [189.6, 1.684, 1.571, 17.8] },
+  ajax: { type: 'walrus', squadrons: 1, per: 1, run: [190.8, 1.293, 1.2, 20.9, 1] },
+  fargo: { type: 'kingfisher', squadrons: 2, per: 2, run: [136.4, 1.801, 1.16, 23.7] },
+  wichita: { type: 'kingfisher', squadrons: 2, per: 2, run: [134.5, 1.807, 1.16, 24.9] },
+  louisiana: { type: 'kingfisher', squadrons: 2, per: 2, run: [190.3, 2.308, 1.53, 23.4] },
+  northcarolina: { type: 'kingfisher', squadrons: 2, per: 2, run: [125.6, 1.722, 1.0, 22.4] },
+  tennessee: { type: 'kingfisher', squadrons: 1, per: 2, run: [177.7, -2.398, -1.942, 23.0, 1] },
+  alaska: { type: 'kingfisher', squadrons: 2, per: 1, run: [138.1, 0.98, 0.9, 26.5] },
+  indianapolis: { type: 'kingfisher', squadrons: 2, per: 1, run: [131.5, -1.306, -1.235, 29.4, 1] },
+  pensacola: { type: 'kingfisher', squadrons: 2, per: 2, run: [130.9, 1.54, 1.571, 28.1] },
+  neworleans: { type: 'kingfisher', squadrons: 2, per: 2, run: [132.8, -1.726, -1.571, 28.6, 1] },
+  agano: { type: 'jake', squadrons: 2, per: 1, run: [124.2, 1.535, 1.3, 27.2, 1] },
+  aoba: { type: 'jake', squadrons: 1, per: 1, run: [147.4, 2.133, 1.942, 26.6, 1] },
+  furutaka: { type: 'jake', squadrons: 1, per: 1, run: [121.6, 1.412, 1.2, 26.4, 1] },
+  b65: { type: 'jake', squadrons: 1, per: 3, run: [134.8, 2.08, 1.942, 26.9, 1] },
+  mogami: { type: 'jake', squadrons: 2, per: 2, run: [146.1, 1.997, 1.842, 26.0] },
+  suzuya: { type: 'jake', squadrons: 2, per: 2, run: [146.3, 2.0, 1.842, 25.8] },
+  tone: { type: 'jake', squadrons: 2, per: 2, run: [154.0, 2.149, 1.942, 25.5] },
+  oyodo: { type: 'jake', squadrons: 1, per: 2, run: [124.8, 1.75, 1.2, 25.8, 1] },
+  yodo: { type: 'jake', squadrons: 2, per: 2, run: [129.6, 1.883, 1.1, 24.4] },
+  roma: { type: 'ro43', squadrons: 1, per: 3, run: [234.2, Math.PI, Math.PI, 26.5, 1] },
+  borgia: { type: 'ro43', squadrons: 1, per: 3, run: [225.2, Math.PI, Math.PI, 28.2, 1] },
+  dunkerque: { type: 'loire', squadrons: 1, per: 2, run: [194.6, -2.546, -2.142, 22.2, 1] },
+  algerie: { type: 'loire', squadrons: 1, per: 2, run: [134.8, 1.493, 1.571, 24.0, 1] },
+  lorraine: { type: 'loire', squadrons: 1, per: 2, run: [179.8, -2.542, -2.242, 16.6, 1] },
+  kirov: { type: 'kor1', squadrons: 1, per: 2, run: [127.7, 1.207, 1.2, 27.3, 1] },
+  hannover: { type: 'arado', squadrons: 1, per: 2, run: [127.4, 1.628, 1.571, 26.4] },
+};
+for (const [id, s] of Object.entries(FITTED_SCOUTS)) {
+  const cls = SHIP_CLASSES[id];
+  if (!cls || cls.planes) continue;
+  const [out, bearing, heading, height, side] = s.run;
+  const P = { ...SCOUT_TYPES[s.type] };
+  delete P.runSide;
+  cls.planes = {
+    ...P,
+    squadrons: s.squadrons, perSquadron: s.per,
+    runOut: out, runBearing: bearing, runHeading: heading, runHeight: height,
+    ...(side ? { runSide: side } : {}),
+    flight: { fighters: 0, dive: s.per, torpedo: 0 },
+  };
+  if (cls.datasheet) cls.datasheet.aircraft = Math.max(cls.datasheet.aircraft || 0, s.squadrons * s.per);
+}
+
+/**
  * How much more a hull takes than her datasheet number, all of them alike.
  *
  * Ships went down too quickly for an action to be fought: a few good salvoes
