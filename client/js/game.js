@@ -88,9 +88,9 @@ const LATE_EVENTS = new Set([
 // What a pilot did wrong putting a seaplane down (see shared/alight.js).
 const SEA_FAULT = {
   'dropped in': 'Crashed — came down too hard: settle her on gently',
-  'too fast': 'Crashed — too fast onto the water: slow her nearly to the stall',
+  'too fast': 'Crashed — too fast onto the water: under 200 knots, nose level',
   'wing in': 'Crashed — a wing down: put her on wings level',
-  'nose in': 'Crashed — nose in: hold her nose up as she touches',
+  'nose in': 'Crashed — nose in: hold her nose level or up as she touches',
 };
 // What the batsman saw, for a captain watching one of his own go round.
 const WAVE_OFF = {

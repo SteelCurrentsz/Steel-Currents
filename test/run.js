@@ -34223,14 +34223,17 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     for (const k of SEAPLANES) {
       const vs = vStallOf(k);
       assert.equal(alightFault(k, { v: vs * 1.2, vy: -1.5, pitch: -0.03, bank: 0.05 }), null, `a ${k} settled on gently did not alight`);
-      assert.equal(alightFault(k, { v: vs * 1.2, vy: -8, pitch: -0.2, bank: 0 }), 'dropped in');
-      assert.equal(alightFault(k, { v: vs * 2.2, vy: -1, pitch: -0.02, bank: 0 }), 'too fast');
+      assert.equal(alightFault(k, { v: vs * 1.2, vy: -8, pitch: -0.3, bank: 0 }), 'nose in');
+      assert.equal(alightFault(k, { v: vs * 1.2, vy: -14, pitch: 0.05, bank: 0 }), 'dropped in');
+      // Fast is fine, so long as she is angled right: 200 knots, nose level.
+      assert.equal(alightFault(k, { v: 200 * 0.514444 - 1, vy: -6, pitch: -0.05, bank: 0.1 }), null, `a ${k} put on fast and level did not alight`);
+      assert.equal(alightFault(k, { v: 200 * 0.514444 + 2, vy: -1, pitch: -0.02, bank: 0 }), 'too fast');
       assert.equal(alightFault(k, { v: vs * 1.2, vy: -1.5, pitch: -0.03, bank: 0.6 }), 'wing in');
     }
     // Something that is not a seaplane does not alight however it is put down.
     assert.ok(alightFault('wildcat', { v: 30, vy: -1, pitch: 0, bank: 0 }));
     // In the simulation, under a pilot: the same rules decide it.
-    for (const [vy, ok] of [[-1.5, true], [-9, false]]) {
+    for (const [vy, ok] of [[-1.5, true], [-14, false]]) {
       const { state, p } = seaField();
       const vs = vStallOf(p.type);
       p.flown = true; p.flownAt = state.t; p.pilot = 1;
@@ -34241,9 +34244,9 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
         assert.ok(ev.some((e) => e.e === 'alighted' && e.i === p.id), 'nobody was told she was down');
         assert.ok(!ev.some((e) => e.e === 'planeCrash'), 'she alighted and crashed');
       } else {
-        assert.ok(p.dead && !p.afloat, 'a Kingfisher dropped in at nine metres a second sat on the water');
+        assert.ok(p.dead && !p.afloat, 'a Kingfisher dived in nose first sat on the water');
         const c = ev.find((e) => e.e === 'planeCrash' && e.i === p.id);
-        assert.ok(c && c.why === 'dropped in', 'the crash does not say what she did wrong');
+        assert.ok(c && c.why === 'nose in', 'the crash does not say what she did wrong');
       }
     }
   });

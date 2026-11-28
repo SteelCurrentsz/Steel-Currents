@@ -18,6 +18,7 @@
 // ones, so what the pilot sees happen is what the simulation says happened.
 
 import { AERO, stallSpeed, thrust, alphaFor } from './aero.js';
+import { KNOTS } from './math.js';
 
 /** Every machine in the game built to come down on the water. */
 export const SEAPLANES = new Set(['arado', 'kingfisher', 'besson', 'loire', 'walrus', 'kor1', 'ro43', 'jake']);
@@ -27,15 +28,18 @@ export function isSeaplane(type) { return SEAPLANES.has(type); }
 
 /**
  * What she can be put down in, and no worse:
- *   sink    the fastest she may be coming down, metres a second -- a pilot
- *           settles her on at a couple; more than this and she is dropped in
- *   over    the fastest she may be going, as a multiple of her stall speed
+ *   sink    the fastest she may be coming down, metres a second: more than
+ *           this and she is dropped in, however her nose is held -- a stalled
+ *           pancake onto the water
+ *   top     the fastest she may be going, metres a second (200 knots). Fast is
+ *           forgiven: put on at the right angle she skims and runs her speed
+ *           off on the water. It is the angle that breaks her up.
  *   bank    how far a wing may be down, radians: a float pontoon or a wingtip
  *           float that meets the water first digs in and swings her over
- *   nose    how far her path may point down, radians: steeper than this the
+ *   nose    how far her nose may point down, radians: steeper than this the
  *           float bows go under and she goes over on her back
  */
-export const ALIGHT = { sink: 4.5, over: 1.6, bank: 0.27, nose: -0.16 };
+export const ALIGHT = { sink: 12, top: 200 * KNOTS, bank: 0.35, nose: -0.18 };
 
 /** Her stall speed, off her type. */
 export function vStallOf(type) {
@@ -52,13 +56,12 @@ export function vStallOf(type) {
  */
 export function alightFault(type, { v, vy, pitch = 0, bank = 0 }) {
   if (!isSeaplane(type)) return 'not a seaplane';
-  const vs = vStallOf(type);
-  if ((vy ?? 0) < -ALIGHT.sink) return 'dropped in';
-  if ((v ?? 0) > vs * ALIGHT.over) return 'too fast';
+  if ((v ?? 0) > ALIGHT.top) return 'too fast';
   // All the way round: a wing down is a wing down whichever way up she is.
   const b = Math.abs(Math.atan2(Math.sin(bank), Math.cos(bank)));
   if (b > ALIGHT.bank) return 'wing in';
   if ((pitch ?? 0) < ALIGHT.nose) return 'nose in';
+  if ((vy ?? 0) < -ALIGHT.sink) return 'dropped in';
   return null;
 }
 
@@ -147,7 +150,9 @@ export function stepAfloat(type, s, { throttle = 0, rudder = 0, off = false, dt 
   // Just put down with her throttle back: she comes down off the step as
   // her wing lets go of her and digs her floats in, and runs off her landing
   // speed in a few lengths. Opened up, she stays on the step and goes.
-  if (!off && throttle < 0.5 && v > unstickSpeed(type) * 0.7) hold += SETTLE;
+  // Put down fast, the water drags at her the harder the faster she is going,
+  // so even one put on at 200 knots has run it off in a few hundred metres.
+  if (!off && throttle < 0.5 && v > unstickSpeed(type) * 0.7) hold += SETTLE * Math.max(1, v / unstickSpeed(type));
   s.v = Math.max(0, v + (push - hold) * dt);
   if (s.v < DRIFT && throttle < 0.02) s.v = 0;
   // She turns on her water rudder and the slipstream over her own rudder:
