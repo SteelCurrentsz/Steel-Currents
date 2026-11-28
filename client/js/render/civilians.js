@@ -25,7 +25,9 @@ import { InfantryView, footing } from './infantry.js';
 /** How many people a battlefield's towns hold between them, at most. */
 const MAX_PEOPLE = 900;
 /** Past this far from the eye, nobody is walked about: nobody could see it. */
-const LIVE_RANGE = 3200;
+const LIVE_RANGE = 1500;
+/** Past this, walked a frame in four, with the four frames' time: they are a few pixels tall. */
+const SLOW_RANGE = 450;
 /** Walking pace, and running for their lives, metres a second. */
 const WALK = [1.0, 1.6];
 const RUN = [4.2, 6.4];
@@ -139,10 +141,20 @@ export class Civilians {
     if (!this.view) return;
     const cam = camera?.position;
     const list = [];
+    this.tick = ((this.tick || 0) + 1) & 3;
+    this.slowDt = (this.slowDt || 0) + dt;
+    const slowNow = this.tick === 0;
+    const slowDt = this.slowDt;
+    if (slowNow) this.slowDt = 0;
+    const frameDt = dt;
     for (const p of this.people) {
       if (!p.alive) continue;
-      const near = !cam || Math.hypot(p.x - cam.x, p.z - cam.z) < LIVE_RANGE;
-      if (!near) continue;
+      const far = cam ? Math.hypot(p.x - cam.x, p.z - cam.z) : 0;
+      if (far >= LIVE_RANGE) continue;
+      // Far off, the same walk in bigger steps, less often.
+      if (far > SLOW_RANGE && !slowNow && p.row) { list.push(p.row); continue; }
+      dt = far > SLOW_RANGE ? slowDt : frameDt;
+      const wasX = p.x, wasZ = p.z;
       p.scared = Math.max(0, p.scared - dt);
       let speed = 0;
       if (p.wait > 0 && p.scared <= 0) {
@@ -176,13 +188,14 @@ export class Civilians {
         }
       }
       p.sp = speed;
-      p.y = footing(this.world, p.x, p.z);
-      list.push({
-        i: p.i, tm: 0, x: p.x, y: p.y, z: p.z, h: p.h, yaw: p.h, pitch: 0,
-        f: p.scared > 0 ? 2 | 256 : 0, sp: speed, col: p.col,
-      });
+      // The ground under him only wants finding again when he has moved.
+      if (p.x !== wasX || p.z !== wasZ || p.y === undefined || !p.row) p.y = footing(this.world, p.x, p.z);
+      const row = p.row || (p.row = { i: p.i, tm: 0, col: p.col, pitch: 0 });
+      row.x = p.x; row.y = p.y; row.z = p.z; row.h = p.h; row.yaw = p.h;
+      row.f = p.scared > 0 ? 2 | 256 : 0; row.sp = speed;
+      list.push(row);
     }
-    this.view.sync(list, dt, camera || { position: new THREE.Vector3() });
+    this.view.sync(list, frameDt, camera || { position: new THREE.Vector3() });
   }
 
   // ------------------------------------------------------------- the battle
