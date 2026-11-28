@@ -16,6 +16,7 @@ import { holeRadius } from './render/plating.js';
 import { blastPower } from './render/rupture.js';
 import { Airborne, AERO, HEAVY_AERO, stallSpeed, Pilot, flightAttitude, weathercock, instruct, alphaFor, hovers }
   from './render/aero.js';
+import { waterTrim, unstickSpeed } from '../../shared/alight.js';
 import { startManeuver, pathOf, upOf } from '../../shared/pilot.js';
 import { VIC, vicAt } from '../../shared/formation.js';
 import {
@@ -974,6 +975,8 @@ export class Battle {
     this.planeTurn = new Map();
     // And how far her nose is up, eased the same way. See syncEntities.
     this.planePitch = new Map();
+    // A seaplane's drawn height as she goes onto or off the water: see seaEase.
+    this.seaLift = new Map();
     // And what each has lost -- a wing panel, a tail -- which stays lost.
     this.planeCut = new Map();
     // How far each flight's bomb bay is open and how far her weapon has
@@ -10010,7 +10013,7 @@ export class Battle {
       const held = this.planeTurn.get(pl.i);
       // A pilot's own bank is drawn as it comes: eased, she would never get
       // round a roll before the next one started.
-      const bank = held === undefined || flown ? want
+      let bank = held === undefined || flown ? want
         : held + (want - held) * (1 - Math.pow(0.02, dt));
       this.planeTurn.set(pl.i, bank);
       // Her attitude, which is not the direction she is travelling.
@@ -10055,9 +10058,24 @@ export class Battle {
       // wire a tenth of a metre a second at a time, and her nose nodded with
       // every step of it.
       const pitchWas = this.planePitch.get(pl.i);
-      const pitch = pitchWas === undefined || flown ? pitchWant
+      let pitch = pitchWas === undefined || flown ? pitchWant
         : pitchWas + (pitchWant - pitchWas) * (1 - Math.pow(0.01, dt));
+      // On the water she is a boat: level across, and her nose wherever her
+      // floats put it -- up over the hump, down on the step, lifted at the
+      // last as she comes off (see waterTrim) -- eased, so the angle she
+      // runs off the water at is the angle she climbs away at.
+      const onWater = pl.af && !pl.hk;
+      const flying = this.flight && this.flight.id === pl.i ? this.flight.pilot : null;
+      if (onWater && !flying) {
+        const trim = waterTrim(kind, gs, true);
+        pitch = pitchWas === undefined ? trim : pitchWas + (trim - pitchWas) * (1 - Math.pow(0.02, dt));
+        bank = clamp(-(pl.b || 0) * gs * 0.01, -0.06, 0.06);
+        this.planeTurn.set(pl.i, bank);
+      }
       this.planePitch.set(pl.i, pitch);
+      if (onWater || (flying && flying.afloat)) {
+        this.waterRun(pl, kind, flying ? flying.v : gs, flying ? flying.heading : pl.h, dt);
+      }
       // The one aeroplane a carrier put in the air is drawn by the deck
       // handover instead -- she is the model that went down the deck -- so her
       // slot in the formation is left empty rather than filled twice.
@@ -10081,7 +10099,7 @@ export class Battle {
       if (mine) {
         // At her whole attitude, as a quaternion, and less whatever she has
         // lost -- see stepFlight.
-        this.scene.flights.add(pl.r || 'torpedo', mine.x, mine.y, mine.z,
+        this.scene.flights.add(pl.r || 'torpedo', mine.x, this.seaEase(pl.i, !!mine.afloat, mine.y, dt), mine.z,
           mine.heading, mine.bank, mine.attitude, Math.max(1, pl.n || 1), skip,
           kind, trim, holes, a.span, this.flight.cut || 0, 0, attitudeOf(mine), mask);
         const n = pathOf(mine);
@@ -10098,7 +10116,7 @@ export class Battle {
         // that took it have since dropped off the end of the list.
         const cut = (this.planeCut.get(pl.i) || 0) | cutFromHoles(holes, pl.dm);
         this.planeCut.set(pl.i, cut);
-        this.scene.flights.add(pl.r || 'torpedo', pl.x, this.planeHeight(pl), pl.z,
+        this.scene.flights.add(pl.r || 'torpedo', pl.x, this.seaEase(pl.i, onWater, this.planeHeight(pl), dt), pl.z,
           pl.h, bank, pitch, Math.max(1, pl.n || 1), skip, kind, trim, holes, a.span,
           cut, 0, null, mask);
         this.noteDrawn(pl.i, kind, Math.sin(pl.h) * gs, pl.vy || 0, Math.cos(pl.h) * gs);
@@ -10231,6 +10249,7 @@ export class Battle {
         this.planeTrim.delete(id);
         this.planeTurn.delete(id);
         this.planePitch.delete(id);
+        this.seaLift.delete(id);
         this.planeCut.delete(id);
         this.planeSmoke.delete(id);
       }
@@ -10634,6 +10653,59 @@ export class Battle {
    * player has just watched go down the deck carries straight on climbing when
    * the scene takes her over instead of dropping through twenty metres of air.
    */
+  /**
+   * Where a seaplane is drawn as she comes off the water or onto it.
+   *
+   * On the water she rides the swell; in the air she is at the height the
+   * simulation flies her at, which starts a hand clear of the mean sea --
+   * and the wave she was riding a moment ago can be a metre either side of
+   * that. Switched from one to the other in a frame, she jumped. The gap is
+   * carried on her instead and eased out over a second or two, so she is
+   * seen to lift off the crest she was on and climb away from it.
+   */
+  seaEase(id, afloat, y, dt) {
+    let e = this.seaLift.get(id);
+    if (!e) { e = { af: afloat, y, dy: 0 }; this.seaLift.set(id, e); }
+    if (e.af !== afloat) {
+      e.af = afloat;
+      const gap = e.y - y;
+      // Only the step between the two: anything bigger is not her coming
+      // off the water (a hoist, a snapshot after a long stall), and is not
+      // dragged across the sky.
+      e.dy = Math.abs(gap) < 6 ? gap : 0;
+    }
+    e.dy *= Math.pow(0.08, dt);
+    if (Math.abs(e.dy) < 0.005) e.dy = 0;
+    e.y = y + e.dy;
+    return e.y;
+  }
+
+  /**
+   * The spray off her floats on a run across the water: a bow wave each side
+   * of each float ploughing up to the hump, a thin sheet planing on the step,
+   * and almost nothing off the heels of her floats as she lifts.
+   */
+  waterRun(pl, kind, v, heading, dt) {
+    if (v < 2.5) return;
+    const x = v / unstickSpeed(kind);
+    const depth = x < 0.42 ? 0.35 + 0.6 * (x / 0.42) : x < 0.75 ? 0.5 : 0.5 - 0.4 * ((x - 0.75) / 0.25);
+    const vx = Math.sin(heading) * v, vz = Math.cos(heading) * v;
+    const fx = this.scene.effects;
+    if (!fx.skim) return;
+    // Her floats are a pace or two either side of her for a float plane --
+    // one float for a single-float machine or a hull, which throws it from
+    // under her middle -- and a little ahead of her middle.
+    const span = (AERO[kind] && AERO[kind].span) || 12;
+    const twin = !['kor1', 'ro43', 'walrus', 'besson', 'loire', 'kingfisher'].includes(kind);
+    const ax = Math.sin(heading), az = Math.cos(heading);
+    const rx = az, rz = -ax;
+    const sides = twin ? [-1, 1] : [0];
+    for (const s of sides) {
+      const off = s * span * 0.13;
+      fx.skim(pl.x + rx * off + ax * 1.5, pl.z + rz * off + az * 1.5, vx, vz, Math.max(0.1, depth), dt);
+    }
+  }
+
   planeHeight(pl) {
     // A seaplane down on the water rides the swell, whatever height the
     // simulation keeps for her.

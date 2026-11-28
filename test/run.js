@@ -75,7 +75,10 @@ import {
 } from '../shared/sim.js';
 import { callEscort, canCallEscort, escortStrength } from '../shared/sim.js';
 import { craneSpot, HOIST_TIME, HOIST_SPEED, aloftFoe, shipClass as seaClass } from '../shared/sim.js';
-import { alightFault, vStallOf, unstickSpeed, SEAPLANES } from '../shared/alight.js';
+import { alightFault, vStallOf, unstickSpeed, SEAPLANES, waterTrim } from '../shared/alight.js';
+import { SEAPLANE_FITS } from '../client/js/render/seaplaneFits.js';
+import { cutModel } from '../client/js/render/seaplaneFit.js';
+import { FITTED_SCOUTS } from '../shared/ships.js';
 import { Pilot as SeaPilot, instruct as seaInstruct } from '../shared/pilot.js';
 import { createStaff, stepStaff, setCourse } from '../server/command.js';
 import {
@@ -34423,6 +34426,86 @@ check('the Credits screen credits the Amagi\'s model and the three boats\'', () 
     w.pitch = -0.05; w.F = null;
     for (let t = 0; t < 30 && w.alive && !w.afloat; t += 1 / 60) w.step(1 / 60, 0);
     assert.ok(!w.alive && !w.afloat, 'a Wildcat alighted on the sea');
+  });
+
+  check('a seaplane runs across the water nose-up over the hump, flat on the step, and lifts off without a jump', () => {
+    for (const k of SEAPLANES) {
+      const u = unstickSpeed(k);
+      const rest = waterTrim(k, 0), hump = waterTrim(k, u * 0.42), step = waterTrim(k, u * 0.72), off = waterTrim(k, u);
+      assert.ok(hump > rest + 0.04 && step < hump - 0.04 && off > step + 0.05,
+        `a ${k} sits ${rest.toFixed(3)} at rest, ${hump.toFixed(3)} over the hump, ${step.toFixed(3)} on the step, ${off.toFixed(3)} lifting off`);
+      // Flown off by the player's instructor: her nose and her height, frame
+      // to frame, through the moment the water lets her go.
+      const pl = new SeaPilot(AERO[k], { x: 0, y: 0, z: 0, heading: 0, speed: 0, kind: k, afloat: true });
+      pl.settle(0);
+      pl.throttle = 1;
+      const aim = { x: 0, y: Math.sin(0.14), z: Math.cos(0.14) };
+      let nose = null, y = null, worst = 0, rise = 0, was = true;
+      for (let t = 0; t < 120 && pl.alive; t += 1 / 30) {
+        seaInstruct(pl, aim);
+        pl.step(1 / 30, 0);
+        const n = pl.pitch + pl.attitudeAlpha();
+        if (nose !== null) worst = Math.max(worst, Math.abs(n - nose));
+        if (y !== null && was && !pl.afloat) rise = pl.y - y;
+        nose = n; y = pl.y; was = pl.afloat;
+        if (!pl.afloat && pl.y > 30) break;
+      }
+      assert.ok(pl.alive && pl.y > 30, `a ${k} never climbed away off the water`);
+      assert.ok(worst < 0.04, `a ${k}'s nose jumped ${worst.toFixed(3)} rad in one frame on her run`);
+      assert.ok(rise < 0.8, `a ${k} jumped ${rise.toFixed(2)} m clear of the water`);
+    }
+  });
+
+  check('a model is cut only where it lies wholly inside the box', () => {
+    const g = new THREE.Group();
+    const big = new THREE.Mesh(new THREE.BoxGeometry(40, 1, 40), new THREE.MeshBasicMaterial());
+    const small = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+    small.position.set(5, 3, 5);
+    const gun = new THREE.Group(); gun.userData.dynamic = true;
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    gun.position.set(5, 3, 8); gun.add(barrel);
+    g.add(big, small, gun);
+    const tris = (m) => (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+    const before = [tris(big), tris(small), tris(barrel)];
+    cutModel(g, [[0, 10, 0, 10, 0, 10]]);
+    assert.equal(tris(big), before[0], 'the deck through the box was cut');
+    assert.equal(tris(small), 0, 'the scout inside the box was left');
+    assert.equal(tris(barrel), before[2], 'a gun that trains was cut');
+  });
+
+  check('every ship whose model draws a catapult flies her scouts off it, where and the way the plot has her', () => {
+    const fwd = new THREE.Vector3();
+    for (const id of Object.keys(SEAPLANE_FITS)) {
+      const cls = SHIP_CLASSES[id];
+      assert.ok(cls.planes && cls.planes.catapult && FITTED_SCOUTS[id], `${id} has a catapult and nothing to fly off it`);
+      const g = buildShip(id).group;
+      const deck = g.userData.deck;
+      assert.ok(deck, `${id}'s catapult does not work`);
+      for (let n = 0; n < Math.min(2, deck.cats.length); n++) {
+        const t0 = n * 200;
+        g.userData.launch(t0);
+        const c = deck.live;
+        assert.ok(c.plane.visible, `${id} has no scout on her catapult`);
+        for (let t = t0; t <= t0 + 20 && !deck.airborne; t += 1 / 20) { g.userData.step(t); g.updateMatrixWorld(true); }
+        assert.ok(deck.airborne && deck.endMatrix, `${id} never shot her scout off`);
+        g.userData.step(t0 + 25);
+        assert.ok(!c.plane.visible, `${id}'s scout is still on the catapult she has just been shot off`);
+        const end = new THREE.Vector3().setFromMatrixPosition(deck.endMatrix);
+        fwd.set(0, 0, 1).transformDirection(deck.endMatrix);
+        let best = Infinity, nose = 0;
+        for (const s of [-1, 1]) {
+          const off = launchOffset(cls, s);
+          const d = Math.hypot(end.x - Math.sin(off.bearing) * off.out, end.z - Math.cos(off.bearing) * off.out);
+          if (d < best) { best = d; nose = off.heading; }
+        }
+        assert.ok(best < 15, `${id}: the plot puts her ${best.toFixed(0)} m from where the shot left her`);
+        assert.ok(Math.abs(angleDelta(Math.atan2(fwd.x, fwd.z), nose)) < 0.12, `${id}: she left the girder off the plot's heading`);
+        assert.ok(Math.abs(end.y - cls.planes.runHeight) < 2, `${id}: she left at ${end.y.toFixed(1)} m and the plot has ${cls.planes.runHeight}`);
+        g.userData.recover();
+        g.userData.step(t0 + 100);
+        assert.ok(c.plane.visible, `${id}'s scout craned back aboard is not on her catapult`);
+      }
+    }
   });
 }
 

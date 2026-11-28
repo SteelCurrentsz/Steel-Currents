@@ -44,7 +44,7 @@ export const SEAPLANE_FITS = {
   // Her two on the fantail, lying forward and a little outboard, and trained
   // out abeam.
   louisiana: {
-    aero: 'kingfisher', pair: true, at: [5.6, 7.3, -133.5], a: 4,
+    aero: 'kingfisher', pair: true, at: [5.6, 7.3, -133.5], a: 6,
     base: 0.23, out: 1.3, back: -2, front: 17,
     cut: [[4.8, 10.5, 6.4, 9.5, -134, -124], [7.2, 10.5, 6.4, 9.5, -124, -115],
       [-10.5, -4.8, 6.4, 9.5, -134, -124], [-10.5, -7.2, 6.4, 9.5, -124, -115]],
@@ -100,16 +100,17 @@ export const SEAPLANE_FITS = {
     cut: [[-1.6, 2.6, 8.6, 10.4, -29, -10], [-7, 7, 9.6, 14.5, -9.5, 1.5]],
   },
   // The aircraft cruisers: a catapult either side at the fore end of the
-  // aircraft deck, abreast the mainmast, stowed aft and trained out.
+  // aircraft deck, abreast the mainmast, stowed aft and trained out -- far
+  // enough out that the two Jakes' wings clear each other.
   mogami: {
-    aero: 'jake', pair: true, at: [5.6, 8.7, -25], base: PI, out: -1.3, back: -3, front: 14,
+    aero: 'jake', pair: true, at: [7.3, 8.7, -25], a: 6, base: PI, out: -1.3, back: -3, front: 14,
     cut: [[-4.5, 4.5, 7.9, 13, -46, -38]],
   },
   suzuya: {
-    aero: 'jake', pair: true, at: [5.6, 8.5, -25.5], base: PI, out: -1.3, back: -3, front: 14,
+    aero: 'jake', pair: true, at: [7.3, 8.5, -25.5], a: 6, base: PI, out: -1.3, back: -3, front: 14,
   },
   tone: {
-    aero: 'jake', pair: true, at: [5.2, 8.3, -36], base: PI, out: -1.2, back: -3, front: 15,
+    aero: 'jake', pair: true, at: [7.3, 8.3, -36], base: PI, out: -1.2, back: -3, front: 15,
   },
   // Her great catapult on her quarterdeck, and the scout on it.
   oyodo: {
@@ -117,7 +118,7 @@ export const SEAPLANE_FITS = {
     cut: [[-1.6, 1.6, 7.4, 9.2, -86, -54.5], [-8, 8, 8.8, 13, -82, -68]],
   },
   yodo: {
-    aero: 'jake', pair: true, at: [5.0, 7.2, -100], base: 0, out: 1.1, back: -3, front: 15,
+    aero: 'jake', pair: true, at: [7.2, 7.2, -100], base: 0, out: 1.1, back: -3, front: 15,
     cut: [[2, 6, 6.2, 9, -106, -84], [-7.5, -3.5, 6.2, 9, -106, -84]],
   },
 
