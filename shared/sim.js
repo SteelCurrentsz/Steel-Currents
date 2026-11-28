@@ -6653,7 +6653,9 @@ export function pinBattery(state, bat, x, z) {
   }
   const gun = batteryGun(bat.batteryId);
   const d = dist(bat.x, bat.z, x, z);
-  if (d > gun.range || d < 300) return false;
+  // A tank's gun is laid over open sights at whatever is in front of it --
+  // a few hundred metres, or across the street. A coast gun's is not.
+  if (d > gun.range || d < (bat.tank ? 20 : 300)) return false;
   bat.pin = { x, z, m: 'hand', tid: 0 };
   // A gun laid on a point is not laid on a ship as well.
   bat.ctlTarget = 0;
@@ -6693,7 +6695,7 @@ function pinPoint(pin) {
  */
 function freePoint(bat, gun) {
   const bearing = wrapAngle(bat.heading + bat.angle);
-  const d = clamp(bat.lastRange || Math.min(gun.range * 0.2, 9000), 400, gun.range);
+  const d = clamp(bat.lastRange || Math.min(gun.range * (bat.tank ? 0.05 : 0.2), 9000), bat.tank ? 30 : 400, gun.range);
   return {
     id: 0, x: bat.x + Math.sin(bearing) * d, z: bat.z + Math.cos(bearing) * d,
     heading: 0, speed: 0, point: true, alive: true,

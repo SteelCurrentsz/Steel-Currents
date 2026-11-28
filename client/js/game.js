@@ -27,6 +27,7 @@ import { b29Ready, b29Geometries, b29Materials } from './render/b29Model.js';
 import { BOMBERS } from '../../shared/bombers.js';
 import { audio } from './audio.js';
 import { installTroops } from './troops.js';
+import { installImmersion } from './immersion.js';
 import { footing } from '../../shared/infantry.js';
 import { getSettings, setSettings, qualityName } from './settings.js';
 import { Director } from './director.js';
@@ -1178,6 +1179,7 @@ export class Battle {
     this.commandBat = null;
     // And the soldier, if any: see troops.js.
     this.bindTroops(mine);
+    this.bindImmersion();
     document.getElementById('bat-leave')?.addEventListener('click', () => this.leaveBattery(), mine);
     document.getElementById('bat-fire')?.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -3665,6 +3667,8 @@ export class Battle {
           .set(ev.si, { x: ev.x, y: ev.y ?? 8, z: ev.z, st: ev.tk * DT });
       }
       if (!late && this.holdBack(ev)) continue;
+      // Felt, close to the man or the tank in hand: see immersion.js.
+      if (!late) this.feelEvent(ev);
       const d = this.distanceFade(ev.x, ev.z);
       // The people in the towns hear it, and run -- or are caught by it.
       this.scene.worksView?.civilians?.event(ev);
@@ -3723,6 +3727,7 @@ export class Battle {
           } else if (!lit) fx.muzzle(ev.x, ev.y ?? 18, ev.z, ev.b, ev.cal);
           audio.gun(ev.cal, heard || { x: ev.x, y: ev.y ?? 18, z: ev.z }, ev.b || 1);
           if (ev.ship === this.shipId && getSettings().recoil) this.kick(ev.cal);
+          if (this.commandBat && this.commandBat.tank && ev.battery === this.commandBat.id && !late) this.tankFired(ev);
           break;
         }
         case 'rocket': {
@@ -4353,6 +4358,7 @@ export class Battle {
             if (mine) this.hud.ribbon(`${label}${what}`, (ev.kind === 'shatter' || ev.kind === 'ricochet') ? 'miss' : '');
             if (this.commandBat && ev.victim === this.commandBat.id) {
               this.shake = Math.max(this.shake, PENETRATING_KINDS.has(ev.kind) ? 0.8 : 0.4);
+              if (this.commandBat.tank) this.tankStruck(ev, PENETRATING_KINDS.has(ev.kind));
               this.hud.ribbon(`${TANK_TAKEN[ev.kind] || 'Hit'}${what}`, 'miss');
             }
             break;
@@ -5372,7 +5378,10 @@ export class Battle {
     this.off.push(this.input.on('key', (code) => this.onKey(code)));
     this.off.push(this.input.on('scope', (on) => { this.scoped = on; }));
     // A click with the pointer captured: the trigger of the soldier in hand.
-    this.off.push(this.input.on('press', () => { if (this.troop) this.troopFire(); }));
+    this.off.push(this.input.on('press', () => {
+      if (this.troop) this.troopFire();
+      else if (this.commandBat && this.commandBat.tank) this.fireBattery();
+    }));
     this.off.push(this.input.on('wheel', (dir) => {
       // At the guns of a battery it is the sight's glass.
       if (this.commandBat) {
@@ -5444,8 +5453,11 @@ export class Battle {
     if (this.commandBat) {
       if (code === 'Space') { this.fireBattery(); return; }
       if (code === 'Escape') { this.leaveBattery(); return; }
+      // The gunner's sight, in and out; and F for the gun as well.
+      if (this.commandBat.tank && code === 'KeyV' && this.tankFeel) { this.tankFeel.sight = !this.tankFeel.sight; audio.click(); return; }
+      if (this.commandBat.tank && code === 'KeyF') { this.fireBattery(); return; }
       // Driving a tank, the driving keys drive it and not her.
-      if (this.commandBat.tank && ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(code)) return;
+      if (this.commandBat.tank && ['KeyQ', 'KeyE', 'KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(code)) return;
     }
     // Walking about her, the walking keys walk him and Space jumps.
     if (this.man) {
@@ -6450,6 +6462,13 @@ export class Battle {
       grp.position.set(x, s.y, z);
       grp.quaternion.identity();
       grp.rotation.set(-s.p, h, s.r, 'YXZ');
+      // Our own gun going off rocks the hull back on its springs, about the
+      // line across the bore (see tankFired); and every tank moving on dry
+      // land throws up dust off its tracks.
+      if (mine && this.tankFeel && this.tankFeel.rockNow) {
+        grp.rotateOnAxis(new THREE.Vector3(Math.cos(ang), 0, -Math.sin(ang)), -this.tankFeel.rockNow * 0.6);
+      }
+      if (T) this.tankDust(view, g, T);
     }
     if (g.al) for (const m of view.spin) m.rotation.y = ang;
     // Burning and still fighting: smoke and flame off the engine deck. A
@@ -6706,8 +6725,11 @@ export class Battle {
     const leave = document.getElementById('bat-leave');
     if (leave) leave.textContent = b.tank ? 'Leave tank' : 'Leave battery';
     if (b.tank) {
-      this.hud.alert(g.ab ? 'Stick to drive · it goes ashore over the ramp when she beaches · drag to aim · FIRE'
-        : 'Stick or WASD to drive · drag the view to aim the turret · FIRE');
+      this.tankTaken(b);
+      this.hud.alert(this.input.touch
+        ? (g.ab ? 'Stick to drive · it goes ashore over the ramp when she beaches · drag to aim · FIRE'
+          : 'Stick to drive · drag to aim the turret · FIRE')
+        : 'Click to take the mouse · mouse to lay the turret · left click fire · right click or V gunner\'s sight · WASD drive · wheel zoom');
       audio.click();
       return;
     }
@@ -6728,6 +6750,7 @@ export class Battle {
     this.batAim = null;
     if (c.tank) {
       this.hud.setTankStick(false);
+      this.tankLeft();
       if (tell) this.net.send({ t: 'tdrive', i: c.id, th: 0, st: 0 });
     }
     if (tell) this.net.send({ t: 'lbat', i: c.id });
@@ -6848,7 +6871,7 @@ export class Battle {
     if (dir.y < -1e-4) sea = Math.min(look, Math.max(1, eye.y / -dir.y));
     // From clear of the works, or the line goes straight into the hill the
     // battery is dug into.
-    const s0 = Math.min(sea * 0.5, (c.span || 20) * 1.5 + 20);
+    const s0 = Math.min(sea * 0.5, c.tank ? 14 : (c.span || 20) * 1.5 + 20);
     const land = w ? solidHit(w, eye.x + dir.x * s0, eye.y + dir.y * s0, eye.z + dir.z * s0,
       eye.x + dir.x * sea, eye.y + dir.y * sea, eye.z + dir.z * sea, 6) : null;
     const landT = land ? s0 + land.f * (sea - s0) : Infinity;
@@ -6870,9 +6893,11 @@ export class Battle {
     for (const g of (snap && snap.batteries) || []) {
       if (g.tm === this.team || !g.al) continue;
       const d = Math.hypot(g.x - eye.x, g.z - eye.z);
-      if (d < 200 || d > look || d > bestD || d > landFlat + 120) continue;
-      const span = BATTERIES[g.b]?.span || 20;
-      if (off(g.x, g.z) > Math.atan2(span + 20, d) + 0.003) continue;
+      // A tank fights other tanks at a few hundred metres, and closer.
+      const tankT = BATTERIES[g.b]?.tank;
+      if (d < (c.tank ? 12 : 200) || d > look || d > bestD || d > landFlat + 120) continue;
+      const span = tankT ? tankT.length * 0.6 : (BATTERIES[g.b]?.span || 20) + 20;
+      if (off(g.x, g.z) > Math.atan2(span, d) + 0.003) continue;
       bestD = d;
       best = { kind: 'battery', id: g.i, x: g.x, z: g.z, name: BATTERIES[g.b]?.name };
     }
@@ -6888,7 +6913,7 @@ export class Battle {
     const from = (snap && (snap.batteries || []).find((q) => q.i === c.id)) || eye;
     const d = Math.hypot(p.x - from.x, p.z - from.z);
     p.out = d > reach;
-    const keep = clamp(d, 320, reach * 0.995);
+    const keep = clamp(d, c.tank ? 25 : 320, reach * 0.995);
     if (Math.abs(keep - d) > 1) {
       const k = keep / Math.max(1, d);
       p.x = from.x + (p.x - from.x) * k;
@@ -6926,6 +6951,9 @@ export class Battle {
   /** The camera at the guns of a battery: a sight, turned by the drag. */
   batteryCamera(cam, watch, m, dt) {
     const c = this.commandBat;
+    // A tank has a camera of its own: riding the hull, or through the
+    // gunner's sight. See immersion.js.
+    if (c.tank && this.tankFeel) { this.tankCamera(cam, watch, m, dt); return; }
     const fov = this.scoped ? Math.min(8, this.batFov || BAT_FOV) : (this.batFov || BAT_FOV);
     this.batFovNow = lerp(this.batFovNow || fov, fov, 1 - Math.pow(0.0009, dt));
     // Slower the narrower the glass, so a ship at twenty thousand yards can be
@@ -6988,7 +7016,7 @@ export class Battle {
     const c = this.commandBat;
     if (!c) return;
     this.net.send({ t: 'bfire', i: c.id });
-    audio.click();
+    if (!c.tank) audio.click();
   }
 
   /** What the battery in hand is doing, off the snapshot, and whether it is still ours. */
@@ -9171,6 +9199,7 @@ export class Battle {
     }
     this.director?.beforeCamera();
     this.updateCamera(dt);
+    this.closeFrame(dt);
     this.director?.afterCamera();
     this.scene.camera.updateMatrixWorld();
     // The sights on the glass are worked out of the camera this frame has
@@ -11613,3 +11642,4 @@ Battle.prototype.groundAt = function groundAt(x, z) {
   return footing(this.scene.world || this.world, x, z);
 };
 installTroops(Battle);
+installImmersion(Battle);

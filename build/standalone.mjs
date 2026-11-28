@@ -33,7 +33,9 @@ const SHUFFLE_OVER = Number(process.env.SHUFFLE_OVER || 4e6);
 // A data file whose packed strings come to less than this keeps them in its
 // own module, base64, rather than in a file beside it: the host holds a
 // version to so many files, and a few kilobytes is not worth one of them.
-const INLINE_UNDER = Number(process.env.INLINE_UNDER || 60e3);
+// The small aeroplanes go inline too: with the seaplanes in, a file each
+// took the build past the five hundred and eleven its host will hold.
+const INLINE_UNDER = Number(process.env.INLINE_UNDER || 230e3);
 
 // Split, the ships fetched on demand (see loadShips in ships.js) are chunks of
 // their own beside the page, so the page does not wait on their hulls: the
